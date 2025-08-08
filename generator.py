@@ -27,13 +27,15 @@ def run_llama_cpp(prompt: str,
                   max_tokens: int = 500,
                   extra_args: str = "-no-cnv") -> str:
     cmd = f'{LLAMA_CPP_BINARY} -m {shlex.quote(model_path)} -p {shlex.quote(prompt)} -n {max_tokens} {extra_args}'
-    proc = subprocess.Popen(shlex.split(cmd),
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True)
+    proc = subprocess.Popen(
+        shlex.split(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,  # suppress llama.cpp info spam
+        text=True
+    )
     output = []
     for line in proc.stdout:
-        print(line, end="")          # stream to console
+        print(line, end="")          # stream answer to console
         output.append(line)
     proc.wait()
     return "".join(output)
