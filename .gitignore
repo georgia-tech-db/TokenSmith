@@ -1,17 +1,30 @@
-# Models
-*.gguf
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
 
-# Pickle files
-*.pkl
-
-# Virtual environment
+# --- Virtual environments ---
+venv/
+env/
+.myenv/
 myenv/
 
-# Data
-chapters/
+# --- Local config ---
+config.yaml
+!config.example.yaml   # keep a template in Git
 
-# Index
+# --- Data & generated artefacts ---
+chapters/
 *.faiss
+*.pkl
+
+# --- Model files ---
+*.gguf
+*.bin
+*.pt
+*.safetensors
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
