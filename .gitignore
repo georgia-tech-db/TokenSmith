@@ -1,3 +1,18 @@
+# Models
+*.gguf
+
+# Pickle files
+*.pkl
+
+# Virtual environment
+myenv/
+
+# Data
+chapters/
+
+# Index
+*.faiss
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
