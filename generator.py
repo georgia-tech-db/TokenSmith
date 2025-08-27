@@ -31,14 +31,14 @@ def _extract_answer(raw: str) -> str:
     return text.split(ANSWER_END)[0].strip()
 
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
-                  threads: int = 8, n_gpu_layers: int = 12, temperature: float = 0.3):
+                  threads: int = 8, n_gpu_layers: int = 32, temperature: float = 0.3):
     cmd = [
         LLAMA_CPP_BINARY,
         "-m", model_path,
         "-p", prompt,
         "-n", str(max_tokens),
         "-t", str(threads),
-        #"--ngl", str(n_gpu_layers),
+        "--n-gpu-layers", str(n_gpu_layers),
         "--temp", str(temperature),
         "--top-k", "40",
         "--top-p", "0.9",
