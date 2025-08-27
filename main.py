@@ -46,23 +46,33 @@ def main():
             do_visualize=args.visualize
         )
         print("Index built ✓")
-        
+
     elif args.mode == "chat":
-        # --- load artefacts ---
         import faiss, pickle
         index  = faiss.read_index(f"{args.index_prefix}.faiss")
         chunks = pickle.load(open(f"{args.index_prefix}_chunks.pkl","rb"))
 
+        print("📚 Ready. Type 'exit' to quit.")
         while True:
             q = input("\nAsk > ").strip()
-            if q.lower() in {"exit","quit"}: break
+            if q.lower() in {"exit","quit"}:
+                break
 
-            cands  = retrieve(q, cfg["top_k"], index, chunks,
-                              seg_filter=cfg.get("seg_filter"))
-            ranked = rerank(q, cands, mode=cfg["halo_mode"])
-            print("\n--- answer ---------------------------------------\n")
-            print( answer(q, ranked, args.model_path,
-                          max_tokens=cfg["max_gen_tokens"]) )
+            cands  = retrieve(
+                q, cfg["top_k"], index, chunks,
+                embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+                seg_filter=cfg.get("seg_filter"),
+                preview=False,                      # hide 100-char previews
+            )
+            ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
+
+            ans = answer(
+                q, ranked, args.model_path,
+                max_tokens=cfg.get("max_gen_tokens", 400),
+            )
+            print("\n=== ANSWER =========================================\n")
+            print(ans if ans.strip() else "(no output)")
+            print("\n====================================================\n")
 
 if __name__ == "__main__":
     main()
