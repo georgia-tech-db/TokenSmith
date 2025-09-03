@@ -14,7 +14,7 @@ def parse_args():
 
     # Extra indexing knobs
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
-    p.add_argument("--chunk_mode", choices=["tokens", "chars"], default="chars")
+    p.add_argument("--chunk_mode", choices=["tokens", "chars", "sections"], default="chars")
     p.add_argument("--chunk_tokens", type=int, default=500)
     p.add_argument("--chunk_size_char", type=int, default=20000)
     p.add_argument("--keep_tables", action="store_true")
