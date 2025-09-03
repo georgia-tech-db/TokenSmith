@@ -1,0 +1,24 @@
+name: tokensmith
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.12
+  - pip
+  - cmake
+  - ninja
+  - make
+  - pkg-config
+  - git
+
+  # Use pip only for packages not in conda or needing special compilation
+  - pip:
+    - llama-cpp-python  # Needs CMAKE_ARGS for Metal/CUDA
+    - pymupdf
+    - faiss-cpu
+    - pyyaml
+    - tqdm
+    - nltk
+    - transformers
+    - sentence-transformers
