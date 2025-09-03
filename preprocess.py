@@ -92,10 +92,53 @@ class DocumentChunker:
                     cur_len += w
             if cur:
                 chunks.append(" ".join(cur))
-        else:
+        elif self.mode == "chars":
             # naive char slicing
             step = self.max_chars
             chunks = [work[i:i + step] for i in range(0, len(work), step)]
+        elif self.mode == "sections":
+            # section-wise slicing
+            heading_re = re.compile(r"""
+                (?m)
+                ^(?=.{,120}$)\s{0,3}
+                (?P<num>[1-9]\d*\.[0-9]+(?:\.[0-9]+)*)   # requires at least one dot
+                (?![)\]])
+                \s+(?P<title>(?!\d).+?)\s*$
+                """, re.VERBOSE)
+            matches = list(heading_re.finditer(text))
+
+            for i in range(100):
+                print("i: "+str(i)+ matches[i].group(0))
+
+            heads = []
+            for m in matches:
+                num = m.group("num")
+                title = m.group("title").strip()
+                level = num.count(".") + 1
+                heads.append({
+                    "num": num, "title": title, "level": level,
+                    "start": m.start(), "endline": m.end()
+                })
+
+            chunks = []
+            N = len(heads)
+            for i, h in enumerate(heads):
+                end_idx = len(text)
+                for j in range(i + 1, N):
+                    if heads[j]["level"] <= h["level"]:
+                        end_idx = heads[j]["start"]
+                        break
+
+                body = text[h["endline"]:end_idx].strip("\n").strip()
+                ### for referencing section numbers in the future
+                ### ignoring for now, focusing on search
+                # chunks.append({
+                #     "id": h["num"],
+                #     "title": h["title"],
+                #     "level": h["level"],
+                #     "text": body
+                # })
+                chunks.append(body)
 
         if self.keep_tables and tables:
             chunks = [self._restore_tables(c, tables) for c in chunks]
