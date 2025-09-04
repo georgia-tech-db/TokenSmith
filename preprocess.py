@@ -9,6 +9,9 @@ Entry point (called by main.py):
 """
 
 import os
+
+from chunking import ChunkStrategy, make_chunk_strategy, SlidingTokenStrategy
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -23,11 +26,10 @@ import pathlib
 
 import fitz  # PyMuPDF
 import faiss
-import numpy as np
 from tqdm import tqdm
 
 import nltk
-from nltk.tokenize import sent_tokenize
+
 nltk.download("punkt", quiet=True)
 
 from sentence_transformers import SentenceTransformer
@@ -43,16 +45,8 @@ class DocumentChunker:
 
     TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 
-    def __init__(
-        self,
-        max_chars: int = 20_000,
-        mode: str = "chars",            # "chars" | "tokens"
-        max_tokens: int = 500,          # used only if mode == "tokens"
-        keep_tables: bool = True,
-    ):
-        self.max_chars = max_chars
-        self.mode = mode
-        self.max_tokens = max_tokens
+    def __init__(self, strategy: ChunkStrategy, keep_tables: bool = True):
+        self.strategy = strategy
         self.keep_tables = keep_tables
 
     def _extract_tables(self, text: str) -> Tuple[str, List[str]]:
@@ -72,30 +66,12 @@ class DocumentChunker:
     def chunk(self, text: str) -> List[str]:
         if not text:
             return []
-
         work = text
         tables: List[str] = []
         if self.keep_tables:
             work, tables = self._extract_tables(work)
 
-        if self.mode == "tokens":
-            # sentence-aware; bound by approx word-count
-            chunks: List[str] = []
-            cur, cur_len = [], 0
-            for s in sent_tokenize(work):
-                w = len(s.split())
-                if cur and cur_len + w > self.max_tokens:
-                    chunks.append(" ".join(cur))
-                    cur, cur_len = [s], w
-                else:
-                    cur.append(s)
-                    cur_len += w
-            if cur:
-                chunks.append(" ".join(cur))
-        else:
-            # naive char slicing
-            step = self.max_chars
-            chunks = [work[i:i + step] for i in range(0, len(work), step)]
+        chunks = self.strategy.chunk(work)
 
         if self.keep_tables and tables:
             chunks = [self._restore_tables(c, tables) for c in chunks]
@@ -109,6 +85,7 @@ SECTION_RE = re.compile(
     re.MULTILINE,
 )
 
+
 def guess_section_headers(text: str, max_headers: int = 50) -> List[str]:
     """Heuristic section headers for Segment/Filter hints."""
     hits = SECTION_RE.findall(text)
@@ -119,9 +96,9 @@ def guess_section_headers(text: str, max_headers: int = 50) -> List[str]:
 # -------------------------- Core pipeline ------------------------------
 
 def _resolve_pdf_paths(
-    pdf_dir: str,
-    pdf_range: Optional[Tuple[int, int]],
-    pdf_files: Optional[List[str]],
+        pdf_dir: str,
+        pdf_range: Optional[Tuple[int, int]],
+        pdf_files: Optional[List[str]],
 ) -> List[pathlib.Path]:
     base = pathlib.Path(pdf_dir)
     if pdf_files:
@@ -137,17 +114,17 @@ def _resolve_pdf_paths(
 
 
 def build_index(
-    pdf_dir: str,
-    out_prefix: str = "textbook_index",
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-    chunk_size_char: int = 20_000,
-    *,
-    chunk_mode: str = "chars",                 # "tokens" | "chars"
-    chunk_tokens: int = 500,                   # used if chunk_mode == "tokens"
-    keep_tables: bool = True,
-    pdf_range: Optional[Tuple[int, int]] = None,  # e.g., (27, 33)
-    pdf_files: Optional[List[str]] = None,        # e.g., ["27.pdf","28.pdf"]
-    do_visualize: bool = False,
+        pdf_dir: str,
+        out_prefix: str = "textbook_index",
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        chunk_size_char: int = 20_000,
+        *,
+        chunk_mode: str = "chars",  # "tokens" | "chars"
+        chunk_tokens: int = 500,  # used if chunk_mode == "tokens"
+        keep_tables: bool = True,
+        pdf_range: Optional[Tuple[int, int]] = None,  # e.g., (27, 33)
+        pdf_files: Optional[List[str]] = None,  # e.g., ["27.pdf","28.pdf"]
+        do_visualize: bool = False,
 ) -> None:
     """
     Extract PDFs from *pdf_dir*, chunk (table-safe), embed, build FAISS, and persist:
@@ -156,19 +133,20 @@ def build_index(
         {out_prefix}_sources.pkl
         {out_prefix}_meta.pkl
     """
+
+    # 1) extract + chunk (collect metadata)
+    strategy = make_chunk_strategy(
+        chunk_mode,
+        chunk_size_char=chunk_size_char,
+        chunk_tokens=chunk_tokens,
+        tokenizer_name=model_name,
+    )
+    chunker = DocumentChunker(strategy, keep_tables=keep_tables)
     pdf_paths = _resolve_pdf_paths(pdf_dir, pdf_range, pdf_files)
     if not pdf_paths:
         raise FileNotFoundError(
             f"No PDFs found in {pdf_dir} (range={pdf_range}, files={pdf_files})"
         )
-
-    # 1) extract + chunk (collect metadata)
-    chunker = DocumentChunker(
-        max_chars=chunk_size_char,
-        mode=chunk_mode,
-        max_tokens=chunk_tokens,
-        keep_tables=keep_tables,
-    )
 
     all_chunks: List[str] = []
     sources: List[str] = []
@@ -186,8 +164,7 @@ def build_index(
             has_table = bool(DocumentChunker.TABLE_RE.search(c))
             all_chunks.append(c)
             sources.append(path.name)
-            metadata.append(
-                {
+            meta = {
                     "filename": path.name,
                     "chunk_id": i,
                     "mode": chunk_mode,
@@ -197,7 +174,11 @@ def build_index(
                     "has_table": has_table,
                     "section_hints": headers[:10],  # small header sample
                 }
-            )
+            if isinstance(strategy, SlidingTokenStrategy):
+                meta["max_tokens"] = strategy.max_tokens
+                meta["overlap_tokens"] = strategy.overlap_tokens
+                meta["tokenizer_name"] = strategy.tokenizer_name
+            metadata.append(meta)
 
     # 2) embed
     print(f"🪄  Embedding {len(all_chunks):,} chunks with {model_name} …")
