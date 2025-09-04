@@ -3,6 +3,7 @@ from preprocess import build_index
 from retriever  import retrieve
 from ranker import rerank
 from generator  import answer
+from rank_bm25 import BM25Okapi
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -51,6 +52,8 @@ def main():
         import faiss, pickle
         index  = faiss.read_index(f"{args.index_prefix}.faiss")
         chunks = pickle.load(open(f"{args.index_prefix}_chunks.pkl","rb"))
+        tokenized_chunks = [c.lower().split() for c in chunks]
+        bm25 = BM25Okapi(tokenized_chunks)
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
@@ -59,7 +62,7 @@ def main():
                 break
 
             cands  = retrieve(
-                q, cfg["top_k"], index, chunks,
+                q, cfg["top_k"], index, chunks, bm25,
                 embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
                 seg_filter=cfg.get("seg_filter"),
                 preview=False,                      # hide 100-char previews
