@@ -10,6 +10,7 @@ from __future__ import annotations
 import pickle, faiss, numpy as np
 from typing import Callable, List, Tuple, Optional
 from sentence_transformers import SentenceTransformer
+from rank_bm25 import BM25Okapi
 
 # cache the embedding model
 _EMBED_CACHE: dict[str, SentenceTransformer] = {}
@@ -38,40 +39,69 @@ def retrieve(
     k: int,
     index: faiss.Index,
     chunks: List[str],
+    bm25: BM25Okapi,
     *,
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    bm25_weight: float = 0.3,
+    overshoot_factor: int = 3,
     seg_filter: Optional[Callable[[str], bool]] = None,
     preview: bool = True,
 ) -> List[str]:
     """
-    Return up to k chunks for the query.
+    Hybrid retriever: FAISS narrows to candidate pool, BM25 re-ranks within that pool.
 
-    Strategy:
-      1) Search FAISS over the full corpus to get a ranked candidate list.
-      2) If seg_filter is provided, keep only candidates where seg_filter(chunk) == True.
-         If fewer than k survive, fall back to unfiltered to fill.
+    Args:
+        query: Student query string
+        k: number of chunks to return
+        index: FAISS index
+        chunks: list of text chunks
+        bm25: prebuilt BM25Okapi index (built once on all chunks)
+        embed_model: embedding model for FAISS
+        bm25_weight: interpolation weight (0=FAISS only, 1=BM25 only)
+        overshoot_factor: how many extra FAISS candidates to fetch
+        seg_filter: optional filter to drop irrelevant segments
+        preview: whether to print retrieved previews
     """
-    # 1) FAISS search
+
+    # --- FAISS search (candidate pool) ---
     embedder = _get_embedder(embed_model)
     q_vec = embedder.encode([query]).astype("float32")
-    # Fetch more than k to have room for filtering
-    overshoot = max(k * 3, k + 5)
+    overshoot = max(k * overshoot_factor, k + 5)
     D, I = index.search(q_vec, overshoot)
-    ranked_idxs = I[0].tolist()
 
-    # Guard against out-of-range indices (in case of any mismatch)
-    ranked_idxs = [i for i in ranked_idxs if 0 <= i < len(chunks)]
+    faiss_idxs = I[0].tolist()
+    faiss_sims = [1 / (1 + d) for d in D[0]]  # L2 → similarity
 
-    # 2) Apply optional Segment/Filter post-hoc
+    # Normalize FAISS similarities to [0,1]
+    faiss_norm = (np.array(faiss_sims) - np.min(faiss_sims)) / (np.ptp(faiss_sims) + 1e-8)
+    faiss_dict = {idx: score for idx, score in zip(faiss_idxs, faiss_norm)}
+
+    # --- BM25 search (only over candidate pool) ---
+    tokenized_query = query.lower().split()
+    bm25_scores = bm25.get_scores(tokenized_query)
+
+    # Normalize BM25 scores to [0,1]
+    if np.max(bm25_scores) > 0:
+        bm25_norm = bm25_scores / (np.max(bm25_scores) + 1e-8)
+    else:
+        bm25_norm = np.zeros(len(chunks))
+
+    # --- Combine scores (only candidate pool) ---
+    combined_scores = {}
+    for idx in faiss_idxs:
+        faiss_score = faiss_dict[idx]
+        bm25_score = bm25_norm[idx]
+        score = bm25_weight * bm25_score + (1 - bm25_weight) * faiss_score
+        combined_scores[idx] = score
+
+    # Rank candidates
+    ranked = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+    ranked_idxs = [i for i, _ in ranked]
+
+    # --- Apply optional filtering ---
     if seg_filter:
         filtered = [chunks[i] for i in ranked_idxs if seg_filter(chunks[i])]
-        if len(filtered) >= k:
-            result = filtered[:k]
-        else:
-            # fill remaining from the original ranked list
-            need = k - len(filtered)
-            fill = [chunks[i] for i in ranked_idxs if chunks[i] not in filtered][:need]
-            result = filtered + fill
+        result = filtered[:k] + [chunks[i] for i in ranked_idxs if chunks[i] not in filtered][:max(0, k - len(filtered))]
     else:
         result = [chunks[i] for i in ranked_idxs[:k]]
 
