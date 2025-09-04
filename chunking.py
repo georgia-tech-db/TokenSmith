@@ -104,6 +104,7 @@ def make_chunk_strategy(
         return SentencePackStrategy(max_tokens=chunk_tokens)
     if mode == "sliding-tokens":
         return SlidingTokenStrategy(
-            tokenizer_name=(tokenizer_name or "sentence-transformers/all-MiniLM-L6-v2")
+            tokenizer_name=(tokenizer_name or "sentence-transformers/all-MiniLM-L6-v2"),
+            max_tokens=chunk_tokens
         )
     raise ValueError(f"Unknown chunk_mode: {mode}")

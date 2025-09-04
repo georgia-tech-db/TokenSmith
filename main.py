@@ -48,9 +48,8 @@ def main():
         print("Index built ✓")
 
     elif args.mode == "chat":
-        import faiss, pickle
-        index  = faiss.read_index(f"{args.index_prefix}.faiss")
-        chunks = pickle.load(open(f"{args.index_prefix}_chunks.pkl","rb"))
+        from retriever import load_artifacts
+        index, chunks, sources, vectorizer, chunk_tags = load_artifacts(args.index_prefix)
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
@@ -62,7 +61,10 @@ def main():
                 q, cfg["top_k"], index, chunks,
                 embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
                 seg_filter=cfg.get("seg_filter"),
-                preview=False,                      # hide 100-char previews
+                preview=True,                      # hide 100-char previews
+                sources=sources,
+                vectorizer=vectorizer,
+                chunk_tags=chunk_tags,
             )
             ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 
