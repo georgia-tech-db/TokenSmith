@@ -11,6 +11,9 @@ Entry point (called by main.py):
 import os
 
 from chunking import ChunkStrategy, make_chunk_strategy, SlidingTokenStrategy
+import os
+
+from tagging import build_tfidf_tags
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -29,6 +32,8 @@ import faiss
 from tqdm import tqdm
 
 import nltk
+
+import os
 
 nltk.download("punkt", quiet=True)
 
@@ -180,19 +185,33 @@ def build_index(
                 meta["tokenizer_name"] = strategy.tokenizer_name
             metadata.append(meta)
 
-    # 2) embed
+    # 2) Tag the chunks (offline)
+    print("🏷️  Building TF-IDF tags …")
+    vectorizer, chunk_tags = build_tfidf_tags(
+        all_chunks,
+        ngram_range=(1, 3),
+        max_features=25000,
+        min_df=2,
+        max_df=0.6,
+        top_k_per_chunk=10,
+    )
+    # attach preview tags into per-chunk metadata (optional but handy)
+    for i, tags in enumerate(chunk_tags):
+        metadata[i]["tags"] = tags
+
+    # 3) embed
     print(f"🪄  Embedding {len(all_chunks):,} chunks with {model_name} …")
     embedder = SentenceTransformer(model_name, device="cpu")
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
     ).astype("float32")
 
-    # 3) FAISS
+    # 4) FAISS
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
 
-    # 4) persist
+    # 5) persist
     faiss.write_index(index, f"{out_prefix}.faiss")
     with open(f"{out_prefix}_chunks.pkl", "wb") as f:
         pickle.dump(all_chunks, f)
@@ -201,9 +220,17 @@ def build_index(
     with open(f"{out_prefix}_meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
 
+    # persist tagging artifacts under meta/
+    os.makedirs("meta", exist_ok=True)
+    with open(os.path.join("meta", f"{out_prefix}_tfidf.pkl"), "wb") as f:
+        pickle.dump(vectorizer, f)
+    with open(os.path.join("meta", f"{out_prefix}_tags.pkl"), "wb") as f:
+        pickle.dump(chunk_tags, f)
+
+
     print(f"✓ Index built: {out_prefix}.faiss  |  {len(all_chunks)} chunks")
 
-    # 5) optional viz
+    # 6) optional viz
     if do_visualize:
         try:
             from sklearn.decomposition import PCA
