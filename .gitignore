@@ -1,3 +1,7 @@
+# RajShah-1 gitignore
+code-dump.txt
+.idea/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
@@ -12,6 +16,7 @@ env/
 myenv/
 
 # --- Local config ---
+.env
 config.yaml
 !config.example.yaml   # keep a template in Git
 
@@ -21,6 +26,7 @@ chapters/
 *.pkl
 
 # --- Model files ---
+models/
 *.gguf
 *.bin
 *.pt
