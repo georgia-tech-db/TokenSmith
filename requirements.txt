@@ -1,0 +1,6 @@
+pyyaml
+PyMuPDF
+faiss-cpu
+tqdm
+nltk
+sentence-transformers

@@ -1,0 +1,203 @@
+{
+    "Front Matter": {
+        "pages": [],
+        "subtopics": {
+            "Volume": {
+                "pages": [
+                    1
+                ]
+            },
+            "Front Matter": {
+                "pages": [
+                    1
+                ]
+            },
+            "Preface": {
+                "pages": [
+                    1
+                ]
+            },
+            "1. Introduction": {
+                "pages": [
+                    11
+                ]
+            },
+            "Text": {
+                "pages": [
+                    11
+                ]
+            }
+        }
+    },
+    "I. Data Models": {
+        "pages": [
+            35,
+            35
+        ],
+        "subtopics": {
+            "2. Entity\u2212Relationship Model": {
+                "pages": [
+                    36
+                ]
+            },
+            "3. Relational Model": {
+                "pages": [
+                    87
+                ]
+            }
+        }
+    },
+    "II. Relational Databases": {
+        "pages": [
+            140,
+            140
+        ],
+        "subtopics": {
+            "4. SQL": {
+                "pages": [
+                    141
+                ]
+            },
+            "5. Other Relational Languages": {
+                "pages": [
+                    194
+                ]
+            },
+            "6. Integrity and Security": {
+                "pages": [
+                    229
+                ]
+            },
+            "7. Relational\u2212Database Design": {
+                "pages": [
+                    260
+                ]
+            }
+        }
+    },
+    "III. Object\u2212Based Databases and XML": {
+        "pages": [
+            307,
+            307
+        ],
+        "subtopics": {
+            "8. Object\u2212Oriented Databases": {
+                "pages": [
+                    308
+                ]
+            },
+            "9. Object\u2212Relational Databases": {
+                "pages": [
+                    337
+                ]
+            },
+            "10. XML": {
+                "pages": [
+                    363
+                ]
+            }
+        }
+    },
+    "IV. Data Storage and Querying": {
+        "pages": [
+            393,
+            393
+        ],
+        "subtopics": {
+            "11. Storage and File Structure": {
+                "pages": [
+                    394
+                ]
+            },
+            "12. Indexing and Hashing": {
+                "pages": [
+                    446
+                ]
+            },
+            "13. Query Processing": {
+                "pages": [
+                    494
+                ]
+            },
+            "14. Query Optimization": {
+                "pages": [
+                    529
+                ]
+            }
+        }
+    },
+    "V. Transaction Management": {
+        "pages": [
+            563,
+            563
+        ],
+        "subtopics": {
+            "15. Transactions": {
+                "pages": [
+                    564
+                ]
+            },
+            "16. Concurrency Control": {
+                "pages": [
+                    590
+                ]
+            },
+            "17. Recovery System": {
+                "pages": [
+                    637
+                ]
+            }
+        }
+    },
+    "VI. Database System Architecture": {
+        "pages": [
+            679,
+            679
+        ],
+        "subtopics": {
+            "18. Database System Architecture": {
+                "pages": [
+                    680
+                ]
+            },
+            "19. Distributed Databases": {
+                "pages": [
+                    705
+                ]
+            },
+            "20. Parallel Databases": {
+                "pages": [
+                    750
+                ]
+            }
+        }
+    },
+    "VII. Other Topics": {
+        "pages": [
+            773,
+            773
+        ],
+        "subtopics": {
+            "21. Application Development and Administration": {
+                "pages": [
+                    774
+                ]
+            },
+            "22. Advanced Querying and Information Retrieval": {
+                "pages": [
+                    810
+                ]
+            },
+            "23. Advanced Data Types and New Applications": {
+                "pages": [
+                    856
+                ]
+            },
+            "24. Advanced Transaction Processing": {
+                "pages": [
+                    884
+                ]
+            }
+        }
+    }
+}

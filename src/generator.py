@@ -1,6 +1,6 @@
 import os, subprocess, textwrap, re
 
-LLAMA_CPP_BINARY = os.getenv("LLAMA_CPP_BIN", "llama-cli")
+LLAMA_CPP_BINARY = os.getenv("LLAMA_CPP_BIN", "build/llama.cpp/build/bin/llama-cli")
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
