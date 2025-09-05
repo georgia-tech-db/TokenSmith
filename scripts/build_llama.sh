@@ -1,77 +1,90 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
 
-echo "TokenSmith: Building llama.cpp from source..."
+log() { printf '%s\n' "$*" >&2; }
+die() { log "Error: $*"; exit 1; }
 
-# Create build directory
-BUILD_DIR="./build"
+# --- Locate script, project root, and key dirs ---
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)"
+# If this repo is a git repo, trust git; else fall back to script's parent
+PROJECT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/.." && pwd -P))"
+
+BUILD_DIR="$PROJECT_ROOT/build"
 LLAMA_DIR="$BUILD_DIR/llama.cpp"
+LLAMA_BUILD_DIR="$LLAMA_DIR/build"
 
+log "TokenSmith: Building llama.cpp from source..."
 mkdir -p "$BUILD_DIR"
 
-# Clone llama.cpp if not exists
-if [[ ! -d "$LLAMA_DIR" ]]; then
-    echo "Cloning llama.cpp..."
-    git clone https://github.com/ggerganov/llama.cpp.git "$LLAMA_DIR"
+# --- Ensure required tools exist ---
+command -v git >/dev/null 2>&1 || die "git not found. Install git."
+command -v cmake >/dev/null 2>&1 || die "cmake not found. Install cmake (>=3.21)."
+
+# --- Get or update llama.cpp ---
+if [[ ! -d "$LLAMA_DIR/.git" ]]; then
+  log "Cloning llama.cpp into: $LLAMA_DIR"
+  git clone https://github.com/ggerganov/llama.cpp.git "$LLAMA_DIR"
 else
-    echo "Updating llama.cpp..."
-    cd "$LLAMA_DIR"
-    git pull
-    cd - > /dev/null
+  log "Updating llama.cpp..."
+  git -C "$LLAMA_DIR" pull --ff-only
 fi
 
-cd "$LLAMA_DIR"
+# --- Platform-specific build options ---
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+CMAKE_OPTS=()
 
-# Platform-specific build configuration
-OS=$(uname -s)
-ARCH=$(uname -m)
-CMAKE_OPTS=""
-
-if [[ "$OS" == "Darwin" ]]; then
-    echo "Configuring for macOS..."
+case "$OS" in
+  Darwin)
+    log "Configuring for macOS ($ARCH)..."
     if [[ "$ARCH" == "arm64" ]]; then
-        echo "Enabling Metal support for Apple Silicon"
-        CMAKE_OPTS="-DGGML_METAL=ON -DGGML_ACCELERATE=ON"
+      log "Enabling Metal + Accelerate for Apple Silicon"
+      CMAKE_OPTS+=(-DGGML_METAL=ON -DGGML_ACCELERATE=ON)
     else
-        CMAKE_OPTS="-DGGML_ACCELERATE=ON"
+      CMAKE_OPTS+=(-DGGML_ACCELERATE=ON)
     fi
-elif [[ "$OS" == "Linux" ]]; then
-    echo "Configuring for Linux..."
-    # Check for CUDA
-    if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected - enabling CUDA"
-        CMAKE_OPTS="-DGGML_CUDA=ON"
+    ;;
+  Linux)
+    log "Configuring for Linux..."
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      log "NVIDIA GPU detected — enabling CUDA"
+      CMAKE_OPTS+=(-DGGML_CUDA=ON)
     else
-        echo "CPU-only build"
-        CMAKE_OPTS="-DGGML_ACCELERATE=ON"
+      log "CPU-only build (no NVIDIA GPU detected)"
+      CMAKE_OPTS+=(-DGGML_ACCELERATE=ON)
     fi
-fi
+    ;;
+  *)
+    log "Unknown OS '$OS' — proceeding with defaults"
+    ;;
+esac
 
-# Build
-echo "Building with options: $CMAKE_OPTS"
-mkdir -p build
-cd build
+# --- Figure out parallelism ---
+CORES="$(
+  { command -v nproc >/dev/null 2>&1 && nproc; } \
+  || { command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu; } \
+  || echo 4
+)"
 
-cmake .. $CMAKE_OPTS -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) llama-cli
+# --- Configure & build ---
+log "Building with options: ${CMAKE_OPTS[*]}"
+cmake -S "$LLAMA_DIR" -B "$LLAMA_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release "${CMAKE_OPTS[@]}"
+cmake --build "$LLAMA_BUILD_DIR" --target llama-cli -- -j"$CORES"
 
-# Verify build
-if [[ -f "./bin/llama-cli" ]]; then
-    BINARY_PATH="$(pwd)/bin/llama-cli"
-elif [[ -f "./llama-cli" ]]; then
-    BINARY_PATH="$(pwd)/llama-cli"
+# --- Locate the resulting binary ---
+if [[ -x "$LLAMA_BUILD_DIR/bin/llama-cli" ]]; then
+  BINARY_PATH="$(cd "$LLAMA_BUILD_DIR/bin" && pwd -P)/llama-cli"
+elif [[ -x "$LLAMA_BUILD_DIR/llama-cli" ]]; then
+  BINARY_PATH="$(cd "$LLAMA_BUILD_DIR" && pwd -P)/llama-cli"
 else
-    echo "Error: llama-cli binary not found after build"
-    exit 1
+  die "llama-cli binary not found after build in '$LLAMA_BUILD_DIR'"
 fi
 
-echo "✓ TokenSmith: Build successful: $BINARY_PATH"
+log "✓ TokenSmith: Build successful: $BINARY_PATH"
 
-# Save path for TokenSmith in src/ directory
-cd - > /dev/null
-cd - > /dev/null  # Back to project root
+# --- Persist path for TokenSmith consumers ---
+mkdir -p "$PROJECT_ROOT/src"
+printf '%s\n' "$BINARY_PATH" > "$PROJECT_ROOT/src/llama_path.txt"
 
-mkdir -p src
-echo "$BINARY_PATH" > src/llama_path.txt
-
-echo "TokenSmith: llama.cpp build complete!"
+log "TokenSmith: llama.cpp build complete!"
