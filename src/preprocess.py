@@ -29,6 +29,7 @@ from tqdm import tqdm
 import nltk
 from nltk.tokenize import sent_tokenize
 nltk.download("punkt", quiet=True)
+nltk.download("punkt_tab", quiet=True)
 
 from sentence_transformers import SentenceTransformer
 
