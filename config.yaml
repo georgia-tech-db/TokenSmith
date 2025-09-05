@@ -1,7 +1,0 @@
-#embed_model: "BAAI/bge-large-en-v1.5"
-embed_model: "sentence-transformers/all-MiniLM-L6-v2"
-chunk_size_char: 20000
-top_k: 8
-halo_mode: "halo"        # or "none"
-max_gen_tokens: 400
-seg_filter: null         # e.g. "only_ch3_norm_tables"

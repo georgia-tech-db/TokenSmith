@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokensmith"
+description = "TokenSmith: Virtual Teaching Assistant based on Large Language Models""""
+authors = []
+license = {text = "MIT"}
+requires-python = ">=3.9"
+version = "0.1.0"
+
+[project.scripts]
+tokensmith = "src.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
