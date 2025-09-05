@@ -5,7 +5,7 @@ import fitz  # PyMuPDF
 from tqdm import tqdm
 
 from src.preprocess import DocumentChunker, _resolve_pdf_paths, guess_section_headers
-from src.generator import answer
+from src.generator import run_llama_cpp
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END = "<<<END>>>"
@@ -73,5 +73,5 @@ def build_summary_index(
     with open("summary_index.txt", "w") as f:
         for chunk in chunks:
             query = summary_prompt(chunk)
-            summary = answer(query)
+            summary = run_llama_cpp(query, model_path)
             f.write(summary + "\n")
