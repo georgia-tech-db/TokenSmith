@@ -51,8 +51,8 @@ def summary_prompt(section: str) -> str:
 
 
 def build_summary_index(
-    model_path: str,
-    pdf_dir: str,
+    model_path: str = "models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
+    pdf_dir: str = "data/chapters/",
     pdf_range: Optional[tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[list[str]] = None,  # e.g., ["27.pdf","28.pdf"]):
 ):
