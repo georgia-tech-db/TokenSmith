@@ -87,4 +87,7 @@ log "✓ TokenSmith: Build successful: $BINARY_PATH"
 mkdir -p "$PROJECT_ROOT/src"
 printf '%s\n' "$BINARY_PATH" > "$PROJECT_ROOT/src/llama_path.txt"
 
+# Also export env var for current shell
+export LLAMA_CPP_BINARY="$BINARY_PATH"
+
 log "TokenSmith: llama.cpp build complete!"
