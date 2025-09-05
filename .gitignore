@@ -9,6 +9,9 @@ __pycache__/
 *.pyd
 *.so
 
+# LLAMA path
+*llama_path.txt
+
 # --- Virtual environments ---
 venv/
 env/
