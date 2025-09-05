@@ -4,5 +4,9 @@ faiss-cpu
 tqdm
 nltk
 sentence-transformers
+<<<<<<< HEAD
 scikit-learn
 matplotlib
+=======
+rank_bm25
+>>>>>>> main

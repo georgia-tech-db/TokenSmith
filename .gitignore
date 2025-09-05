@@ -5,6 +5,12 @@ __pycache__/
 *.pyd
 *.so
 
+# --- Databases
+*.db
+
+# LLAMA path
+*llama_path.txt
+
 # --- Virtual environments ---
 venv/
 env/
@@ -12,8 +18,10 @@ env/
 myenv/
 
 # --- Local config ---
+.env
 config.yaml
 !config.example.yaml   # keep a template in Git
+.idea/
 
 # --- Data & generated artefacts ---
 chapters/
@@ -21,6 +29,7 @@ chapters/
 *.pkl
 
 # --- Model files ---
+models/
 *.gguf
 *.bin
 *.pt
