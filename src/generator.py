@@ -22,13 +22,13 @@ def _is_executable(p: str | os.PathLike) -> bool:
 def resolve_llama_binary() -> str:
     """
     Resolution order:
-      1) $LLAMA_CPP_BIN (absolute or name on PATH)
+      1) $LLAMA_CPP_BINARY (absolute or name on PATH)
       2) src/llama_path.txt (written by build_llama.sh)
       3) 'llama-cli' on PATH
     Raises a helpful error if none work.
     """
     # 1) Env var
-    env_bin = os.getenv("LLAMA_CPP_BIN")
+    env_bin = os.getenv("LLAMA_CPP_BINARY")
     if env_bin:
         if _is_executable(env_bin):
             return env_bin
