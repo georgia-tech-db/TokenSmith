@@ -69,6 +69,8 @@ conda activate tokensmith
 python -m src.main chat
 ```
 
+> You might have to download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into your `llama.cpp/models` if you get an error about a missing model.
+
 ### 7. Deactivate the Environment
 ```shell
 conda deactivate
