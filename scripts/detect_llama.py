@@ -33,6 +33,7 @@ def find_llama_binary():
         "/usr/bin/llama-cli",
         Path.home() / ".local/bin/llama-cli",
         "./llama.cpp/llama-cli",
+        "./llama.cpp/build/bin/llama-cli",
         "./build/bin/llama-cli",
     ]
     

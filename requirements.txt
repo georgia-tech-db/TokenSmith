@@ -4,4 +4,6 @@ faiss-cpu
 tqdm
 nltk
 sentence-transformers
+scikit-learn
+matplotlib
 rank_bm25

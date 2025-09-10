@@ -3,6 +3,8 @@ from src.preprocess import build_index
 from src.retriever  import retrieve
 from src.ranker import rerank
 from src.generator  import answer
+from src.prompt_selector import select_prompt_style_for_query
+from src.feedback_manager import FeedbackManager
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -48,6 +50,9 @@ def main():
         print("Index built ✓")
 
     elif args.mode == "chat":
+        # Initialize feedback system
+        feedback_manager = FeedbackManager()
+
         from src.retriever import load_artifacts
         index, chunks, sources, vectorizer, chunk_tags = load_artifacts(args.index_prefix)
 
@@ -68,13 +73,19 @@ def main():
             )
             ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 
+            prompt_style = select_prompt_style_for_query(q)
+            print(f"Using prompt style: {prompt_style}")
+
             ans = answer(
-                q, ranked, args.model_path,
+                q, ranked, cfg.get("model_path", args.model_path),
                 max_tokens=cfg.get("max_gen_tokens", 400),
+                prompt_style=prompt_style,
             )
             print("\n=== ANSWER =========================================\n")
             print(ans if ans.strip() else "(no output)")
             print("\n====================================================\n")
+            
+            feedback_manager.collect_feedback(q, ans, ranked, prompt_style)
 
 if __name__ == "__main__":
     main()

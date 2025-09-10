@@ -1,13 +1,12 @@
-# RajShah-1 gitignore
-code-dump.txt
-.idea/
-
 # --- Python ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
+
+# --- Databases
+*.db
 
 # LLAMA path
 *llama_path.txt
@@ -22,6 +21,7 @@ myenv/
 .env
 config.yaml
 !config.example.yaml   # keep a template in Git
+.idea/
 
 # --- Data & generated artefacts ---
 chapters/
@@ -242,3 +242,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+llama.cpp/
