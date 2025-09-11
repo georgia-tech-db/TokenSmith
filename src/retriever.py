@@ -22,7 +22,7 @@ from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
 # Optional tag utilities (only used if vectorizer & chunk_tags are provided)
-from src.tagging import query_top_tags, tag_affinity_score
+from src.ranking.tagging import query_top_tags, tag_affinity_score
 
 # -------------------------- Embedder cache ------------------------------
 _EMBED_CACHE: Dict[str, SentenceTransformer] = {}
@@ -77,28 +77,6 @@ def _print_preview_idxs(
         show_tags = (tags[i][:5] if tags else [])
         print(f"[retriever] top{rank:02d} | src={srcs[i]} | tags={show_tags} | {len(chunks[i])} chars | {snippet!r}")
 
-
-# -------------------------- RRF utilities -------------------------------
-def _to_rank(score: Dict[int, float], order: List[int]) -> Dict[int, int]:
-    """
-    Turn a score dict into 1-based ranks. Ties broken by FAISS candidate order.
-    """
-    pos = {idx: p for p, idx in enumerate(order)}
-    sorted_idxs = sorted(order, key=lambda i: (-score.get(i, 0.0), pos[i]))
-    return {idx: r for r, idx in enumerate(sorted_idxs, start=1)}
-
-
-def _rrf_fuse(rank_dicts: List[Dict[int, int]], order: List[int], k: int = 60) -> List[int]:
-    fused: Dict[int, float] = {}
-    for idx in order:
-        s = 0.0
-        for rd in rank_dicts:
-            if idx in rd:
-                s += 1.0 / (k + rd[idx])
-        fused[idx] = s
-    return [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])]
-
-
 # -------------------------- Retrieval core ------------------------------
 def retrieve(
     query: str,
@@ -117,6 +95,7 @@ def retrieve(
     sources: Optional[List[str]] = None,
     vectorizer=None,
     chunk_tags: Optional[List[List[str]]] = None,
+    early_exit: bool =True
 ) -> List[str]:
     """
     Hybrid retriever:
@@ -147,8 +126,12 @@ def retrieve(
     D, I = index.search(q_vec, overshoot)
 
     cand_idxs = [i for i in I[0].tolist() if 0 <= i < len(chunks)]
+    dists = {i: float(d) for i, d in zip(cand_idxs, D[0][:len(cand_idxs)])}
     if not cand_idxs:
         return []
+
+    if early_exit:
+        return cand_idxs, dists
 
     # Convert FAISS L2 distances → [0,1] similarity
     faiss_sims = 1.0 / (1.0 + D[0][: len(cand_idxs)])
@@ -194,25 +177,6 @@ def retrieve(
             for idx in cand_idxs
         }
         ranked_idxs = [i for i, _ in sorted(combined.items(), key=lambda x: x[1], reverse=True)]
-
-    elif fusion == "rrf":
-        rank_dicts = [_to_rank(faiss_score, cand_idxs)]
-        # Include BM25 ranks only if you want them to contribute (bm25_weight > 0)
-        if bm25_weight > 0:
-            # If BM25 wasn't computed (because fusion != weighted earlier), compute it here on demand
-            tok_query = query.lower().split()
-            cand_docs = [chunks[i].lower().split() for i in cand_idxs]
-            bm25 = BM25Okapi(cand_docs)
-            bm_sub = bm25.get_scores(tok_query)
-            # Turn scores into ranks directly (no need to normalize)
-            bm25_score = {idx: float(s) for idx, s in zip(cand_idxs, bm_sub)}
-            rank_dicts.append(_to_rank(bm25_score, cand_idxs))
-        # Include tag ranks if provided & desired (tag_weight > 0)
-        if use_tags and tag_weight > 0:
-            rank_dicts.append(_to_rank(tag_score, cand_idxs))
-
-        ranked_idxs = _rrf_fuse(rank_dicts, cand_idxs, k=rrf_k)
-
     else:
         raise ValueError(f"Unknown fusion mode: {fusion!r}")
 
@@ -232,3 +196,41 @@ def retrieve(
             _print_preview([chunks[i] for i in final_idxs], n_preview=500)
 
     return [chunks[i] for i in final_idxs]
+
+def get_candidates(
+    query: str,
+    pool_size: int,
+    index: faiss.Index,
+    chunks: List[str],
+    *,
+    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+) -> Tuple[List[int], Dict[int, float]]:
+    """
+    Returns (cand_idxs, faiss_distances) for top 'pool_size'.
+    Distances keyed by global chunk index.
+    """
+    embedder = _get_embedder(embed_model)
+    q_vec = embedder.encode([query]).astype("float32")
+
+    # Safety on dims (reuse your existing check if you want)
+    try:
+        idx_dim = index.d
+    except AttributeError:
+        idx_dim = q_vec.shape[1]
+    if q_vec.shape[1] != idx_dim:
+        raise ValueError(f"Embedding dim mismatch: index={idx_dim} vs query={q_vec.shape[1]}")
+
+    D, I = index.search(q_vec, pool_size)
+    cand_idxs = [i for i in I[0].tolist() if 0 <= i < len(chunks)]
+    dists = {i: float(d) for i, d in zip(cand_idxs, D[0][:len(cand_idxs)])}
+    return cand_idxs, dists
+
+def apply_seg_filter(cfg, chunks, ordered):
+    seg_filter = cfg.get("seg_filter")
+    if seg_filter:
+        keep = [i for i in ordered if seg_filter(chunks[i])]
+        back = [i for i in ordered if i not in keep]
+        topk_idxs = (keep + back)[:cfg["top_k"]]
+    else:
+        topk_idxs = ordered[:cfg["top_k"]]
+    return topk_idxs
