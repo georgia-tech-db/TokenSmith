@@ -21,6 +21,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
+from src.config import QueryPlanConfig
 # Optional tag utilities (only used if vectorizer & chunk_tags are provided)
 from src.ranking.tagging import query_top_tags, tag_affinity_score
 
@@ -212,7 +213,7 @@ def get_candidates(
     embedder = _get_embedder(embed_model)
     q_vec = embedder.encode([query]).astype("float32")
 
-    # Safety on dims (reuse your existing check if you want)
+    # Safety on dims
     try:
         idx_dim = index.d
     except AttributeError:
@@ -225,12 +226,12 @@ def get_candidates(
     dists = {i: float(d) for i, d in zip(cand_idxs, D[0][:len(cand_idxs)])}
     return cand_idxs, dists
 
-def apply_seg_filter(cfg, chunks, ordered):
-    seg_filter = cfg.get("seg_filter")
+def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
+    seg_filter = cfg.seg_filter
     if seg_filter:
         keep = [i for i in ordered if seg_filter(chunks[i])]
         back = [i for i in ordered if i not in keep]
-        topk_idxs = (keep + back)[:cfg["top_k"]]
+        topk_idxs = (keep + back)[:cfg.top_k]
     else:
-        topk_idxs = ordered[:cfg["top_k"]]
+        topk_idxs = ordered[:cfg.top_k]
     return topk_idxs
