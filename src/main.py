@@ -1,8 +1,10 @@
-import argparse, yaml
+import argparse
+
+from src.config import QueryPlanConfig
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
-from src.retriever import retrieve, get_candidates, apply_seg_filter
+from src.retriever import get_candidates, apply_seg_filter
 from src.ranker import rerank
 from src.generator  import answer
 
@@ -26,7 +28,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    cfg  = yaml.safe_load(open(args.config))
+    cfg = QueryPlanConfig.from_yaml(args.config)
 
     if args.mode == "index":
         # Optional range filtering
@@ -39,7 +41,7 @@ def main():
         build_index(
             pdf_dir=args.pdf_dir,
             out_prefix=args.index_prefix,
-            model_name=cfg.get("embed_model", args.model_path),
+            model_name=cfg.embed_model,
             chunk_size_char=args.chunk_size_char,
             chunk_mode=args.chunk_mode,
             chunk_tokens=args.chunk_tokens,
@@ -59,10 +61,10 @@ def main():
             if q.lower() in {"exit","quit"}:
                 break
 
-            pool_n = max(cfg.get("pool_size", 60), cfg["top_k"] + 10)
+            pool_n = max(cfg.pool_size, cfg.top_k + 10)
             cand_idxs, faiss_dists = get_candidates(
                 q, pool_n, index, chunks,
-                embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+                embed_model=cfg.embed_model,
             )
 
             # 2) shared context for various rankers
@@ -78,9 +80,9 @@ def main():
                 BM25Ranker(),
                 TfIDFRanker(),
             ]
-            weights = cfg.get("ranker_weights", {"faiss": 0.6, "bm25": 0.25, "tf-idf": 0.15})
-            method = cfg.get("ensemble_method", "linear")
-            rrf_k = int(cfg.get("rrf_k", 60)) # unused as rrf method is not used for fusing
+            weights = cfg.ranker_weights
+            method = cfg.ensemble_method
+            rrf_k = int(cfg.rrf_k)
 
             ensemble = EnsembleRanker(method, rankers, weights, rrf_k=rrf_k)
             ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
@@ -91,22 +93,11 @@ def main():
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
             # HALO Stub (NO OP for now)
-            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.get("halo_mode", "none"))
-
-            # cands  = retrieve(
-            #     q, cfg["top_k"], index, chunks,
-            #     embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-            #     seg_filter=cfg.get("seg_filter"),
-            #     preview=True,                      # hide 100-char previews
-            #     sources=sources,
-            #     vectorizer=vectorizer,
-            #     chunk_tags=chunk_tags,
-            # )
-            # ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
+            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
 
             ans = answer(
                 q, ranked_chunks, args.model_path,
-                max_tokens=cfg.get("max_gen_tokens", 400),
+                max_tokens=cfg.max_gen_tokens,
             )
             print("\n=== ANSWER =========================================\n")
             print(ans if ans.strip() else "(no output)")

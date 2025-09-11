@@ -22,16 +22,6 @@ class Ranker(ABC):
         Candidate, float]:
         """Return raw, comparable scores for each candidate (higher is better)."""
 
-
-def normalize(scores: Dict[Candidate, float]) -> Dict[Candidate, float]:
-    """Map arbitrary scores to [0,1] (safe for ensemble)."""
-    if not scores: return {}
-    vals = list(scores.values())
-    lo, hi = min(vals), max(vals)
-    if hi <= lo: return {i: 0.0 for i in scores}
-    return {i: (v - lo) / (hi - lo) for i, v in scores.items()}
-
-
 class FaissSimilarityRanker(Ranker):
     name = "faiss"
 
