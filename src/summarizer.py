@@ -19,8 +19,6 @@ ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END = "<<<END>>>"
 
 
-
-
 def summary_prompt(section: str) -> str:
     section = text_cleaning(section)
     return textwrap.dedent(
@@ -50,15 +48,15 @@ def build_summary_index(
     pdf_range: Optional[tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[list[str]] = None,  # e.g., ["27.pdf","28.pdf"]):
 ):
+    print(f"Building summary index using model: {model_path}")
     chunker = DocumentChunker(None, keep_tables=True, mode="sections")
-
 
     with fitz.open(pathlib.Path(pdf_dir, "silberschatz.pdf")) as doc:
         full_text = "".join(page.get_text() for page in doc)
 
     chunks = chunker.chunk(full_text)
     print(f"Number of chunks: {len(chunks)}")
-    
+
     llama_debug_line_prefixes = [
         "llama_perf_sampler_print:",
         "llama_perf_context_print:",
@@ -78,21 +76,29 @@ def build_summary_index(
         "system_info:",
         ".........",
     ]
-    
+
     def is_debug_line(line: str) -> bool:
+        stripped_line = line.strip()
+
+        if stripped_line == "Summary:":
+            return True
+
         for prefix in llama_debug_line_prefixes:
-            if line.strip().startswith(prefix):
+            if stripped_line.startswith(prefix):
                 return True
-        
+
         return False
 
     with open("summary_index.txt", "w") as f:
         for chunk in tqdm(chunks):
-            print(f"Chunk size: {len(chunk)} chars")
             query = summary_prompt(chunk)
             response = run_llama_cpp(query, model_path)
             response_lines = response.split("\n")
-            answer_lines = [f"{r_line}\n" for r_line in response_lines if not is_debug_line(r_line)]
+            answer_lines = [
+                f"{r_line}\n"
+                for r_line in response_lines
+                if len(r_line) > 0 and not is_debug_line(r_line)
+            ]
             f.writelines(answer_lines)
 
 
