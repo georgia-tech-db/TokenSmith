@@ -22,7 +22,7 @@ import nltk
 from sentence_transformers import SentenceTransformer
 
 from src.chunking import ChunkStrategy, make_chunk_strategy, SlidingTokenStrategy
-from src.tagging import build_tfidf_tags
+from src.ranking.tagging import build_tfidf_tags
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
