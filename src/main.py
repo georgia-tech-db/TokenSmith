@@ -1,6 +1,8 @@
 import argparse, yaml
 from src.preprocess import build_index
-from src.retriever  import retrieve
+from src.ranking.ensemble import EnsembleRanker
+from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
+from src.retriever import retrieve, get_candidates, apply_seg_filter
 from src.ranker import rerank
 from src.generator  import answer
 
@@ -57,19 +59,53 @@ def main():
             if q.lower() in {"exit","quit"}:
                 break
 
-            cands  = retrieve(
-                q, cfg["top_k"], index, chunks,
+            pool_n = max(cfg.get("pool_size", 60), cfg["top_k"] + 10)
+            cand_idxs, faiss_dists = get_candidates(
+                q, pool_n, index, chunks,
                 embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-                seg_filter=cfg.get("seg_filter"),
-                preview=True,                      # hide 100-char previews
-                sources=sources,
-                vectorizer=vectorizer,
-                chunk_tags=chunk_tags,
             )
-            ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
+
+            # 2) shared context for various rankers
+            context = {
+                "faiss_distances": faiss_dists, # for FaissSimilarityRanker
+                "vectorizer": vectorizer,  # for TfIDFRanker
+                "chunk_tags": chunk_tags,  # for TfIDFRanker
+            }
+
+            # 3) build rankers + ensemble (using weights from config)
+            rankers = [
+                FaissSimilarityRanker(),
+                BM25Ranker(),
+                TfIDFRanker(),
+            ]
+            weights = cfg.get("ranker_weights", {"faiss": 0.6, "bm25": 0.25, "tf-idf": 0.15})
+            method = cfg.get("ensemble_method", "linear")
+            rrf_k = int(cfg.get("rrf_k", 60)) # unused as rrf method is not used for fusing
+
+            ensemble = EnsembleRanker(method, rankers, weights, rrf_k=rrf_k)
+            ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
+
+            topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+
+            # 4) materialize indices into text and continue
+            ranked_chunks = [chunks[i] for i in topk_idxs]
+
+            # HALO Stub (NO OP for now)
+            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.get("halo_mode", "none"))
+
+            # cands  = retrieve(
+            #     q, cfg["top_k"], index, chunks,
+            #     embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+            #     seg_filter=cfg.get("seg_filter"),
+            #     preview=True,                      # hide 100-char previews
+            #     sources=sources,
+            #     vectorizer=vectorizer,
+            #     chunk_tags=chunk_tags,
+            # )
+            # ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 
             ans = answer(
-                q, ranked, args.model_path,
+                q, ranked_chunks, args.model_path,
                 max_tokens=cfg.get("max_gen_tokens", 400),
             )
             print("\n=== ANSWER =========================================\n")
