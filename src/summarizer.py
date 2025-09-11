@@ -45,24 +45,55 @@ def summary_prompt(section: str) -> str:
 
 
 def build_summary_index(
-    model_path: str = "models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
+    model_path: str = "build/llama.cpp/models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
     pdf_dir: str = "data/chapters/",
     pdf_range: Optional[tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[list[str]] = None,  # e.g., ["27.pdf","28.pdf"]):
 ):
-    chunker = DocumentChunker(None, keep_tables=True, mode="section")
+    chunker = DocumentChunker(None, keep_tables=True, mode="sections")
 
 
     with fitz.open(pathlib.Path(pdf_dir, "silberschatz.pdf")) as doc:
         full_text = "".join(page.get_text() for page in doc)
 
     chunks = chunker.chunk(full_text)
+    print(f"Number of chunks: {len(chunks)}")
+    
+    llama_debug_line_prefixes = [
+        "llama_perf_sampler_print:",
+        "llama_perf_context_print:",
+        "llama_model_loader:",
+        "llama_model_load_from_file_impl:",
+        "ggml_cuda_init:",
+        "Device 0:",
+        "Device 1:",
+        "build:",
+        "main:",
+        "load:",
+        "print_info:",
+        "load_tensors:",
+        "llama_context:",
+        "llama_kv_cache:",
+        "common_init_from_params:",
+        "system_info:",
+        ".........",
+    ]
+    
+    def is_debug_line(line: str) -> bool:
+        for prefix in llama_debug_line_prefixes:
+            if line.strip().startswith(prefix):
+                return True
+        
+        return False
 
     with open("summary_index.txt", "w") as f:
-        for chunk in chunks:
+        for chunk in tqdm(chunks):
+            print(f"Chunk size: {len(chunk)} chars")
             query = summary_prompt(chunk)
-            summary = run_llama_cpp(query, model_path)
-            f.write(summary + "\n")
+            response = run_llama_cpp(query, model_path)
+            response_lines = response.split("\n")
+            answer_lines = [f"{r_line}\n" for r_line in response_lines if not is_debug_line(r_line)]
+            f.writelines(answer_lines)
 
 
 if __name__ == "__main__":

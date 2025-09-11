@@ -64,8 +64,6 @@ class DocumentChunker:
         self.strategy = strategy
         self.keep_tables = keep_tables
         self.mode = mode
-        
-        print(f"Chunking mode: {mode}")
 
     def _extract_tables(self, text: str) -> Tuple[str, List[str]]:
         tables = self.TABLE_RE.findall(text)
@@ -101,15 +99,11 @@ class DocumentChunker:
             """,
             re.VERBOSE,
         )
-        
-        print("Chunking document by section")
 
         matches = list(heading_re.finditer(text))
         if not matches:
             print("Warning: No headings found. Returning entire document as single chunk.")
             return [text.strip()] if text.strip() else []
-        
-        print(f"Number of section regex hits: {len(matches)}")
 
         heads = []
         for m in matches:
