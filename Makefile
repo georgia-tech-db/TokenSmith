@@ -68,3 +68,32 @@ run-chat:
 	@echo "Note: Chat mode requires interactive terminal. If this fails, use:"
 	@echo "  conda activate tokensmith && python -m src.main chat $(ARGS)"
 	conda run -n tokensmith --no-capture-output python -m src.main chat $(ARGS)
+
+# ================================== TESTING ==================================
+
+.PHONY: test-benchmarks test-quick test-all
+
+test-benchmarks:
+	@echo "Running TokenSmith benchmark tests...\n"
+	conda run -n tokensmith pytest tests/test_benchmarks.py -v $(ARGS)
+
+test-quick:
+	@echo "Running quick benchmark tests (skipping slow ones)...\n"
+	conda run -n tokensmith pytest tests/test_benchmarks.py -v --skip-slow $(ARGS)
+
+test-all:
+	@echo "Running all tests...\n"
+	conda run -n tokensmith pytest tests/ -v $(ARGS)
+
+# Clean test results
+clean-test-results:
+	rm -rf tests/results/*
+
+# View test results
+show-test-results:
+	@echo "Opening benchmark results...\n"
+	@if [ -f tests/results/benchmark_summary.html ]; then \
+		open tests/results/benchmark_summary.html || xdg-open tests/results/benchmark_summary.html; \
+	else \
+		echo "No results found. Run 'make test-benchmarks' first.\n"; \
+	fi
