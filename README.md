@@ -193,7 +193,44 @@ Add to environment.yml for persistence. Edit environment.yml, then:
 make update-env
 ```
 
-## Testing
+## 📊 Benchmark Testing Framework
+
+TokenSmith includes a comprehensive benchmark testing framework that evaluates answer quality across multiple similarity metrics. The framework uses pytest with YAML-defined test cases for easy management and execution.
+
+### Adding New Test Cases
+
+Test cases are defined in `tests/benchmarks.yaml`. Each benchmark includes a question, expected answer, keywords, and similarity threshold:
+```yaml
+# tests/benchmarks.yaml
+benchmarks:
+
+  - id: "unique_test_id"
+    question: "Your question here?"
+    expected_answer: "The expected answer that should be generated."
+    keywords: ["key", "terms", "to", "match"]
+    similarity_threshold: 0.65 # Minimum score to pass (0.0-1.0)
+
+  - id: "ml_basics"
+    question: "What is machine learning?"
+    expected_answer: "Machine learning is a subset of artificial intelligence that enables computers to learn and make decisions from data without being explicitly programmed."
+    keywords: ["machine learning", "artificial intelligence", "data", "learn", "algorithm"]
+    similarity_threshold: 0.6
+```
+
+
+### Test Case Configuration
+
+**Required fields:**
+- `id`: Unique identifier for the test case
+- `question`: The question to ask TokenSmith
+- `expected_answer`: Reference answer for comparison
+- `keywords`: List of important terms to check for
+- `similarity_threshold`: Minimum similarity score (0.6-0.8 recommended)
+
+**Scoring weights:**
+- Text similarity: 30%
+- Semantic similarity: 50% 
+- Keyword matching: 20%
 
 ### Run all benchmarks
 ```shell
@@ -202,7 +239,7 @@ make test-benchmarks
 
 ### Run with custom parameters
 ```shell
-make test-benchmarks ARGS="--index-prefix my_test_index --timeout 600"
+make test-benchmarks ARGS="--index-prefix my_test_index --timeout 600 --model_path models/custom-model.gguf"
 ```
 
 ### Skip slow tests (good for CI)
@@ -210,13 +247,20 @@ make test-benchmarks ARGS="--index-prefix my_test_index --timeout 600"
 make test-quick
 ```
 
-### Run specific test
+### Run specific test by ID
 ```shell
 conda activate tokensmith
-pytest tests/test_benchmarks.py::test_tokensmith_benchmark -k "ml_definition" -v
+pytest tests/test_benchmarks.py::test_tokensmith_benchmark -k "ml_basics" -v
 ```
 
-### View results
+### Viewing Results
+
+**Test results are automatically generated in:**
+- `tests/results/benchmark_results.json` - Detailed JSON data
+- `tests/results/benchmark_summary.html` - Visual HTML report
+- `tests/results/failed_tests.log` - Failed test details
+
+**Open HTML report:**
 ```shell
 make show-test-results
 ```
