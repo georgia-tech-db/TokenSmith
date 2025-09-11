@@ -81,9 +81,8 @@ conda deactivate
 TokenSmith uses YAML configuration files with the following priority order:
 
 1. Command-line `--config` argument
-2. Environment-specific config (e.g., `config/production.yaml`)
-3. User config (`~/.config/tokensmith/config.yaml`)
-4. Default config (`config/config.yaml`)
+2. User config (`~/.config/tokensmith/config.yaml`)
+3. Default config (`config/config.yaml`)
 
 ### Sample Configuration
 ```yaml
