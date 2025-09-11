@@ -3,8 +3,7 @@ import pytest
 import json
 import sys
 from pathlib import Path
-from utils.similarity import SimilarityScorer
-from utils.answer_parser import extract_answer_from_output
+from utils import SimilarityScorer, extract_answer_from_output
 
 scorer = SimilarityScorer()
 

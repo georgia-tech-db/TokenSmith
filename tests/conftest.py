@@ -2,7 +2,7 @@ import sys
 import yaml
 import pytest
 from pathlib import Path
-from utils.similarity import generate_summary_report
+from utils import generate_summary_report
 
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
