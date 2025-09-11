@@ -1,0 +1,24 @@
+benchmarks:
+  - id: "ml_definition"
+    question: "What is machine learning?"
+    expected_answer: "Machine learning is a subset of artificial intelligence that enables computers to learn and make decisions from data without being explicitly programmed."
+    keywords: ["machine learning", "artificial intelligence", "data", "learn", "algorithm"]
+    similarity_threshold: 0.6
+    
+  - id: "rag_definition"
+    question: "What is retrieval augmented generation?"
+    expected_answer: "Retrieval augmented generation combines information retrieval with text generation, allowing models to access external knowledge to produce more accurate responses."
+    keywords: ["retrieval", "generation", "external knowledge", "information", "accurate"]
+    similarity_threshold: 0.7
+    
+  - id: "deep_learning"
+    question: "Explain deep learning in simple terms."
+    expected_answer: "Deep learning uses neural networks with multiple layers to automatically learn patterns and features from large amounts of data."
+    keywords: ["neural networks", "layers", "patterns", "features", "data"]
+    similarity_threshold: 0.65
+
+  - id: "tokensmith_usage"
+    question: "How does document indexing work?"
+    expected_answer: "Document indexing processes text by breaking it into chunks, creating embeddings, and storing them in a searchable vector database."
+    keywords: ["indexing", "chunks", "embeddings", "vector", "database", "searchable"]
+    similarity_threshold: 0.6

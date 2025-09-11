@@ -193,3 +193,35 @@ Add to environment.yml for persistence. Edit environment.yml, then:
 make update-env
 ```
 
+## Testing
+
+### Run all benchmarks
+```shell
+make test-benchmarks
+```
+
+### Run with custom parameters
+```shell
+make test-benchmarks ARGS="--index-prefix my_test_index --timeout 600"
+```
+
+### Skip slow tests (good for CI)
+```shell
+make test-quick
+```
+
+### Run specific test
+```shell
+conda activate tokensmith
+pytest tests/test_benchmarks.py::test_tokensmith_benchmark -k "ml_definition" -v
+```
+
+### View results
+```shell
+make show-test-results
+```
+
+### Clean previous results
+```shell
+make clean-test-results
+```
