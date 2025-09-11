@@ -8,16 +8,16 @@ from src.generator  import answer
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("mode", choices=["index", "chat"])
-    p.add_argument("--config", default=None, required=False)
+    p.add_argument("--config", default=None, required=False) # default unnecessary as fallback is loaded
     p.add_argument("--pdf_dir", default="data/chapters/")
     p.add_argument("--index_prefix", default="textbook_index")
-    p.add_argument("--model_path", default="build/models/qwen2.5-0.5b-instruct-q5_k_m.gguf")
+    p.add_argument("--model_path", default=None, required=False) # default set by config
 
     # Extra indexing knobs
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
-    p.add_argument("--chunk_mode", choices=["tokens", "chars", "sections","sliding-tokens"], default="sliding-tokens")
-    p.add_argument("--chunk_tokens", type=int, default=500)
-    p.add_argument("--chunk_size_char", type=int, default=20000)
+    p.add_argument("--chunk_mode", choices=["tokens", "chars", "sections","sliding-tokens"], default=None, required=False) # default set by config
+    p.add_argument("--chunk_tokens", type=int, default=None, required=False) # default set by config
+    p.add_argument("--chunk_size_char", type=int, default=None, required=False) # default set by config
     p.add_argument("--keep_tables", action="store_true")
     p.add_argument("--visualize", action="store_true")
 
