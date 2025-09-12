@@ -1,7 +1,7 @@
 import argparse, yaml
 from src.preprocess import build_index
 from src.retriever  import retrieve
-from src.ranker import rerank
+from src.reranker import rerank
 from src.generator  import answer
 
 def parse_args():
@@ -57,7 +57,9 @@ def main():
             if q.lower() in {"exit","quit"}:
                 break
 
-            cands  = retrieve(
+            # Query transformations could be applied here. See src/query_transform.py.
+
+            cands = retrieve(
                 q, cfg["top_k"], index, chunks,
                 embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
                 seg_filter=cfg.get("seg_filter"),
@@ -66,7 +68,9 @@ def main():
                 vectorizer=vectorizer,
                 chunk_tags=chunk_tags,
             )
-            ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
+
+            # Final re-ranking step before generation.
+            ranked = rerank(q, cands, mode=cfg.get("rerank_mode", ""), top_n=cfg.get("rerank_top_n", 20))
 
             ans = answer(
                 q, ranked, args.model_path,

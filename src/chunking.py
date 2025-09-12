@@ -1,6 +1,6 @@
 import re
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from nltk import sent_tokenize
 from transformers import AutoTokenizer
@@ -49,6 +49,23 @@ class SentencePackStrategy(ChunkStrategy):
         if cur:
             chunks.append(" ".join(cur))
         return chunks
+
+class ParagraphStrategy(ChunkStrategy):
+    """
+    Splits text into paragraphs based on double newlines.
+    Filters out very short paragraphs (likely headings or artifacts).
+    """
+    def __init__(self, min_chars: int = 50):
+        self.min_chars = int(min_chars)
+
+    def name(self) -> str:
+        return f"paragraphs(min_chars:{self.min_chars})"
+
+    def chunk(self, text: str) -> List[str]:
+        # Split by one or more newlines
+        paragraphs = re.split(r'\n\s*\n', text)
+        # Filter out empty strings and very short paragraphs.
+        return [p.strip() for p in paragraphs if len(p.strip()) >= self.min_chars]
 
 class SlidingTokenStrategy(ChunkStrategy):
     """
@@ -107,4 +124,6 @@ def make_chunk_strategy(
             tokenizer_name=(tokenizer_name or "sentence-transformers/all-MiniLM-L6-v2"),
             max_tokens=chunk_tokens
         )
+    if mode == "paragraphs":
+        return ParagraphStrategy()
     raise ValueError(f"Unknown chunk_mode: {mode}")
