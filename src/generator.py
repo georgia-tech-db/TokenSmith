@@ -151,3 +151,25 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
+
+def extract_answer_number(text: str) -> int | None:
+    
+    m = re.search(r'Answer:\s*([1-5])', text)
+    if m:
+        return int(m.group(1))
+    return None
+
+def is_question_hard_with_model(query: str, model_path: str, **kw) -> bool:
+    prompt = (
+        "Rate the difficulty of the following question on a scale from 1 (easy) to 5 (hard). "
+        "Respond with ONLY a single digit 1, 2, 3, 4, or 5.\n\n"
+        f"Question: {query}\n"
+        "Answer:"
+    )
+    response = extract_answer_number(run_llama_cpp(prompt, model_path, max_tokens=3, temperature=0.1, **kw))
+    print(f"Response: {response!r}")
+
+    if not response:
+        return False
+    rating = int(response)
+    return rating >= 4

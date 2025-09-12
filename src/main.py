@@ -2,7 +2,7 @@ import argparse, yaml
 from src.preprocess import build_index
 from src.retriever  import retrieve
 from src.ranker import rerank
-from src.generator  import answer
+from src.generator  import answer, is_question_hard_with_model
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -56,6 +56,14 @@ def main():
             q = input("\nAsk > ").strip()
             if q.lower() in {"exit","quit"}:
                 break
+            
+
+            if is_question_hard_with_model(q, args.model_path):
+                model_path = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+                print("Question is hard. Using 1.5b model.")
+            else:
+                model_path = args.model_path
+                print("Question is easy. Using 0.5b model.")
 
             cands  = retrieve(
                 q, cfg["top_k"], index, chunks,
@@ -69,7 +77,7 @@ def main():
             ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 
             ans = answer(
-                q, ranked, args.model_path,
+                q, ranked, model_path,
                 max_tokens=cfg.get("max_gen_tokens", 400),
             )
             print("\n=== ANSWER =========================================\n")
