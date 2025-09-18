@@ -1,50 +1,79 @@
 from __future__ import annotations
+
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Callable
 import yaml
 
+from src.chunking import ChunkStrategy, make_chunk_strategy
+
+
 @dataclass
 class QueryPlanConfig:
-    # retrieval + ranking
-    top_k: int = 5
-    pool_size: int = 60
-    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # chunking
+    chunk_mode: str
+    chunk_size_char: int
+    chunk_tokens: int
 
-    ensemble_method: str = "linear"   # "linear" | "rrf"
-    rrf_k: int = 60
-    ranker_weights: Dict[str, float] = field(
-        default_factory=lambda: {"faiss": 0.6, "bm25": 0.25, "tf-idf": 0.15}
-    )
-    halo_mode: str = "none"
-    seg_filter: Callable = None
+    # retrieval + ranking
+    index_prefix: str
+    top_k: int
+    pool_size: int
+    embed_model: str
+
+    ensemble_method: str
+    rrf_k: int
+    ranker_weights: Dict[str, float]
+    halo_mode: str
+    seg_filter: Callable
 
     # generation
-    max_gen_tokens: int = 400
+    max_gen_tokens: int
 
-    # # multi-index routing
-    # default_index: str = "textbook_index"
-    # routing_rules: List[Dict[str, str]] = field(default_factory=list)
-    # # each rule: {"contains":"btree","then_index":"index_prefix"} or {"regex": "pattern", ...}
+    # ---------- chunking strategy + artifact name helpers ----------
+    def make_strategy(self) -> ChunkStrategy:
+        return make_chunk_strategy(
+            self.chunk_mode,
+            chunk_size_char=self.chunk_size_char,
+            chunk_tokens=self.chunk_tokens,
+            tokenizer_name=self.embed_model,
+        )
+
+    def get_faiss_prefix(self, out_prefix: str) -> str:
+        strategy = self.make_strategy()
+        os.makedirs(f"index/{strategy.artifact_folder_name()}", exist_ok=True)
+        return f"index/{strategy.artifact_folder_name()}/{out_prefix}"
+
+    def get_tfidf_prefix(self, out_prefix: str) -> str:
+        strategy = self.make_strategy()
+        os.makedirs(f"index/{strategy.artifact_folder_name()}/meta", exist_ok=True)
+        return f"index/{strategy.artifact_folder_name()}/meta/{out_prefix}"
 
     # ---------- factory + validation ----------
     @staticmethod
-    def from_yaml(path: str) -> "QueryPlanConfig":
+    def from_yaml(path: str) -> QueryPlanConfig:
         raw = yaml.safe_load(open(path))
 
         def pick(key, default=None):
             return raw.get(key, default)
 
         cfg = QueryPlanConfig(
+            # Chunking
+            chunk_mode     = pick("chunk_mode", "chars"),
+            chunk_size_char= pick("chunk_size_char", 20_000),
+            chunk_tokens   = pick("chunk_tokens", 500),
+
+            # Retrieval + Ranking
+            index_prefix   = pick("index_prefix", "textbook_index"),
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-            ensemble_method= pick("ensemble_method", "linear"),
+            ensemble_method= pick("ensemble_method", "rrf"),
             rrf_k          = pick("rrf_k", 60),
-            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.25,"tf-idf":0.15}),
+            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4,"tf-idf":0}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             halo_mode      = pick("halo_mode", "none"),
-            # default_index  = pick("default_index", pick("index_prefix", "textbook_index")),
-            # routing_rules  = pick("routing_rules", []),
+            seg_filter     = pick("seg_filter", None)
         )
         cfg._validate()
         return cfg
@@ -57,11 +86,14 @@ class QueryPlanConfig:
             s = sum(self.ranker_weights.values()) or 1.0
             self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
 
-    # def choose_index(self, query: str) -> str:
-    #     ql = query.lower()
-    #     for rule in self.routing_rules:
-    #         if "contains" in rule and rule["contains"].lower() in ql:
-    #             return rule.get("then_index", self.default_index)
-    #         if "regex" in rule and re.search(rule["regex"], query, flags=re.IGNORECASE):
-    #             return rule.get("then_index", self.default_index)
-    #     return self.default_index
+        assert self.chunk_mode in {"chars", "tokens", "sliding-tokens", "sections"}, \
+            f"Invalid chunk_mode: {self.chunk_mode}"
+
+        # Chunking config sanity
+        if self.chunk_mode == "chars":
+            assert self.chunk_size_char > 0, "chunk_size_char must be > 0"
+        if self.chunk_mode == "tokens":
+            assert self.chunk_tokens > 0, "chunk_tokens must be > 0"
+        if self.chunk_mode == "sliding-tokens":
+            assert self.chunk_tokens > 0, "chunk_tokens must be > 0 for sliding-tokens"
+

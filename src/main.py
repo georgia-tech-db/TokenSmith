@@ -13,14 +13,10 @@ def parse_args():
     p.add_argument("mode", choices=["index", "chat"])
     p.add_argument("--config", default="config/config.yaml")
     p.add_argument("--pdf_dir", default="data/chapters/")
-    p.add_argument("--index_prefix", default="textbook_index")
     p.add_argument("--model_path", default="models/qwen2.5-0.5b-instruct-q5_k_m.gguf")
 
     # Extra indexing knobs
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
-    p.add_argument("--chunk_mode", choices=["tokens", "chars", "sections","sliding-tokens"], default="sliding-tokens")
-    p.add_argument("--chunk_tokens", type=int, default=500)
-    p.add_argument("--chunk_size_char", type=int, default=20000)
     p.add_argument("--keep_tables", action="store_true")
     p.add_argument("--visualize", action="store_true")
 
@@ -40,11 +36,8 @@ def main():
 
         build_index(
             pdf_dir=args.pdf_dir,
-            out_prefix=args.index_prefix,
-            model_name=cfg.embed_model,
-            chunk_size_char=args.chunk_size_char,
-            chunk_mode=args.chunk_mode,
-            chunk_tokens=args.chunk_tokens,
+            out_prefix=cfg.index_prefix,
+            cfg=cfg,
             keep_tables=args.keep_tables,
             pdf_files=pdf_paths,
             do_visualize=args.visualize
@@ -53,7 +46,7 @@ def main():
 
     elif args.mode == "chat":
         from src.retriever import load_artifacts
-        index, chunks, sources, vectorizer, chunk_tags = load_artifacts(args.index_prefix)
+        index, chunks, sources, vectorizer, chunk_tags = load_artifacts(cfg.index_prefix, cfg)
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
