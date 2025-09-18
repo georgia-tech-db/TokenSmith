@@ -10,14 +10,13 @@ def extract_answer_from_output(output):
     # Look for answer section between markers
     answer_lines = []
     in_answer_section = False
+    llama_perf_pattern = re.compile(r'^llama_perf_.*$')
     
     for line in lines:
-        # Start capturing after "=== ANSWER ===" marker
         if ANSWER_START in line:
             in_answer_section = True
             continue
         
-        # Stop capturing at end marker or new prompt
         if in_answer_section and (ANSWER_END in line or "Ask >" in line or line.strip() == ""):
             if ANSWER_END in line:
                 break
@@ -25,18 +24,10 @@ def extract_answer_from_output(output):
                 continue
         
         if in_answer_section and line.strip():
+            if llama_perf_pattern.match(line.strip()):
+                continue
             answer_lines.append(line.strip())
     
-    # if not answer_lines:
-    #     # Look for content after the last "Ask >" prompt
-    #     for i, line in enumerate(reversed(lines)):
-    #         if "Ask >" in line:
-    #             # Take the lines after this prompt (before it in reversed order)
-    #             answer_lines = [l.strip() for l in lines[len(lines)-i:] 
-    #                            if l.strip() and not l.startswith("Ask >")]
-    #             break
-    
-    # Clean up the answer
     answer = ' '.join(answer_lines)
     answer = re.sub(r'\(no output\)', '', answer)
     answer = re.sub(r'\s+', ' ', answer)
