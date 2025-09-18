@@ -40,9 +40,7 @@ class RunLogger:
             "timestamp": datetime.now().isoformat(),
             "session_id": self.session_id,
             "config": {
-                "chunk_mode": self.config.chunk_mode,
-                "chunk_size_char": self.config.chunk_size_char,
-                "chunk_tokens": self.config.chunk_tokens,
+                "chunk_config": self.config.chunk_config.to_string(),
                 "index_prefix": self.config.index_prefix,
                 "top_k": self.config.top_k,
                 "pool_size": self.config.pool_size,
@@ -67,6 +65,22 @@ class RunLogger:
             "query_length": len(query),
             "query_word_count": len(query.split()),
             "query_metadata": query_metadata or {}
+        }
+
+    def log_planner(self, planner_name: str, base_cfg: Dict[str, Any], new_cfg: Dict[str, Any]):
+        """
+        Log planner decision: planner name + config diff.
+        """
+        # Compute diffs
+        diff = {}
+        for k, base_val in base_cfg.items():
+            new_val = new_cfg.get(k, base_val)
+            if new_val != base_val:
+                diff[k] = {"old": base_val, "new": new_val}
+
+        self.current_query_data["planner"] = {
+            "planner_name": planner_name,
+            "config_diff": diff,
         }
 
     def log_retrieval(self, candidates: List[int], faiss_distances: Dict[int, float],

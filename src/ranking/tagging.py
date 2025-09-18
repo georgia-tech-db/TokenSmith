@@ -1,9 +1,9 @@
-from typing import List, Tuple, Dict
-import os, pickle, numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-import os, pathlib, fitz, re
 from typing import List
-from src.chunking import make_chunk_strategy
+from typing import Tuple, Dict
+
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+
 
 def build_tfidf_tags(
     texts: List[str],
