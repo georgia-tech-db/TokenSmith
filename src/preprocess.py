@@ -172,7 +172,7 @@ def build_index(
             meta = {
                 "filename": path.name,
                 "chunk_id": i,
-                "mode": cfg.chunk_mode,
+                "mode": cfg.chunk_config.to_string(),
                 "keep_tables": keep_tables,
                 "char_len": len(c),
                 "word_len": len(c.split()),

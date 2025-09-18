@@ -54,7 +54,7 @@ class EnsembleRanker:
             except Exception:
                 print(f"[WARNING] Logging failed for ranker {r.name}")
 
-        # 3) RRF
+        # 3) RRF and Exit
         if self.ensemble_method == "rrf":
             rank_dicts = [self._to_rank(scores, cand_idxs) for scores in per_ranker_scores]
             ordered = self._rrf_fuse(rank_dicts, cand_idxs)

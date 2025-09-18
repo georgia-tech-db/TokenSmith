@@ -2,6 +2,7 @@ import argparse
 
 from src.config import QueryPlanConfig
 from src.instrumentation.logging import init_logger, get_logger
+from src.planning.heuristics import HeuristicQueryPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
@@ -28,6 +29,7 @@ def main():
     cfg = QueryPlanConfig.from_yaml(args.config)
     init_logger(cfg)
     logger = get_logger()
+    planner = HeuristicQueryPlanner(cfg)
 
     if args.mode == "index":
         # Optional range filtering
@@ -56,6 +58,7 @@ def main():
             q = input("\nAsk > ").strip()
             if q.lower() in {"exit","quit"}:
                 break
+            cfg = planner.plan(q)
             logger.log_query_start(q)
 
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
