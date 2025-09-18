@@ -47,11 +47,23 @@ class EnsembleRanker:
         for r in active:
             raw = r.score(query=query, chunks=chunks, cand_idxs=cand_idxs, context=context)
             per_ranker_scores.append(raw)
+            # log ranker scores
+            try:
+                from src.instrumentation.logging import get_logger
+                get_logger().log_ranking_scores(r.name, raw, cand_idxs)
+            except Exception:
+                print(f"[WARNING] Logging failed for ranker {r.name}")
 
         # 3) RRF
         if self.ensemble_method == "rrf":
             rank_dicts = [self._to_rank(scores, cand_idxs) for scores in per_ranker_scores]
-            return self._rrf_fuse(rank_dicts, cand_idxs)
+            ordered = self._rrf_fuse(rank_dicts, cand_idxs)
+            try:
+                from src.instrumentation.logging import get_logger
+                get_logger().log_ensemble_result(ordered, self.ensemble_method, self.weights)
+            except Exception:
+                pass
+            return ordered
 
         if self.ensemble_method != "linear" and self.ensemble_method != "weighted":
             print(f'[WARNING] {self.ensemble_method} not implemented yet. Defaulting to linear.')
@@ -66,7 +78,13 @@ class EnsembleRanker:
             for j in cand_idxs:
                 combined[j] += weight * normalized_score.get(j, 0.0)
 
-        return [i for i, _ in sorted(combined.items(), key=lambda kv: kv[1], reverse=True)]
+        ordered = [i for i, _ in sorted(combined.items(), key=lambda kv: kv[1], reverse=True)]
+        try:
+            from src.instrumentation.logging import get_logger
+            get_logger().log_ensemble_result(ordered, self.ensemble_method, self.weights)
+        except Exception:
+            pass
+        return ordered
 
 def normalize(scores: Dict[Candidate, float]) -> Dict[Candidate, float]:
     """Map arbitrary scores to [0,1] (safe for ensemble)."""

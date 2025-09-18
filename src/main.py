@@ -1,6 +1,7 @@
 import argparse
 
 from src.config import QueryPlanConfig
+from src.instrumentation.logging import init_logger, get_logger
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
@@ -25,6 +26,8 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = QueryPlanConfig.from_yaml(args.config)
+    init_logger(cfg)
+    logger = get_logger()
 
     if args.mode == "index":
         # Optional range filtering
@@ -53,12 +56,14 @@ def main():
             q = input("\nAsk > ").strip()
             if q.lower() in {"exit","quit"}:
                 break
+            logger.log_query_start(q)
 
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
             cand_idxs, faiss_dists = get_candidates(
                 q, pool_n, index, chunks,
                 embed_model=cfg.embed_model,
             )
+            logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
 
             # 2) shared context for various rankers
             context = {
@@ -81,6 +86,7 @@ def main():
             ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
 
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags)
 
             # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]
@@ -95,6 +101,13 @@ def main():
             print("\n=== ANSWER =========================================\n")
             print(ans if ans.strip() else "(no output)")
             print("\n====================================================\n")
+            logger.log_generation(
+                ans,
+                {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path}
+            )
+
+        logger.log_query_complete()
+
 
 if __name__ == "__main__":
     main()
