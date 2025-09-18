@@ -58,8 +58,8 @@ def main():
             q = input("\nAsk > ").strip()
             if q.lower() in {"exit","quit"}:
                 break
-            cfg = planner.plan(q)
             logger.log_query_start(q)
+            cfg = planner.plan(q)
 
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
             cand_idxs, faiss_dists = get_candidates(
