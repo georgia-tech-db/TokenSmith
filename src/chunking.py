@@ -1,9 +1,62 @@
 import re
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List
 
 from nltk import sent_tokenize
 from transformers import AutoTokenizer
+
+
+# -------------------------- Chunking Configs --------------------------
+class ChunkConfig(ABC):
+    def validate(self):
+        pass
+
+    def to_string(self):
+        return ""
+
+@dataclass
+class CharChunkConfig(ChunkConfig):
+    max_chars: int
+
+    def to_string(self):
+        return f"chunk_mode=chars, max_chars={self.max_chars}"
+
+    def validate(self):
+        assert self.max_chars > 0, "chunk_size_char must be > 0"
+
+@dataclass
+class TokenChunkConfig(ChunkConfig):
+    max_tokens: int
+
+    def to_string(self):
+        return f"chunk_mode=tokens, max_tokens={self.max_tokens}"
+
+    def validate(self):
+        assert self.max_tokens > 0, "chunk_size_char must be > 0"
+
+@dataclass
+class SlidingTokenConfig(ChunkConfig):
+    max_tokens: int
+    overlap_tokens: int
+    tokenizer_name: str
+
+    def to_string(self):
+        return (
+            f"chunk_mode=sliding-tokens, "
+            f"max_tokens={self.max_tokens}, "
+            f"overlap_tokens={self.overlap_tokens}, "
+            f"tokenizer_name={self.tokenizer_name}"
+        )
+
+    def validate(self):
+        assert self.max_tokens > 0, "chunk_size_char must be > 0"
+        assert self.overlap_tokens > 0, "chunk_size_char must be > 0"
+
+@dataclass
+class SectionChunkConfig(ChunkConfig):
+    def to_string(self):
+        return "chunk_mode=section"
 
 # -------------------------- Chunking Strategies --------------------------
 
@@ -17,8 +70,8 @@ class ChunkStrategy(ABC):
     def artifact_folder_name(self) -> str: ...
 
 class CharChunkStrategy(ChunkStrategy):
-    def __init__(self, max_chars: int = 20_000):
-        self.max_chars = int(max_chars)
+    def __init__(self, config: CharChunkConfig):
+        self.max_chars = int(config.max_chars)
 
     def name(self) -> str:
         return f"chars-{self.max_chars}"
@@ -34,8 +87,8 @@ class SentencePackStrategy(ChunkStrategy):
     """
     Sentence-aware packing using word-count as a token proxy.
     """
-    def __init__(self, max_tokens: int = 500):
-        self.max_tokens = int(max_tokens)
+    def __init__(self, config: TokenChunkConfig):
+        self.max_tokens = int(config.max_tokens)
 
     def name(self) -> str:
         return f"tokens(word-proxy:{self.max_tokens})"
@@ -63,14 +116,13 @@ class SlidingTokenStrategy(ChunkStrategy):
     True token windows with overlap using HF tokenizer.
     window = max_tokens, step = max_tokens - overlap_tokens
     """
-    def __init__(self,
-                 tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-                 max_tokens: int = 350,
-                 overlap_tokens: int = 80):
-        self.tokenizer_name = tokenizer_name
-        self.max_tokens = int(max_tokens)
-        self.overlap_tokens = max(0, int(overlap_tokens))
-        self._tok = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True, model_max_length=1_000_000_000)
+    def __init__(self, config: SlidingTokenConfig):
+        self.tokenizer_name = config.tokenizer_name
+        self.max_tokens = int(config.max_tokens)
+        self.overlap_tokens = int(config.overlap_tokens)
+        self._tok = AutoTokenizer.from_pretrained(config.tokenizer_name,
+                                                  use_fast=True,
+                                                  model_max_length=1_000_000_000)
 
     def name(self) -> str:
         return f"sliding-tokens({self.max_tokens},{self.overlap_tokens})"
@@ -165,22 +217,14 @@ class SectionStrategy(ChunkStrategy):
 # -------------------------- Strategy Factory -----------------------------
 
 def make_chunk_strategy(
-    mode: str,
-    *,
-    chunk_size_char: int,
-    chunk_tokens: int,
-    tokenizer_name: Optional[str],
+    config: ChunkConfig
 ) -> ChunkStrategy:
-    mode = mode.lower()
-    if mode == "chars":
-        return CharChunkStrategy(max_chars=chunk_size_char)
-    if mode == "tokens":
-        return SentencePackStrategy(max_tokens=chunk_tokens)
-    if mode == "sliding-tokens":
-        return SlidingTokenStrategy(
-            tokenizer_name=tokenizer_name,
-            max_tokens=chunk_tokens
-        )
-    if mode == "sections":
+    if isinstance(config, CharChunkConfig):
+        return CharChunkStrategy(config)
+    if isinstance(config, TokenChunkConfig):
+        return SentencePackStrategy(config)
+    if isinstance(config, SlidingTokenConfig):
+        return SlidingTokenStrategy(config)
+    if isinstance(config, SectionChunkConfig):
         return SectionStrategy()
-    raise ValueError(f"Unknown chunk_mode: {mode}")
+    raise ValueError(f"Unknown chunk config type: ", config.__class__.__name__)
