@@ -71,29 +71,21 @@ run-chat:
 
 # ================================== TESTING ==================================
 
-.PHONY: test-benchmarks test-quick test-all
+.PHONY: test-benchmarks list-metrics test-benchmarks-text test-benchmarks-semantic test-benchmarks-keyword
+
+test-benchmarks-text:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=text -v
+
+test-benchmarks-semantic:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=semantic -v
+
+test-benchmarks-keyword:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=keyword -v
 
 test-benchmarks:
-	@echo "Running TokenSmith benchmark tests...\n"
-	conda run -n tokensmith pytest tests/test_benchmarks.py -v $(ARGS)
+	@echo "Running with custom arguments, E.g. conda run -n tokensmith pytest tests/test_benchmarks.py --metric=text --metric=semantic --metric=keyword --threshold=0.75 -v"
+	conda run -n tokensmith pytest tests/test_benchmarks.py $(ARGS)
 
-test-quick:
-	@echo "Running quick benchmark tests (skipping slow ones)...\n"
-	conda run -n tokensmith pytest tests/test_benchmarks.py -v --skip-slow $(ARGS)
-
-test-all:
-	@echo "Running all tests...\n"
-	conda run -n tokensmith pytest tests/ -v $(ARGS)
-
-# Clean test results
-clean-test-results:
-	rm -rf tests/results/*
-
-# View test results
-show-test-results:
-	@echo "Opening benchmark results...\n"
-	@if [ -f tests/results/benchmark_summary.html ]; then \
-		open tests/results/benchmark_summary.html || xdg-open tests/results/benchmark_summary.html; \
-	else \
-		echo "No results found. Run 'make test-benchmarks' first.\n"; \
-	fi
+# List available metrics
+list-metrics:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --list_metrics
