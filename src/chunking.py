@@ -13,12 +13,17 @@ class ChunkStrategy(ABC):
     def name(self) -> str: ...
     @abstractmethod
     def chunk(self, text: str) -> List[str]: ...
+    @abstractmethod
+    def artifact_folder_name(self) -> str: ...
 
 class CharChunkStrategy(ChunkStrategy):
     def __init__(self, max_chars: int = 20_000):
         self.max_chars = int(max_chars)
 
     def name(self) -> str:
+        return f"chars-{self.max_chars}"
+
+    def artifact_folder_name(self) -> str:
         return f"chars({self.max_chars})"
 
     def chunk(self, text: str) -> List[str]:
@@ -34,6 +39,9 @@ class SentencePackStrategy(ChunkStrategy):
 
     def name(self) -> str:
         return f"tokens(word-proxy:{self.max_tokens})"
+
+    def artifact_folder_name(self) -> str:
+        return f"tokens-{self.max_tokens}"
 
     def chunk(self, text: str) -> List[str]:
         chunks: List[str] = []
@@ -67,6 +75,9 @@ class SlidingTokenStrategy(ChunkStrategy):
     def name(self) -> str:
         return f"sliding-tokens({self.max_tokens},{self.overlap_tokens})"
 
+    def artifact_folder_name(self) -> str:
+        return f"sliding-tokens-{self.max_tokens}-{self.overlap_tokens}"
+
     def chunk(self, text: str) -> List[str]:
         ids = self._tok.encode(text, add_special_tokens=False)
         if not ids or self.max_tokens <= 0:
@@ -88,6 +99,69 @@ class SlidingTokenStrategy(ChunkStrategy):
             chunks.append(chunk_text)
         return chunks
 
+class SectionStrategy(ChunkStrategy):
+    """
+    Splits text into chunks based on numeric section headings.
+    Example matches:
+      1. Introduction
+      2.3 Subtopic
+      10.4.1 Deep Dive
+    Collects text until the next heading of same-or-higher level.
+    """
+    HEADING_RE = re.compile(
+        r"""
+        (?m)                               # multiline
+        ^(?=.{,120}$)\s{0,3}               # shortish heading line
+        (?P<num>[1-9]\d*(?:\.[0-9]+)+)     # 1.2 or 10.4.1 etc.
+        (?![)\]])                          # avoid "1.2)"
+        \s+(?P<title>(?!\d).+?)\s*$        # title text
+        """,
+        re.VERBOSE,
+    )
+
+    def name(self) -> str:
+        return "sections"
+
+    def artifact_folder_name(self) -> str:
+        return "sections"
+
+    def chunk(self, text: str) -> List[str]:
+        matches = list(self.HEADING_RE.finditer(text))
+        if not matches:
+            # No headings detected → return the whole text as one chunk
+            return [text.strip()] if text.strip() else []
+
+        heads = []
+        for m in matches:
+            num = m.group("num")
+            title = m.group("title").strip()
+            level = num.count(".") + 1
+            heads.append({
+                "num": num, "title": title, "level": level,
+                "start": m.start(), "endline": m.end()
+            })
+
+        chunks: List[str] = []
+        N = len(heads)
+        for i, h in enumerate(heads):
+            end_idx = len(text)
+            for j in range(i + 1, N):
+                if heads[j]["level"] <= h["level"]:
+                    end_idx = heads[j]["start"]
+                    break
+            body = text[h["endline"]:end_idx].strip("\n").strip()
+            if body:
+                chunks.append(body)
+
+        # If there's preface text before the first heading, keep it as a chunk
+        preface_start = 0
+        first_start = heads[0]["start"]
+        preface = text[preface_start:first_start].strip()
+        if preface:
+            chunks.insert(0, preface)
+
+        return chunks
+
 # -------------------------- Strategy Factory -----------------------------
 
 def make_chunk_strategy(
@@ -97,14 +171,16 @@ def make_chunk_strategy(
     chunk_tokens: int,
     tokenizer_name: Optional[str],
 ) -> ChunkStrategy:
-    mode = (mode or "chars").lower()
+    mode = mode.lower()
     if mode == "chars":
         return CharChunkStrategy(max_chars=chunk_size_char)
     if mode == "tokens":
         return SentencePackStrategy(max_tokens=chunk_tokens)
     if mode == "sliding-tokens":
         return SlidingTokenStrategy(
-            tokenizer_name=(tokenizer_name or "sentence-transformers/all-MiniLM-L6-v2"),
+            tokenizer_name=tokenizer_name,
             max_tokens=chunk_tokens
         )
+    if mode == "sections":
+        return SectionStrategy()
     raise ValueError(f"Unknown chunk_mode: {mode}")
