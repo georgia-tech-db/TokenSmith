@@ -258,5 +258,5 @@ def make_chunk_strategy(
     if isinstance(config, SectionChunkConfig):
         return SectionStrategy()
     if isinstance(config, ParagraphChunkConfig):
-        return SectionStrategy()
+        return ParagraphStrategy()
     raise ValueError(f"Unknown chunk config type: ", config.__class__.__name__)
