@@ -46,7 +46,7 @@ class QueryPlanConfig:
 
     # ---------- factory + validation ----------
     @staticmethod
-    def from_yaml(path: str) -> QueryPlanConfig:
+    def from_yaml(path: os.PathLike) -> QueryPlanConfig:
         raw = yaml.safe_load(open(path))
 
         def pick(key, default=None):
