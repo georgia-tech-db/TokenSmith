@@ -7,7 +7,7 @@ from typing import Dict, Callable, Any
 import yaml
 
 from src.chunking import ChunkStrategy, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
-    SectionChunkConfig, ChunkConfig
+    SectionChunkConfig, ChunkConfig, ParagraphChunkConfig
 
 
 @dataclass
@@ -89,6 +89,8 @@ class QueryPlanConfig:
             )
         elif chunk_mode == "sections":
             chunk_config = SectionChunkConfig()
+        elif chunk_mode == "paragraphs":
+            chunk_config = ParagraphChunkConfig(min_chars=raw.get("min_chars", 200))
         else:
             raise ValueError(f"Unknown chunk_mode: {chunk_mode}")
         return chunk_mode, chunk_config

@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 
 from src.chunking import ChunkStrategy, SlidingTokenStrategy
 from src.config import QueryPlanConfig
+from src.generator import generate_context_for_chunk, resolve_llama_binary
 from src.ranking.tagging import build_tfidf_tags
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
@@ -137,6 +138,7 @@ def build_index(
     pdf_range: Optional[Tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[List[str]] = None,        # e.g., ["27.pdf","28.pdf"]
     do_visualize: bool = False,
+    do_conextualize_chunks: bool = False,
 ) -> None:
     """
     Extract PDFs from *pdf_dir*, chunk (table-safe), embed, build FAISS, and persist:
@@ -166,6 +168,30 @@ def build_index(
 
         headers = guess_section_headers(full_text)
         chunks = chunker.chunk(full_text)
+
+        if do_conextualize_chunks:
+            # Contextualization Step.
+            contextualized_chunks_for_doc = []
+            model_path = None
+
+            try:
+                model_path = resolve_llama_binary()
+                print(f"Using model for chunk context generation: {model_path}")
+            except FileNotFoundError:
+                print("Could not find LLM binary for chunk context generation. Proceeding without contextualization.")
+
+            # Only run if we found a model.
+            if model_path:
+                for chunk in tqdm(chunks, desc=f"🤖 contextualizing chunks in {path.name}", leave=False):
+                    context = generate_context_for_chunk(full_text, chunk, model_path)
+                    # Distinuguish clearly between context and source chunk for LLM response generation.
+                    contextualized_chunk = f"Context : {context}\n---\n Source chunk: {chunk}"
+                    contextualized_chunks_for_doc.append(contextualized_chunk)
+            else:
+                # Fallback if no model is available.
+                contextualized_chunks_for_doc = chunks
+
+            chunks = contextualized_chunks_for_doc
 
         for i, c in enumerate(chunks):
             has_table = bool(DocumentChunker.TABLE_RE.search(c))

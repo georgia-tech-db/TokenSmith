@@ -151,3 +151,28 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
+
+
+def generate_context_for_chunk(whole_document_text: str, chunk_content: str, model_path: str) -> str:
+    """
+    Makes an LLM call to generate a short, contextual summary for a chunk.
+    """
+    prompt = f"""<|im_start|>system
+            You are an expert at creating contextual summaries for search retrieval.
+            <|im_end|>
+            <|im_start|>user
+            <document>
+            {whole_document_text}
+            </document>
+            Here is the chunk we want to situate within the whole document
+            <chunk>
+            {chunk_content}
+            </chunk>
+            Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else.
+            <|im_end|>
+            <|im_start|>assistant
+            """
+
+    # Use a smaller max_tokens for this task as we only need a short summary.
+    context = run_llama_cpp(prompt, model_path, max_tokens=100)
+    return text_cleaning(context)

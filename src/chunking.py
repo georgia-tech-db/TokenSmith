@@ -58,6 +58,16 @@ class SectionChunkConfig(ChunkConfig):
     def to_string(self):
         return "chunk_mode=section"
 
+@dataclass
+class ParagraphChunkConfig(ChunkConfig):
+    min_chars: int
+
+    def to_string(self):
+        return f"chunk_mode=paragraphs, min_chars={self.min_chars}"
+
+    def validate(self):
+        assert self.min_chars > 0, "chunk_size_char must be > 0"
+
 # -------------------------- Chunking Strategies --------------------------
 
 class ChunkStrategy(ABC):
@@ -214,6 +224,26 @@ class SectionStrategy(ChunkStrategy):
 
         return chunks
 
+class ParagraphStrategy(ChunkStrategy):
+    """
+    Splits text into paragraphs based on double newlines.
+    Filters out very short paragraphs (likely headings or artifacts).
+    """
+    def __init__(self, config: ParagraphChunkConfig):
+        self.min_chars = int(config.min_chars)
+
+    def name(self) -> str:
+        return f"paragraphs({self.min_chars})"
+
+    def artifact_folder_name(self) -> str:
+        return f"paragraphs-{self.min_chars}"
+
+    def chunk(self, text: str) -> List[str]:
+        # Split by one or more newlines
+        paragraphs = re.split(r'\n\s*\n', text)
+        # Filter out empty strings and very short paragraphs.
+        return [p.strip() for p in paragraphs if len(p.strip()) >= self.min_chars]
+
 # -------------------------- Strategy Factory -----------------------------
 
 def make_chunk_strategy(
@@ -227,4 +257,6 @@ def make_chunk_strategy(
         return SlidingTokenStrategy(config)
     if isinstance(config, SectionChunkConfig):
         return SectionStrategy()
+    if isinstance(config, ParagraphChunkConfig):
+        return ParagraphStrategy()
     raise ValueError(f"Unknown chunk config type: ", config.__class__.__name__)
