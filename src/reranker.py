@@ -48,7 +48,7 @@ def rerank(query: str, chunks: List[str], mode: str, top_n: int) -> List[str]:
     """
     if mode == "cross_encoder":
         return rerank_with_cross_encoder(query, chunks, top_n)
-    
+
     # We can add other re-ranking strategies in the future to switch between them.
 
     # Default is to do nothing (no-op).
