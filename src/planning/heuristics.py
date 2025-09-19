@@ -60,8 +60,10 @@ class HeuristicQueryPlanner(QueryPlanner):
             cfg.ranker_weights = {"faiss": 0.5, "bm25": 0.2, "tf-idf": 0.3}
 
         else:
-            print("Unknown query type. Not changing the config!")
-            pass
+            print("Unknown query type. Defaulting to explanatory.")
+            cfg.chunk_mode = "sections"
+            cfg.chunk_config = SectionChunkConfig()
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
 
         self._log_decision(cfg)
         return cfg
