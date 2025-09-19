@@ -1,7 +1,18 @@
+# requirements.txt
 pyyaml
 PyMuPDF
 faiss-cpu
 tqdm
 nltk
 sentence-transformers
+transformers
+scikit-learn
+matplotlib
+networkx
+pyarrow
+pandas
+python-igraph
+leidenalg
+ollama
+python-dotenv
 rank_bm25
