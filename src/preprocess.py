@@ -58,9 +58,6 @@ class DocumentChunker:
         strategy: Optional[ChunkStrategy],
         keep_tables: bool = True
     ):
-        if mode != "tokens" and mode != "chars" and mode != "sections":
-            raise ValueError("Invalid mode provided. Must be 'tokens', 'chars', or 'sections'")
-
         self.strategy = strategy
         self.keep_tables = keep_tables
 
