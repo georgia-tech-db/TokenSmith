@@ -1,6 +1,7 @@
 import re
 
 ANSWER_START = "=== ANSWER ========================================="
+ANSWER_END_TOKEN = "[end of text]"
 ANSWER_END = "===================================================="
 
 def extract_answer_from_output(output):
@@ -17,8 +18,8 @@ def extract_answer_from_output(output):
             in_answer_section = True
             continue
         
-        if in_answer_section and (ANSWER_END in line or "Ask >" in line or line.strip() == ""):
-            if ANSWER_END in line:
+        if in_answer_section and (ANSWER_END in line or ANSWER_END_TOKEN in line or "Ask >" in line or line.strip() == ""):
+            if ANSWER_END_TOKEN in line or ANSWER_END in line:
                 break
             if line.strip() == "":
                 continue
