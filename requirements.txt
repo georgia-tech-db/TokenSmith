@@ -7,3 +7,4 @@ sentence-transformers
 scikit-learn
 matplotlib
 rank_bm25
+chonkie[viz]

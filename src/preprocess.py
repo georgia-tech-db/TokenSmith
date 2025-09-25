@@ -305,26 +305,36 @@ def build_index(
     print(f"✓ Index built: {out_prefix}.faiss  |  {len(all_chunks)} chunks")
 
     # 6) optional viz
+    # if do_visualize:
+    #     try:
+    #         from sklearn.decomposition import PCA
+    #         import matplotlib.pyplot as plt
+
+    #         red = PCA(n_components=2).fit_transform(embeddings)
+    #         uniq = sorted(set(sources))
+    #         cmap = {s: i for i, s in enumerate(uniq)}
+    #         colors = [cmap[s] for s in sources]
+
+    #         plt.figure(figsize=(10, 7))
+    #         sc = plt.scatter(red[:, 0], red[:, 1], c=colors, cmap="tab10", alpha=0.55)
+    #         plt.title("Vector index (PCA)")
+    #         plt.legend(
+    #             handles=sc.legend_elements()[0],
+    #             labels=uniq,
+    #             bbox_to_anchor=(1.02, 1),
+    #             loc="upper left",
+    #         )
+    #         plt.tight_layout()
+    #         plt.show()
+    #     except Exception as e:
+    #         print(f"[visualize] skipped ({e})")
+
+    # Optional chunk visualization
     if do_visualize:
         try:
-            from sklearn.decomposition import PCA
-            import matplotlib.pyplot as plt
-
-            red = PCA(n_components=2).fit_transform(embeddings)
-            uniq = sorted(set(sources))
-            cmap = {s: i for i, s in enumerate(uniq)}
-            colors = [cmap[s] for s in sources]
-
-            plt.figure(figsize=(10, 7))
-            sc = plt.scatter(red[:, 0], red[:, 1], c=colors, cmap="tab10", alpha=0.55)
-            plt.title("Vector index (PCA)")
-            plt.legend(
-                handles=sc.legend_elements()[0],
-                labels=uniq,
-                bbox_to_anchor=(1.02, 1),
-                loc="upper left",
-            )
-            plt.tight_layout()
-            plt.show()
+            from src.visualize_chunks import generate_chonkie_html
+            print("Generating chonkie HTML visualization...")
+            generate_chonkie_html(all_chunks, f"{out_prefix}_chunks_viz.html")
+            print(f"Chonkie HTML saved to: {out_prefix}_chunks_viz.html")
         except Exception as e:
-            print(f"[visualize] skipped ({e})")
+            print(f"[chonkie visualization] skipped ({e})")

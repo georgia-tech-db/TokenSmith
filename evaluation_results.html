@@ -1,0 +1,317 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chunking and Retrieval Evaluation Results</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            margin: 20px; 
+            background-color: #f4f7f6; 
+            color: #333; 
+        }
+        h1 { 
+            color: #2c3e50; 
+            text-align: center; 
+            margin-bottom: 30px; 
+        }
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 40px;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-bottom: 20px; 
+            background-color: #fff; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px 15px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #e0f2f1; 
+            color: #263238; 
+            font-weight: bold; 
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+        tr:nth-child(even) { 
+            background-color: #f9f9f9; 
+        }
+        tr:hover { 
+            background-color: #f1f1f1; 
+        }
+        .metric-value { 
+            font-weight: bold; 
+        }
+        .config-name { 
+            font-weight: bold; 
+            color: #007bff; 
+        }
+        .best-metric {
+            background-color: #d4edda;
+            font-weight: bold;
+        }
+        .chunking-strategy {
+            font-weight: bold;
+            color: #495057;
+        }
+        .fusion-mode {
+            color: #6c757d;
+            font-style: italic;
+        }
+        .question-text {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .config-section {
+            margin-bottom: 40px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .config-header {
+            background-color: #3498db;
+            color: white;
+            padding: 15px 20px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .config-content {
+            padding: 20px;
+        }
+        .avg-row {
+            background-color: #e8f4f8 !important;
+            font-weight: bold;
+            border-top: 2px solid #3498db;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chunking and Retrieval Evaluation Results</h1>
+    <p style="text-align: center; color: #6c757d; margin-bottom: 30px;">
+        Token-level Precision, Recall, IoU, and F1 metrics across different chunking and retrieval strategies
+    </p>
+
+    <div class="config-section">
+        <div class="config-header">
+            chars_weighted (chars, Overlap: 0, Fusion: weighted)
+        </div>
+        <div class="config-content">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Question</th>
+                        <th>Recall</th>
+                        <th>Precision</th>
+                        <th>IoU</th>
+                        <th>F1</th>
+                    </tr>
+                </thead>
+                <tbody>
+        
+                    <tr>
+                        <td class="question-text">List four significant differences between a file-processing system and a DBMS.</td>
+                        <td class="metric-value">0.9732</td>
+                        <td class="metric-value">0.1599</td>
+                        <td class="metric-value">0.1592</td>
+                        <td class="metric-value">0.2747</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">What are the components of a query processor?</td>
+                        <td class="metric-value">0.9839</td>
+                        <td class="metric-value">0.0243</td>
+                        <td class="metric-value">0.0243</td>
+                        <td class="metric-value">0.0475</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">Define the concept of aggregation. Give two examples where this concept is useful.</td>
+                        <td class="metric-value">0.7919</td>
+                        <td class="metric-value">0.0636</td>
+                        <td class="metric-value">0.0626</td>
+                        <td class="metric-value">0.1178</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">A weak entity set can always be made into a strong entity set by adding to its attributes the primary key attributes of its identifying entity set. Outline what sort of redundancy will result if we do so.</td>
+                        <td class="metric-value">1.0000</td>
+                        <td class="metric-value">0.0508</td>
+                        <td class="metric-value">0.0508</td>
+                        <td class="metric-value">0.0968</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">Describe the circumstances in which you would choose to use embedded SQL rather than SQL alone or only a general-purpose programming language.</td>
+                        <td class="metric-value">0.9872</td>
+                        <td class="metric-value">0.1667</td>
+                        <td class="metric-value">0.1663</td>
+                        <td class="metric-value">0.2852</td>
+                    </tr>
+            
+                    <tr class="avg-row">
+                        <td><strong>AVERAGE</strong></td>
+                        <td class="metric-value">0.9472 ± 0.0874</td>
+                        <td class="metric-value">0.0931 ± 0.0657</td>
+                        <td class="metric-value">0.0927 ± 0.0655</td>
+                        <td class="metric-value">0.1644 ± 0.1086</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+        
+    <div class="config-section">
+        <div class="config-header">
+            chars_rrf (chars, Overlap: 0, Fusion: rrf)
+        </div>
+        <div class="config-content">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Question</th>
+                        <th>Recall</th>
+                        <th>Precision</th>
+                        <th>IoU</th>
+                        <th>F1</th>
+                    </tr>
+                </thead>
+                <tbody>
+        
+                    <tr>
+                        <td class="question-text">List four significant differences between a file-processing system and a DBMS.</td>
+                        <td class="metric-value">0.9366</td>
+                        <td class="metric-value">0.1494</td>
+                        <td class="metric-value">0.1479</td>
+                        <td class="metric-value">0.2576</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">What are the components of a query processor?</td>
+                        <td class="metric-value">0.9839</td>
+                        <td class="metric-value">0.0251</td>
+                        <td class="metric-value">0.0251</td>
+                        <td class="metric-value">0.0489</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">Define the concept of aggregation. Give two examples where this concept is useful.</td>
+                        <td class="metric-value">0.7977</td>
+                        <td class="metric-value">0.0643</td>
+                        <td class="metric-value">0.0633</td>
+                        <td class="metric-value">0.1190</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">A weak entity set can always be made into a strong entity set by adding to its attributes the primary key attributes of its identifying entity set. Outline what sort of redundancy will result if we do so.</td>
+                        <td class="metric-value">1.0000</td>
+                        <td class="metric-value">0.0486</td>
+                        <td class="metric-value">0.0486</td>
+                        <td class="metric-value">0.0927</td>
+                    </tr>
+            
+                    <tr>
+                        <td class="question-text">Describe the circumstances in which you would choose to use embedded SQL rather than SQL alone or only a general-purpose programming language.</td>
+                        <td class="metric-value">0.9872</td>
+                        <td class="metric-value">0.1709</td>
+                        <td class="metric-value">0.1705</td>
+                        <td class="metric-value">0.2913</td>
+                    </tr>
+            
+                    <tr class="avg-row">
+                        <td><strong>AVERAGE</strong></td>
+                        <td class="metric-value">0.9411 ± 0.0837</td>
+                        <td class="metric-value">0.0916 ± 0.0645</td>
+                        <td class="metric-value">0.0911 ± 0.0642</td>
+                        <td class="metric-value">0.1619 ± 0.1064</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+        
+    <h2>Summary: Config Averages</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Config</th>
+                <th>Chunking</th>
+                <th>Overlap</th>
+                <th>Fusion</th>
+                <th>Recall</th>
+                <th>Precision</th>
+                <th>IoU</th>
+                <th>F1</th>
+            </tr>
+        </thead>
+        <tbody>
+    
+            <tr>
+                <td class="config-name">chars_weighted</td>
+                <td class="chunking-strategy">chars</td>
+                <td>0</td>
+                <td class="fusion-mode">weighted</td>
+                <td class="metric-value best-metric">
+                    0.9472 ± 0.0874
+                </td>
+                <td class="metric-value best-metric">
+                    0.0931 ± 0.0657
+                </td>
+                <td class="metric-value best-metric">
+                    0.0927 ± 0.0655
+                </td>
+                <td class="metric-value best-metric">
+                    0.1644 ± 0.1086
+                </td>
+            </tr>
+        
+            <tr>
+                <td class="config-name">chars_rrf</td>
+                <td class="chunking-strategy">chars</td>
+                <td>0</td>
+                <td class="fusion-mode">rrf</td>
+                <td class="metric-value ">
+                    0.9411 ± 0.0837
+                </td>
+                <td class="metric-value ">
+                    0.0916 ± 0.0645
+                </td>
+                <td class="metric-value ">
+                    0.0911 ± 0.0642
+                </td>
+                <td class="metric-value ">
+                    0.1619 ± 0.1064
+                </td>
+            </tr>
+        
+        </tbody>
+    </table>
+    
+    <div style="margin-top: 30px; padding: 20px; background-color: #e8f4f8; border-radius: 8px;">
+        <h3>Key Insights:</h3>
+        <ul>
+            <li><strong>Best Recall:</strong> chars_weighted (0.9472 ± 0.0874)</li>
+            <li><strong>Best Precision:</strong> chars_weighted (0.0931 ± 0.0657)</li>
+            <li><strong>Best IoU:</strong> chars_weighted (0.0927 ± 0.0655)</li>
+            <li><strong>Best F1:</strong> chars_weighted (0.1644 ± 0.1086)</li>
+        </ul>
+    </div>
+    
+    <div style="margin-top: 20px; font-size: 12px; color: #6c757d; text-align: center;">
+        Generated on 2025-09-25 17:13:25
+    </div>
+</body>
+</html>
+    
