@@ -1,5 +1,7 @@
 import os, subprocess, textwrap, re, shutil, pathlib
 
+from src.utils import text_cleaning
+
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
 
@@ -54,20 +56,6 @@ def resolve_llama_binary() -> str:
         "  • Or set:  export LLAMA_CPP_BIN=/absolute/path/to/llama-cli\n"
         "  • Or install llama.cpp and ensure 'llama-cli' is on your PATH."
     )
-
-def text_cleaning(prompt):
-    _CONTROL_CHARS_RE = re.compile(r'[\u0000-\u001F\u007F-\u009F]')
-    _DANGEROUS_PATTERNS = [
-        r'ignore\s+(all\s+)?previous\s+instructions?',
-        r'you\s+are\s+now\s+(in\s+)?developer\s+mode',
-        r'system\s+override',
-        r'reveal\s+prompt',
-    ]
-    text = _CONTROL_CHARS_RE.sub('', prompt)
-    text = re.sub(r'\s+', ' ', text).strip()
-    for pat in _DANGEROUS_PATTERNS:
-        text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
-    return text
 
 def format_prompt(chunks, query, max_chunk_chars=400):
     trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
