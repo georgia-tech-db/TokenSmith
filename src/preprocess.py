@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 
 from src.chunking import ChunkStrategy, SlidingTokenStrategy
 from src.config import QueryPlanConfig
+from src.extracting.extraction import chunk_markdown_by_headings
 from src.ranking.tagging import build_tfidf_tags
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
@@ -159,34 +160,39 @@ def build_index(
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
+    #TODO Hardcoding the markdown file path for now. Can be changed later.
+    markdown_file = 'data/book_without_image.md' 
 
-    for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
-        with fitz.open(path) as doc:
-            full_text = "".join(page.get_text() for page in doc)
+    sections = chunk_markdown_by_headings(markdown_file)
 
-        headers = guess_section_headers(full_text)
-        chunks = chunker.chunk(full_text)
+    # for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
+    #     with fitz.open(path) as doc:
+    #         full_text = "".join(page.get_text() for page in doc)
 
-        for i, c in enumerate(chunks):
-            has_table = bool(DocumentChunker.TABLE_RE.search(c))
-            meta = {
-                "filename": path.name,
-                "chunk_id": i,
-                "mode": cfg.chunk_config.to_string(),
-                "keep_tables": keep_tables,
-                "char_len": len(c),
-                "word_len": len(c.split()),
-                "has_table": has_table,
-                "section_hints": headers[:10],  # small header sample
-            }
-            if isinstance(strategy, SlidingTokenStrategy):
-                meta["max_tokens"] = strategy.max_tokens
-                meta["overlap_tokens"] = strategy.overlap_tokens
-                meta["tokenizer_name"] = strategy.tokenizer_name
+    #     headers = guess_section_headers(full_text)
+    #     chunks = chunker.chunk(full_text)
 
-            all_chunks.append(c)
-            sources.append(path.name)
-            metadata.append(meta)
+    for i, c in enumerate(sections):
+        has_table = bool(DocumentChunker.TABLE_RE.search(c['content']))
+        meta = {
+            "filename": markdown_file,
+            "chunk_id": i,
+            "mode": cfg.chunk_config.to_string(),
+            "keep_tables": keep_tables,
+            "char_len": len(c['content']),
+            "word_len": len(c['content'].split()),
+            "has_table": has_table,
+            "section": c['heading'], 
+            "text_preview": c['content'][:100]
+        }
+        if isinstance(strategy, SlidingTokenStrategy):
+            meta["max_tokens"] = strategy.max_tokens
+            meta["overlap_tokens"] = strategy.overlap_tokens
+            meta["tokenizer_name"] = strategy.tokenizer_name
+
+        all_chunks.append(c['content'])
+        sources.append(markdown_file)
+        metadata.append(meta)
 
     # 2) Tag the chunks (offline)
     print("🏷️  Building TF-IDF tags …")
