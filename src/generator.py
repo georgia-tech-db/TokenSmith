@@ -151,3 +151,32 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
+
+def extract_answer_number(text: str) -> int | None:
+    print(f"Raw model output for difficulty rating: {text!r}")
+    m = re.search(r'Answer:\s*([1-5])', text)
+    if m:
+        return int(m.group(1))
+    return None
+
+def is_question_hard_with_model(query: str, model_path: str, **kw) -> bool:
+    prompt = (
+        """You are an expert in databases. 
+        Rate the following question’s difficulty on a scale from 1 (easy) to 5 (hard), where:
+
+        1 = very easy (straightforward definition, fact recall, or yes/no question)
+        2 = easy (basic concept explanation or simple example)
+        3 = medium (requires some reasoning or combining multiple concepts)
+        4 = hard (multi-step reasoning, trade-offs, or applied problem-solving)
+        5 = very hard (open-ended design, analysis under constraints, or advanced research-level reasoning)"""
+        "Respond in the format Answer: <rating>\n\n"
+        f"Question: {query}\n"
+        "Answer:"
+    )
+    response = extract_answer_number(run_llama_cpp(prompt, model_path, max_tokens=3, temperature=0.1, **kw))
+    print(f"Response: {response!r}")
+
+    if not response:
+        return False
+    rating = int(response)
+    return rating >= 4

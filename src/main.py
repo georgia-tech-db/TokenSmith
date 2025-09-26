@@ -8,7 +8,7 @@ from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
 from src.retriever import get_candidates, apply_seg_filter
 from src.ranker import rerank
-from src.generator  import answer
+from src.generator  import answer, is_question_hard_with_model
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -57,6 +57,15 @@ def main():
             q = input("\nAsk > ").strip()
             if q.lower() in {"exit","quit"}:
                 break
+            
+
+            if is_question_hard_with_model(q, args.model_path):
+                model_path = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+                print("Question is hard. Using 1.5b model.")
+            else:
+                model_path = args.model_path
+                print("Question is easy. Using 0.5b model.")
+                
             logger.log_query_start(q)
             cfg = planner.plan(q)
             index, chunks, sources, vectorizer, chunk_tags = \
