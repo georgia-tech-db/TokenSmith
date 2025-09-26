@@ -1,4 +1,4 @@
-import os, subprocess, textwrap, re, shutil, pathlib
+import os, subprocess, textwrap, re, shutil, pathlib, tempfile
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -106,10 +106,16 @@ def _extract_answer(raw: str) -> str:
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
                   threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.3):
     llama_binary = resolve_llama_binary()
+
+    # Create a temporary file to store the prompt.
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8', suffix=".txt") as tmp_file:
+        tmp_file.write(prompt)
+        prompt_filepath = tmp_file.name
+
     cmd = [
         llama_binary,
         "-m", model_path,
-        "-p", prompt,
+        "--file", prompt_filepath,
         "-n", str(max_tokens),
         "-t", str(threads),
         # "--ngl", str(n_gpu_layers),
@@ -152,17 +158,19 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
 
-
-def generate_context_for_chunk(whole_document_text: str, chunk_content: str, model_path: str) -> str:
+def generate_context_for_chunk(document_text: str, chunk_content: str, model_path: str) -> str:
     """
     Makes an LLM call to generate a short, contextual summary for a chunk.
     """
-    prompt = f"""<|im_start|>system
+    document_text = text_cleaning(document_text)
+
+    prompt = textwrap.dedent(f"""<|im_start|>system
             You are an expert at creating contextual summaries for search retrieval.
+            End your reply with {ANSWER_END}.
             <|im_end|>
             <|im_start|>user
             <document>
-            {whole_document_text}
+            {document_text}
             </document>
             Here is the chunk we want to situate within the whole document
             <chunk>
@@ -171,8 +179,10 @@ def generate_context_for_chunk(whole_document_text: str, chunk_content: str, mod
             Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else.
             <|im_end|>
             <|im_start|>assistant
-            """
+            {ANSWER_START}
+            """)
 
     # Use a smaller max_tokens for this task as we only need a short summary.
+    prompt = text_cleaning(prompt)
     context = run_llama_cpp(prompt, model_path, max_tokens=100)
     return text_cleaning(context)

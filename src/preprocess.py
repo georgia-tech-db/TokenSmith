@@ -182,9 +182,20 @@ def build_index(
 
             # Only run if we found a model.
             if model_path:
-                for chunk in tqdm(chunks, desc=f"🤖 contextualizing chunks in {path.name}", leave=False):
-                    context = generate_context_for_chunk(full_text, chunk, model_path)
-                    # Distinuguish clearly between context and source chunk for LLM response generation.
+                num_chunks = len(chunks)
+                for i, chunk in enumerate(tqdm(chunks, desc=f"🤖 contextualizing chunks in {path.name}", leave=False)):
+                    # Determine the start of the context window.
+                    start_index = max(0, i - 50)
+
+                    # Determine the end of the context window.
+                    end_index = min(num_chunks, i + 51)
+
+                    # Get all chunks in the window, including the current one.
+                    context_chunks = chunks[start_index:end_index]
+                    context_chunks = "\n\n".join(context_chunks)
+                    context = generate_context_for_chunk(context_chunks, chunk, "models/qwen2.5-1.5b-instruct-q5_k_m.gguf")
+
+                    # Distinguish clearly between context and source chunk for LLM response generation.
                     contextualized_chunk = f"Context : {context}\n---\n Source chunk: {chunk}"
                     contextualized_chunks_for_doc.append(contextualized_chunk)
             else:

@@ -15,7 +15,7 @@ def parse_args():
     p.add_argument("mode", choices=["index", "chat"])
     p.add_argument("--config", default="config/config.yaml")
     p.add_argument("--pdf_dir", default="data/chapters/")
-    p.add_argument("--model_path", default="models/qwen2.5-0.5b-instruct-q5_k_m.gguf")
+    p.add_argument("--model_path", default="models/qwen2.5-1.5b-instruct-q5_k_m.gguf")
 
     # Extra indexing knobs
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
@@ -45,7 +45,8 @@ def main():
             cfg=cfg,
             keep_tables=args.keep_tables,
             pdf_files=pdf_paths,
-            do_visualize=args.visualize
+            do_visualize=args.visualize,
+            do_conextualize_chunks=True
         )
         print("Index built ✓")
 
@@ -95,12 +96,12 @@ def main():
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
             # 5) final re-ranking step before generation.
-            reranked_chunks = rerank(q, ranked_chunks, mode=cfg.get("rerank_mode", ""), top_n=cfg.get("rerank_top_n", 20))
+            #reranked_chunks = rerank(q, ranked_chunks, mode=cfg.get("rerank_mode", ""), top_n=cfg.get("rerank_top_n", 20))
 
             # 6) query transformations could be applied here. See src/query_transform.py.
 
             ans = answer(
-                q, reranked_chunks, args.model_path,
+                q, ranked_chunks, args.model_path,
                 max_tokens=cfg.max_gen_tokens,
             )
             print("\n=== ANSWER =========================================\n")
