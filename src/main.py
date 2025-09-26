@@ -6,8 +6,8 @@ from src.planning.heuristics import HeuristicQueryPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
+from src.reranker import rerank
 from src.retriever import get_candidates, apply_seg_filter
-from src.ranker import rerank
 from src.generator  import answer
 
 def parse_args():
@@ -95,11 +95,13 @@ def main():
             # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
-            # HALO Stub (NO OP for now)
-            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
+            # 5) final re-ranking step before generation.
+            reranked_chunks = rerank(q, ranked_chunks, mode=cfg.get("rerank_mode", ""), top_n=cfg.get("rerank_top_n", 20))
+
+            # 6) query transformations could be applied here. See src/query_transform.py.
 
             ans = answer(
-                q, ranked_chunks, args.model_path,
+                q, reranked_chunks, args.model_path,
                 max_tokens=cfg.max_gen_tokens,
             )
             print("\n=== ANSWER =========================================\n")
