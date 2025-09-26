@@ -101,10 +101,6 @@ def main():
     elif args.mode == "chat":
         from src.retriever import load_artifacts
 
-        index, chunks, sources, vectorizer, chunk_tags = load_artifacts(
-            cfg.index_prefix, cfg
-        )
-
         print("📚 Ready. Type 'exit' to quit.")
         while True:
             q = input("\nAsk > ").strip()
@@ -112,6 +108,8 @@ def main():
                 break
             logger.log_query_start(q)
             cfg = planner.plan(q)
+            index, chunks, sources, vectorizer, chunk_tags = \
+                load_artifacts(cfg.index_prefix, cfg)
 
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
             cand_idxs, faiss_dists = get_candidates(
@@ -168,7 +166,6 @@ def main():
             )
 
         logger.log_query_complete()
-
 
 if __name__ == "__main__":
     main()
