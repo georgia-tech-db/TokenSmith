@@ -164,11 +164,11 @@ def is_question_hard_with_model(query: str, model_path: str, **kw) -> bool:
         """You are an expert in databases. 
         Rate the following question’s difficulty on a scale from 1 (easy) to 5 (hard), where:
 
-        1 = very easy (straightforward definition, fact recall, or yes/no question)  
-        2 = easy (basic concept explanation or simple example)  
-        3 = medium (requires some reasoning or combining multiple concepts)  
-        4 = hard (multi-step reasoning, trade-offs, or applied problem-solving)  
-        5 = very hard (open-ended design, analysis under constraints, or advanced research-level reasoning) """
+        1 = very easy (straightforward definition, fact recall, or yes/no question)
+        2 = easy (basic concept explanation or simple example)
+        3 = medium (requires some reasoning or combining multiple concepts)
+        4 = hard (multi-step reasoning, trade-offs, or applied problem-solving)
+        5 = very hard (open-ended design, analysis under constraints, or advanced research-level reasoning)"""
         "Respond in the format Answer: <rating>\n\n"
         f"Question: {query}\n"
         "Answer:"
