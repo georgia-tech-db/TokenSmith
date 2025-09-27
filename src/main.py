@@ -26,18 +26,6 @@ def parse_args():
 
     # Extra indexing knobs
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
-    p.add_argument(
-        "--chunk_mode",
-        choices=["tokens", "chars", "sections", "sliding-tokens"],
-        default=None,
-        required=False,
-    )  # default set by config
-    p.add_argument(
-        "--chunk_tokens", type=int, default=None, required=False
-    )  # default set by config
-    p.add_argument(
-        "--chunk_size_char", type=int, default=None, required=False
-    )  # default set by config
     p.add_argument("--keep_tables", action="store_true")
     p.add_argument("--visualize", action="store_true")
 
