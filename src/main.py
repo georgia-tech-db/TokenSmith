@@ -155,7 +155,7 @@ def main():
             ans = answer(
                 q,
                 ranked_chunks,
-                args.model_path,
+                args.model_path or cfg.model_path,
                 max_tokens=cfg.max_gen_tokens,
             )
             print("\n=== ANSWER =========================================\n")
