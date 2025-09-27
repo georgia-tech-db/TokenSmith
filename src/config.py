@@ -29,6 +29,8 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
+    
+    model_path: os.PathLike
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -46,7 +48,7 @@ class QueryPlanConfig:
 
     # ---------- factory + validation ----------
     @staticmethod
-    def from_yaml(path: str) -> QueryPlanConfig:
+    def from_yaml(path: os.PathLike) -> QueryPlanConfig:
         raw = yaml.safe_load(open(path))
 
         def pick(key, default=None):
@@ -68,7 +70,8 @@ class QueryPlanConfig:
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4,"tf-idf":0}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             halo_mode      = pick("halo_mode", "none"),
-            seg_filter     = pick("seg_filter", None)
+            seg_filter     = pick("seg_filter", None),
+            model_path     = pick("model_path", None)
         )
         cfg._validate()
         return cfg
@@ -114,5 +117,6 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "halo_mode": self.halo_mode,
             "max_gen_tokens": self.max_gen_tokens,
+            "model_path": self.model_path
         }
 
