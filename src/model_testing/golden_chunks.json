@@ -1,0 +1,12 @@
+[
+    {
+        "query": "what is an apple?",
+        "golden_chunks": [
+            "apple is the best fruit in the world",
+            "an apple a day keeps the doctor away",
+            "apple has malic acid",
+            "apple has red colour",
+            "apple is juicy"
+        ]
+    }
+]

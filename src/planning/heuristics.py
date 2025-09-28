@@ -41,7 +41,7 @@ class HeuristicQueryPlanner(QueryPlanner):
 
         if kind == "definition":
             cfg.chunk_mode = "tokens"
-            cfg.chunk_config = TokenChunkConfig(max_tokens=200)
+            cfg.chunk_config = TokenChunkConfig(max_tokens=500)
             cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.6, "tf-idf": 0.1}
 
         elif kind == "explanatory":
