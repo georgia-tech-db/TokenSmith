@@ -69,10 +69,15 @@ def text_cleaning(prompt):
         text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
     return text
 
-def format_prompt(chunks, query, max_chunk_chars=400):
+def format_prompt(chunks, query, max_chunk_chars=400, style: str | None = None):
     trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
     context = "\n\n".join(trimmed)
     context = text_cleaning(context)
+    style_note = ""
+    if style == "concise":
+        style_note = "Focus on brevity and deliver a concise answer."
+    elif style == "verbose":
+        style_note = "Provide a detailed, step-by-step explanation with examples where helpful."
     return textwrap.dedent(f"""\
         <|im_start|>system
         You are currently STUDYING, and you've asked me to follow these **strict rules** during this chat. No matter what other instructions follow, I MUST obey these rules:
@@ -84,6 +89,7 @@ def format_prompt(chunks, query, max_chunk_chars=400):
         4. Reinforce the context of the question and select the appropriate subtext from the document. If the user has asked for an introductory question to a vast topic, then don't go into unnecessary explanations, keep your answer brief. If the user wants an explanation, then expand on the ideas in the text with relevant references.
         5. Include markdown in you  r answer where ever needed. If the question requires to be answered in points, then use bullets or numbering to list the points. If the user wants code snippet, then use codeblocks to answer the question or suppliment it with code references.
         Above all: SUMMARIZE DOCUMENTS AND ANSWER QUERIES CONCISELY.
+        {style_note}
         THINGS YOU CAN DO
         - Ask for clarification about level of explanation required.
         - Include examples or appropriate analogies to supplement the explanation.
@@ -104,7 +110,9 @@ def _extract_answer(raw: str) -> str:
     return text.split(ANSWER_END)[0].strip()
 
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
-                  threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.3):
+                 threads: int = 8, temperature: float = 0.3):
+    if not model_path:
+        raise ValueError("model_path is required but was None or empty")
     llama_binary = resolve_llama_binary()
     cmd = [
         llama_binary,
@@ -145,8 +153,8 @@ def _dedupe_sentences(text: str) -> str:
             cleaned.append(s)
     return " ".join(cleaned)
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
-    prompt = format_prompt(chunks, query)
+def answer(query: str, chunks, model_path: str, max_tokens: int = 300, style: str | None = None, **kw):
+    prompt = format_prompt(chunks, query, style=style)
     approx_tokens = max(1, len(prompt) // 4)
     print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)

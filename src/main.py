@@ -9,8 +9,8 @@ from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
 from src.retriever import get_candidates, apply_seg_filter
 from src.ranker import rerank
-from src.generator import answer
-
+from src.generator  import answer
+from src.feedback_db import FeedbackDB, FeedbackEntry
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -88,6 +88,7 @@ def main():
 
     elif args.mode == "chat":
         from src.retriever import load_artifacts
+        db = FeedbackDB()
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
@@ -141,11 +142,48 @@ def main():
             # HALO Stub (NO OP for now)
             ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
 
+            def _collect_and_save_feedback(answer_text: str, style: str):
+                print("Provide feedback: [u] thumbs up, [d] thumbs down, [enter] skip")
+                fb_thumb_local = input("Thumbs (u/d or enter): ").strip().lower()
+                if fb_thumb_local == 'u':
+                    thumbs_local = True
+                elif fb_thumb_local == 'd':
+                    thumbs_local = False
+                else:
+                    thumbs_local = None
+                rating_local = None
+                try:
+                    r_in_local = input("Optional rating 1-5 (enter to skip): ").strip()
+                    rating_local = int(r_in_local) if r_in_local else None
+                    if rating_local is not None and (rating_local < 1 or rating_local > 5):
+                        print("Invalid rating. Skipping rating.")
+                        rating_local = None
+                except ValueError:
+                    print("Invalid rating. Skipping rating.")
+                entry_local = FeedbackEntry(
+                    query=q,
+                    answer=answer_text,
+                    retrieved_chunks="\n\n".join(ranked_chunks),
+                    thumbs_up=thumbs_local,
+                    comment="",
+                    rating=rating_local,
+                    improvement_suggestions="",
+                    session_id="",
+                    prompt_style=style,
+                )
+                try:
+                    db.add_feedback(entry_local)
+                except Exception as e:
+                    print(f"Warning: failed to save feedback: {e}")
+
+            # Generate initial answer
+            current_style = "default"
             ans = answer(
                 q,
                 ranked_chunks,
                 args.model_path or cfg.model_path,
                 max_tokens=cfg.max_gen_tokens,
+                style=current_style,
             )
             print("\n=== ANSWER =========================================\n")
             print(ans if ans.strip() else "(no output)")
@@ -153,6 +191,27 @@ def main():
             logger.log_generation(
                 ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path}
             )
+            _collect_and_save_feedback(ans, current_style)
+
+            # Regeneration loop
+            while True:
+                regen = input("Refine? [c] concise, [v] verbose, [n] no/skip: ").strip().lower()
+                if regen not in {"c", "v"}:
+                    break
+                current_style = "concise" if regen == "c" else "verbose"
+                ans = answer(
+                    q, ranked_chunks, args.model_path or cfg.model_path,
+                    max_tokens=cfg.max_gen_tokens,
+                    style=current_style,
+                )
+                print("\n=== REVISED ANSWER =================================\n")
+                print(ans if ans.strip() else "(no output)")
+                print("\n====================================================\n")
+                logger.log_generation(
+                    ans,
+                    {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path, "style": current_style}
+                )
+                _collect_and_save_feedback(ans, current_style)
 
         logger.log_query_complete()
 
