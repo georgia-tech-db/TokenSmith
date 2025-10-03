@@ -88,6 +88,7 @@ def main():
 
     elif args.mode == "chat":
         from src.retriever import load_artifacts
+        from src.retriever import boost_by_location
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
@@ -96,7 +97,7 @@ def main():
                 break
             logger.log_query_start(q)
             cfg = planner.plan(q)
-            index, chunks, sources, vectorizer, chunk_tags = load_artifacts(
+            index, chunks, sources, vectorizer, chunk_tags, metadata = load_artifacts(
                 cfg.index_prefix, cfg
             )
 
@@ -132,24 +133,41 @@ def main():
                 query=q, chunks=chunks, cand_idxs=cand_idxs, context=context
             )
 
+            # Location-aware boosting (optional, uses cfg.location_hint if present)
+            ordered = boost_by_location(ordered, metadata, cfg)
+
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
-            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags)
+            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags, metadata)
 
-            # 4) materialize indices into text and continue
-            ranked_chunks = [chunks[i] for i in topk_idxs]
-
-            # HALO Stub (NO OP for now)
-            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
-
-            ans = answer(
-                q,
-                ranked_chunks,
-                args.model_path or cfg.model_path,
-                max_tokens=cfg.max_gen_tokens,
-            )
-            print("\n=== ANSWER =========================================\n")
-            print(ans if ans.strip() else "(no output)")
-            print("\n====================================================\n")
+            # 4) Handle location queries vs regular queries
+            from src.location_handler import is_location_query, format_location_response, format_citations
+            
+            ans = ""
+            if is_location_query(q):
+                # Location query: return section headings
+                ans = format_location_response(topk_idxs, metadata)
+                print(ans)
+            else:
+                # Regular query: generate answer with citations
+                ranked_chunks = [chunks[i] for i in topk_idxs]
+                ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
+                
+                ans = answer(
+                    q,
+                    ranked_chunks,
+                    args.model_path or cfg.model_path,
+                    max_tokens=cfg.max_gen_tokens,
+                )
+                
+                # Add inline citations if enabled
+                if cfg.enable_citations:
+                    citations = format_citations(topk_idxs, metadata)
+                    if citations:
+                        ans = f"{ans}\n\nReferences: {citations}"
+                
+                print("\n=== ANSWER =========================================\n")
+                print(ans if ans.strip() else "(no output)")
+                print("\n====================================================\n")
             logger.log_generation(
                 ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path}
             )

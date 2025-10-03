@@ -14,6 +14,7 @@ Return: list[str] chunks (top-k).
 from __future__ import annotations
 import pickle
 from typing import List, Tuple, Optional, Dict
+import re
 
 import faiss
 from sentence_transformers import SentenceTransformer
@@ -32,7 +33,7 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 
 # -------------------------- Artifacts I/O -------------------------------
-def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str], object, Optional[List[List[str]]]]:
+def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str], object, Optional[List[List[str]]], List[Dict]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
@@ -48,6 +49,10 @@ def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index
     index   = faiss.read_index(f"{faiss_prefix}.faiss")
     chunks  = pickle.load(open(f"{faiss_prefix}_chunks.pkl", "rb"))
     sources = pickle.load(open(f"{faiss_prefix}_sources.pkl", "rb"))
+    try:
+        metadata = pickle.load(open(f"{faiss_prefix}_meta.pkl", "rb"))
+    except Exception:
+        metadata = [{} for _ in range(len(chunks))]
 
     try:
         vectorizer = pickle.load(open(f"{meta_prefix}_tfidf.pkl", "rb"))
@@ -55,7 +60,7 @@ def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index
     except Exception:
         vectorizer, chunk_tags = None, None
 
-    return index, chunks, sources, vectorizer, chunk_tags
+    return index, chunks, sources, vectorizer, chunk_tags, metadata
 
 
 # -------------------------- Pretty previews -----------------------------
@@ -115,3 +120,62 @@ def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
     else:
         topk_idxs = ordered[:cfg.top_k]
     return topk_idxs
+
+
+# --------------------- Location-aware boosting ---------------------------
+def _extract_numbering_from_heading(heading: str) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Try to extract chapter and section numbering from a heading string like:
+      "## 19 Concurrency Control"
+      "## 19.3 ARIES Recovery"
+    Returns (chapter, section_str) where:
+      chapter: int or None
+      section_str: e.g., "19.3" or None
+    """
+    if not heading:
+        return None, None
+    m = re.search(r"(\d{1,3}(?:\.\d{1,3})*)", str(heading))
+    if not m:
+        return None, None
+    number = m.group(1)
+    if "." in number:
+        # section like 19.3 -> chapter 19
+        try:
+            ch = int(number.split(".")[0])
+        except Exception:
+            ch = None
+        return ch, number
+    try:
+        return int(number), None
+    except Exception:
+        return None, None
+
+
+def boost_by_location(ordered: List[int], metadata: List[Dict], cfg: QueryPlanConfig) -> List[int]:
+    """
+    Reorder indices in 'ordered' by boosting those whose metadata section matches
+    cfg.location_hint (chapter or section). Stable within equal bonus.
+    """
+    hint = getattr(cfg, "location_hint", None)
+    if not hint:
+        return ordered
+
+    want_ch = hint.get("chapter") if isinstance(hint, dict) else None
+    want_sec = hint.get("section") if isinstance(hint, dict) else None
+
+    def bonus_for_idx(idx: int) -> float:
+        try:
+            section_heading = metadata[idx].get("section")
+        except Exception:
+            section_heading = None
+        ch, sec = _extract_numbering_from_heading(section_heading or "")
+        bonus = 0.0
+        if want_sec and sec and str(sec).startswith(str(want_sec)):
+            bonus += 2.0
+        if want_ch is not None and ch is not None and int(ch) == int(want_ch):
+            bonus += 1.0
+        return bonus
+
+    with_bonus = [(idx, bonus_for_idx(idx), pos) for pos, idx in enumerate(ordered)]
+    with_bonus.sort(key=lambda t: (-t[1], t[2]))
+    return [idx for idx, _, _ in with_bonus]

@@ -1,6 +1,7 @@
 from src.config import QueryPlanConfig
 from src.chunking import CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, SectionChunkConfig
 from copy import deepcopy
+import re
 
 from src.planning.planner import QueryPlanner
 
@@ -27,6 +28,9 @@ class HeuristicQueryPlanner(QueryPlanner):
 
     def classify(self, query: str) -> str:
         q = query.lower()
+        # Check for location queries first
+        if any(x in q for x in ["where is", "where can", "where do", "where does", "in which", "what section", "what chapter"]):
+            return "location"
         if any(x in q for x in ["what is", "define", "definition"]):
             return "definition"
         if any(x in q for x in ["why", "explain", "because"]):
@@ -39,7 +43,26 @@ class HeuristicQueryPlanner(QueryPlanner):
         kind = self.classify(query)
         cfg = deepcopy(self.base_cfg)
 
-        if kind == "definition":
+        # --- extract optional location hints ---
+        # chapter: "chapter 19" or "ch. 19"
+        # section: "section 19.3" or "§19.3"
+        ch_match = re.search(r"\b(?:chapter|ch\.)\s*(\d{1,3})\b", query, flags=re.IGNORECASE)
+        sec_match = re.search(r"\b(?:section|sec\.|§)\s*(\d{1,3}(?:\.\d{1,3})+)\b", query, flags=re.IGNORECASE)
+        location_hint = None
+        if ch_match or sec_match:
+            location_hint = {
+                "chapter": int(ch_match.group(1)) if ch_match else None,
+                "section": sec_match.group(1) if sec_match else None,
+                "raw": query,
+            }
+            cfg.location_hint = location_hint
+
+        if kind == "location":
+            cfg.chunk_mode = "sections"
+            cfg.chunk_config = SectionChunkConfig()
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+
+        elif kind == "definition":
             cfg.chunk_mode = "tokens"
             cfg.chunk_config = TokenChunkConfig(max_tokens=200)
             cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.6, "tf-idf": 0.1}
