@@ -18,7 +18,7 @@ from typing import Callable, List, Tuple, Optional, Dict
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from src.embedder import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
 # Optional tag utilities (only used if vectorizer & chunk_tags are provided)
@@ -30,7 +30,7 @@ _EMBED_CACHE: Dict[str, SentenceTransformer] = {}
 
 def _get_embedder(model_name: str) -> SentenceTransformer:
     if model_name not in _EMBED_CACHE:
-        _EMBED_CACHE[model_name] = SentenceTransformer(model_name, device="cpu")
+        _EMBED_CACHE[model_name] = SentenceTransformer(model_name)
     return _EMBED_CACHE[model_name]
 
 
