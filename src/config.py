@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, Callable, Any
+from typing import Dict, Callable, Any, Optional
 
 import yaml
 
@@ -31,6 +31,12 @@ class QueryPlanConfig:
     max_gen_tokens: int
     
     model_path: os.PathLike
+
+    # citation settings
+    enable_citations: bool
+
+    # planner hints (optional, populated by planners)
+    location_hint: Optional[Dict[str, Any]] = None
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -71,7 +77,9 @@ class QueryPlanConfig:
             max_gen_tokens = pick("max_gen_tokens", 400),
             halo_mode      = pick("halo_mode", "none"),
             seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None)
+            model_path     = pick("model_path", None),
+            enable_citations = pick("enable_citations", True),
+            location_hint  = None,
         )
         cfg._validate()
         return cfg
@@ -117,6 +125,8 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "halo_mode": self.halo_mode,
             "max_gen_tokens": self.max_gen_tokens,
-            "model_path": self.model_path
+            "model_path": self.model_path,
+            "enable_citations": self.enable_citations,
+            "location_hint": self.location_hint,
         }
 

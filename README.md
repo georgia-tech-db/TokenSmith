@@ -15,7 +15,7 @@
 
 ## 📋 Requirements
 
-- **Python**: 3.9+ 
+- **Python**: 3.9+
 - **Conda/Miniconda**: For environment management
 - **System Requirements**:
   - macOS: Xcode Command Line Tools
@@ -25,45 +25,58 @@
 ## 🚀 Quick Start
 
 ### 1. Clone the Repository
+
 ```shell
 git clone https://github.com/georgia-tech-db/TokenSmith.git
 cd tokensmith
 ```
 
 ### One-command setup: creates conda env, builds llama.cpp, installs dependencies
+
 ```shell
 make build
 ```
+
 This will:
+
 - Create a conda environment named `tokensmith`
 - Install all Python dependencies
 - Detect or build llama.cpp with platform-specific optimizations
 - Install TokenSmith in development mode
 
 ### 3. Activate the Environment
+
 ```shell
 conda activate tokensmith
 ```
 
 ### 4. Prepare Your Documents
+
 Place your PDF files in the data directory
+
 ```shell
 mkdir -p data/chapters
 cp your-documents.pdf data/chapters/
 ```
 
 ### 5. Index Your Documents
+
 Index with default settings
+
 ```shell
 make run-index
 ```
+
 Or with custom parameters, eg.
+
 ```shell
 make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
 ```
 
 ### 6. Start Chatting
+
 Activate environment first (required for interactive mode)
+
 ```shell
 conda activate tokensmith
 python -m src.main chat
@@ -72,6 +85,7 @@ python -m src.main chat
 > You might have to download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into your `llama.cpp/models` if you get an error about a missing model.
 
 ### 7. Deactivate the Environment
+
 ```shell
 conda deactivate
 ```
@@ -85,6 +99,7 @@ TokenSmith uses YAML configuration files with the following priority order:
 3. Default config (`config/config.yaml`)
 
 ### Sample Configuration
+
 ```yaml
 # config/config.yaml
 
@@ -104,55 +119,64 @@ chunk_size_char: 20000
 ## 🎮 Usage
 
 ### Basic indexing
+
 ```shell
 make run-index
 ```
 
 ### Index specific PDF range
+
 ```shell
 make run-index ARGS="--pdf_range <start_page_number>-<end_page_number> --chunk_mode <tokens_or_chars>"
 ```
 
 ### Index with visualization and table preservation
+
 ```shell
 make run-index ARGS="--keep_tables --visualize --chunk_tokens <number_of_chunk_tokens>"
 ```
 
 ### Custom paths and settings
+
 ```shell
 make run-index ARGS="--pdf_dir <path_to_pdf> --index_prefix book_index --config <path_to_yaml_config_file>"
 ```
 
 ### Chat with custom settings
+
 ```shell
 python -m src.main chat --config <path_to_yaml_config_file> --model_path <path_to_llm_model>
 ```
 
 ### Build with existing llama.cpp installation
+
 ```shell
 export LLAMA_CPP_BINARY=/usr/local/bin/llama-cli
 make build
 ```
 
 ### Update environment with new dependencies
+
 ```shell
 make update-env
 ```
 
 ### Export environment for sharing
+
 ```shell
 make export-env
 ```
 
 ### Show installed packages
+
 ```shell
 make show-deps
 ```
 
-
 ## 📊 Command Line Arguments
 
 ### Core Arguments
+
 - `mode`: Operation mode (`index` or `chat`)
 - `--config`: Configuration file path
 - `--pdf_dir`: Directory containing PDF files
@@ -160,6 +184,7 @@ make show-deps
 - `--model_path`: Path to GGUF model file
 
 ### Indexing Arguments
+
 - `--pdf_range`: Process specific page range (e.g., "1-10")
 - `--chunk_mode`: Chunking strategy (`tokens` or `chars`)
 - `--chunk_tokens`: Tokens per chunk (default: 500)
@@ -170,6 +195,7 @@ make show-deps
 ## 🔨 Development
 
 ### Available Make Targets
+
 ```shell
 make help          # Show all available commands
 make env           # Create conda environment
@@ -184,13 +210,15 @@ make export-env # Export environment with exact versions
 ```
 
 ### Adding Dependencies
+
 ```shell
 # Add new conda package
 conda activate tokensmith
 conda install new-package
 ```
+
 Add to environment.yml for persistence. Edit environment.yml, then:
+
 ```shell
 make update-env
 ```
-
