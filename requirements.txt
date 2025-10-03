@@ -1,7 +1,0 @@
-pyyaml
-PyMuPDF
-faiss-cpu
-tqdm
-nltk
-sentence-transformers
-rank_bm25

@@ -68,3 +68,24 @@ run-chat:
 	@echo "Note: Chat mode requires interactive terminal. If this fails, use:"
 	@echo "  conda activate tokensmith && python -m src.main chat $(ARGS)"
 	conda run -n tokensmith --no-capture-output python -m src.main chat $(ARGS)
+
+# ================================== TESTING ==================================
+
+.PHONY: test-benchmarks list-metrics test-benchmarks-text test-benchmarks-semantic test-benchmarks-keyword
+
+test-benchmarks-text:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=text -v
+
+test-benchmarks-semantic:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=semantic -v
+
+test-benchmarks-keyword:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=keyword -v
+
+test-benchmarks:
+	@echo "Running with custom arguments, E.g. conda run -n tokensmith pytest tests/test_benchmarks.py --metric=text --metric=semantic --metric=keyword --threshold=0.75 -v"
+	conda run -n tokensmith pytest tests/test_benchmarks.py $(ARGS)
+
+# List available metrics
+list-metrics:
+	conda run -n tokensmith pytest tests/test_benchmarks.py --list_metrics
