@@ -65,6 +65,7 @@ def main():
                 sources=sources,
                 vectorizer=vectorizer,
                 chunk_tags=chunk_tags,
+                tag_weight=0.5, bm25_weight=0.5,
             )
             ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 

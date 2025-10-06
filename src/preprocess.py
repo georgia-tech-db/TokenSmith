@@ -19,7 +19,7 @@ import fitz  # PyMuPDF
 import faiss
 from tqdm import tqdm
 import nltk
-from sentence_transformers import SentenceTransformer
+from src.embedder import SentenceTransformer
 
 from src.chunking import ChunkStrategy, make_chunk_strategy, SlidingTokenStrategy
 from src.tagging import build_tfidf_tags
@@ -276,10 +276,10 @@ def build_index(
 
     # 3) embed
     print(f"🪄  Embedding {len(all_chunks):,} chunks with {model_name} …")
-    embedder = SentenceTransformer(model_name, device="cpu")
+    embedder = SentenceTransformer(model_name)
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
-    ).astype("float32")
+    )
 
     # 4) FAISS
     dim = embeddings.shape[1]
