@@ -23,7 +23,7 @@ def pytest_addoption(parser):
     
     # New metric selection options
     group.addoption("--metric", action="append", dest="metrics",
-                    help="Select specific metrics to evaluate. Options: text, semantic, keyword, bleu, nli, all")
+                    help="Select specific metrics to evaluate. Options: text, semantic, keyword, bleu, all")
     group.addoption("--threshold", type=float, default=None,
                     help="Override threshold for all tests")
     group.addoption("--list_metrics", action="store_true",

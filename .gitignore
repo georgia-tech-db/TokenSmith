@@ -1,7 +1,6 @@
 # RajShah-1 gitignore
 code-dump.txt
 .idea/
-logs/
 
 # --- Python ---
 __pycache__/
@@ -244,8 +243,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# --- Project-specific ignores ---
-# Local data and external repos cloned into src
-src/data/
-src/llama.cpp/
 tests/results

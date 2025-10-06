@@ -83,7 +83,7 @@ test-benchmarks-keyword:
 	conda run -n tokensmith pytest tests/test_benchmarks.py --metric=keyword -v
 
 test-benchmarks:
-	@echo "Running with custom CLI args: $(ARGS)"
+	@echo "Running with custom arguments, E.g. conda run -n tokensmith pytest tests/test_benchmarks.py --metric=text --metric=semantic --metric=keyword --threshold=0.75 -v"
 	conda run -n tokensmith pytest tests/test_benchmarks.py $(ARGS)
 
 # List available metrics
