@@ -248,3 +248,4 @@ __marimo__/
 # Local data and external repos cloned into src
 src/data/
 src/llama.cpp/
+tests/results
