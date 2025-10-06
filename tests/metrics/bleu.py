@@ -1,5 +1,5 @@
 from typing import List, Optional
-from .base import MetricBase
+from tests.metrics.base import MetricBase
 
 class BleuScoreMetric(MetricBase):
     """BLEU score similarity metric."""
@@ -12,19 +12,8 @@ class BleuScoreMetric(MetricBase):
     def weight(self) -> float:
         return 0.3
     
-    def is_available(self) -> bool:
-        """Check if NLTK is available."""
-        try:
-            import nltk
-            return True
-        except ImportError:
-            return False
-    
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
-        """Calculate BLEU score between answer and expected."""
-        if not self.is_available():
-            return 0.0
-        
+        """Calculate BLEU score between answer and expected."""        
         try:
             from nltk.translate.bleu_score import sentence_bleu
             reference = [expected.split()]
