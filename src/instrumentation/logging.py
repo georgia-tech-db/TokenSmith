@@ -142,7 +142,7 @@ class RunLogger:
         self.current_query_data["ensemble"] = ensemble_data
 
     def log_chunks_used(self, chunk_indices: List[int], chunks: List[str],
-                        sources: List[str], chunk_tags: Optional[List[List[str]]] = None):
+                        sources: List[str], chunk_tags: Optional[List[List[str]]] = None, preview: bool = False):
         """Log details about chunks selected for generation."""
         if not self.current_query_data:
             return
@@ -156,11 +156,22 @@ class RunLogger:
                 "char_length": len(chunks[idx]) if idx < len(chunks) else 0,
                 "word_count": len(chunks[idx].split()) if idx < len(chunks) else 0,
                 "has_table": "<table>" in chunks[idx].lower() if idx < len(chunks) else False,
-                "preview": (chunks[idx][:200] + "...") if idx < len(chunks) and len(chunks[idx]) > 200 else chunks[
-                    idx] if idx < len(chunks) else "",
+                "preview": chunks[idx],
                 "tags": chunk_tags[idx][:10] if chunk_tags and idx < len(chunk_tags) else []
             }
             chunks_data.append(chunk_info)
+        
+        if preview:
+            print("\n=== CHUNKS SELECTED FOR GENERATION ===")
+            for chunk in chunks_data:
+                print(f"Rank {chunk['rank']:2d} | Source: {chunk['source']} | "
+                    f"Chars: {chunk['char_length']:4d} | Words: {chunk['word_count']:4d} | "
+                    f"Has Table: {chunk['has_table']}")
+                preview = chunk['preview'].replace("\n", " ")
+                print(f"  Preview: {preview}")
+                if chunk['tags']:
+                    print(f"  Tags: {chunk['tags']}")
+            print("======================================\n")
 
         self.current_query_data["chunks_used"] = chunks_data
 

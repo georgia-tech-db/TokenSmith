@@ -7,7 +7,7 @@ from src.planning.heuristics import HeuristicQueryPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
-from src.retriever import get_candidates, apply_seg_filter
+from src.retriever import get_candidates, apply_seg_filter, print_preview, print_preview_idxs
 from src.ranker import rerank
 from src.generator import answer
 
@@ -115,10 +115,7 @@ def main():
                 pool_n,
                 index,
                 chunks,
-                embed_model=cfg.embed_model,
-                preview=args.preview,
-                sources=sources,
-                chunk_tags=chunk_tags,
+                embed_model=cfg.embed_model
             )
             logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
 
@@ -145,13 +142,13 @@ def main():
             )
 
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
-            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags)
+            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags, args.preview)
 
             # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
             # HALO Stub (NO OP for now)
-            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
+            # ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
 
             ans = answer(
                 q,

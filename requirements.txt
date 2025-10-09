@@ -1,0 +1,20 @@
+pyyaml
+PyMuPDF
+faiss-cpu
+tqdm
+nltk
+sentence-transformers
+transformers
+torch
+rank_bm25
+scikit-learn
+matplotlib
+openai
+backoff
+
+# Added for LLM-based chunking
+langchain
+langchain-core
+langchain-openai
+langchain-experimental
+langchainhub

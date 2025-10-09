@@ -19,7 +19,7 @@ import fitz  # PyMuPDF
 import faiss
 from tqdm import tqdm
 import nltk
-from sentence_transformers import SentenceTransformer
+from src.embedder import Embedder
 
 from src.chunking import ChunkStrategy, SectionChunkConfig, SlidingTokenStrategy
 from src.config import QueryPlanConfig
@@ -306,7 +306,7 @@ def build_index(
 
     # 3) embed
     print(f"🪄  Embedding {len(all_chunks):,} chunks with {cfg.embed_model} …")
-    embedder = SentenceTransformer(cfg.embed_model, device="cpu")
+    embedder = Embedder(cfg.embed_model, device="cpu")
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
     ).astype("float32")
