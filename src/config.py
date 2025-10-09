@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Dict, Callable, Any
+import pathlib
 
 import yaml
 
@@ -36,15 +37,17 @@ class QueryPlanConfig:
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_faiss_prefix(self, out_prefix: str) -> str:
+    def get_faiss_prefix(self, out_prefix: str) -> os.PathLike:
         strategy = self.make_strategy()
-        os.makedirs(f"index/{strategy.artifact_folder_name()}", exist_ok=True)
-        return f"index/{strategy.artifact_folder_name()}/{out_prefix}"
+        strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
+        strategy_dir.mkdir(parents=True, exist_ok=True)
+        return strategy_dir / out_prefix
 
     def get_tfidf_prefix(self, out_prefix: str) -> str:
         strategy = self.make_strategy()
-        os.makedirs(f"index/{strategy.artifact_folder_name()}/meta", exist_ok=True)
-        return f"index/{strategy.artifact_folder_name()}/meta/{out_prefix}"
+        meta_dir = pathlib.Path("index", strategy.artifact_folder_name(), "meta")
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        return meta_dir / out_prefix
 
     # ---------- factory + validation ----------
     @staticmethod
