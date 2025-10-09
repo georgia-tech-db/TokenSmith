@@ -28,6 +28,13 @@ def parse_args():
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
     p.add_argument("--keep_tables", action="store_true")
     p.add_argument("--visualize", action="store_true")
+    
+    # Markdown and chunking options
+    p.add_argument("--use_markdown", action="store_true", 
+                   help="Use markdown file instead of PDFs for processing")
+    p.add_argument("--markdown_file", default="data/book_without_image.md",
+                   help="Path to markdown file (used when --use_markdown is set)")
+    p.add_argument("--preview", action="store_true", help="Preview candidates before selection")
 
     return p.parse_args()
 
@@ -83,6 +90,8 @@ def main():
             keep_tables=args.keep_tables,
             pdf_files=pdf_paths,
             do_visualize=args.visualize,
+            use_markdown=args.use_markdown,
+            markdown_file=args.markdown_file
         )
         print("Index built ✓")
 
@@ -107,6 +116,9 @@ def main():
                 index,
                 chunks,
                 embed_model=cfg.embed_model,
+                preview=args.preview,
+                sources=sources,
+                chunk_tags=chunk_tags,
             )
             logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
 

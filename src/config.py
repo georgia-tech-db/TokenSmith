@@ -6,8 +6,13 @@ from typing import Dict, Callable, Any
 
 import yaml
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
-    SectionChunkConfig, ChunkConfig
+from src.chunking import ChunkStrategy, PropositionalChunkConfig, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
+    SectionChunkConfig, LLMChunkConfig, ChunkConfig
+from src.chunking_constants import (
+    CHUNK_MODE_CHARS, CHUNK_MODE_TOKENS, CHUNK_MODE_SLIDING_TOKENS, 
+    CHUNK_MODE_SECTIONS, CHUNK_MODE_LLM, CHUNK_MODE_PROPOSITIONAL,
+    validate_chunk_mode
+)
 
 
 @dataclass
@@ -54,7 +59,7 @@ class QueryPlanConfig:
         def pick(key, default=None):
             return raw.get(key, default)
 
-        chunk_mode, chunk_config = QueryPlanConfig.get_chunk_config(raw)
+        _, chunk_config = QueryPlanConfig.get_chunk_config(raw)
 
         cfg = QueryPlanConfig(
             # Chunking
@@ -78,22 +83,50 @@ class QueryPlanConfig:
 
     @staticmethod
     def get_chunk_config(raw):
-        chunk_mode = raw.get("chunk_mode", "chars").lower()
+        """
+        Parse chunking configuration from YAML.
+        
+        Available chunking strategies:
+        - chars: Character-based chunking with fixed character limits
+        - tokens: Token-based chunking using word count as proxy  
+        - sliding-tokens: True token-based chunking with overlap using HF tokenizer
+        - sections: Section-based chunking using numeric headings (1.1, 2.3, etc.)
+        - llm: LLM-based semantic chunking using OpenAI API
+        - propositional: LLM-based propositional chunking for atomic sentences
+        """
+        chunk_mode = raw.get("chunk_mode", CHUNK_MODE_CHARS).lower()
+        
+        # Validate chunk mode
+        if not validate_chunk_mode(chunk_mode):
+            raise ValueError(f"Unknown chunk_mode: {chunk_mode}. Available modes: {', '.join([CHUNK_MODE_CHARS, CHUNK_MODE_TOKENS, CHUNK_MODE_SLIDING_TOKENS, CHUNK_MODE_SECTIONS, CHUNK_MODE_LLM, CHUNK_MODE_PROPOSITIONAL])}")
+        
         chunk_config = None
-        if chunk_mode == "chars":
+        if chunk_mode == CHUNK_MODE_CHARS:
             chunk_config = CharChunkConfig(raw.get("chunk_size_char", 20_000))
-        elif chunk_mode == "tokens":
+        elif chunk_mode == CHUNK_MODE_TOKENS:
             chunk_config = TokenChunkConfig(raw.get("chunk_tokens", 500))
-        elif chunk_mode == "sliding-tokens":
+        elif chunk_mode == CHUNK_MODE_SLIDING_TOKENS:
             chunk_config = SlidingTokenConfig(
                 max_tokens=raw.get("chunk_tokens", 350),
                 overlap_tokens=raw.get("overlap_tokens", 80),
                 tokenizer_name=raw.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
             )
-        elif chunk_mode == "sections":
+        elif chunk_mode == CHUNK_MODE_SECTIONS:
             chunk_config = SectionChunkConfig()
-        else:
-            raise ValueError(f"Unknown chunk_mode: {chunk_mode}")
+        elif chunk_mode == CHUNK_MODE_LLM:
+            chunk_config = LLMChunkConfig(
+                max_tokens=raw.get("chunk_tokens", 350),
+                overlap_tokens=raw.get("overlap_tokens", 80),
+                tokenizer_name=raw.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+                open_ai_api_key=raw.get("open_ai_api_key", "")
+            )
+        elif chunk_mode == CHUNK_MODE_PROPOSITIONAL:
+            chunk_config = PropositionalChunkConfig(
+                model_name= "gpt-3.5-turbo",
+                hub_spec= "wfh/proposal-indexing",
+                open_ai_api_key=raw.get("open_ai_api_key", ""),
+                max_paragraphs= None
+            )
         return chunk_mode, chunk_config
 
     def _validate(self) -> None:

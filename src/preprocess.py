@@ -21,7 +21,7 @@ from tqdm import tqdm
 import nltk
 from sentence_transformers import SentenceTransformer
 
-from src.chunking import ChunkStrategy, SlidingTokenStrategy
+from src.chunking import ChunkStrategy, SectionChunkConfig, SlidingTokenStrategy
 from src.config import QueryPlanConfig
 from src.extracting.extraction import chunk_markdown_by_headings
 from src.ranking.tagging import build_tfidf_tags
@@ -128,6 +128,121 @@ def _resolve_pdf_paths(
         paths = sorted(base.glob("*.pdf"))
     return paths
 
+def _make_meta(
+    filename: str,
+    chunk: str,
+    chunk_id: int,
+    mode: str,
+    keep_tables: bool,
+    section: str,
+    strategy: ChunkStrategy,
+) -> Dict:
+    """Build consistent metadata dict for a chunk."""
+    has_table = bool(DocumentChunker.TABLE_RE.search(chunk))
+    meta = {
+        "filename": filename,
+        "chunk_id": chunk_id,
+        "mode": mode,
+        "keep_tables": keep_tables,
+        "char_len": len(chunk),
+        "word_len": len(chunk.split()),
+        "has_table": has_table,
+        "section": section,
+        "text_preview": chunk[:100],
+    }
+    if isinstance(strategy, SlidingTokenStrategy):
+        meta.update(
+            max_tokens=strategy.max_tokens,
+            overlap_tokens=strategy.overlap_tokens,
+            tokenizer_name=strategy.tokenizer_name,
+        )
+    elif hasattr(strategy, "config") and hasattr(strategy.config, "model_name"):
+        meta.update(
+            llm_model=strategy.config.model_name,
+        )
+    return meta
+
+def _process_markdown(
+    markdown_file: str,
+    chunker: DocumentChunker,
+    strategy: ChunkStrategy,
+    keep_tables: bool,
+    cfg: QueryPlanConfig
+):
+    """Process markdown file: either pure section splits or recursive chunking inside sections."""
+    print(f"Processing markdown file: {markdown_file}")
+
+    all_chunks, sources, metadata = [], [], []
+    sections = chunk_markdown_by_headings(markdown_file)
+    section_only = isinstance(cfg.chunk_config, SectionChunkConfig)
+
+    for i, sec in enumerate(sections):
+        section_heading = sec["heading"]
+        section_text = sec["content"]
+
+        if section_only:
+            # just use the raw section as a chunk
+            chunks = [section_text]
+        else:
+            # further chunk inside section text
+            chunks = chunker.chunk(section_text)
+
+        for j, chunk in enumerate(chunks):
+            meta = _make_meta(
+                filename=markdown_file,
+                chunk=chunk,
+                chunk_id=j,
+                mode="sections" if section_only else cfg.chunk_config.to_string(),
+                keep_tables=keep_tables,
+                section=section_heading,
+                strategy=strategy,
+            )
+            all_chunks.append(chunk)
+            sources.append(markdown_file)
+            metadata.append(meta)
+
+    return all_chunks, sources, metadata
+
+
+def _process_pdfs(
+    pdf_dir: str,
+    pdf_range: Optional[Tuple[int, int]],
+    pdf_files: Optional[List[str]],
+    chunker: DocumentChunker,
+    strategy: ChunkStrategy,
+    keep_tables: bool,
+    cfg: QueryPlanConfig,
+):
+    """Process PDF files into chunks + metadata."""
+    all_chunks, sources, metadata = [], [], []
+    pdf_paths = _resolve_pdf_paths(pdf_dir, pdf_range, pdf_files)
+    if not pdf_paths:
+        raise FileNotFoundError(
+            f"No PDFs found in {pdf_dir} (range={pdf_range}, files={pdf_files})"
+        )
+
+    for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
+        with fitz.open(path) as doc:
+            full_text = "".join(page.get_text() for page in doc)
+
+        headers = guess_section_headers(full_text)
+        chunks = chunker.chunk(full_text)
+
+        for i, chunk in enumerate(chunks):
+            meta = _make_meta(
+                filename=str(path),
+                chunk=chunk,
+                chunk_id=i,
+                mode=cfg.chunk_config.to_string(),
+                keep_tables=keep_tables,
+                section=headers[i] if i < len(headers) else "Unknown",
+                strategy=strategy,
+            )
+            all_chunks.append(chunk)
+            sources.append(str(path))
+            metadata.append(meta)
+
+    return all_chunks, sources, metadata
 
 def build_index(
     pdf_dir: str,
@@ -138,6 +253,8 @@ def build_index(
     pdf_range: Optional[Tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[List[str]] = None,        # e.g., ["27.pdf","28.pdf"]
     do_visualize: bool = False,
+    use_markdown: bool = False,
+    markdown_file: str = "data/book_without_image.md"
 ) -> None:
     """
     Extract PDFs from *pdf_dir*, chunk (table-safe), embed, build FAISS, and persist:
@@ -151,48 +268,28 @@ def build_index(
     strategy: ChunkStrategy = cfg.make_strategy()
     chunker = DocumentChunker(strategy, keep_tables=keep_tables)
 
-    pdf_paths = _resolve_pdf_paths(pdf_dir, pdf_range, pdf_files)
-    if not pdf_paths:
-        raise FileNotFoundError(
-            f"No PDFs found in {pdf_dir} (range={pdf_range}, files={pdf_files})"
-        )
-
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
-    #TODO Hardcoding the markdown file path for now. Can be changed later.
-    markdown_file = 'data/book_without_image.md' 
 
-    sections = chunk_markdown_by_headings(markdown_file)
-
-    # for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
-    #     with fitz.open(path) as doc:
-    #         full_text = "".join(page.get_text() for page in doc)
-
-    #     headers = guess_section_headers(full_text)
-    #     chunks = chunker.chunk(full_text)
-
-    for i, c in enumerate(sections):
-        has_table = bool(DocumentChunker.TABLE_RE.search(c['content']))
-        meta = {
-            "filename": markdown_file,
-            "chunk_id": i,
-            "mode": cfg.chunk_config.to_string(),
-            "keep_tables": keep_tables,
-            "char_len": len(c['content']),
-            "word_len": len(c['content'].split()),
-            "has_table": has_table,
-            "section": c['heading'], 
-            "text_preview": c['content'][:100]
-        }
-        if isinstance(strategy, SlidingTokenStrategy):
-            meta["max_tokens"] = strategy.max_tokens
-            meta["overlap_tokens"] = strategy.overlap_tokens
-            meta["tokenizer_name"] = strategy.tokenizer_name
-
-        all_chunks.append(c['content'])
-        sources.append(markdown_file)
-        metadata.append(meta)
+    if use_markdown:
+        all_chunks, sources, metadata = _process_markdown(
+            markdown_file,
+            chunker,
+            strategy,
+            keep_tables,
+            cfg
+        )
+    else:
+        all_chunks, sources, metadata = _process_pdfs(
+            pdf_dir,
+            pdf_range,
+            pdf_files,
+            chunker,
+            strategy,
+            keep_tables,
+            cfg,
+        )
 
     # 2) Tag the chunks (offline)
     print("🏷️  Building TF-IDF tags …")

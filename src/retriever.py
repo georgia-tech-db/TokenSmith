@@ -59,7 +59,8 @@ def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index
 
 
 # -------------------------- Pretty previews -----------------------------
-def _print_preview(chunks: List[str], n_preview: int = 100) -> None:
+def _print_preview(chunks: List[str]) -> None:
+    n_preview = 100
     for i, c in enumerate(chunks, 1):
         snippet = (c or "")[:n_preview].replace("\n", " ")
         print(f"[retriever] top{i:02d} → {len(c)} chars | {snippet!r}")
@@ -70,8 +71,8 @@ def _print_preview_idxs(
     srcs: List[str],
     tags: Optional[List[List[str]]],
     idxs: List[int],
-    n_preview: int = 100,
 ) -> None:
+    n_preview = 100
     for rank, i in enumerate(idxs, 1):
         snippet = (chunks[i] or "")[:n_preview].replace("\n", " ")
         show_tags = (tags[i][:5] if tags else [])
@@ -83,8 +84,11 @@ def get_candidates(
     pool_size: int,
     index: faiss.Index,
     chunks: List[str],
+    sources: List[str],
+    chunk_tags: List[List[str]],
     *,
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    preview: bool = False,
 ) -> Tuple[List[int], Dict[int, float]]:
     """
     Returns (cand_idxs, faiss_distances) for top 'pool_size'.
@@ -104,6 +108,10 @@ def get_candidates(
     D, I = index.search(q_vec, pool_size)
     cand_idxs = [i for i in I[0].tolist() if 0 <= i < len(chunks)]
     dists = {i: float(d) for i, d in zip(cand_idxs, D[0][:len(cand_idxs)])}
+    
+    if preview:
+        _print_preview(chunks)
+        _print_preview_idxs(chunks, sources, chunk_tags, cand_idxs)
     return cand_idxs, dists
 
 def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
