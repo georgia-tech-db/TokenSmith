@@ -1,6 +1,6 @@
 import difflib
 from typing import List, Optional
-from tests.metrics.base import MetricBase
+from .base import MetricBase
 
 class TextSimilarityMetric(MetricBase):
     """Text similarity using sequence matching."""
