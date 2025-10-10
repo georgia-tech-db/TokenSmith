@@ -69,9 +69,8 @@ def text_cleaning(prompt):
         text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
     return text
 
-def format_prompt(chunks, query, max_chunk_chars=400):
-    trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
-    context = "\n\n".join(trimmed)
+def format_prompt(chunks, query):
+    context = "\n\n".join(chunks)
     context = text_cleaning(context)
     return textwrap.dedent(f"""\
         <|im_start|>system
@@ -104,7 +103,7 @@ def _extract_answer(raw: str) -> str:
     return text.split(ANSWER_END)[0].strip()
 
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
-                  threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.3):
+                  threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.2):
     llama_binary = resolve_llama_binary()
     cmd = [
         llama_binary,
@@ -114,17 +113,17 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
         "-t", str(threads),
         # "--ngl", str(n_gpu_layers),
         "--temp", str(temperature),
-        "--top-k", "40",
+        "--top-k", "20",
         "--top-p", "0.9",
-        "--min-p", "0.05",
-        "--typical", "1.0",
+        #"--min-p", "0.05",
+        #"--typical", "1.0",
         "--repeat-penalty", "1.15",
         "--repeat-last-n", "256",
-        "--mirostat", "2",
-        "--mirostat-ent", "5",
-        "--mirostat-lr", "0.1",
-        "--no-mmap",
-        "-no-cnv",
+        #"--mirostat", "2",
+        #"--mirostat-ent", "3.5",
+        #"--mirostat-lr", "0.1",
+        #"--no-mmap",
+        #"-no-cnv",
         "-r", ANSWER_END,
     ]
     proc = subprocess.Popen(
