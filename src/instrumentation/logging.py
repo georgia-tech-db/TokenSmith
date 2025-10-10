@@ -142,7 +142,8 @@ class RunLogger:
         self.current_query_data["ensemble"] = ensemble_data
 
     def log_chunks_used(self, chunk_indices: List[int], chunks: List[str],
-                        sources: List[str], chunk_tags: Optional[List[List[str]]] = None):
+                        sources: List[str], chunk_tags: Optional[List[List[str]]],
+                        ordered: List[int]):
         """Log details about chunks selected for generation."""
         if not self.current_query_data:
             return
@@ -156,13 +157,30 @@ class RunLogger:
                 "char_length": len(chunks[idx]) if idx < len(chunks) else 0,
                 "word_count": len(chunks[idx].split()) if idx < len(chunks) else 0,
                 "has_table": "<table>" in chunks[idx].lower() if idx < len(chunks) else False,
-                "preview": (chunks[idx][:200] + "...") if idx < len(chunks) and len(chunks[idx]) > 200 else chunks[
-                    idx] if idx < len(chunks) else "",
-                "tags": chunk_tags[idx][:10] if chunk_tags and idx < len(chunk_tags) else []
+                "chunks": chunks[idx] if idx < len(chunks) else "",
+                "tags": chunk_tags[idx] if chunk_tags and idx < len(chunk_tags) else []
             }
             chunks_data.append(chunk_info)
 
+        chunks_discarded = []
+        chunk_indices_set = set(chunk_indices)
+        for i, idx in enumerate(ordered):
+            if idx in chunk_indices_set:
+                continue
+            chunk_info = {
+                "rank": i + 1,
+                "global_index": idx,
+                "source": sources[idx] if idx < len(sources) else "unknown",
+                "char_length": len(chunks[idx]) if idx < len(chunks) else 0,
+                "word_count": len(chunks[idx].split()) if idx < len(chunks) else 0,
+                "has_table": "<table>" in chunks[idx].lower() if idx < len(chunks) else False,
+                "chunks": chunks[idx] if idx < len(chunks) else "",
+                "tags": chunk_tags[idx] if chunk_tags and idx < len(chunk_tags) else []
+            }
+            chunks_discarded.append(chunk_info)
+
         self.current_query_data["chunks_used"] = chunks_data
+        self.current_query_data["chunks_discarded"] = chunks_discarded
 
     def log_generation(self, response: str, generation_params: Dict[str, Any],
                        prompt_length_estimate: Optional[int] = None):
@@ -191,6 +209,7 @@ class RunLogger:
 
         self._write_log(self.current_query_data)
         self.current_query_data = {}  # Reset for next query
+        print(f'Logging completed for {self.session_id}.')
 
     def log_error(self, error: Exception, context: str = ""):
         """Log errors during processing."""

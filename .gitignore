@@ -2,6 +2,10 @@
 code-dump.txt
 .idea/
 logs/
+data/plots
+data/unused_data
+data/*.pdf
+report.html
 
 # --- Python ---
 __pycache__/

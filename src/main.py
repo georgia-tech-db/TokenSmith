@@ -95,7 +95,7 @@ def main():
             if q.lower() in {"exit", "quit"}:
                 break
             logger.log_query_start(q)
-            cfg = planner.plan(q)
+            # cfg = planner.plan(q)
             index, chunks, sources, vectorizer, chunk_tags = load_artifacts(
                 cfg.index_prefix, cfg
             )
@@ -133,7 +133,7 @@ def main():
             )
 
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
-            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags)
+            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags, ordered)
 
             # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]
