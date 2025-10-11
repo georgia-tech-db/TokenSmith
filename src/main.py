@@ -57,21 +57,39 @@ def main():
             if q.lower() in {"exit","quit"}:
                 break
 
+            # Get retrieval configuration from config.yaml
+            retrieval_method = cfg.get("retrieval_method", "hybrid")
+            faiss_weight = cfg.get("faiss_weight", 0.5)
+            bm25_weight = cfg.get("bm25_weight", 0.3)
+            tag_weight = cfg.get("tag_weight", 0.2)
+            
+            # Normalize weights if they don't sum to 1.0
+            total_weight = faiss_weight + bm25_weight + tag_weight
+            if total_weight > 0:
+                faiss_weight = faiss_weight / total_weight
+                bm25_weight = bm25_weight / total_weight
+                tag_weight = tag_weight / total_weight
+
             cands  = retrieve(
-                q, cfg["top_k"], index, chunks,
+                q, cfg.get("top_k", 5), index, chunks,
                 embed_model=cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
                 seg_filter=cfg.get("seg_filter"),
                 preview=True,                      # hide 100-char previews
                 sources=sources,
                 vectorizer=vectorizer,
                 chunk_tags=chunk_tags,
-                tag_weight=0.5, bm25_weight=0.5,
+                bm25_weight=bm25_weight,
+                tag_weight=tag_weight,
             )
             ranked = rerank(q, cands, mode=cfg.get("halo_mode", "none"))
 
+            # Use generator_model from config if available, fallback to args.model_path
+            model_path = cfg.get("generator_model", args.model_path)
+            
             ans = answer(
-                q, ranked, args.model_path,
+                q, ranked, model_path,
                 max_tokens=cfg.get("max_gen_tokens", 400),
+                system_prompt_mode=cfg.get("system_prompt_mode", "tutor"),
             )
             print("\n=== ANSWER =========================================\n")
             print(ans if ans.strip() else "(no output)")

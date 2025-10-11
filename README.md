@@ -193,79 +193,65 @@ Add to environment.yml for persistence. Edit environment.yml, then:
 make update-env
 ```
 
-## 📊 Benchmark Testing Framework
+## 🧪 Testing Framework
 
-TokenSmith includes a comprehensive benchmark testing framework that evaluates answer quality across multiple similarity metrics. The framework uses pytest with YAML-defined test cases for easy management and execution.
+TokenSmith includes a powerful and flexible testing framework for evaluating RAG performance across multiple dimensions. The framework supports:
 
-### Adding New Test Cases
+- **Multiple output modes**: Terminal (detailed) or HTML (reports)
+- **Model comparison**: Easy switching between generator and embedding models
+- **Retrieval experimentation**: Test different retrieval methods (FAISS, BM25, Tag, Hybrid) with configurable weights
+- **System prompts**: Four prompt modes (baseline, tutor, concise, detailed)
+- **Component isolation**: Test generator alone, with golden chunks, or full RAG pipeline
+- **Comprehensive metrics**: Semantic similarity, BLEU, keyword matching, and more
 
-Test cases are defined in `tests/benchmarks.yaml`. Each benchmark includes a question, expected answer, keywords, and similarity threshold:
-```yaml
-# tests/benchmarks.yaml
-benchmarks:
+### Quick Start
 
-  - id: "unique_test_id"
-    question: "Your question here?"
-    expected_answer: "The expected answer that should be generated."
-    keywords: ["key", "terms", "to", "match"]
-    similarity_threshold: 0.65 # Minimum score to pass (0.0-1.0)
-
-  - id: "ml_basics"
-    question: "What is machine learning?"
-    expected_answer: "Machine learning is a subset of artificial intelligence that enables computers to learn and make decisions from data without being explicitly programmed."
-    keywords: ["machine learning", "artificial intelligence", "data", "learn", "algorithm"]
-    similarity_threshold: 0.6
-```
-
-
-### Test Case Configuration
-
-**Required fields:**
-- `id`: Unique identifier for the test case
-- `question`: The question to ask TokenSmith
-- `expected_answer`: Reference answer for comparison
-- `keywords`: List of important terms to check for
-- `similarity_threshold`: Minimum similarity score (0.6-0.8 recommended)
-
-**Scoring weights:**
-- Text similarity: 30%
-- Semantic similarity: 50% 
-- Keyword matching: 20%
-
-### Run all benchmarks
 ```shell
-make test-benchmarks
+# Run all benchmarks with HTML report
+pytest tests/
+
+# Run with detailed terminal output
+pytest tests/ --output-mode=terminal
+
+# Run specific benchmark
+pytest tests/ --benchmark-ids="transactions" --output-mode=terminal
 ```
 
-### Run with custom parameters
+### Common Testing Patterns
+
 ```shell
-make test-benchmarks ARGS="--index-prefix my_test_index --timeout 600 --model_path models/custom-model.gguf"
+# Test different system prompts
+pytest tests/ --system-prompt=concise --benchmark-ids="transactions" --output-mode=terminal
+
+# Test different retrieval methods
+pytest tests/ --retrieval-method=faiss --output-mode=terminal
+
+# Test generator alone (no RAG)
+pytest tests/ --disable-chunks --output-mode=terminal
+
+# Configure hybrid retrieval weights
+pytest tests/ --faiss-weight=0.6 --bm25-weight=0.3 --tag-weight=0.1
 ```
 
-### Skip slow tests (good for CI)
-```shell
-make test-quick
-```
+### Results
 
-### Run specific test by ID
-```shell
-conda activate tokensmith
-pytest tests/test_benchmarks.py::test_tokensmith_benchmark -k "ml_basics" -v
-```
-
-### Viewing Results
-
-**Test results are automatically generated in:**
+Test results are automatically saved in:
 - `tests/results/benchmark_results.json` - Detailed JSON data
-- `tests/results/benchmark_summary.html` - Visual HTML report
-- `tests/results/failed_tests.log` - Failed test details
+- `tests/results/benchmark_summary.html` - Interactive HTML report
+- `tests/results/failed_tests.log` - Failure details
 
-**Open HTML report:**
-```shell
-make show-test-results
-```
+### Complete Testing Documentation
 
-### Clean previous results
-```shell
-make clean-test-results
-```
+For comprehensive testing documentation, see:
+- **[tests/README.md](tests/README.md)** - Complete testing guide
+- **[tests/QUICK_REFERENCE.md](tests/QUICK_REFERENCE.md)** - Quick reference card
+- **Configuration**: All testing options in `config/config.yaml` and CLI arguments
+
+### Key Features
+
+- ✅ **Flexible Configuration**: Set defaults in config.yaml, override with CLI
+- ✅ **No Timeouts**: Tests run to completion for reliable results
+- ✅ **Golden Chunks**: Test with pre-selected optimal chunks
+- ✅ **Ablation Studies**: Easy component isolation and comparison
+- ✅ **Multiple Metrics**: Semantic, BLEU, keyword, and text similarity
+- ✅ **Beautiful Reports**: HTML reports with metric breakdowns
