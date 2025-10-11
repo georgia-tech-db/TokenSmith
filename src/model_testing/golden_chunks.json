@@ -1,12 +1,18 @@
 [
     {
-        "query": "what is an apple?",
+        "query": "What is the difference between Third Normal Form (3NF) and Boyce-Codd Normal Form (BCNF) when it comes to handling overlapping candidate keys?",
         "golden_chunks": [
-            "apple is the best fruit in the world",
-            "an apple a day keeps the doctor away",
-            "apple has malic acid",
-            "apple has red colour",
-            "apple is juicy"
+            "BCNF requires that all nontrivial dependencies be of the form α → β, where α is a superkey. 3NF relaxes this constraint slightly by allowing nontrivial functional de- pendencies whose left side is not a superkey. A relation schema R is in third normal form (3NF) with respect to a set F of func- tional dependencies if, for all functional dependencies in F+ of the form α → β, where α ⊆ R and β ⊆ R, at least one of the following holds: α → β is a trivial functional dependency. • α is a superkey for R. Each attribute A in β − α is contained in a candidate key for R.",
+            "One of the more desirable normal forms that we can obtain is Boyce–Codd normal form (BCNF). A relation schema R is in BCNF with respect to a set F of functional dependencies if, for all functional dependencies in F + of the form α → β, where α ⊆ R and β ⊆ R, at least one of the following holds: • α → β is a trivial functional dependency (that is, β ⊆ α). • α is a superkey for schema R."
+        ]
+    },
+    {
+        "query": "Explain the phantom anomaly and how index locking prevents it.",
+        "golden_chunks": [
+            "Consider transaction T29 that executes the following SQL query on the bank database: select sum(balance) from account where branch-name = ’Perryridge’ Transaction T29 requires access to all tuples of the account relation pertaining to the Perryridge branch. Let T30 be a transaction that executes the following SQL insertion: insert into account values (A-201, Perryridge, 900) Let S be a schedule involving T29 and T30. We expect there to be potential for a conflict for the following reasons: If T29 uses the tuple newly inserted by T30 in computing sum(balance), then T29 read a value written by T30. Thus, in a serial schedule equivalent to S, T30 must come before T29. If T29 does not use the tuple newly inserted by T30 in computing sum(balance), then in a serial schedule equivalent to S, T29 must come before T30. The second of these two cases is curious. T29 and T30 do not access any tuple in common, yet they conflict with each other! In effect, T29 and T30 conflict on a phantom tuple. If concurrency control is performed at the tuple granularity, this conflict would go undetected. This problem is called the phantom phenomenon.",
+            "Clearly, it is not sufficient merely to lock the tuples that are accessed; the informa- tion used to find the tuples that are accessed by the transaction must also be locked. The simplest solution to this problem is to associate a data item with the relation; the data item represents the information used to find the tuples in the relation. Trans- actions, such as T29, that read the information about what tuples are in a relation would then have to lock the data item corresponding to the relation in shared mode. Transactions, such as T30, that update the information about what tuples are in a re- lation would have to lock the data item in exclusive mode. Thus, T29 and T30 would conflict on a real data item, rather than on a phantom.",
+            "A better solution is the index-locking technique. Any transaction that inserts a tuple into a relation must insert information into every index maintained on the re- lation. We eliminate the phantom phenomenon by imposing a locking protocol for indices. For simplicity we shall only consider B+-tree indices."
+
         ]
     }
 ]
