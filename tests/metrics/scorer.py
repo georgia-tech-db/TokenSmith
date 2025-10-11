@@ -1,5 +1,5 @@
 from typing import Dict, List, Any, Optional
-from .registry import MetricRegistry
+from tests.metrics.registry import MetricRegistry
 
 
 class SimilarityScorer:

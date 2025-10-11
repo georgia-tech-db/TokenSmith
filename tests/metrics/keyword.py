@@ -1,5 +1,5 @@
 from typing import List, Optional
-from tests.utils.metrics.base import MetricBase
+from tests.metrics.base import MetricBase
 
 class KeywordMatchMetric(MetricBase):
     """Keyword matching metric."""

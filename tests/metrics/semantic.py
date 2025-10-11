@@ -1,7 +1,7 @@
 import os
 import warnings
 from typing import List, Optional
-from .base import MetricBase
+from tests.metrics.base import MetricBase
 
 class SemanticSimilarityMetric(MetricBase):
     """Semantic similarity using sentence transformers."""
