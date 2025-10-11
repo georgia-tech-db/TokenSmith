@@ -233,7 +233,7 @@ def setup_results_file(results_dir):
 def pytest_sessionstart(session):
     """Handle session start - check for list-metrics flag."""
     if session.config.getoption("--list-metrics"):
-        from tests.utils.metrics import MetricRegistry
+        from tests.metrics import MetricRegistry
         registry = MetricRegistry()
         available = registry.list_metric_names()
         print(f"\n📊 Available metrics: {', '.join(available)}\n")

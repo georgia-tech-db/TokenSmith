@@ -1,10 +1,7 @@
 import json
-# import sys
 from pathlib import Path
 from datetime import datetime
-
-from tests.utils.metrics import SimilarityScorer
-# from tests.utils.answer_parser import extract_answer_from_output
+from tests.metrics import SimilarityScorer
 
 
 def test_tokensmith_benchmarks(benchmarks, config, results_dir):
