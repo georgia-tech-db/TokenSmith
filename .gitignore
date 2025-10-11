@@ -26,6 +26,7 @@ config.yaml
 
 # --- Data & generated artefacts ---
 chapters/
+data/
 *.faiss
 *.pkl
 
