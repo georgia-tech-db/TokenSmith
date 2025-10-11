@@ -19,6 +19,7 @@ import fitz  # PyMuPDF
 import faiss
 from tqdm import tqdm
 import nltk
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
 from src.chunking import ChunkStrategy, SlidingTokenStrategy
@@ -190,9 +191,11 @@ def build_index(
             meta["overlap_tokens"] = strategy.overlap_tokens
             meta["tokenizer_name"] = strategy.tokenizer_name
 
-        all_chunks.append(c['content'])
-        sources.append(markdown_file)
-        metadata.append(meta)
+        sub_chunks = recursive_split(c['content'])
+        for sub_c in sub_chunks:
+            all_chunks.append(sub_c)
+            sources.append(markdown_file)
+            metadata.append(meta)
 
     # 2) Tag the chunks (offline)
     print("🏷️  Building TF-IDF tags …")
@@ -265,3 +268,17 @@ def build_index(
             plt.show()
         except Exception as e:
             print(f"[visualize] skipped ({e})")
+
+
+def recursive_split(text: str) -> List[str]:
+    """
+    Recursively splits text into smaller chunks based on sentence boundaries.
+    If a chunk exceeds max_chunk_size, it is further split.
+    """
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=0,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
+    return splitter.split_text(text)
