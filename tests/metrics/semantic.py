@@ -24,8 +24,7 @@ class SemanticSimilarityMetric(MetricBase):
         try:
             os.environ['CUDA_VISIBLE_DEVICES'] = ''
             warnings.filterwarnings("ignore", message=".*CUDA capability.*")
-            from sentence_transformers import util
-            from src.embedder import SentenceTransformer
+            from sentence_transformers import util, SentenceTransformer
             
             self._model = SentenceTransformer('all-MiniLM-L12-v2')
             self._util = util

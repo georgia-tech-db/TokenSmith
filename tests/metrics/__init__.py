@@ -5,7 +5,6 @@ from tests.metrics.text import TextSimilarityMetric
 from tests.metrics.semantic import SemanticSimilarityMetric
 from tests.metrics.keyword import KeywordMatchMetric
 from tests.metrics.bleu import BleuScoreMetric
-from tests.metrics.nli import NLIClassification
 
 __all__ = [
     'MetricBase',
@@ -14,6 +13,5 @@ __all__ = [
     'TextSimilarityMetric',
     'SemanticSimilarityMetric',
     'KeywordMatchMetric',
-    'BleuScoreMetric',
-    'NLIClassification'
+    'BleuScoreMetric'
 ]
