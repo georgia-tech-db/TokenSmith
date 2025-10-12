@@ -19,10 +19,13 @@ import fitz  # PyMuPDF
 import faiss
 from tqdm import tqdm
 import nltk
-from src.embedder import SentenceTransformer
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, SlidingTokenStrategy
-from src.tagging import build_tfidf_tags
+from src.chunking import ChunkStrategy, SlidingTokenStrategy
+from src.config import QueryPlanConfig
+from src.extracting.extraction import chunk_markdown_by_headings
+from src.ranking.tagging import build_tfidf_tags
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -55,12 +58,10 @@ class DocumentChunker:
     def __init__(
         self,
         strategy: Optional[ChunkStrategy],
-        keep_tables: bool = True,
-        mode: str = "chars",  # "tokens" | "chars" | "sections"
+        keep_tables: bool = True
     ):
         self.strategy = strategy
         self.keep_tables = keep_tables
-        self.mode = mode
 
     def _extract_tables(self, text: str) -> Tuple[str, List[str]]:
         tables = self.TABLE_RE.findall(text)
@@ -76,63 +77,6 @@ class DocumentChunker:
                 chunk = chunk.replace(ph, t)
         return chunk
 
-    @staticmethod
-    def _chunk_by_sections(text: str) -> List[str]:
-        """
-        Section-wise slicing:
-        Matches numeric headings like:
-          1. Introduction
-          2.3 Subtopic
-          10.4.1 Deep Dive
-        and collects text until the next heading of same-or-higher level.
-        """
-        heading_re = re.compile(
-            r"""
-            (?m)                               # multiline
-            ^(?=.{,120}$)\s{0,3}               # shortish heading line, up to ~120 chars
-            (?P<num>[1-9]\d*\.[0-9]+(?:\.[0-9]+)*)   # 1.2 or 10.4.1 etc. (at least one dot)
-            (?![)\]])                           # avoid cases like "1.2)"
-            \s+(?P<title>(?!\d).+?)\s*$         # title text (not starting with a digit)
-            """,
-            re.VERBOSE,
-        )
-
-        matches = list(heading_re.finditer(text))
-        if not matches:
-            # No headings detected → return the whole text as one chunk
-            return [text.strip()] if text.strip() else []
-
-        heads = []
-        for m in matches:
-            num = m.group("num")
-            title = m.group("title").strip()
-            level = num.count(".") + 1
-            heads.append({
-                "num": num, "title": title, "level": level,
-                "start": m.start(), "endline": m.end()
-            })
-
-        chunks: List[str] = []
-        N = len(heads)
-        for i, h in enumerate(heads):
-            end_idx = len(text)
-            for j in range(i + 1, N):
-                if heads[j]["level"] <= h["level"]:
-                    end_idx = heads[j]["start"]
-                    break
-            body = text[h["endline"]:end_idx].strip("\n").strip()
-            if body:
-                chunks.append(body)
-
-        # If there's preface text before the first heading, keep it as a chunk
-        preface_start = 0
-        first_start = heads[0]["start"]
-        preface = text[preface_start:first_start].strip()
-        if preface:
-            chunks.insert(0, preface)
-
-        return chunks
-
     def chunk(self, text: str) -> List[str]:
         if not text:
             return []
@@ -141,14 +85,11 @@ class DocumentChunker:
         if self.keep_tables:
             work, tables = self._extract_tables(work)
 
-        if self.mode == "sections":
-            chunks = self._chunk_by_sections(work)
+        if self.strategy is None:
+            # Defensive fallback: if no strategy provided, return as one chunk
+            chunks = [work]
         else:
-            if self.strategy is None:
-                # Defensive fallback: if no strategy provided, return as one chunk
-                chunks = [work]
-            else:
-                chunks = self.strategy.chunk(work)
+            chunks = self.strategy.chunk(work)
 
         if self.keep_tables and tables:
             chunks = [self._restore_tables(c, tables) for c in chunks]
@@ -192,11 +133,8 @@ def _resolve_pdf_paths(
 def build_index(
     pdf_dir: str,
     out_prefix: str = "textbook_index",
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-    chunk_size_char: int = 20_000,
     *,
-    chunk_mode: str = "chars",        # "tokens" | "chars" | "sections"
-    chunk_tokens: int = 500,          # used if chunk_mode == "tokens"
+    cfg: QueryPlanConfig,
     keep_tables: bool = True,
     pdf_range: Optional[Tuple[int, int]] = None,  # e.g., (27, 33)
     pdf_files: Optional[List[str]] = None,        # e.g., ["27.pdf","28.pdf"]
@@ -204,24 +142,15 @@ def build_index(
 ) -> None:
     """
     Extract PDFs from *pdf_dir*, chunk (table-safe), embed, build FAISS, and persist:
-        {out_prefix}.faiss
-        {out_prefix}_chunks.pkl
-        {out_prefix}_sources.pkl
-        {out_prefix}_meta.pkl
+        index/{chunking_strategy_folder}/{out_prefix}.faiss
+        index/{chunking_strategy_folder}/{out_prefix}_chunks.pkl
+        index/{chunking_strategy_folder}/{out_prefix}_sources.pkl
+        index/{chunking_strategy_folder}/{out_prefix}_meta.pkl
     """
 
     # 1) extract + chunk (collect metadata)
-    # Only create a strategy for non-"sections" modes (sections handled in DocumentChunker)
-    strategy: Optional[ChunkStrategy] = None
-    if chunk_mode != "sections":
-        strategy = make_chunk_strategy(
-            chunk_mode,
-            chunk_size_char=chunk_size_char,
-            chunk_tokens=chunk_tokens,
-            tokenizer_name=model_name,
-        )
-
-    chunker = DocumentChunker(strategy, keep_tables=keep_tables, mode=chunk_mode)
+    strategy: ChunkStrategy = cfg.make_strategy()
+    chunker = DocumentChunker(strategy, keep_tables=keep_tables)
 
     pdf_paths = _resolve_pdf_paths(pdf_dir, pdf_range, pdf_files)
     if not pdf_paths:
@@ -232,33 +161,40 @@ def build_index(
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
+    #TODO Hardcoding the markdown file path for now. Can be changed later.
+    markdown_file = 'data/book_without_image.md' 
 
-    for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
-        with fitz.open(path) as doc:
-            full_text = "".join(page.get_text() for page in doc)
+    sections = chunk_markdown_by_headings(markdown_file)
 
-        headers = guess_section_headers(full_text)
-        chunks = chunker.chunk(full_text)
+    # for path in tqdm(pdf_paths, desc="⛏️  extracting PDFs"):
+    #     with fitz.open(path) as doc:
+    #         full_text = "".join(page.get_text() for page in doc)
 
-        for i, c in enumerate(chunks):
-            has_table = bool(DocumentChunker.TABLE_RE.search(c))
-            meta = {
-                "filename": path.name,
-                "chunk_id": i,
-                "mode": chunk_mode,
-                "keep_tables": keep_tables,
-                "char_len": len(c),
-                "word_len": len(c.split()),
-                "has_table": has_table,
-                "section_hints": headers[:10],  # small header sample
-            }
-            if isinstance(strategy, SlidingTokenStrategy):
-                meta["max_tokens"] = strategy.max_tokens
-                meta["overlap_tokens"] = strategy.overlap_tokens
-                meta["tokenizer_name"] = strategy.tokenizer_name
+    #     headers = guess_section_headers(full_text)
+    #     chunks = chunker.chunk(full_text)
 
-            all_chunks.append(c)
-            sources.append(path.name)
+    for i, c in enumerate(sections):
+        has_table = bool(DocumentChunker.TABLE_RE.search(c['content']))
+        meta = {
+            "filename": markdown_file,
+            "chunk_id": i,
+            "mode": cfg.chunk_config.to_string(),
+            "keep_tables": keep_tables,
+            "char_len": len(c['content']),
+            "word_len": len(c['content'].split()),
+            "has_table": has_table,
+            "section": c['heading'], 
+            "text_preview": c['content'][:100]
+        }
+        if isinstance(strategy, SlidingTokenStrategy):
+            meta["max_tokens"] = strategy.max_tokens
+            meta["overlap_tokens"] = strategy.overlap_tokens
+            meta["tokenizer_name"] = strategy.tokenizer_name
+
+        sub_chunks = recursive_split(c['content'])
+        for sub_c in sub_chunks:
+            all_chunks.append(sub_c)
+            sources.append(markdown_file)
             metadata.append(meta)
 
     # 2) Tag the chunks (offline)
@@ -275,34 +211,38 @@ def build_index(
         metadata[i]["tags"] = tags
 
     # 3) embed
-    print(f"🪄  Embedding {len(all_chunks):,} chunks with {model_name} …")
-    embedder = SentenceTransformer(model_name)
+    print(f"🪄  Embedding {len(all_chunks):,} chunks with {cfg.embed_model} …")
+    embedder = SentenceTransformer(cfg.embed_model, device="cpu")
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
-    )
+    ).astype("float32")
 
     # 4) FAISS
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
 
-    # 5) persist
-    faiss.write_index(index, f"{out_prefix}.faiss")
-    with open(f"{out_prefix}_chunks.pkl", "wb") as f:
+    # 5) Build prefixes based on chunking strategy
+    faiss_prefix = cfg.get_faiss_prefix(out_prefix)
+    meta_prefix = cfg.get_tfidf_prefix(out_prefix)
+
+    # 6) persist
+    faiss.write_index(index, f"{faiss_prefix}.faiss")
+    with open(f"{faiss_prefix}_chunks.pkl", "wb") as f:
         pickle.dump(all_chunks, f)
-    with open(f"{out_prefix}_sources.pkl", "wb") as f:
+    with open(f"{faiss_prefix}_sources.pkl", "wb") as f:
         pickle.dump(sources, f)
-    with open(f"{out_prefix}_meta.pkl", "wb") as f:
+    with open(f"{faiss_prefix}_meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
 
     # persist tagging artifacts under meta/
     os.makedirs("meta", exist_ok=True)
-    with open(os.path.join("meta", f"{out_prefix}_tfidf.pkl"), "wb") as f:
+    with open(f"{meta_prefix}_tfidf.pkl", "wb") as f:
         pickle.dump(vectorizer, f)
-    with open(os.path.join("meta", f"{out_prefix}_tags.pkl"), "wb") as f:
+    with open(f"{meta_prefix}_tags.pkl", "wb") as f:
         pickle.dump(chunk_tags, f)
 
-    print(f"✓ Index built: {out_prefix}.faiss  |  {len(all_chunks)} chunks")
+    print(f"✓ Index built: {faiss_prefix}.faiss  |  {len(all_chunks)} chunks")
 
     # 6) optional viz
     if do_visualize:
@@ -328,3 +268,17 @@ def build_index(
             plt.show()
         except Exception as e:
             print(f"[visualize] skipped ({e})")
+
+
+def recursive_split(text: str) -> List[str]:
+    """
+    Recursively splits text into smaller chunks based on sentence boundaries.
+    If a chunk exceeds max_chunk_size, it is further split.
+    """
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=0,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
+    return splitter.split_text(text)

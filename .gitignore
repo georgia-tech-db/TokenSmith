@@ -1,6 +1,7 @@
 # RajShah-1 gitignore
 code-dump.txt
 .idea/
+logs/
 
 # --- Python ---
 __pycache__/

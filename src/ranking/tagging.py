@@ -1,9 +1,9 @@
-from typing import List, Tuple, Dict
-import os, pickle, numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-import os, pathlib, fitz, re
 from typing import List
-from src.chunking import make_chunk_strategy
+from typing import Tuple, Dict
+
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+
 
 def build_tfidf_tags(
     texts: List[str],
@@ -55,25 +55,3 @@ def tag_affinity_score(
         return len(inter) / max(1, len(s_chunk | s_query))
     if not tag_weights: return float(len(inter))
     return float(sum(tag_weights.get(t, 1.0) for t in inter))
-
-
-# ===================== EXP
-
-_TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
-
-def _extract_tables(text: str):
-    tables = _TABLE_RE.findall(text)
-    for i, t in enumerate(tables):
-        text = text.replace(t, f"[TABLE_PLACEHOLDER_{i}]")
-    return text, tables
-
-def _restore_tables(chunk: str, tables: List[str]) -> str:
-    for i, t in enumerate(tables):
-        ph = f"[TABLE_PLACEHOLDER_{i}]"
-        if ph in chunk:
-            chunk = chunk.replace(ph, t)
-    return chunk
-
-def _pdf_to_text(pdf_path: str) -> str:
-    with fitz.open(pdf_path) as doc:
-        return "".join(page.get_text() for page in doc)
