@@ -6,8 +6,7 @@ from typing import Dict, Callable, Any
 
 import yaml
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
-    SectionChunkConfig, ChunkConfig
+from src.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
 
 
 @dataclass
@@ -37,14 +36,10 @@ class QueryPlanConfig:
         return make_chunk_strategy(config=self.chunk_config)
 
     def get_faiss_prefix(self, out_prefix: str) -> str:
+        """Returns the path prefix for FAISS index artifacts."""
         strategy = self.make_strategy()
         os.makedirs(f"index/{strategy.artifact_folder_name()}", exist_ok=True)
         return f"index/{strategy.artifact_folder_name()}/{out_prefix}"
-
-    def get_tfidf_prefix(self, out_prefix: str) -> str:
-        strategy = self.make_strategy()
-        os.makedirs(f"index/{strategy.artifact_folder_name()}/meta", exist_ok=True)
-        return f"index/{strategy.artifact_folder_name()}/meta/{out_prefix}"
 
     # ---------- factory + validation ----------
     @staticmethod
@@ -54,7 +49,7 @@ class QueryPlanConfig:
         def pick(key, default=None):
             return raw.get(key, default)
 
-        chunk_mode, chunk_config = QueryPlanConfig.get_chunk_config(raw)
+        chunk_config = QueryPlanConfig.get_chunk_config(raw)
 
         cfg = QueryPlanConfig(
             # Chunking
@@ -67,7 +62,7 @@ class QueryPlanConfig:
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
             ensemble_method= pick("ensemble_method", "rrf"),
             rrf_k          = pick("rrf_k", 60),
-            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4,"tf-idf":0}),
+            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             halo_mode      = pick("halo_mode", "none"),
             seg_filter     = pick("seg_filter", None),
@@ -77,24 +72,17 @@ class QueryPlanConfig:
         return cfg
 
     @staticmethod
-    def get_chunk_config(raw):
-        chunk_mode = raw.get("chunk_mode", "chars").lower()
-        chunk_config = None
-        if chunk_mode == "chars":
-            chunk_config = CharChunkConfig(raw.get("chunk_size_char", 20_000))
-        elif chunk_mode == "tokens":
-            chunk_config = TokenChunkConfig(raw.get("chunk_tokens", 500))
-        elif chunk_mode == "sliding-tokens":
-            chunk_config = SlidingTokenConfig(
-                max_tokens=raw.get("chunk_tokens", 350),
-                overlap_tokens=raw.get("overlap_tokens", 80),
-                tokenizer_name=raw.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+    def get_chunk_config(raw) -> ChunkConfig:
+        """Parse chunk configuration from YAML."""
+        chunk_mode = raw.get("chunk_mode", "sections").lower()
+        
+        if chunk_mode == "sections":
+            return SectionRecursiveConfig(
+                recursive_chunk_size=raw.get("recursive_chunk_size", 1000),
+                recursive_overlap=raw.get("recursive_overlap", 0)
             )
-        elif chunk_mode == "sections":
-            chunk_config = SectionChunkConfig()
         else:
-            raise ValueError(f"Unknown chunk_mode: {chunk_mode}")
-        return chunk_mode, chunk_config
+            raise ValueError(f"Unknown chunk_mode: {chunk_mode}. Only 'sections' is supported.")
 
     def _validate(self) -> None:
         assert self.top_k > 0, "top_k must be > 0"
@@ -119,4 +107,3 @@ class QueryPlanConfig:
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path
         }
-
