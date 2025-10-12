@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, Callable, Any
 
 import yaml
+import pathlib
 
 from src.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
 
@@ -35,11 +36,12 @@ class QueryPlanConfig:
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_faiss_prefix(self, out_prefix: str) -> str:
+    def get_faiss_prefix(self, out_prefix: str) -> os.PathLike:
         """Returns the path prefix for FAISS index artifacts."""
         strategy = self.make_strategy()
-        os.makedirs(f"index/{strategy.artifact_folder_name()}", exist_ok=True)
-        return f"index/{strategy.artifact_folder_name()}/{out_prefix}"
+        strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
+        strategy_dir.mkdir(parents=True, exist_ok=True)
+        return strategy_dir / out_prefix
 
     # ---------- factory + validation ----------
     @staticmethod
