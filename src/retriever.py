@@ -1,12 +1,11 @@
 """
-Vector search with optional BM25 and Tag-aware re-ranking + Segment/Filter.
+Vector search with optional BM25 re-ranking + Segment/Filter.
 
 Pipeline:
   1) FAISS narrows to a candidate pool.
   2) (optional) BM25 re-ranks within that pool.
-  3) (optional) Tag-aware re-rank using TF-IDF tags (query_top_tags, tag_affinity_score).
-  4) (optional) seg_filter applied post-hoc (preserves ranking; backfills to k).
-  5) Preview prints source + tags.
+  3) (optional) seg_filter applied post-hoc (preserves ranking; backfills to k).
+  4) Preview prints source.
 
 Return: list[str] chunks (top-k).
 """
@@ -32,30 +31,20 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 
 # -------------------------- Artifacts I/O -------------------------------
-def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str], object, Optional[List[List[str]]]]:
+def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
-      - meta/tagging (optional under meta/):
-          meta/{index_prefix}_tfidf.pkl  -> vectorizer
-          meta/{index_prefix}_tags.pkl   -> chunk_tags (List[List[str]])
     """
     faiss_prefix = cfg.get_faiss_prefix(index_prefix)
-    meta_prefix = cfg.get_tfidf_prefix(index_prefix)
 
     index   = faiss.read_index(f"{faiss_prefix}.faiss")
     chunks  = pickle.load(open(f"{faiss_prefix}_chunks.pkl", "rb"))
     sources = pickle.load(open(f"{faiss_prefix}_sources.pkl", "rb"))
 
-    try:
-        vectorizer = pickle.load(open(f"{meta_prefix}_tfidf.pkl", "rb"))
-        chunk_tags = pickle.load(open(f"{meta_prefix}_tags.pkl", "rb"))
-    except Exception:
-        vectorizer, chunk_tags = None, None
-
-    return index, chunks, sources, vectorizer, chunk_tags
+    return index, chunks, sources
 
 
 # -------------------------- Pretty previews -----------------------------
