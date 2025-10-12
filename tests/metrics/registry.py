@@ -10,19 +10,15 @@ class MetricRegistry:
     
     def _auto_register(self):
         """Automatically register all available metrics."""
-        from tests.metrics import (
-            TextSimilarityMetric,
-            SemanticSimilarityMetric,
-            KeywordMatchMetric,
-            BleuScoreMetric,
-            NLIClassification,
-        )
+        from tests.metrics.text import TextSimilarityMetric
+        from tests.metrics.semantic import SemanticSimilarityMetric
+        from tests.metrics.keyword import KeywordMatchMetric
+        from tests.metrics.bleu import BleuScoreMetric
         
         self.register(TextSimilarityMetric())
         self.register(SemanticSimilarityMetric())
         self.register(KeywordMatchMetric())
         self.register(BleuScoreMetric())
-        self.register(NLIClassification())
     
     def register(self, metric: MetricBase):
         """Register a new metric."""
