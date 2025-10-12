@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 from rank_bm25 import BM25Okapi
-from src.ranking.tagging import query_top_tags, tag_affinity_score
 
 # typedef Candidate as base, we might change this into a class later
 # Each candidate is identified by its global index into `chunks`
@@ -55,22 +54,3 @@ class BM25Ranker(Ranker):
         toks = query.lower().split()
         vals = bm.get_scores(toks)
         return {i: float(v) for i, v in zip(cand_idxs, vals)}
-
-
-class TfIDFRanker(Ranker):
-    name = "tf-idf"
-
-    def prepare(self, *, query, chunks, cand_idxs, context):
-        vec = context.get("vectorizer")
-        context["_q_tags"] = query_top_tags(query, vec, top_q=8) if vec else []
-
-    def score(self, *, query, chunks, cand_idxs, context):
-        qtags = context.get("_q_tags", [])
-        chunk_tags = context.get("chunk_tags", [])
-        out = {}
-        for i in cand_idxs:
-            tags_i = chunk_tags[i] if i < len(chunk_tags) and chunk_tags else []
-            out[i] = tag_affinity_score(tags_i, qtags, mode="weighted", tag_weights=None)
-        return out
-
-

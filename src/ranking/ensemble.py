@@ -6,9 +6,9 @@ class EnsembleRanker:
     """
     Computes weighted linear fusion of normalized ranker scores
     or RRF (ensemble_method should be one of 'linear' and 'rrf').
-    Supported rankers: 'faiss', 'bm25', 'tf-idf'
+    Supported rankers: 'faiss', 'bm25'
 
-    Example weights: {"faiss": 0.6, "bm25": 0.25, "tf-idf": 0.15}
+    Example weights: {"faiss": 0.6, "bm25": 0.4}
     Weights must sum to 1
     """
     def __init__(self, ensemble_method: str, rankers: List[Ranker], weights: Dict[str, float], rrf_k: int = 60):

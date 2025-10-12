@@ -1,5 +1,4 @@
 from src.config import QueryPlanConfig
-from src.chunking import CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, SectionChunkConfig
 from copy import deepcopy
 
 from src.planning.planner import QueryPlanner
@@ -40,30 +39,18 @@ class HeuristicQueryPlanner(QueryPlanner):
         cfg = deepcopy(self.base_cfg)
 
         if kind == "definition":
-            cfg.chunk_mode = "tokens"
-            cfg.chunk_config = TokenChunkConfig(max_tokens=200)
-            cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.6, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.7}
 
         elif kind == "explanatory":
-            cfg.chunk_mode = "sections"
-            cfg.chunk_config = SectionChunkConfig()
-            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.3}
 
         elif kind == "procedural":
-            cfg.chunk_mode = "sliding-tokens"
-            cfg.chunk_config = SlidingTokenConfig(
-                max_tokens=400,
-                overlap_tokens=100,
-                tokenizer_name=cfg.embed_model,
-            )
             cfg.pool_size = max(cfg.pool_size, cfg.top_k * 5)
-            cfg.ranker_weights = {"faiss": 0.5, "bm25": 0.2, "tf-idf": 0.3}
+            cfg.ranker_weights = {"faiss": 0.6, "bm25": 0.4}
 
         else:
             print("Unknown query type. Defaulting to explanatory.")
-            cfg.chunk_mode = "sections"
-            cfg.chunk_config = SectionChunkConfig()
-            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.3}
 
         self._log_decision(cfg)
         return cfg
