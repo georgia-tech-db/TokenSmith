@@ -27,10 +27,11 @@ if __name__ == "__main__":
 
     for test_case in test_cases:
         print(f"\nQuery: {test_case["query"]}")
+        print("*" * 50 + "No chunks"+"*" * 50)
+        test_with_manual_chunks(query=test_case["query"], chunks=[])
         print("*" * 50 + "With golden chunks"+"*" * 50)
         test_with_manual_chunks(query=test_case["query"], chunks=test_case["golden_chunks"])
-        print("*" * 50 + "No chunks provided chunks"+"*" * 50)
-        test_with_manual_chunks(query=test_case["query"], chunks=[])
+        
 
 
 

@@ -75,7 +75,7 @@ def format_prompt(chunks, query, max_chunk_chars=400):
     context = text_cleaning(context)
     return textwrap.dedent(f"""\
         <|im_start|>system
-        The user is currently studying. They have asked a query and I have provided a set of relevant textbook excerpts below. Use only those excerpts to answer if they have been provided. If the excerpts are empty, use your own intelligence.
+        The user is currently studying. They have asked a query and I have provided a set of relevant textbook excerpts below. Use only those excerpts to answer if they have been provided. If the excerpts are empty, say "I don't know".
         End your reply with {ANSWER_END}.
         <|im_end|>
         <|im_start|>user
