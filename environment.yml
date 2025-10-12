@@ -23,4 +23,5 @@ dependencies:
     - transformers
     - sentence-transformers
     - rank_bm25
+    - langchain
     - pytest

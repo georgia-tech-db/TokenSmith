@@ -1,7 +1,7 @@
 import os
 import warnings
 from typing import List, Optional
-from .base import MetricBase
+from tests.metrics.base import MetricBase
 
 class SemanticSimilarityMetric(MetricBase):
     """Semantic similarity using sentence transformers."""
@@ -24,9 +24,9 @@ class SemanticSimilarityMetric(MetricBase):
         try:
             os.environ['CUDA_VISIBLE_DEVICES'] = ''
             warnings.filterwarnings("ignore", message=".*CUDA capability.*")
+            from sentence_transformers import util, SentenceTransformer
             
-            from sentence_transformers import SentenceTransformer, util
-            self._model = SentenceTransformer('all-MiniLM-L12-v2', device='cpu')
+            self._model = SentenceTransformer('all-MiniLM-L12-v2')
             self._util = util
             return True
         except Exception as e:
