@@ -3,7 +3,6 @@ from typing import Optional
 
 from src.config import QueryPlanConfig
 from src.instrumentation.logging import init_logger, get_logger
-from src.planning.heuristics import HeuristicQueryPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker
@@ -66,7 +65,7 @@ def main():
 
     init_logger(cfg)
     logger = get_logger()
-    planner = HeuristicQueryPlanner(cfg)
+    # planner = HeuristicQueryPlanner(cfg)
 
     if args.mode == "index":
         # Optional range filtering
@@ -94,7 +93,7 @@ def main():
             if q.lower() in {"exit", "quit"}:
                 break
             logger.log_query_start(q)
-            cfg = planner.plan(q)
+            # cfg = planner.plan(q) # Disabled for now till we fix the core pipeline
             index, chunks, sources = load_artifacts(
                 cfg.index_prefix, cfg
             )

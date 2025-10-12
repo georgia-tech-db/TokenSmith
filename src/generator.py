@@ -111,7 +111,7 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
         "-p", prompt,
         "-n", str(max_tokens),
         "-t", str(threads),
-        # "--ngl", str(n_gpu_layers),
+        "-ngl", str(n_gpu_layers),  # Enable GPU (Metal on Mac) - single dash!
         "--temp", str(temperature),
         "--top-k", "20",
         "--top-p", "0.9",
@@ -123,7 +123,8 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
         #"--mirostat-ent", "3.5",
         #"--mirostat-lr", "0.1",
         #"--no-mmap",
-        #"-no-cnv",
+        "-no-cnv",  # Disable conversation mode
+        # "-st",  # Alternative: single-turn mode
         "-r", ANSWER_END,
     ]
     proc = subprocess.Popen(
