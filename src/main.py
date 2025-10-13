@@ -1,155 +1,214 @@
-import argparse, yaml, pathlib
+import argparse
+import pathlib
+import sys
 from typing import Optional
 
 from src.config import QueryPlanConfig
+from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
-from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker
-from src.retriever import get_candidates, apply_seg_filter
-from src.ranker import rerank
-from src.generator import answer
+from src.ranking.rankers import BM25Ranker, FaissSimilarityRanker
+from src.reranker import rerank
+from src.retriever import apply_seg_filter, get_candidates, load_artifacts
 
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("mode", choices=["index", "chat"])
-    p.add_argument(
-        "--config", default=None, required=False
-    )  # default unnecessary as fallback is loaded
-    p.add_argument("--pdf_dir", default="data/chapters/")
-    p.add_argument("--index_prefix", default="textbook_index")
-    p.add_argument(
-        "--model_path", default=None, required=False
-    )  # default set by config
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the application."""
+    parser = argparse.ArgumentParser(
+        description="Welcome to TokenSmith!"
+    )
 
-    # Extra indexing knobs
-    p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
-    p.add_argument("--keep_tables", action="store_true")
-    p.add_argument("--visualize", action="store_true")
+    # Required arguments
+    parser.add_argument(
+        "mode",
+        choices=["index", "chat"],
+        help="operation mode: 'index' to build index, 'chat' to query"
+    )
 
-    return p.parse_args()
+    # Common arguments
+    parser.add_argument(
+        "--config",
+        help="path to custom config file (uses default if not specified)"
+    )
+    parser.add_argument(
+        "--pdf-dir",
+        default="data/chapters/",
+        help="directory containing PDF files (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--index-prefix",
+        default="textbook_index",
+        help="prefix for generated index files (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--model-path",
+        help="path to generation model (uses config default if not specified)"
+    )
+
+    # Indexing-specific arguments
+    indexing_group = parser.add_argument_group("indexing options")
+    indexing_group.add_argument(
+        "--pdf-range",
+        metavar="START-END",
+        help="specific range of PDFs to index (e.g., '27-33')"
+    )
+    indexing_group.add_argument(
+        "--keep-tables",
+        action="store_true",
+        help="include tables in the index"
+    )
+    indexing_group.add_argument(
+        "--visualize",
+        action="store_true",
+        help="generate visualizations during indexing"
+    )
+
+    return parser.parse_args()
 
 
-def load_correct_fallback_config_file() -> Optional[any]:
-    user_config = pathlib.Path("~/.config/tokensmith/config.yaml")
-    user_config_alt = pathlib.Path("~/.config/tokensmith/config.yml")
-    default_config = pathlib.Path("config/config.yaml")
+def find_fallback_config() -> Optional[QueryPlanConfig]:
+    """
+    Looks for a fallback config file in standard locations.
 
-    if user_config.exists():
-        return QueryPlanConfig.from_yaml(user_config)
-
-    if user_config_alt.exists():
-        return QueryPlanConfig.from_yaml(user_config_alt)
-
-    if default_config.exists():
-        return QueryPlanConfig.from_yaml(default_config)
-
+    Returns:
+        A QueryPlanConfig object if a file is found, otherwise None.
+    """
+    search_paths = [
+        pathlib.Path("~/.config/tokensmith/config.yaml").expanduser(),
+        pathlib.Path("~/.config/tokensmith/config.yml").expanduser(),
+        pathlib.Path("config/config.yaml"),
+    ]
+    for path in search_paths:
+        if path.exists():
+            return QueryPlanConfig.from_yaml(path)
     return None
 
 
-def main():
-    args = parse_args()
+def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
+    """Handles the logic for building the index."""
 
-    # load config file from argument. If none provided, open fallback
-    cfg = None
-    if args.config is not None:
-        cfg = QueryPlanConfig.from_yaml(args.config)
-    else:
-        cfg = load_correct_fallback_config_file()
+    # Robust range filtering
+    try:
+        if args.pdf_range:
+            start, end = map(int, args.pdf_range.split("-"))
+            pdf_paths = [f"{i}.pdf" for i in range(start, end + 1)] # Inclusive range
+            print(f"Indexing PDFs in range: {start}-{end}")
+        else:
+            pdf_paths = None
+    except ValueError:
+        print(f"ERROR: Invalid format for --pdf_range. Expected 'start-end', but got '{args.pdf_range}'.")
+        sys.exit(1)
 
-    if cfg is None:
-        raise ValueError(
-            "Default config file not found. Expected at config/config.yaml"
-        )
+    build_index(
+        markdown_file="data/book_without_image.md",
+        out_prefix=cfg.index_prefix,
+        cfg=cfg,
+        keep_tables=args.keep_tables,
+        do_visualize=args.visualize,
+    )
+    print("Index built successfully!")
 
-    init_logger(cfg)
+
+def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
+    """
+    Initializes artifacts and runs the main interactive chat loop.
+    """
     logger = get_logger()
     # planner = HeuristicQueryPlanner(cfg)
 
-    if args.mode == "index":
-        # Optional range filtering
-        if args.pdf_range:
-            start, end = map(int, args.pdf_range.split("-"))
-            pdf_paths = [f"{i}.pdf" for i in range(start, end)]
-        else:
-            pdf_paths = None
+    # Load artifacts and initialize rankers ONCE before the loop.
+    print("Welcome to Tokensmith! Initializing chat...")
+    try:
+        # Disabled till we fix the core pipeline
+        # cfg = planner.plan(q)
+        index, chunks, sources = load_artifacts(cfg.index_prefix, cfg)
 
-        build_index(
-            markdown_file="data/book_without_image.md",
-            out_prefix=cfg.index_prefix,
-            cfg=cfg,
-            keep_tables=args.keep_tables,
-            do_visualize=args.visualize,
+        rankers = [FaissSimilarityRanker(), BM25Ranker()]
+        ensemble = EnsembleRanker(
+            ensemble_method =cfg.ensemble_method,
+            rankers=rankers,
+            weights=cfg.ranker_weights,
+            rrf_k=int(cfg.rrf_k)
         )
-        print("Index built ✓")
+    except Exception as e:
+        print(f"ERROR: Failed to initialize chat artifacts: {e}")
+        print("Please ensure you have run 'index' mode first.")
+        sys.exit(1)
 
-    elif args.mode == "chat":
-        from src.retriever import load_artifacts
-
-        print("📚 Ready. Type 'exit' to quit.")
-        while True:
+    print("Initialization complete. You can start asking questions!")
+    print("Type 'exit' or 'quit' to end the session.")
+    while True:
+        try:
             q = input("\nAsk > ").strip()
+            if not q:
+                continue
             if q.lower() in {"exit", "quit"}:
+                print("Goodbye!")
                 break
-            logger.log_query_start(q)
-            # cfg = planner.plan(q) # Disabled for now till we fix the core pipeline
-            index, chunks, sources = load_artifacts(
-                cfg.index_prefix, cfg
-            )
 
+            logger.log_query_start(q)
+
+            # Step 1: Retrieval
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
             cand_idxs, faiss_dists = get_candidates(
-                q,
-                pool_n,
-                index,
-                chunks,
-                embed_model=cfg.embed_model,
+                q, pool_n, index, chunks, embed_model=cfg.embed_model,
             )
             logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
 
-            # 2) shared context for various rankers
-            context = {
-                "faiss_distances": faiss_dists,  # for FaissSimilarityRanker
-            }
-
-            # 3) build rankers + ensemble (using weights from config)
-            rankers = [
-                FaissSimilarityRanker(),
-                BM25Ranker(),
-            ]
-            weights = cfg.ranker_weights
-            method = cfg.ensemble_method
-            rrf_k = int(cfg.rrf_k)
-
-            ensemble = EnsembleRanker(method, rankers, weights, rrf_k=rrf_k)
-            ordered = ensemble.rank(
-                query=q, chunks=chunks, cand_idxs=cand_idxs, context=context
-            )
-
+            # Step 2: Ranking
+            context = {"faiss_distances": faiss_dists}
+            ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources)
 
-            # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
-            # HALO Stub (NO OP for now)
-            ranked_chunks = rerank(q, ranked_chunks, mode=cfg.halo_mode)
+            # Step 3: Final Re-ranking
+            # Disabled till we fix the core pipeline
+            # ranked_chunks = rerank(q, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
 
-            ans = answer(
-                q,
-                ranked_chunks,
-                args.model_path or cfg.model_path,
-                max_tokens=cfg.max_gen_tokens,
-            )
-            print("\n=== ANSWER =========================================\n")
-            print(ans if ans.strip() else "(no output)")
-            print("\n====================================================\n")
-            logger.log_generation(
-                ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path}
-            )
+            # Step 4: Generation
+            model_path = args.model_path or cfg.model_path
+            ans = answer(q, ranked_chunks, model_path, max_tokens=cfg.max_gen_tokens)
 
-        logger.log_query_complete()
+            print("\n=================== START OF ANSWER ===================")
+            print(ans.strip() if ans and ans.strip() else "(No output from model)")
+            print("\n==================== END OF ANSWER ====================")
+            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": model_path})
+
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"\nAn unexpected error occurred: {e}")
+            logger.log_error(str(e))
+            break
+
+    logger.log_query_complete()
+
+
+def main():
+    """Main entry point for the script."""
+    args = parse_args()
+
+    # Robust config loading.
+    if args.config:
+        cfg = QueryPlanConfig.from_yaml(args.config)
+    else:
+        cfg = find_fallback_config()
+
+    if cfg is None:
+        raise FileNotFoundError(
+            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+        )
+
+    init_logger(cfg)
+
+    if args.mode == "index":
+        run_index_mode(args, cfg)
+    elif args.mode == "chat":
+        run_chat_session(args, cfg)
 
 
 if __name__ == "__main__":
