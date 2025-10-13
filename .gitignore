@@ -26,6 +26,7 @@ config.yaml
 
 # --- Data & generated artefacts ---
 chapters/
+data/
 *.faiss
 *.pkl
 
@@ -243,3 +244,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+tests/results

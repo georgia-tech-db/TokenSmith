@@ -194,3 +194,65 @@ Add to environment.yml for persistence. Edit environment.yml, then:
 make update-env
 ```
 
+## 🧪 Testing Framework
+
+TokenSmith includes a powerful and flexible testing framework for evaluating RAG performance across multiple dimensions. The framework supports:
+
+- **Multiple output modes**: Terminal (detailed) or HTML (reports)
+- **Model comparison**: Easy switching between generator and embedding models
+- **Retrieval experimentation**: Test different retrieval methods (FAISS, BM25, Tag, Hybrid) with configurable weights
+- **System prompts**: Four prompt modes (baseline, tutor, concise, detailed)
+- **Component isolation**: Test generator alone, with golden chunks, or full RAG pipeline
+- **Comprehensive metrics**: Semantic similarity, BLEU, keyword matching, and more
+
+### Quick Start
+
+```shell
+# Run all benchmarks with HTML report
+pytest tests/
+
+# Run with detailed terminal output
+pytest tests/ --output-mode=terminal
+
+# Run specific benchmark
+pytest tests/ --benchmark-ids="transactions" --output-mode=terminal
+```
+
+### Common Testing Patterns
+
+```shell
+# Test different system prompts
+pytest tests/ --system-prompt=concise --benchmark-ids="transactions" --output-mode=terminal
+
+# Test different retrieval methods
+pytest tests/ --retrieval-method=faiss --output-mode=terminal
+
+# Test generator alone (no RAG)
+pytest tests/ --disable-chunks --output-mode=terminal
+
+# Configure hybrid retrieval weights
+pytest tests/ --faiss-weight=0.6 --bm25-weight=0.3 --tag-weight=0.1
+```
+
+### Results
+
+Test results are automatically saved in:
+- `tests/results/benchmark_results.json` - Detailed JSON data
+- `tests/results/benchmark_summary.html` - Interactive HTML report
+- `tests/results/failed_tests.log` - Failure details
+
+### Complete Testing Documentation
+
+For comprehensive testing documentation, see:
+- **[tests/README.md](tests/README.md)** - Complete testing guide
+- **[tests/QUICK_REFERENCE.md](tests/QUICK_REFERENCE.md)** - Quick reference card
+- **Configuration**: All testing options in `config/config.yaml` and CLI arguments
+
+### Key Features
+
+- ✅ **Flexible Configuration**: Set defaults in config.yaml, override with CLI
+- ✅ **No Timeouts**: Tests run to completion for reliable results
+- ✅ **Golden Chunks**: Test with pre-selected optimal chunks
+- ✅ **Ablation Studies**: Easy component isolation and comparison
+- ✅ **Multiple Metrics**: Semantic, BLEU, keyword, and text similarity
+- ✅ **Beautiful Reports**: HTML reports with metric breakdowns

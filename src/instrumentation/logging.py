@@ -142,7 +142,7 @@ class RunLogger:
         self.current_query_data["ensemble"] = ensemble_data
 
     def log_chunks_used(self, chunk_indices: List[int], chunks: List[str],
-                        sources: List[str], chunk_tags: Optional[List[List[str]]] = None):
+                        sources: List[str]):
         """Log details about chunks selected for generation."""
         if not self.current_query_data:
             return
@@ -157,8 +157,7 @@ class RunLogger:
                 "word_count": len(chunks[idx].split()) if idx < len(chunks) else 0,
                 "has_table": "<table>" in chunks[idx].lower() if idx < len(chunks) else False,
                 "preview": (chunks[idx][:200] + "...") if idx < len(chunks) and len(chunks[idx]) > 200 else chunks[
-                    idx] if idx < len(chunks) else "",
-                "tags": chunk_tags[idx][:10] if chunk_tags and idx < len(chunk_tags) else []
+                    idx] if idx < len(chunks) else ""
             }
             chunks_data.append(chunk_info)
 

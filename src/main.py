@@ -3,10 +3,9 @@ from typing import Optional
 
 from src.config import QueryPlanConfig
 from src.instrumentation.logging import init_logger, get_logger
-from src.planning.heuristics import HeuristicQueryPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
-from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
+from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker
 from src.retriever import get_candidates, apply_seg_filter
 from src.ranker import rerank
 from src.generator import answer
@@ -66,7 +65,7 @@ def main():
 
     init_logger(cfg)
     logger = get_logger()
-    planner = HeuristicQueryPlanner(cfg)
+    # planner = HeuristicQueryPlanner(cfg)
 
     if args.mode == "index":
         # Optional range filtering
@@ -77,11 +76,10 @@ def main():
             pdf_paths = None
 
         build_index(
-            pdf_dir=args.pdf_dir,
+            markdown_file="data/book_without_image.md",
             out_prefix=cfg.index_prefix,
             cfg=cfg,
             keep_tables=args.keep_tables,
-            pdf_files=pdf_paths,
             do_visualize=args.visualize,
         )
         print("Index built ✓")
@@ -95,8 +93,8 @@ def main():
             if q.lower() in {"exit", "quit"}:
                 break
             logger.log_query_start(q)
-            cfg = planner.plan(q)
-            index, chunks, sources, vectorizer, chunk_tags = load_artifacts(
+            # cfg = planner.plan(q) # Disabled for now till we fix the core pipeline
+            index, chunks, sources = load_artifacts(
                 cfg.index_prefix, cfg
             )
 
@@ -113,15 +111,12 @@ def main():
             # 2) shared context for various rankers
             context = {
                 "faiss_distances": faiss_dists,  # for FaissSimilarityRanker
-                "vectorizer": vectorizer,  # for TfIDFRanker
-                "chunk_tags": chunk_tags,  # for TfIDFRanker
             }
 
             # 3) build rankers + ensemble (using weights from config)
             rankers = [
                 FaissSimilarityRanker(),
                 BM25Ranker(),
-                TfIDFRanker(),
             ]
             weights = cfg.ranker_weights
             method = cfg.ensemble_method
@@ -133,7 +128,7 @@ def main():
             )
 
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
-            logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags)
+            logger.log_chunks_used(topk_idxs, chunks, sources)
 
             # 4) materialize indices into text and continue
             ranked_chunks = [chunks[i] for i in topk_idxs]

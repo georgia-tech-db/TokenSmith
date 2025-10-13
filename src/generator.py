@@ -57,9 +57,22 @@ def resolve_llama_binary() -> str:
         "  • Or install llama.cpp and ensure 'llama-cli' is on your PATH."
     )
 
-def format_prompt(chunks, query, max_chunk_chars=400):
-    trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
-    context = "\n\n".join(trimmed)
+def text_cleaning(prompt):
+    _CONTROL_CHARS_RE = re.compile(r'[\u0000-\u001F\u007F-\u009F]')
+    _DANGEROUS_PATTERNS = [
+        r'ignore\s+(all\s+)?previous\s+instructions?',
+        r'you\s+are\s+now\s+(in\s+)?developer\s+mode',
+        r'system\s+override',
+        r'reveal\s+prompt',
+    ]
+    text = _CONTROL_CHARS_RE.sub('', prompt)
+    text = re.sub(r'\s+', ' ', text).strip()
+    for pat in _DANGEROUS_PATTERNS:
+        text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
+    return text
+
+def format_prompt(chunks, query):
+    context = "\n\n".join(chunks)
     context = text_cleaning(context)
     return textwrap.dedent(f"""\
         <|im_start|>system
@@ -92,7 +105,7 @@ def _extract_answer(raw: str) -> str:
     return text.split(ANSWER_END)[0].strip()
 
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
-                  threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.3):
+                  threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.2):
     llama_binary = resolve_llama_binary()
     cmd = [
         llama_binary,
@@ -100,19 +113,20 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
         "-p", prompt,
         "-n", str(max_tokens),
         "-t", str(threads),
-        # "--ngl", str(n_gpu_layers),
+        "-ngl", str(n_gpu_layers),  # Enable GPU (Metal on Mac) - single dash!
         "--temp", str(temperature),
-        "--top-k", "40",
+        "--top-k", "20",
         "--top-p", "0.9",
-        "--min-p", "0.05",
-        "--typical", "1.0",
+        #"--min-p", "0.05",
+        #"--typical", "1.0",
         "--repeat-penalty", "1.15",
         "--repeat-last-n", "256",
-        "--mirostat", "2",
-        "--mirostat-ent", "5",
-        "--mirostat-lr", "0.1",
-        "--no-mmap",
-        "-no-cnv",
+        #"--mirostat", "2",
+        #"--mirostat-ent", "3.5",
+        #"--mirostat-lr", "0.1",
+        #"--no-mmap",
+        "-no-cnv",  # Disable conversation mode
+        # "-st",  # Alternative: single-turn mode
         "-r", ANSWER_END,
     ]
     proc = subprocess.Popen(
