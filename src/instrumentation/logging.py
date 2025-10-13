@@ -41,7 +41,6 @@ class RunLogger:
             "session_id": self.session_id,
             "config": {
                 "chunk_config": self.config.chunk_config.to_string(),
-                "index_prefix": self.config.index_prefix,
                 "top_k": self.config.top_k,
                 "pool_size": self.config.pool_size,
                 "embed_model": self.config.embed_model,

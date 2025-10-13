@@ -1,7 +1,7 @@
 import re
 import json
 
-def chunk_markdown_by_headings(file_path):
+def extract_sections_from_markdown(file_path):
     """
     Chunks a markdown file into sections based on '##' headings.
 
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # The user uploaded 'book_without_image.md'
     markdown_file = 'data/book_without_image.md'
     
-    extracted_sections = chunk_markdown_by_headings(markdown_file)
+    extracted_sections = extract_sections_from_markdown(markdown_file)
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")

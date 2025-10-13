@@ -31,18 +31,18 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 
 # -------------------------- Artifacts I/O -------------------------------
-def load_artifacts(index_prefix: str, cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
     """
-    faiss_prefix = cfg.get_faiss_prefix(index_prefix)
+    index_prefix = cfg.get_index_prefix()
 
-    index   = faiss.read_index(f"{faiss_prefix}.faiss")
-    chunks  = pickle.load(open(f"{faiss_prefix}_chunks.pkl", "rb"))
-    sources = pickle.load(open(f"{faiss_prefix}_sources.pkl", "rb"))
+    index   = faiss.read_index(f"{index_prefix}.faiss")
+    chunks  = pickle.load(open(f"{index_prefix}_chunks.pkl", "rb"))
+    sources = pickle.load(open(f"{index_prefix}_sources.pkl", "rb"))
 
     return index, chunks, sources
 

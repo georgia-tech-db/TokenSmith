@@ -7,7 +7,7 @@ from typing import Dict, Callable, Any
 import yaml
 import pathlib
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
+from src.preprocessing.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
 
 
 @dataclass
@@ -16,7 +16,6 @@ class QueryPlanConfig:
     chunk_config: ChunkConfig
 
     # retrieval + ranking
-    index_prefix: str
     top_k: int
     pool_size: int
     embed_model: str
@@ -36,12 +35,12 @@ class QueryPlanConfig:
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_faiss_prefix(self, out_prefix: str) -> os.PathLike:
-        """Returns the path prefix for FAISS index artifacts."""
+    def get_index_prefix(self) -> os.PathLike:
+        """Returns the path prefix for index artifacts."""
         strategy = self.make_strategy()
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
-        return strategy_dir / out_prefix
+        return strategy_dir / "textbook_index"
 
     # ---------- factory + validation ----------
     @staticmethod
@@ -58,7 +57,6 @@ class QueryPlanConfig:
             chunk_config   = chunk_config,
 
             # Retrieval + Ranking
-            index_prefix   = pick("index_prefix", "textbook_index"),
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
@@ -98,7 +96,6 @@ class QueryPlanConfig:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "chunk_config": self.chunk_config.to_string(),
-            "index_prefix": self.index_prefix,
             "top_k": self.top_k,
             "pool_size": self.pool_size,
             "embed_model": self.embed_model,
