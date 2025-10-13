@@ -9,8 +9,8 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import BM25Ranker, FaissSimilarityRanker
-from src.reranker import rerank
-from src.retriever import apply_seg_filter, get_candidates, load_artifacts
+from src.ranking.reranker import rerank
+from src.retriever import apply_seg_filter, get_bm25_candidates, get_faiss_candidates, load_artifacts
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,29 +32,29 @@ def parse_args() -> argparse.Namespace:
         help="path to custom config file (uses default if not specified)"
     )
     parser.add_argument(
-        "--pdf-dir",
+        "--pdf_dir",
         default="data/chapters/",
         help="directory containing PDF files (default: %(default)s)"
     )
     parser.add_argument(
-        "--index-prefix",
+        "--index_prefix",
         default="textbook_index",
         help="prefix for generated index files (default: %(default)s)"
     )
     parser.add_argument(
-        "--model-path",
+        "--model_path",
         help="path to generation model (uses config default if not specified)"
     )
 
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
     indexing_group.add_argument(
-        "--pdf-range",
+        "--pdf_range",
         metavar="START-END",
         help="specific range of PDFs to index (e.g., '27-33')"
     )
     indexing_group.add_argument(
-        "--keep-tables",
+        "--keep_tables",
         action="store_true",
         help="include tables in the index"
     )
@@ -120,7 +120,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        index, chunks, sources = load_artifacts(cfg)
+        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
 
         rankers = [FaissSimilarityRanker(), BM25Ranker()]
         ensemble = EnsembleRanker(
@@ -149,14 +149,23 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             # Step 1: Retrieval
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
-            cand_idxs, faiss_dists = get_candidates(
-                q, pool_n, index, chunks, embed_model=cfg.embed_model,
+            faiss_dists = get_faiss_candidates(
+                q, pool_n, faiss_index, chunks, embed_model=cfg.embed_model,
             )
-            logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
+            bm25_scores = get_bm25_candidates(
+                q, pool_n, bm25_index, chunks, embed_model=cfg.embed_model,
+            )
+
+            # TODO: Fix retrieval logging.
+            #logger.log_retrieval(list(faiss_dists.keys()), faiss_dists, pool_n, cfg.embed_model)
 
             # Step 2: Ranking
-            context = {"faiss_distances": faiss_dists}
-            ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
+            raw_metrics = {
+                "faiss_distances": faiss_dists,
+                "bm25_scores": bm25_scores
+            }
+            
+            ordered = ensemble.rank(raw_metrics=raw_metrics)
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources)
 
