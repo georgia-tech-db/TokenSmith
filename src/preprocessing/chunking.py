@@ -5,6 +5,21 @@ from typing import List, Tuple, Optional
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+
+# ------------------------ Section Guessing (metadata) -------------------
+
+# SECTION_RE = re.compile(
+#     r"^\s*(Chapter\s+\d+|Section\s+\d+(?:\.\d+)*|[A-Z][A-Za-z0-9\s\-]{3,})",
+#     re.MULTILINE,
+# )
+
+# def guess_section_headers(text: str, max_headers: int = 50) -> List[str]:
+#     """Heuristic section headers for Segment/Filter hints."""
+#     hits = SECTION_RE.findall(text)
+#     headers = [h[0].strip() if isinstance(h, tuple) else str(h).strip() for h in hits]
+#     return headers[:max_headers] if headers else []
+
+
 # -------------------------- Chunking Configs --------------------------
 class ChunkConfig(ABC):
     def validate(self):
@@ -25,6 +40,7 @@ class SectionRecursiveConfig(ChunkConfig):
     def validate(self):
         assert self.recursive_chunk_size > 0, "recursive_chunk_size must be > 0"
         assert self.recursive_overlap >= 0, "recursive_overlap must be >= 0"
+
 
 # -------------------------- Chunking Strategies --------------------------
 
@@ -57,7 +73,7 @@ class SectionRecursiveStrategy(ChunkStrategy):
     def chunk(self, text: str) -> List[str]:
         """
         Recursively splits text into smaller chunks based on sentence boundaries.
-        If a chunk exceeds max_chunk_size, it is further split.
+        If a chunk exceeds recursive_chunk_size, it is further split.
         """
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.recursive_chunk_size,
@@ -66,12 +82,14 @@ class SectionRecursiveStrategy(ChunkStrategy):
         )
         return splitter.split_text(text)
 
+
 # -------------------------- Strategy Factory -----------------------------
 
 def make_chunk_strategy(config: ChunkConfig) -> ChunkStrategy:
     if isinstance(config, SectionRecursiveConfig):
         return SectionRecursiveStrategy(config)
     raise ValueError(f"Unknown chunk config type: {config.__class__.__name__}")
+
 
 # ----------------------------- Document Chunker ---------------------------------
 

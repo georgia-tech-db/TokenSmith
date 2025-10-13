@@ -5,8 +5,8 @@ from typing import Optional
 
 from src.config import QueryPlanConfig
 from src.generator import answer
+from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
-from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
 from src.ranking.rankers import BM25Ranker, FaissSimilarityRanker
 from src.reranker import rerank
@@ -102,12 +102,10 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
 
     build_index(
         markdown_file="data/book_without_image.md",
-        out_prefix=cfg.index_prefix,
         cfg=cfg,
         keep_tables=args.keep_tables,
         do_visualize=args.visualize,
     )
-    print("Index built successfully!")
 
 
 def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
@@ -122,7 +120,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        index, chunks, sources = load_artifacts(cfg.index_prefix, cfg)
+        index, chunks, sources = load_artifacts(cfg)
 
         rankers = [FaissSimilarityRanker(), BM25Ranker()]
         ensemble = EnsembleRanker(
