@@ -12,7 +12,8 @@ src_module = pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(str(src_module))
 sys.path.append(str(src_module.parent))
 
-from src.preprocess import DocumentChunker, _resolve_pdf_paths
+from src.preprocess import DocumentChunker
+from src.chunking import SectionRecursiveStrategy, SectionRecursiveConfig
 from src.generator import run_llama_cpp
 
 ANSWER_START = "<<<ANSWER>>>"
@@ -45,11 +46,9 @@ def summary_prompt(section: str) -> str:
 def build_summary_index(
     model_path: str = "build/llama.cpp/models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
     pdf_dir: str = "data/chapters/",
-    pdf_range: Optional[tuple[int, int]] = None,  # e.g., (27, 33)
-    pdf_files: Optional[list[str]] = None,  # e.g., ["27.pdf","28.pdf"]):
 ):
     print(f"Building summary index using model: {model_path}")
-    chunker = DocumentChunker(None, keep_tables=True, mode="sections")
+    chunker = DocumentChunker(SectionRecursiveStrategy(SectionRecursiveConfig()), keep_tables=True)
 
     with fitz.open(pathlib.Path(pdf_dir, "silberschatz.pdf")) as doc:
         full_text = "".join(page.get_text() for page in doc)
