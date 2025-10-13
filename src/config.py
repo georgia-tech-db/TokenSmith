@@ -24,7 +24,7 @@ class QueryPlanConfig:
     ensemble_method: str
     rrf_k: int
     ranker_weights: Dict[str, float]
-    halo_mode: str
+    rerank_mode: str
     seg_filter: Callable
 
     # generation
@@ -66,7 +66,7 @@ class QueryPlanConfig:
             rrf_k          = pick("rrf_k", 60),
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
-            halo_mode      = pick("halo_mode", "none"),
+            rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None)
         )
@@ -105,7 +105,7 @@ class QueryPlanConfig:
             "ensemble_method": self.ensemble_method,
             "rrf_k": self.rrf_k,
             "ranker_weights": self.ranker_weights,
-            "halo_mode": self.halo_mode,
+            "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path
         }

@@ -130,7 +130,7 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.DEVNULL, # suppress performance and cleanup logging. TODO: genuine error handling.
         text=True,
         env={**os.environ, "GGML_LOG_LEVEL": "ERROR", "LLAMA_LOG_LEVEL": "ERROR"},
     )
@@ -148,6 +148,6 @@ def _dedupe_sentences(text: str) -> str:
 def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     prompt = format_prompt(chunks, query)
     approx_tokens = max(1, len(prompt) // 4)
-    print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
+    #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
