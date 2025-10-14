@@ -1,16 +1,15 @@
 import argparse
 import pathlib
 import sys
-from typing import Optional
+from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
 from src.generator import answer
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
-from src.ranking.ensemble import EnsembleRanker
-from src.ranking.rankers import BM25Ranker, FaissSimilarityRanker
+from src.ranking.ranker import EnsembleRanker
 from src.ranking.reranker import rerank
-from src.retriever import apply_seg_filter, get_bm25_candidates, get_faiss_candidates, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 
 
 def parse_args() -> argparse.Namespace:
@@ -115,17 +114,20 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     logger = get_logger()
     # planner = HeuristicQueryPlanner(cfg)
 
-    # Load artifacts and initialize rankers ONCE before the loop.
+    # Load artifacts and initialize rankers once before the loop.
     print("Welcome to Tokensmith! Initializing chat...")
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
         faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
 
-        rankers = [FaissSimilarityRanker(), BM25Ranker()]
-        ensemble = EnsembleRanker(
+        retrievers = [
+            FAISSRetriever(faiss_index, cfg.embed_model),
+            BM25Retriever(bm25_index)
+        ]
+        ranker = EnsembleRanker(
             ensemble_method =cfg.ensemble_method,
-            rankers=rankers,
+            retrievers=retrievers,
             weights=cfg.ranker_weights,
             rrf_k=int(cfg.rrf_k)
         )
@@ -149,23 +151,13 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             # Step 1: Retrieval
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
-            faiss_dists = get_faiss_candidates(
-                q, pool_n, faiss_index, chunks, embed_model=cfg.embed_model,
-            )
-            bm25_scores = get_bm25_candidates(
-                q, pool_n, bm25_index, chunks, embed_model=cfg.embed_model,
-            )
-
+            raw_scores: Dict[str, Dict[int, float]] = {}
+            for retriever in retrievers:
+                raw_scores[retriever.name] = retriever.get_scores(q, pool_n, chunks)
             # TODO: Fix retrieval logging.
-            #logger.log_retrieval(list(faiss_dists.keys()), faiss_dists, pool_n, cfg.embed_model)
 
             # Step 2: Ranking
-            raw_metrics = {
-                "faiss_distances": faiss_dists,
-                "bm25_scores": bm25_scores
-            }
-            
-            ordered = ensemble.rank(raw_metrics=raw_metrics)
+            ordered = ranker.rank(raw_scores=raw_scores)
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources)
 
