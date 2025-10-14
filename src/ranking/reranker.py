@@ -1,6 +1,9 @@
 """
+reranker.py
+
 This module supports re-ranking strategies applied before the generative LLM call.
 """
+
 from typing import Dict, List
 from sentence_transformers import CrossEncoder
 
