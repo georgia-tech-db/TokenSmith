@@ -1,7 +1,7 @@
 """
 retriever.py
 
-Stores core retrieval logic using FAISS and BM25.
+Stores core retrieval logic using FAISS and BM25 scoring.
 It also contains helpers for loading artifacts and filtering chunks.
 """
 
