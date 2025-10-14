@@ -114,7 +114,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     logger = get_logger()
     # planner = HeuristicQueryPlanner(cfg)
 
-    # Load artifacts and initialize rankers once before the loop.
+    # Load artifacts, initialize retrievers and rankers once before the loop.
     print("Welcome to Tokensmith! Initializing chat...")
     try:
         # Disabled till we fix the core pipeline

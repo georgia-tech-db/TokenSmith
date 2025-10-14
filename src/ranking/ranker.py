@@ -14,7 +14,7 @@ Candidate = int
 class EnsembleRanker:
     """
     Computes weighted reciprocal rank fusion (RRF) or weighted linear fusion of
-    normalized ranker scores.
+    normalized retriever scores.
     ensemble_method should be one of 'linear' and 'rrf'.
     Weights must sum to 1. Example weights: {"faiss": 0.6, "bm25": 0.4}.
     """
