@@ -1,16 +1,15 @@
 import argparse
 import pathlib
 import sys
-from typing import Optional
+from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
 from src.generator import answer
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
-from src.ranking.ensemble import EnsembleRanker
-from src.ranking.rankers import BM25Ranker, FaissSimilarityRanker
-from src.reranker import rerank
-from src.retriever import apply_seg_filter, get_candidates, load_artifacts
+from src.ranking.ranker import EnsembleRanker
+from src.ranking.reranker import rerank
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,29 +31,29 @@ def parse_args() -> argparse.Namespace:
         help="path to custom config file (uses default if not specified)"
     )
     parser.add_argument(
-        "--pdf-dir",
+        "--pdf_dir",
         default="data/chapters/",
         help="directory containing PDF files (default: %(default)s)"
     )
     parser.add_argument(
-        "--index-prefix",
+        "--index_prefix",
         default="textbook_index",
         help="prefix for generated index files (default: %(default)s)"
     )
     parser.add_argument(
-        "--model-path",
+        "--model_path",
         help="path to generation model (uses config default if not specified)"
     )
 
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
     indexing_group.add_argument(
-        "--pdf-range",
+        "--pdf_range",
         metavar="START-END",
         help="specific range of PDFs to index (e.g., '27-33')"
     )
     indexing_group.add_argument(
-        "--keep-tables",
+        "--keep_tables",
         action="store_true",
         help="include tables in the index"
     )
@@ -115,17 +114,19 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     logger = get_logger()
     # planner = HeuristicQueryPlanner(cfg)
 
-    # Load artifacts and initialize rankers ONCE before the loop.
+    # Load artifacts, initialize retrievers and rankers once before the loop.
     print("Welcome to Tokensmith! Initializing chat...")
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        index, chunks, sources = load_artifacts(cfg)
+        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
 
-        rankers = [FaissSimilarityRanker(), BM25Ranker()]
-        ensemble = EnsembleRanker(
+        retrievers = [
+            FAISSRetriever(faiss_index, cfg.embed_model),
+            BM25Retriever(bm25_index)
+        ]
+        ranker = EnsembleRanker(
             ensemble_method =cfg.ensemble_method,
-            rankers=rankers,
             weights=cfg.ranker_weights,
             rrf_k=int(cfg.rrf_k)
         )
@@ -149,14 +150,13 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             # Step 1: Retrieval
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
-            cand_idxs, faiss_dists = get_candidates(
-                q, pool_n, index, chunks, embed_model=cfg.embed_model,
-            )
-            logger.log_retrieval(cand_idxs, faiss_dists, pool_n, cfg.embed_model)
+            raw_scores: Dict[str, Dict[int, float]] = {}
+            for retriever in retrievers:
+                raw_scores[retriever.name] = retriever.get_scores(q, pool_n, chunks)
+            # TODO: Fix retrieval logging.
 
             # Step 2: Ranking
-            context = {"faiss_distances": faiss_dists}
-            ordered = ensemble.rank(query=q, chunks=chunks, cand_idxs=cand_idxs, context=context)
+            ordered = ranker.rank(raw_scores=raw_scores)
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources)
 
@@ -183,14 +183,15 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             logger.log_error(str(e))
             break
 
-    logger.log_query_complete()
+    # TODO: Fix completion logging.
+    # logger.log_query_complete()
 
 
 def main():
     """Main entry point for the script."""
     args = parse_args()
 
-    # Robust config loading.
+    # Robust config loading
     if args.config:
         cfg = QueryPlanConfig.from_yaml(args.config)
     else:
