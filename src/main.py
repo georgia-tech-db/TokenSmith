@@ -127,7 +127,6 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
         ]
         ranker = EnsembleRanker(
             ensemble_method =cfg.ensemble_method,
-            retrievers=retrievers,
             weights=cfg.ranker_weights,
             rrf_k=int(cfg.rrf_k)
         )
@@ -184,14 +183,15 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             logger.log_error(str(e))
             break
 
-    logger.log_query_complete()
+    # TODO: Fix completion logging.
+    # logger.log_query_complete()
 
 
 def main():
     """Main entry point for the script."""
     args = parse_args()
 
-    # Robust config loading.
+    # Robust config loading
     if args.config:
         cfg = QueryPlanConfig.from_yaml(args.config)
     else:
