@@ -1,57 +1,31 @@
 #!/usr/bin/env python3
-"""Run retrieval ablations across FAISS and BM25 weight settings."""
+"""Run retrieval ablations across FAISS and BM25 weight settings. Example: python scripts/retrieval_ablation.py"""
 
-import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.config import QueryPlanConfig
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import BM25Retriever, FAISSRetriever, load_artifacts
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Explore retrieval blends for multiple FAISS/BM25 weights."
-    )
-    parser.add_argument("query", help="Query text to evaluate.")
-    parser.add_argument("--config", help="Optional config path overriding defaults.")
-    parser.add_argument(
-        "--weights",
-        nargs="+",
-        help="Weight pairs as 'faiss,bm25'. Defaults to config weights.",
-    )
-    parser.add_argument(
-        "--method",
-        default="linear",
-        choices=["linear", "rrf"],
-        help="Fusion method (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        help="Number of results to keep per run (defaults to config top_k).",
-    )
-    parser.add_argument(
-        "--pool-size",
-        type=int,
-        help="Override pool size for retrievers.",
-    )
-    parser.add_argument(
-        "--rrf-k",
-        type=int,
-        default=60,
-        help="RRF constant when method=rrf (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--output",
-        help="Optional JSON output file summarizing ablation runs.",
-    )
-    return parser.parse_args()
+QUERY = "What is atomicity?"
+WEIGHT_PAIRS: Optional[List[Tuple[float, float]]] = [(0.6, 0.4), (0.5, 0.5)]
+METHOD = "linear"
+TOP_K_OVERRIDE: Optional[int] = None
+POOL_SIZE_OVERRIDE: Optional[int] = None
+RRF_K = 60
+CONFIG_PATH: Optional[Path] = None
+OUTPUT_PATH: Optional[Path] = None
 
 
-def find_config(path: Optional[str]) -> QueryPlanConfig:
+def find_config(path: Optional[Path]) -> QueryPlanConfig:
     if path:
         return QueryPlanConfig.from_yaml(path)
     search = [
@@ -65,30 +39,12 @@ def find_config(path: Optional[str]) -> QueryPlanConfig:
     raise FileNotFoundError("Config not provided and no fallback discovered.")
 
 
-def parse_weight_pairs(raw_pairs: Optional[List[str]], cfg: QueryPlanConfig) -> List[Tuple[float, float]]:
-    pairs: List[Tuple[float, float]] = []
-    if not raw_pairs:
-        w_f = cfg.ranker_weights.get("faiss", 0.5)
-        w_b = cfg.ranker_weights.get("bm25", 0.5)
-        pairs.append((float(w_f), float(w_b)))
-        return pairs
-    for raw in raw_pairs:
-        try:
-            faiss_val, bm25_val = raw.split(",")
-            f = float(faiss_val.strip())
-            b = float(bm25_val.strip())
-        except ValueError as exc:  # pragma: no cover
-            raise ValueError(f"Failed to parse weight pair '{raw}'; expected 'faiss,bm25'.") from exc
-        if f < 0 or b < 0:
-            raise ValueError("Weights must be non-negative.")
-        if f == 0 and b == 0:
-            raise ValueError("At least one weight must be positive.")
-        pairs.append((f, b))
-    return pairs
-
-
 def normalize_pair(faiss_weight: float, bm25_weight: float) -> Dict[str, float]:
+    if faiss_weight < 0 or bm25_weight < 0:
+        raise ValueError("Weights must be non-negative.")
     total = faiss_weight + bm25_weight
+    if total == 0:
+        raise ValueError("At least one weight must be positive.")
     faiss_norm = faiss_weight / total
     faiss_norm = float(f"{faiss_norm:.10f}")
     bm25_norm = 1.0 - faiss_norm
@@ -131,25 +87,28 @@ def summarize_run(
 
 
 def main() -> None:
-    args = parse_args()
-    cfg = find_config(args.config)
+    query = QUERY.strip()
+    if not query:
+        print("No query configured, exiting.")
+        return
 
+    cfg = find_config(CONFIG_PATH)
     faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
 
-    pool_size = args.pool_size or cfg.pool_size
+    pool_size = POOL_SIZE_OVERRIDE or cfg.pool_size
     pool_size = min(pool_size, len(chunks))
-    top_k = args.top_k or cfg.top_k
+    top_k = TOP_K_OVERRIDE or cfg.top_k
 
     faiss_retriever = FAISSRetriever(faiss_index, cfg.embed_model)
     bm25_retriever = BM25Retriever(bm25_index)
-    raw_scores = collect_raw_scores(faiss_retriever, bm25_retriever, args.query, pool_size, chunks)
+    raw_scores = collect_raw_scores(faiss_retriever, bm25_retriever, query, pool_size, chunks)
 
-    pairs = parse_weight_pairs(args.weights, cfg)
+    pairs = WEIGHT_PAIRS or [(cfg.ranker_weights.get("faiss", 0.5), cfg.ranker_weights.get("bm25", 0.5))]
     reports = []
 
     for f_raw, b_raw in pairs:
         weights = normalize_pair(f_raw, b_raw)
-        ranker = EnsembleRanker(args.method, weights, args.rrf_k)
+        ranker = EnsembleRanker(METHOD, weights, RRF_K)
         ordered = ranker.rank(raw_scores)
         summary = summarize_run(ordered, chunks, sources, top_k)
         reports.append({"weights": weights, "ranking": summary})
@@ -159,14 +118,15 @@ def main() -> None:
             print(f"  #{row['rank']:02d} idx={row['chunk_idx']} src={row['source']} :: {row['preview']}")
         print()
 
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(
+    if OUTPUT_PATH:
+        if OUTPUT_PATH.suffix != ".json":
+            raise ValueError("OUTPUT_PATH must end with .json")
+        OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        OUTPUT_PATH.write_text(
             json.dumps(
                 {
-                    "query": args.query,
-                    "method": args.method,
+                    "query": query,
+                    "method": METHOD,
                     "top_k": top_k,
                     "pool_size": pool_size,
                     "runs": reports,
@@ -174,7 +134,7 @@ def main() -> None:
                 indent=2,
             )
         )
-        print(f"Saved ablation report to {output_path}")
+        print(f"Saved ablation report to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

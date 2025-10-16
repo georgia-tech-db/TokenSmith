@@ -79,7 +79,7 @@ class EnsembleRanker:
         for name, scores in per_retriever_scores.items():
             weight = self.weights.get(name, 0)
             if weight > 0:
-                normalized_scores = self._normalize(scores)
+                normalized_scores = self.normalize(scores)
                 for cand, norm_score in normalized_scores.items():
                     combined_scores[cand] += weight * norm_score
 

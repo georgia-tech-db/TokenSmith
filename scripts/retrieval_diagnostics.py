@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
-"""Inspect FAISS and BM25 rankings for a single query."""
+"""Inspect FAISS and BM25 rankings for a single query. Example: python scripts/retrieval_diagnostics.py"""
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-from pandas import DataFrame
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None  # type: ignore
+
+if TYPE_CHECKING:
+    from pandas import DataFrame
+else:  # pragma: no cover
+    DataFrame = Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from src.config import QueryPlanConfig
 from src.retriever import FAISSRetriever, load_artifacts
 
 
+QUERY = "What is atomicity?"
 CONFIG_PATH: Optional[Path] = None
 OUTPUT_PATH = Path("logs/retrieval_diagnostics.json")
 INCLUDE_TEXT = True
 POOL_SIZE_OVERRIDE: Optional[int] = None
 
 
-def find_config(path: Optional[str]) -> QueryPlanConfig:
+def find_config(path: Optional[Path]) -> QueryPlanConfig:
     if path:
         return QueryPlanConfig.from_yaml(path)
     search = [
@@ -41,7 +55,7 @@ def build_faiss_table(
     sources: List[str],
     include_text: bool,
     pool_size: int,
-) -> Tuple[List[Dict[str, object]], Optional["DataFrame"]]:
+) -> Tuple[List[Dict[str, object]], Optional[DataFrame]]:
     retriever = FAISSRetriever(index, embed_model)
     q_vec = retriever.embedder.encode([query]).astype("float32")
     distances, indices = index.search(q_vec, pool_size)
@@ -70,13 +84,12 @@ def build_bm25_table(
     sources: List[str],
     include_text: bool,
     pool_size: int,
-) -> Tuple[List[Dict[str, object]], Optional["DataFrame"]]:
+) -> Tuple[List[Dict[str, object]], Optional[DataFrame]]:
     tokenized = query.lower().split()
     scores = index.get_scores(tokenized)
     if isinstance(scores, list):
         scores = np.array(scores)
-    order = np.argsort(scores)[::-1]
-    order = order[:pool_size]
+    order = np.argsort(scores)[::-1][:pool_size]
     records: List[Dict[str, object]] = []
     for rank, idx in enumerate(order, start=1):
         if idx < 0 or idx >= len(chunks):
@@ -95,9 +108,9 @@ def build_bm25_table(
 
 
 def main() -> None:
-    query = "What is atomicity?"
+    query = QUERY.strip()
     if not query:
-        print("No query provided, exiting.")
+        print("No query configured, exiting.")
         return
 
     cfg = find_config(CONFIG_PATH)
@@ -135,8 +148,9 @@ def main() -> None:
     OUTPUT_PATH.write_text(json.dumps(payload, indent=2))
 
     print(f"Stored diagnostics at {OUTPUT_PATH}")
-    if pd:
+    if pd and faiss_records:
         print("FAISS head:\n", faiss_df.head())
+    if pd and bm25_records:
         print("BM25 head:\n", bm25_df.head())
 
 
