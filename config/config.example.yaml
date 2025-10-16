@@ -2,7 +2,7 @@ embed_model: "Qwen/Qwen3-Embedding-4B"
 top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
-ranker_weights": {"faiss":0.5,"bm25":0.5}
+ranker_weights: {"faiss":0.5,"bm25":0.5}
 rrf_k: 60
 max_gen_tokens: 400
 seg_filter: null
