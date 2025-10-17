@@ -7,6 +7,7 @@ It also contains helpers for loading artifacts and filtering chunks.
 
 from __future__ import annotations
 
+import os
 import pickle
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Dict
@@ -31,15 +32,13 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(index_prefix: os.PathLike) -> Tuple[faiss.Index, List[str], List[str]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
     """
-    index_prefix = cfg.get_index_prefix()
-
     faiss_index = faiss.read_index(f"{index_prefix}.faiss")
     bm25_index  = pickle.load(open(f"{index_prefix}_bm25.pkl", "rb"))
     chunks      = pickle.load(open(f"{index_prefix}_chunks.pkl", "rb"))

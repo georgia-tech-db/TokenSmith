@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
 from src.generator import answer
-from src.index_builder import build_index
+from src.index_builder import build_index, build_index_from_sections
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.ranking.reranker import rerank
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     # Required arguments
     parser.add_argument(
         "mode",
-        choices=["index", "chat"],
+        choices=["index", "chat", "summary"],
         help="operation mode: 'index' to build index, 'chat' to query"
     )
 
@@ -119,7 +119,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
+        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg.get_index_prefix())
 
         retrievers = [
             FAISSRetriever(faiss_index, cfg.embed_model),
@@ -208,6 +208,15 @@ def main():
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "summary":
+        with open("summary_index.txt") as f:
+            summary_section = {
+                "heading": "Summary",
+                "content": f.read(),
+            }
+            summary_index_path = pathlib.Path("index", "summary")
+            summary_index_path.mkdir(parents=True, exist_ok=True)
+            build_index_from_sections(sections=[summary_section], filename="summary_index.txt", cfg=cfg, index_prefix=summary_index_path / "summary_index")
 
 
 if __name__ == "__main__":
