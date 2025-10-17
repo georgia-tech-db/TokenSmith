@@ -6,6 +6,12 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+
+
+# Add project root to sys.path for imports
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -13,6 +19,7 @@ if str(ROOT) not in sys.path:
 from src.config import QueryPlanConfig
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import BM25Retriever, FAISSRetriever, load_artifacts
+from src.instrumentation.logging import init_logger
 
 
 QUERY = "What is atomicity?"
@@ -93,6 +100,7 @@ def main() -> None:
         return
 
     cfg = find_config(CONFIG_PATH)
+    init_logger(cfg)
     faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
 
     pool_size = POOL_SIZE_OVERRIDE or cfg.pool_size

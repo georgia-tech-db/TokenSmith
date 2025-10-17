@@ -6,27 +6,20 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-import numpy as np
+import pandas as pd
 
-try:
-    import pandas as pd
-except ImportError:  # pragma: no cover
-    pd = None  # type: ignore
+from pandas import DataFrame
 
-if TYPE_CHECKING:
-    from pandas import DataFrame
-else:  # pragma: no cover
-    DataFrame = Any
-
+# Add project root to sys.path for imports
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import QueryPlanConfig
-from src.retriever import FAISSRetriever, load_artifacts
+from src.retriever import FAISSRetriever, BM25Retriever, load_artifacts
 
 
-QUERY = "What is atomicity?"
+QUERY = "How does the recovery manager use ARIES to ensure atomicity?"
 CONFIG_PATH: Optional[Path] = None
 OUTPUT_PATH = Path("logs/retrieval_diagnostics.json")
 INCLUDE_TEXT = True
@@ -85,19 +78,18 @@ def build_bm25_table(
     include_text: bool,
     pool_size: int,
 ) -> Tuple[List[Dict[str, object]], Optional[DataFrame]]:
-    tokenized = query.lower().split()
-    scores = index.get_scores(tokenized)
-    if isinstance(scores, list):
-        scores = np.array(scores)
-    order = np.argsort(scores)[::-1][:pool_size]
+    retriever = BM25Retriever(index)
+    score_map = retriever.get_scores(query, pool_size, chunks)
+    ordered = sorted(score_map.items(), key=lambda kv: kv[1], reverse=True)
+
     records: List[Dict[str, object]] = []
-    for rank, idx in enumerate(order, start=1):
+    for rank, (idx, score) in enumerate(ordered[:pool_size], start=1):
         if idx < 0 or idx >= len(chunks):
             continue
         item = {
             "chunk_idx": int(idx),
             "rank": rank,
-            "score": float(scores[idx]),
+            "score": float(score),
             "source": sources[idx],
         }
         if include_text:

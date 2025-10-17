@@ -8,6 +8,7 @@ It also contains helpers for loading artifacts and filtering chunks.
 from __future__ import annotations
 
 import pickle
+import re
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Dict
 
@@ -144,7 +145,8 @@ class BM25Retriever(Retriever):
         Returns BM25 scores for top 'pool_size' keyed by global chunk index.
         """
         # Tokenize the query in the same way the index was built
-        tokenized_query = query.lower().split()
+        cleaned = re.sub(r"[^\w\s]", " ", query.lower())
+        tokenized_query = cleaned.split()
 
         # Get scores for all documents in the corpus
         all_scores = self.index.get_scores(tokenized_query)
