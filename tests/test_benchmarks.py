@@ -162,12 +162,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     Returns:
         str: Generated answer
     """
-    from src.retriever import load_artifacts, retrieve
+    from src.retriever import load_artifacts, BM25Retriever
     from src.ranking.reranker import rerank
     from src.generator import answer
     
+    
     # Load artifacts
-    index, chunks, sources, vectorizer, chunk_tags = load_artifacts(config["index_prefix"])
+    faiss_index, bm_index, chunks, sources = load_artifacts(config["index_prefix"])
     
     # Get chunks (either golden or retrieved)
     if golden_chunks and config["use_golden_chunks"]:
@@ -176,22 +177,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         print(f"  📌 Using {len(golden_chunks)} golden chunks")
     elif config["enable_chunks"]:
         # Retrieve chunks using configured method
-        retrieved_chunks = retrieve(
-            query=question,
-            k=config["top_k"],
-            index=index,
-            chunks=chunks,
-            embed_model=config["embed_model"],
-            bm25_weight=config["bm25_weight"],
-            tag_weight=config["tag_weight"],
-            preview=False,  # Disable preview in tests
-            sources=sources,
-            vectorizer=vectorizer,
-            chunk_tags=chunk_tags,
-        )
+        
+        retriever = BM25Retriever(bm_index)
+        chunk_indices = retriever.get_scores(query=question, pool_size=config["top_k"], chunks=chunks)
+        retrieved_chunks = [chunks[i] for i in chunk_indices]
         
         # Apply reranking
-        retrieved_chunks = rerank(question, retrieved_chunks, mode=config["halo_mode"])
+        retrieved_chunks = rerank(question, retrieved_chunks, mode=config["halo_mode"], top_n=config["top_k"])
         print(f"  🔍 Retrieved {len(retrieved_chunks)} chunks")
     else:
         # No chunks - baseline mode
@@ -204,7 +196,6 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         chunks=retrieved_chunks,
         model_path=config["generator_model"],
         max_tokens=config["max_gen_tokens"],
-        system_prompt_mode=config["system_prompt_mode"],
     )
     
     # Clean answer - extract up to end token if present
