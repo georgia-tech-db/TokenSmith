@@ -44,9 +44,10 @@ def summary_prompt(section: str) -> str:
 
 
 def build_summary_index(
-    model_path: str = "build/llama.cpp/models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
+    model_path: os.PathLike = "build/llama.cpp/models/qwen2.5-0.5b-instruct-q5_k_m.gguf",
     pdf_dir: str = "data/chapters/",
 ):
+    model_path = pathlib.Path(model_path)
     print(f"Building summary index using model: {model_path}")
     chunker = DocumentChunker(SectionRecursiveStrategy(SectionRecursiveConfig()), keep_tables=True)
 
@@ -74,6 +75,8 @@ def build_summary_index(
         "common_init_from_params:",
         "system_info:",
         ".........",
+        "<think>",
+        "</think>",
     ]
 
     def is_debug_line(line: str) -> bool:
@@ -88,7 +91,7 @@ def build_summary_index(
 
         return False
 
-    with open("summary_index.txt", "w") as f:
+    with open(f"summary_index-{model_path.stem}.txt", "w") as f:
         for chunk in tqdm(chunks):
             query = summary_prompt(chunk)
             response = run_llama_cpp(query, model_path)
@@ -100,6 +103,9 @@ def build_summary_index(
             ]
             f.writelines(answer_lines)
 
+def main():
+    model_path = pathlib.Path("build", "llama.cpp", "models", "Qwen3-1.7B-Q8_0.gguf")
+    build_summary_index(model_path=model_path)
 
 if __name__ == "__main__":
-    build_summary_index()
+    main()
