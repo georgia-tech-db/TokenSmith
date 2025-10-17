@@ -50,13 +50,20 @@ def build_index(
         - {prefix}_sources.pkl
         - {prefix}_meta.pkl
     """
-    all_chunks: List[str] = []
-    sources: List[str] = []
-    metadata: List[Dict] = []
+    
 
     # Extract sections from markdown
     sections = extract_sections_from_markdown(markdown_file)
+    build_index_from_sections(sections=sections, cfg=cfg, filename=markdown_file, keep_tables=keep_tables, do_visualize=do_visualize)
 
+
+def build_index_from_sections(sections, cfg: QueryPlanConfig, filename: str, keep_tables: bool = True, do_visualize: bool = False, index_prefix: os.PathLike = None):
+    index_prefix = index_prefix or cfg.get_index_prefix()
+
+    all_chunks: List[str] = []
+    sources: List[str] = []
+    metadata: List[Dict] = []
+    
     # Create strategy and chunker
     strategy = cfg.make_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=keep_tables)
@@ -65,7 +72,7 @@ def build_index(
     for i, c in enumerate(sections):
         has_table = bool(TABLE_RE.search(c['content']))
         meta = {
-            "filename": markdown_file,
+            "filename": filename,
             "chunk_id": i,
             "mode": cfg.chunk_config.to_string(),
             "keep_tables": keep_tables,
@@ -80,10 +87,8 @@ def build_index(
         sub_chunks = chunker.chunk(c['content'])
         for sub_c in sub_chunks:
             all_chunks.append(sub_c)
-            sources.append(markdown_file)
+            sources.append(filename)
             metadata.append(meta)
-
-    index_prefix = cfg.get_index_prefix()
 
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {cfg.embed_model} ...")

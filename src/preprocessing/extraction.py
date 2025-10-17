@@ -1,7 +1,8 @@
 import re
 import json
+import os
 
-def extract_sections_from_markdown(file_path):
+def extract_sections_from_markdown(file_path: os.PathLike) -> list[dict[str, str]]:
     """
     Chunks a markdown file into sections based on '##' headings.
 
