@@ -35,12 +35,12 @@ class QueryPlanConfig:
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_index_prefix(self) -> os.PathLike:
+    def make_artifacts_directory(self) -> os.PathLike:
         """Returns the path prefix for index artifacts."""
         strategy = self.make_strategy()
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
-        return strategy_dir / "textbook_index"
+        return strategy_dir
 
     # ---------- factory + validation ----------
     @staticmethod

@@ -37,6 +37,7 @@ def build_index(
     markdown_file: str,
     *,
     cfg: QueryPlanConfig,
+    index_prefix: str, 
     keep_tables: bool = True,
     do_visualize: bool = False,
 ) -> None:
@@ -83,7 +84,7 @@ def build_index(
             sources.append(markdown_file)
             metadata.append(meta)
 
-    index_prefix = cfg.get_index_prefix()
+    artifacts_dir = cfg.make_artifacts_directory()
 
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {cfg.embed_model} ...")
@@ -97,7 +98,7 @@ def build_index(
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
-    faiss.write_index(index, f"{index_prefix}.faiss")
+    faiss.write_index(index, str(artifacts_dir / f"{index_prefix}.faiss"))
     print(f"FAISS Index built successfully: {index_prefix}.faiss")
 
     # Step 4: Build BM25 index
@@ -109,11 +110,11 @@ def build_index(
     print(f"BM25 Index built successfully: {index_prefix}_bm25.pkl")
 
     # Step 5: Dump index artifacts
-    with open(f"{index_prefix}_chunks.pkl", "wb") as f:
+    with open(artifacts_dir / f"{index_prefix}_chunks.pkl", "wb") as f:
         pickle.dump(all_chunks, f)
-    with open(f"{index_prefix}_sources.pkl", "wb") as f:
+    with open(artifacts_dir / f"{index_prefix}_sources.pkl", "wb") as f:
         pickle.dump(sources, f)
-    with open(f"{index_prefix}_meta.pkl", "wb") as f:
+    with open(artifacts_dir / f"{index_prefix}_meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
 
