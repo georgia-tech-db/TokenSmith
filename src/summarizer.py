@@ -12,8 +12,8 @@ src_module = pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(str(src_module))
 sys.path.append(str(src_module.parent))
 
-from src.preprocess import DocumentChunker
-from src.chunking import SectionRecursiveStrategy, SectionRecursiveConfig
+from src.preprocessing.chunking import DocumentChunker
+from src.preprocessing.chunking import SectionRecursiveStrategy, SectionRecursiveConfig
 from src.generator import run_llama_cpp
 
 ANSWER_START = "<<<ANSWER>>>"
