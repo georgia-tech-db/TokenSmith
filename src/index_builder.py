@@ -16,7 +16,7 @@ import faiss
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-from src.preprocessing.chunking import DocumentChunker
+from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
 from src.config import QueryPlanConfig
 
@@ -38,6 +38,7 @@ def build_index(
     *,
     cfg: QueryPlanConfig,
     chunker: DocumentChunker,
+    chunk_config: ChunkConfig,
     index_prefix: str, 
     do_visualize: bool = False,
 ) -> None:
@@ -64,7 +65,7 @@ def build_index(
         meta = {
             "filename": markdown_file,
             "chunk_id": i,
-            "mode": cfg.chunk_config.to_string(),
+            "mode": chunk_config.to_string(),
             "keep_tables": chunker.keep_tables,
             "char_len": len(c['content']),
             "word_len": len(c['content'].split()),

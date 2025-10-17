@@ -106,6 +106,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         markdown_file="data/book_without_image.md",
         cfg=cfg,
         chunker=chunker,
+        chunk_config=cfg.chunk_config,
         index_prefix=args.index_prefix,
         do_visualize=args.visualize,
     )
