@@ -119,7 +119,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
+        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg.get_index_prefix())
 
         retrievers = [
             FAISSRetriever(faiss_index, cfg.embed_model),
