@@ -92,6 +92,11 @@ def pytest_addoption(parser):
     
     # === Testing Options ===
     group.addoption(
+        "--artifacts_dir",
+        default=None,
+        help="Artifacts folder for tests (overrides config)"
+    )
+    group.addoption(
         "--index-prefix",
         default=None,
         help="Index prefix for tests (overrides config)"
@@ -162,6 +167,7 @@ def config(pytestconfig):
         "max_gen_tokens": cfg.get("max_gen_tokens", 400),
         
         # Testing
+        "artifacts_dir": pytestconfig.getoption("--artifacts_dir") or "index/tokens-200",
         "index_prefix": pytestconfig.getoption("--index-prefix") or testing_cfg.get("index_prefix", "textbook_index"),
         "metrics": pytestconfig.getoption("--list-metrics") or testing_cfg.get("metrics", ["all"]),
         "threshold_override": pytestconfig.getoption("--threshold") or testing_cfg.get("threshold_override"),

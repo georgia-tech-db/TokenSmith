@@ -102,6 +102,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     build_index(
         markdown_file="data/book_without_image.md",
         cfg=cfg,
+        index_prefix=args.index_prefix,
         keep_tables=args.keep_tables,
         do_visualize=args.visualize,
     )
@@ -119,7 +120,8 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        faiss_index, bm25_index, chunks, sources = load_artifacts(cfg)
+        artifacts_dir = cfg.make_artifacts_directory()
+        faiss_index, bm25_index, chunks, sources = load_artifacts(artifacts_dir=artifacts_dir, index_prefix=args.index_prefix)
 
         retrievers = [
             FAISSRetriever(faiss_index, cfg.embed_model),
