@@ -19,7 +19,7 @@ from src.config import QueryPlanConfig
 from src.retriever import FAISSRetriever, BM25Retriever, load_artifacts
 
 
-QUERY = "How does the recovery manager use ARIES to ensure atomicity?"
+QUERY = "Show me what happens during a lossy decomposition."
 CONFIG_PATH: Optional[Path] = None
 OUTPUT_PATH = Path("logs/retrieval_diagnostics.json")
 INCLUDE_TEXT = True

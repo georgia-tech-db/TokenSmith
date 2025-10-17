@@ -5,9 +5,22 @@ from typing import Dict, List, Any, Optional
 
 from src.config import QueryPlanConfig
 
-INSTANCE: Optional["RunLogger"]= None
+INSTANCE: Optional[Any] = None
 
-def get_logger() -> "RunLogger":
+
+class _NullLogger:
+    """No-op logger used when logging is disabled."""
+
+    config: Optional[QueryPlanConfig] = None
+    session_id = "disabled"
+
+    def __getattr__(self, name: str):  # pragma: no cover - simple passthrough
+        def _noop(*args, **kwargs):
+            return None
+
+        return _noop
+
+def get_logger() -> Any:
     global INSTANCE
     if INSTANCE is None:
         raise ValueError("get_logger called before init_logger!")
@@ -251,10 +264,18 @@ class RunLogger:
             "log_file": str(self.log_file)
         }
 
+def init_logger(cfg: Optional[QueryPlanConfig], enable_logging: bool = True):
+    """Initialize the global logger, optionally disabling logging entirely."""
 
-
-def init_logger(cfg: QueryPlanConfig):
     global INSTANCE
+
+    if not enable_logging:
+        INSTANCE = _NullLogger()
+        return
+
+    if cfg is None:
+        raise ValueError("QueryPlanConfig is required when enable_logging is True")
+
     INSTANCE = RunLogger(cfg)
 
 def load_session_logs(session_id: str) -> List[Dict[str, Any]]:
