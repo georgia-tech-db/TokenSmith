@@ -153,7 +153,12 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             raw_scores: Dict[str, Dict[int, float]] = {}
             for retriever in retrievers:
                 raw_scores[retriever.name] = retriever.get_scores(q, pool_n, chunks)
-            # TODO: Fix retrieval logging.
+            logger.log_retrieval(
+                candidates=sorted({idx for scores in raw_scores.values() for idx in scores}),
+                retriever_scores={name: dict(scores) for name, scores in raw_scores.items()},
+                pool_size=pool_n,
+                embed_model=cfg.embed_model,
+            )
 
             # Step 2: Ranking
             ordered = ranker.rank(raw_scores=raw_scores)
@@ -174,17 +179,16 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             print(ans.strip() if ans and ans.strip() else "(No output from model)")
             print("\n==================== END OF ANSWER ====================")
             logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": model_path})
+            logger.log_query_complete()
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
         except Exception as e:
             print(f"\nAn unexpected error occurred: {e}")
-            logger.log_error(str(e))
+            logger.log_error(e)
             break
 
-    # TODO: Fix completion logging.
-    # logger.log_query_complete()
 
 
 def main():

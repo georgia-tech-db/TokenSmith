@@ -82,8 +82,13 @@ class RunLogger:
             "config_diff": diff,
         }
 
-    def log_retrieval(self, candidates: List[int], faiss_distances: Dict[int, float],
-                      pool_size: int, embed_model: str):
+    def log_retrieval(
+        self,
+        candidates: List[int],
+        retriever_scores: Dict[str, Dict[int, float]],
+        pool_size: int,
+        embed_model: str,
+    ):
         if not self.current_query_data:
             return
 
@@ -91,13 +96,11 @@ class RunLogger:
             "pool_size_requested": pool_size,
             "candidates_returned": len(candidates),
             "embed_model": embed_model,
-            "candidate_indices": candidates,
-            "faiss_distances": faiss_distances,
-            "faiss_stats": {
-                "min_distance": min(faiss_distances.values()) if faiss_distances else None,
-                "max_distance": max(faiss_distances.values()) if faiss_distances else None,
-                "avg_distance": sum(faiss_distances.values()) / len(faiss_distances) if faiss_distances else None
-            }
+            "candidate_indices": [int(idx) for idx in candidates],
+            "retriever_scores": {
+                name: {int(idx): float(score) for idx, score in scores.items()}
+                for name, scores in retriever_scores.items()
+            },
         }
         self.current_query_data["retrieval"] = retrieval_data
 
@@ -111,17 +114,18 @@ class RunLogger:
             self.current_query_data["ranking"] = {}
 
         # Convert scores to ranks (1-based)
-        sorted_candidates = sorted(candidates, key=lambda i: scores.get(i, 0.0), reverse=True)
-        ranks = {idx: rank + 1 for rank, idx in enumerate(sorted_candidates)}
+        score_items = {int(idx): float(scores[idx]) for idx in scores}
+        sorted_candidates = sorted(score_items, key=score_items.get, reverse=True)
+        ranks = {int(idx): rank + 1 for rank, idx in enumerate(sorted_candidates)}
 
         ranking_data = {
-            "scores": scores,
+            "scores": score_items,
             "ranks": ranks,
             "stats": {
-                "min_score": min(scores.values()) if scores else None,
-                "max_score": max(scores.values()) if scores else None,
-                "avg_score": sum(scores.values()) / len(scores) if scores else None,
-                "nonzero_scores": len([s for s in scores.values() if s > 0]) if scores else 0
+                "min_score": float(min(score_items.values())) if score_items else None,
+                "max_score": float(max(score_items.values())) if score_items else None,
+                "avg_score": (sum(score_items.values()) / len(score_items)) if score_items else None,
+                "nonzero_scores": len([s for s in score_items.values() if s > 0]) if score_items else 0
             }
         }
         self.current_query_data["ranking"][ranker_name] = ranking_data
@@ -134,9 +138,9 @@ class RunLogger:
 
         ensemble_data = {
             "method": ensemble_method,
-            "weights": weights,
-            "final_ranking": final_ranking,
-            "top_5_indices": final_ranking[:5]
+            "weights": {name: float(value) for name, value in weights.items()},
+            "final_ranking": [int(idx) for idx in final_ranking],
+            "top_5_indices": [int(idx) for idx in final_ranking[:5]],
         }
         self.current_query_data["ensemble"] = ensemble_data
 
@@ -149,14 +153,13 @@ class RunLogger:
         chunks_data = []
         for i, idx in enumerate(chunk_indices):
             chunk_info = {
-                "rank": i + 1,
-                "global_index": idx,
+                "rank": int(i + 1),
+                "global_index": int(idx),
                 "source": sources[idx] if idx < len(sources) else "unknown",
                 "char_length": len(chunks[idx]) if idx < len(chunks) else 0,
                 "word_count": len(chunks[idx].split()) if idx < len(chunks) else 0,
                 "has_table": "<table>" in chunks[idx].lower() if idx < len(chunks) else False,
-                "preview": (chunks[idx][:200] + "...") if idx < len(chunks) and len(chunks[idx]) > 200 else chunks[
-                    idx] if idx < len(chunks) else ""
+                "text": (chunks[idx])
             }
             chunks_data.append(chunk_info)
 
@@ -206,7 +209,7 @@ class RunLogger:
     def _write_log(self, data: Dict[str, Any]):
         """Write a log entry to the JSONL file."""
         with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+            f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary statistics for the current session."""

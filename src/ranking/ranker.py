@@ -7,6 +7,8 @@ This module supports ranking strategies applied after chunk retrieval.
 from collections import defaultdict
 from typing import Dict, List
 
+from src.instrumentation.logging import get_logger
+
 # typedef Candidate as base, we might change this into a class later
 # Each candidate is identified by its global index into `chunks`
 Candidate = int
@@ -33,12 +35,14 @@ class EnsembleRanker:
         Executes the rank fusion process on the provided raw scores.
         """
         # Collect scores from each active retriever
+        logger = get_logger()
+
         per_retriever_scores: Dict[str, Dict[Candidate, float]] = {}
         for name in raw_scores:
             weight = self.weights.get(name, 0)
             if weight > 0:
                 per_retriever_scores[name] = raw_scores[name]
-                # TODO: Fix ranker logging.
+                logger.log_ranking_scores(name, raw_scores[name], list(raw_scores[name].keys()))
 
         # Fuse scores using the specified method
         if self.ensemble_method == "rrf":
@@ -48,7 +52,7 @@ class EnsembleRanker:
         else:
             raise NotImplementedError(f"Ranking method '{self.ensemble_method}' is not implemented.")
 
-        # TODO: Fix ensemble logging.
+        logger.log_ensemble_result(ordered, self.ensemble_method, self.weights)
         return ordered
 
     def _weighted_rrf_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> List[int]:
