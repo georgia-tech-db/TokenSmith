@@ -7,7 +7,7 @@ from typing import Dict, Callable, Any
 import yaml
 import pathlib
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
+from src.preprocessing.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
 
 
 @dataclass
@@ -16,7 +16,6 @@ class QueryPlanConfig:
     chunk_config: ChunkConfig
 
     # retrieval + ranking
-    index_prefix: str
     top_k: int
     pool_size: int
     embed_model: str
@@ -24,7 +23,7 @@ class QueryPlanConfig:
     ensemble_method: str
     rrf_k: int
     ranker_weights: Dict[str, float]
-    halo_mode: str
+    rerank_mode: str
     seg_filter: Callable
 
     # generation
@@ -36,12 +35,12 @@ class QueryPlanConfig:
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_faiss_prefix(self, out_prefix: str) -> os.PathLike:
-        """Returns the path prefix for FAISS index artifacts."""
+    def get_index_prefix(self) -> os.PathLike:
+        """Returns the path prefix for index artifacts."""
         strategy = self.make_strategy()
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
-        return strategy_dir / out_prefix
+        return strategy_dir / "textbook_index"
 
     # ---------- factory + validation ----------
     @staticmethod
@@ -58,7 +57,6 @@ class QueryPlanConfig:
             chunk_config   = chunk_config,
 
             # Retrieval + Ranking
-            index_prefix   = pick("index_prefix", "textbook_index"),
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
@@ -66,7 +64,7 @@ class QueryPlanConfig:
             rrf_k          = pick("rrf_k", 60),
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
-            halo_mode      = pick("halo_mode", "none"),
+            rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None)
         )
@@ -98,14 +96,13 @@ class QueryPlanConfig:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "chunk_config": self.chunk_config.to_string(),
-            "index_prefix": self.index_prefix,
             "top_k": self.top_k,
             "pool_size": self.pool_size,
             "embed_model": self.embed_model,
             "ensemble_method": self.ensemble_method,
             "rrf_k": self.rrf_k,
             "ranker_weights": self.ranker_weights,
-            "halo_mode": self.halo_mode,
+            "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path
         }

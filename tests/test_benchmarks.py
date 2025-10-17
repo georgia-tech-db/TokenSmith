@@ -163,7 +163,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         str: Generated answer
     """
     from src.retriever import load_artifacts, retrieve
-    from src.ranker import rerank
+    from src.ranking.reranker import rerank
     from src.generator import answer
     
     # Load artifacts
