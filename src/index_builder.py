@@ -37,8 +37,8 @@ def build_index(
     markdown_file: str,
     *,
     cfg: QueryPlanConfig,
+    chunker: DocumentChunker,
     index_prefix: str, 
-    keep_tables: bool = True,
     do_visualize: bool = False,
 ) -> None:
     """
@@ -58,10 +58,6 @@ def build_index(
     # Extract sections from markdown
     sections = extract_sections_from_markdown(markdown_file)
 
-    # Create strategy and chunker
-    strategy = cfg.make_strategy()
-    chunker = DocumentChunker(strategy=strategy, keep_tables=keep_tables)
-
     # Step 1: Chunk using DocumentChunker
     for i, c in enumerate(sections):
         has_table = bool(TABLE_RE.search(c['content']))
@@ -69,7 +65,7 @@ def build_index(
             "filename": markdown_file,
             "chunk_id": i,
             "mode": cfg.chunk_config.to_string(),
-            "keep_tables": keep_tables,
+            "keep_tables": chunker.keep_tables,
             "char_len": len(c['content']),
             "word_len": len(c['content'].split()),
             "has_table": has_table,
