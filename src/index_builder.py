@@ -9,6 +9,7 @@ Entry point (called by main.py):
 
 import os
 import pickle
+import pathlib
 import re
 from typing import List, Dict
 
@@ -36,9 +37,10 @@ TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 def build_index(
     markdown_file: str,
     *,
-    cfg: QueryPlanConfig,
     chunker: DocumentChunker,
     chunk_config: ChunkConfig,
+    embedding_model_path: os.PathLike,
+    artifacts_dir: os.PathLike,
     index_prefix: str, 
     do_visualize: bool = False,
 ) -> None:
@@ -52,6 +54,7 @@ def build_index(
         - {prefix}_sources.pkl
         - {prefix}_meta.pkl
     """
+    embedding_model_path = pathlib.Path(embedding_model_path)
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
@@ -81,11 +84,9 @@ def build_index(
             sources.append(markdown_file)
             metadata.append(meta)
 
-    artifacts_dir = cfg.make_artifacts_directory()
-
     # Step 2: Create embeddings for FAISS index
-    print(f"Embedding {len(all_chunks):,} chunks with {cfg.embed_model} ...")
-    embedder = SentenceTransformer(cfg.embed_model)
+    print(f"Embedding {len(all_chunks):,} chunks with {embedding_model_path.stem} ...")
+    embedder = SentenceTransformer(str(embedding_model_path))
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
     ).astype("float32")

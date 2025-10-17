@@ -101,12 +101,15 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     
     strategy = cfg.make_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
+    
+    artifacts_dir = cfg.make_artifacts_directory()
 
     build_index(
         markdown_file="data/book_without_image.md",
-        cfg=cfg,
         chunker=chunker,
         chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
         do_visualize=args.visualize,
     )
