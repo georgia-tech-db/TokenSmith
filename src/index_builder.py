@@ -9,6 +9,7 @@ Entry point (called by main.py):
 
 import os
 import pickle
+import pathlib
 import re
 from typing import List, Dict
 
@@ -16,7 +17,7 @@ import faiss
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-from src.preprocessing.chunking import DocumentChunker
+from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
 from src.config import QueryPlanConfig
 
@@ -36,9 +37,11 @@ TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 def build_index(
     markdown_file: str,
     *,
-    cfg: QueryPlanConfig,
+    chunker: DocumentChunker,
+    chunk_config: ChunkConfig,
+    embedding_model_path: os.PathLike,
+    artifacts_dir: os.PathLike,
     index_prefix: str, 
-    keep_tables: bool = True,
     do_visualize: bool = False,
 ) -> None:
     """
@@ -51,6 +54,7 @@ def build_index(
         - {prefix}_sources.pkl
         - {prefix}_meta.pkl
     """
+    embedding_model_path = pathlib.Path(embedding_model_path)
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
@@ -58,18 +62,14 @@ def build_index(
     # Extract sections from markdown
     sections = extract_sections_from_markdown(markdown_file)
 
-    # Create strategy and chunker
-    strategy = cfg.make_strategy()
-    chunker = DocumentChunker(strategy=strategy, keep_tables=keep_tables)
-
     # Step 1: Chunk using DocumentChunker
     for i, c in enumerate(sections):
         has_table = bool(TABLE_RE.search(c['content']))
         meta = {
             "filename": markdown_file,
             "chunk_id": i,
-            "mode": cfg.chunk_config.to_string(),
-            "keep_tables": keep_tables,
+            "mode": chunk_config.to_string(),
+            "keep_tables": chunker.keep_tables,
             "char_len": len(c['content']),
             "word_len": len(c['content'].split()),
             "has_table": has_table,
@@ -84,11 +84,9 @@ def build_index(
             sources.append(markdown_file)
             metadata.append(meta)
 
-    artifacts_dir = cfg.make_artifacts_directory()
-
     # Step 2: Create embeddings for FAISS index
-    print(f"Embedding {len(all_chunks):,} chunks with {cfg.embed_model} ...")
-    embedder = SentenceTransformer(cfg.embed_model)
+    print(f"Embedding {len(all_chunks):,} chunks with {embedding_model_path.stem} ...")
+    embedder = SentenceTransformer(str(embedding_model_path))
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
     ).astype("float32")

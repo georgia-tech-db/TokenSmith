@@ -72,7 +72,7 @@ class QueryPlanConfig:
         return cfg
 
     @staticmethod
-    def get_chunk_config(raw) -> ChunkConfig:
+    def get_chunk_config(raw: Any) -> ChunkConfig:
         """Parse chunk configuration from YAML."""
         chunk_mode = raw.get("chunk_mode", "sections").lower()
         
