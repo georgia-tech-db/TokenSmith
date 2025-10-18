@@ -8,7 +8,7 @@ from src.generator import answer
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.ranking.reranker import rerank
+from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 
 
@@ -98,12 +98,19 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     except ValueError:
         print(f"ERROR: Invalid format for --pdf_range. Expected 'start-end', but got '{args.pdf_range}'.")
         sys.exit(1)
+    
+    strategy = cfg.make_strategy()
+    chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
+    
+    artifacts_dir = cfg.make_artifacts_directory()
 
     build_index(
         markdown_file="data/book_without_image.md",
-        cfg=cfg,
+        chunker=chunker,
+        chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
-        keep_tables=args.keep_tables,
         do_visualize=args.visualize,
     )
 

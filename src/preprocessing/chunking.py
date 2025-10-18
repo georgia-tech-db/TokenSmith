@@ -22,11 +22,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # -------------------------- Chunking Configs --------------------------
 class ChunkConfig(ABC):
+    @abstractmethod
     def validate(self):
         pass
-
-    def to_string(self):
-        return ""
+    
+    @abstractmethod
+    def to_string(self) -> str:
+        pass
 
 @dataclass
 class SectionRecursiveConfig(ChunkConfig):
@@ -34,7 +36,7 @@ class SectionRecursiveConfig(ChunkConfig):
     recursive_chunk_size: int = 1000
     recursive_overlap: int = 0
     
-    def to_string(self):
+    def to_string(self) -> str:
         return f"chunk_mode=sections+recursive, chunk_size={self.recursive_chunk_size}, overlap={self.recursive_overlap}"
 
     def validate(self):
@@ -47,11 +49,16 @@ class SectionRecursiveConfig(ChunkConfig):
 class ChunkStrategy(ABC):
     """Abstract base for all chunking strategies."""
     @abstractmethod
-    def name(self) -> str: ...
+    def name(self) -> str:
+        pass
+    
     @abstractmethod
-    def chunk(self, text: str) -> List[str]: ...
+    def chunk(self, text: str) -> List[str]:
+        pass
+    
     @abstractmethod
-    def artifact_folder_name(self) -> str: ...
+    def artifact_folder_name(self) -> str:
+        pass
 
 class SectionRecursiveStrategy(ChunkStrategy):
     """
