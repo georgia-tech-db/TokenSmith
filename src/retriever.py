@@ -7,6 +7,8 @@ It also contains helpers for loading artifacts and filtering chunks.
 
 from __future__ import annotations
 
+import pathlib
+import os
 import pickle
 import re
 from abc import ABC, abstractmethod
@@ -32,19 +34,18 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
     """
-    index_prefix = cfg.get_index_prefix()
-
-    faiss_index = faiss.read_index(f"{index_prefix}.faiss")
-    bm25_index  = pickle.load(open(f"{index_prefix}_bm25.pkl", "rb"))
-    chunks      = pickle.load(open(f"{index_prefix}_chunks.pkl", "rb"))
-    sources     = pickle.load(open(f"{index_prefix}_sources.pkl", "rb"))
+    artifacts_dir = pathlib.Path(artifacts_dir)
+    faiss_index = faiss.read_index(artifacts_dir / f"{index_prefix}.faiss")
+    bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
+    chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
+    sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
 
     return faiss_index, bm25_index, chunks, sources
 
