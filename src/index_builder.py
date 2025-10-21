@@ -11,15 +11,18 @@ import os
 import pickle
 import pathlib
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
+import textwrap
 
 import faiss
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
 from src.config import QueryPlanConfig
+from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
 
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
@@ -32,6 +35,75 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 
+# ------------------------ Summary Generation -----------------------------
+
+def generate_section_summaries(
+    sections: List[Dict],
+    model_path: Optional[os.PathLike] = None,
+    max_summary_tokens: int = 120,
+    context_chars: int = 2000
+) -> List[Dict]:
+    """
+    Generate concise summaries for each section using an LLM.    
+    Returns: List of dicts with 'heading', 'summary', and 'original_length'
+    """
+    summaries = []
+    
+    print(f"\n{'='*60}")
+    print(f"Generating summaries for {len(sections)} sections...")
+    print(f"{'='*60}\n")
+    
+    for section in tqdm(sections, desc="Summarizing sections"):
+        heading = section['heading']
+        content = section['content']
+        
+        if model_path is None:
+            raise ValueError("model_path must not be null.")
+        
+        # Truncate very long sections for summarization
+        # FIXME: recursive summarization for very long sections
+        content_snippet = content[:context_chars]
+        
+        # Create summarization prompt
+        prompt = textwrap.dedent(f"""\
+            <|im_start|>system
+            You are a textbook summarizer. Create a concise, informative summary that captures
+            the key concepts and main points. Write in a clear, academic style.
+            <|im_end|>
+            <|im_start|>user
+            Section: {heading}
+            
+            Content:
+            {content_snippet}
+            
+            Provide a 2-3 sentence summary of the above section.
+            End your reply with {ANSWER_END}.
+            <|im_end|>
+            <|im_start|>assistant
+            {ANSWER_START}
+            Summary: """)
+        
+        prompt = text_cleaning(prompt)
+        
+        try:
+            summary = run_llama_cpp(
+                prompt,
+                str(model_path),
+                max_tokens=max_summary_tokens
+            )
+            summaries.append({
+                'heading': heading,
+                'summary': summary.strip(),
+                'original_length': len(content),
+                'type': 'llm_generated'
+            })
+        except Exception as e:
+            print(f"\n Error summarizing section '{heading}': {e}")
+            raise e
+    print(f"\n{len(summaries)} summaries generated")
+    return summaries
+
+
 # ------------------------ Main index builder -----------------------------
 
 def build_index(
@@ -43,9 +115,12 @@ def build_index(
     artifacts_dir: os.PathLike,
     index_prefix: str, 
     do_visualize: bool = False,
+    generate_summaries: bool = True,
+    summary_model_path: Optional[os.PathLike] = None,
 ) -> None:
     """
     Extract sections, chunk, embed, and build both FAISS and BM25 indexes.
+    Optionally generate and index section summaries.
 
     Persists:
         - {prefix}.faiss
@@ -53,6 +128,8 @@ def build_index(
         - {prefix}_chunks.pkl
         - {prefix}_sources.pkl
         - {prefix}_meta.pkl
+        - {prefix}_summaries.pkl (if generate_summaries=True)
+        - {prefix}_summaries.faiss (if generate_summaries=True)
     """
     embedding_model_path = pathlib.Path(embedding_model_path)
     all_chunks: List[str] = []
@@ -116,7 +193,35 @@ def build_index(
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
 
-    # # Step 6: Optional visualization
+    # Step 6: Generate and index section summaries (if enabled)
+    if generate_summaries:
+        print(f"\n{'='*60}")
+        print("Building summary index...")
+        print(f"{'='*60}\n")
+        sections_to_summarize = sections
+        summaries = generate_section_summaries(
+            sections_to_summarize,
+            model_path=summary_model_path,
+        )
+        print(summaries)
+        with open(artifacts_dir / f"{index_prefix}_summaries.pkl", "wb") as f:
+            pickle.dump(summaries, f)
+        print(f"Saved summaries: {index_prefix}_summaries.pkl")
+
+        # Create embeddings
+        summary_texts = [s['summary'] for s in summaries]
+        print(f"Embedding {len(summary_texts)} summaries...")
+        summary_embeddings = embedder.encode(
+            summary_texts, batch_size=4, show_progress_bar=True
+        ).astype("float32")
+        
+        # Build FAISS index for summaries
+        summary_index = faiss.IndexFlatL2(dim)
+        summary_index.add(summary_embeddings)
+        faiss.write_index(summary_index, str(artifacts_dir / f"{index_prefix}_summaries.faiss"))
+        print(f"FAISS summary index built: {index_prefix}_summaries.faiss")
+
+    # Step 7: Optional visualization
     if do_visualize:
         visualize(embeddings, sources)
 

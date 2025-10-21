@@ -9,7 +9,8 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts, load_summary_artifacts, SummaryRetriever
+from src.query_enhancement import generate_hypothetical_document
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,6 +113,8 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
         do_visualize=args.visualize,
+        generate_summaries=cfg.generate_summaries,
+        summary_model_path=cfg.model_path,
     )
 
 
@@ -120,13 +123,9 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     Initializes artifacts and runs the main interactive chat loop.
     """
     logger = get_logger()
-    # planner = HeuristicQueryPlanner(cfg)
 
-    # Load artifacts, initialize retrievers and rankers once before the loop.
     print("Welcome to Tokensmith! Initializing chat...")
     try:
-        # Disabled till we fix the core pipeline
-        # cfg = planner.plan(q)
         artifacts_dir = cfg.make_artifacts_directory()
         faiss_index, bm25_index, chunks, sources = load_artifacts(artifacts_dir=artifacts_dir, index_prefix=args.index_prefix)
 
@@ -139,6 +138,16 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             weights=cfg.ranker_weights,
             rrf_k=int(cfg.rrf_k)
         )
+
+        summary_retriever = None
+        if cfg.use_summaries:
+            summary_index, summaries = load_summary_artifacts(artifacts_dir, args.index_prefix)
+            if summary_index and summaries:
+                summary_retriever = SummaryRetriever(summary_index, summaries, cfg.embed_model)
+                print(f"Loaded {len(summaries)} section summaries")
+            else:
+                print("Summary retrieval enabled but no summaries found. Run indexing with generate_summaries=True")
+                
     except Exception as e:
         print(f"ERROR: Failed to initialize chat artifacts: {e}")
         print("Please ensure you have run 'index' mode first.")
@@ -157,11 +166,19 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             logger.log_query_start(q)
 
-            # Step 1: Retrieval
+            retrieval_query = q
+            if cfg.use_hyde:
+                model_path = args.model_path or cfg.model_path
+                hypothetical_doc = generate_hypothetical_document(
+                    q, model_path, max_tokens=cfg.hyde_max_tokens
+                )
+                retrieval_query = hypothetical_doc
+                print(f"HyDE query: {hypothetical_doc}")
+
             pool_n = max(cfg.pool_size, cfg.top_k + 10)
             raw_scores: Dict[str, Dict[int, float]] = {}
             for retriever in retrievers:
-                raw_scores[retriever.name] = retriever.get_scores(q, pool_n, chunks)
+                raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
             logger.log_retrieval(
                 candidates=sorted({idx for scores in raw_scores.values() for idx in scores}),
                 retriever_scores={name: dict(scores) for name, scores in raw_scores.items()},
@@ -169,20 +186,19 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
                 embed_model=cfg.embed_model,
             )
 
-            # Step 2: Ranking
             ordered = ranker.rank(raw_scores=raw_scores)
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources)
-
             ranked_chunks = [chunks[i] for i in topk_idxs]
 
-            # Step 3: Final Re-ranking
-            # Disabled till we fix the core pipeline
-            # ranked_chunks = rerank(q, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+            top_summaries = None
+            if summary_retriever:
+                top_summaries = summary_retriever.get_top_summaries(retrieval_query, top_k=cfg.num_summaries)
+                if top_summaries:
+                    print(f"Using {len(top_summaries)} summaries + {len(ranked_chunks)} chunks")
 
-            # Step 4: Generation
             model_path = args.model_path or cfg.model_path
-            ans = answer(q, ranked_chunks, model_path, max_tokens=cfg.max_gen_tokens)
+            ans = answer(q, ranked_chunks, model_path, max_tokens=cfg.max_gen_tokens, summaries=top_summaries)
 
             print("\n=================== START OF ANSWER ===================")
             print(ans.strip() if ans and ans.strip() else "(No output from model)")

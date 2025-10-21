@@ -69,8 +69,16 @@ def text_cleaning(prompt):
         text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
     return text
 
-def format_prompt(chunks, query):
-    context = "\n\n".join(chunks)
+def format_prompt(chunks, query, summaries=None):
+    if summaries:
+        summary_section = "Relevant Section Overviews:\n" + "\n\n".join([
+            f"• {s['heading']}: {s['summary']}" for s in summaries
+        ])
+        chunk_section = "Detailed Excerpts:\n" + "\n\n".join(chunks)
+        context = f"{summary_section}\n\n{chunk_section}"
+    else:
+        context = "\n\n".join(chunks)
+    
     context = text_cleaning(context)
     return textwrap.dedent(f"""\
         <|im_start|>system
@@ -145,8 +153,8 @@ def _dedupe_sentences(text: str) -> str:
             cleaned.append(s)
     return " ".join(cleaned)
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
-    prompt = format_prompt(chunks, query)
+def answer(query: str, chunks, model_path: str, max_tokens: int = 300, summaries=None, **kw):
+    prompt = format_prompt(chunks, query, summaries=summaries)
     approx_tokens = max(1, len(prompt) // 4)
     #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)

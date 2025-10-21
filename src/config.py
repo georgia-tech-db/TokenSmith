@@ -28,8 +28,16 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
-    
     model_path: os.PathLike
+
+    # summary features
+    use_summaries: bool
+    num_summaries: int
+    generate_summaries: bool
+
+    # query enhancement
+    use_hyde: bool
+    hyde_max_tokens: int
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -53,10 +61,7 @@ class QueryPlanConfig:
         chunk_config = QueryPlanConfig.get_chunk_config(raw)
 
         cfg = QueryPlanConfig(
-            # Chunking
             chunk_config   = chunk_config,
-
-            # Retrieval + Ranking
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
@@ -66,7 +71,12 @@ class QueryPlanConfig:
             max_gen_tokens = pick("max_gen_tokens", 400),
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None)
+            model_path     = pick("model_path", None),
+            use_summaries  = pick("use_summaries", True),
+            num_summaries  = pick("num_summaries", 2),
+            generate_summaries = pick("generate_summaries", True),
+            use_hyde       = pick("use_hyde", False),
+            hyde_max_tokens= pick("hyde_max_tokens", 100),
         )
         cfg._validate()
         return cfg
@@ -104,5 +114,10 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
-            "model_path": self.model_path
+            "model_path": self.model_path,
+            "use_summaries": self.use_summaries,
+            "num_summaries": self.num_summaries,
+            "generate_summaries": self.generate_summaries,
+            "use_hyde": self.use_hyde,
+            "hyde_max_tokens": self.hyde_max_tokens,
         }
