@@ -6,7 +6,7 @@ Query enhancement techniques for improved retrieval (use only one):
 
 import textwrap
 from typing import Optional
-from src.generator import run_llama_cpp, text_cleaning
+from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
 
 
 def generate_hypothetical_document(
@@ -24,13 +24,15 @@ def generate_hypothetical_document(
         <|im_start|>system
         You are a helpful assistant. Generate a brief, factual answer to the following question.
         Write as if you are a textbook excerpt. Be specific and use technical terms.
+        The book excerpt should be as if they are from: Database System Concepts Seventh Edition by Avi Silberschatz, Henry F. Korth, S. Sudarshan.
         <|im_end|>
         <|im_start|>user
         Question: {query}
         
-        Write a brief answer (2-3 sentences):
+        Write a brief answer (2-3 sentences). End the answer with {ANSWER_END}.
         <|im_end|>
         <|im_start|>assistant
+        {ANSWER_START}
         """)
     
     prompt = text_cleaning(prompt)

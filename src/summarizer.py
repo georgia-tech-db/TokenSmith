@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
-from src.generator import run_llama_cpp, text_cleaning
+from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
 
 
 def generate_section_summaries(
@@ -40,9 +40,10 @@ def generate_section_summaries(
             Content:
             {text[:chunk_size + overlap]}
 
-            Provide the summary:
+            Provide the summary for the above section. End the answer with {ANSWER_END}.
             <|im_end|>
             <|im_start|>assistant
+            {ANSWER_START}
             Summary:""")
         cleaned = text_cleaning(prompt)
         return run_llama_cpp(cleaned, str(model_path), max_tokens=max_summary_tokens).strip()
@@ -95,4 +96,7 @@ def generate_section_summaries(
             })
 
     print(f"Generated {len(summaries)} section summaries (recursive mode).")
+    for s in summaries:
+        print(f"\n--- Summary for section: {s['heading']} ---\n{s['summary']}\n")
+
     return summaries

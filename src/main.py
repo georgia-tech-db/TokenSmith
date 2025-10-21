@@ -167,7 +167,8 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             logger.log_query_start(q)
 
             retrieval_query = q
-            if cfg.use_hyde:
+            use_hyde = cfg.use_hyde
+            if use_hyde:
                 model_path = args.model_path or cfg.model_path
                 hypothetical_doc = generate_hypothetical_document(
                     q, model_path, max_tokens=cfg.hyde_max_tokens
