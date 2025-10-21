@@ -12,17 +12,14 @@ import pickle
 import pathlib
 import re
 from typing import List, Dict, Optional
-import textwrap
 
 import faiss
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
-from src.config import QueryPlanConfig
-from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
+from src.summarizer import generate_section_summaries
 
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
@@ -34,75 +31,6 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
-
-# ------------------------ Summary Generation -----------------------------
-
-def generate_section_summaries(
-    sections: List[Dict],
-    model_path: Optional[os.PathLike] = None,
-    max_summary_tokens: int = 120,
-    context_chars: int = 2000
-) -> List[Dict]:
-    """
-    Generate concise summaries for each section using an LLM.    
-    Returns: List of dicts with 'heading', 'summary', and 'original_length'
-    """
-    summaries = []
-    
-    print(f"\n{'='*60}")
-    print(f"Generating summaries for {len(sections)} sections...")
-    print(f"{'='*60}\n")
-    
-    for section in tqdm(sections, desc="Summarizing sections"):
-        heading = section['heading']
-        content = section['content']
-        
-        if model_path is None:
-            raise ValueError("model_path must not be null.")
-        
-        # Truncate very long sections for summarization
-        # FIXME: recursive summarization for very long sections
-        content_snippet = content[:context_chars]
-        
-        # Create summarization prompt
-        prompt = textwrap.dedent(f"""\
-            <|im_start|>system
-            You are a textbook summarizer. Create a concise, informative summary that captures
-            the key concepts and main points. Write in a clear, academic style.
-            <|im_end|>
-            <|im_start|>user
-            Section: {heading}
-            
-            Content:
-            {content_snippet}
-            
-            Provide a 2-3 sentence summary of the above section.
-            End your reply with {ANSWER_END}.
-            <|im_end|>
-            <|im_start|>assistant
-            {ANSWER_START}
-            Summary: """)
-        
-        prompt = text_cleaning(prompt)
-        
-        try:
-            summary = run_llama_cpp(
-                prompt,
-                str(model_path),
-                max_tokens=max_summary_tokens
-            )
-            summaries.append({
-                'heading': heading,
-                'summary': summary.strip(),
-                'original_length': len(content),
-                'type': 'llm_generated'
-            })
-        except Exception as e:
-            print(f"\n Error summarizing section '{heading}': {e}")
-            raise e
-    print(f"\n{len(summaries)} summaries generated")
-    return summaries
-
 
 # ------------------------ Main index builder -----------------------------
 
