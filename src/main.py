@@ -27,10 +27,6 @@ def parse_args() -> argparse.Namespace:
 
     # Common arguments
     parser.add_argument(
-        "--config",
-        help="path to custom config file (uses default if not specified)"
-    )
-    parser.add_argument(
         "--pdf_dir",
         default="data/chapters/",
         help="directory containing PDF files (default: %(default)s)"
@@ -64,24 +60,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
-
-
-def find_fallback_config() -> Optional[QueryPlanConfig]:
-    """
-    Looks for a fallback config file in standard locations.
-
-    Returns:
-        A QueryPlanConfig object if a file is found, otherwise None.
-    """
-    search_paths = [
-        pathlib.Path("~/.config/tokensmith/config.yaml").expanduser(),
-        pathlib.Path("~/.config/tokensmith/config.yml").expanduser(),
-        pathlib.Path("config/config.yaml"),
-    ]
-    for path in search_paths:
-        if path.exists():
-            return QueryPlanConfig.from_yaml(path)
-    return None
 
 
 def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
@@ -200,11 +178,11 @@ def main():
     """Main entry point for the script."""
     args = parse_args()
 
-    # Robust config loading
-    if args.config:
-        cfg = QueryPlanConfig.from_yaml(args.config)
-    else:
-        cfg = find_fallback_config()
+    # Config loading
+    config_path = pathlib.Path("config/config.yaml")
+    cfg = None
+    if config_path.exists():
+        cfg = QueryPlanConfig.from_yaml(config_path)
 
     if cfg is None:
         raise FileNotFoundError(
