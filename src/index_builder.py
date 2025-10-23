@@ -101,7 +101,7 @@ def build_index(
 
     # Step 4: Build BM25 index
     print(f"Building BM25 index for {len(all_chunks):,} chunks...")
-    tokenized_chunks = [chunk.lower().split() for chunk in all_chunks]
+    tokenized_chunks = [preprocess_for_bm25(chunk) for chunk in all_chunks]
     bm25_index = BM25Okapi(tokenized_chunks)
     with open(f"{index_prefix}_bm25.pkl", "wb") as f:
         pickle.dump(bm25_index, f)
@@ -119,6 +119,26 @@ def build_index(
     # # Step 6: Optional visualization
     if do_visualize:
         visualize(embeddings, sources)
+
+
+# ------------------------ Helper functions ------------------------------
+
+def preprocess_for_bm25(text: str) -> list[str]:
+    """
+    Simplifies text to keep only letters, numbers, underscores, hyphens,
+    apostrophes, plus, and hash — suitable for BM25 tokenization.
+    """
+    # Convert to lowercase
+    text = text.lower()
+
+    # Keep only allowed characters
+    text = re.sub(r"[^a-z0-9_'#+-]", " ", text)
+
+    # Split by whitespace
+    tokens = text.split()
+
+    return tokens
+
 
 def visualize(embeddings, sources):
     try:
