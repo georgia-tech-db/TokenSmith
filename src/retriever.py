@@ -42,7 +42,7 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
       - sources:     {index_prefix}_sources.pkl
     """
     artifacts_dir = pathlib.Path(artifacts_dir)
-    faiss_index = faiss.read_index(artifacts_dir / f"{index_prefix}.faiss")
+    faiss_index = faiss.read_index(str(artifacts_dir / f"{index_prefix}.faiss"))
     bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
     chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
     sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
