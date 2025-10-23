@@ -103,7 +103,7 @@ def build_index(
     print(f"Building BM25 index for {len(all_chunks):,} chunks...")
     tokenized_chunks = [preprocess_for_bm25(chunk) for chunk in all_chunks]
     bm25_index = BM25Okapi(tokenized_chunks)
-    with open(f"{index_prefix}_bm25.pkl", "wb") as f:
+    with open(artifacts_dir / f"{index_prefix}_bm25.pkl", "wb") as f:
         pickle.dump(bm25_index, f)
     print(f"BM25 Index built successfully: {index_prefix}_bm25.pkl")
 
