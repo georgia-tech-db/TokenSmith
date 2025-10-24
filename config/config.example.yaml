@@ -8,3 +8,5 @@ max_gen_tokens: 400
 seg_filter: null
 chunk_mode : "sections"
 model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+recursive_chunk_size: 2000
+recursive_overlap: 400

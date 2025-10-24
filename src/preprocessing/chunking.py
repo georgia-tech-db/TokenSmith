@@ -85,7 +85,7 @@ class SectionRecursiveStrategy(ChunkStrategy):
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.recursive_chunk_size,
             chunk_overlap=self.recursive_overlap,
-            separators=["\n\n", "\n", ". ", " ", ""]
+            separators=[". "]
         )
         return splitter.split_text(text)
 
