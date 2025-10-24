@@ -1,12 +1,17 @@
 import re
 import json
+from typing import List, Dict
 
-def extract_sections_from_markdown(file_path):
+def extract_sections_from_markdown(
+    file_path: str,
+    exclusion_keywords: List[str] = None
+) -> List[Dict]:
     """
     Chunks a markdown file into sections based on '##' headings.
 
     Args:
-        file_path (str): The path to the markdown file.
+        file_path : The path to the markdown file.
+        exclusion_keywords : List of keywords for excluding sections.
 
     Returns:
         list: A list of dictionaries, where each dictionary represents a
@@ -44,6 +49,12 @@ def extract_sections_from_markdown(file_path):
             # Split the chunk into the heading and the rest of the content
             parts = chunk.split('\n', 1)
             heading = parts[0].strip()
+
+            # Exclude sections based on keywords if provided
+            if exclusion_keywords is not None:
+                if any(keyword.lower() in heading.lower() for keyword in exclusion_keywords):
+                    continue
+
             section_content = parts[1].strip() if len(parts) > 1 else ''
             
             if section_content == '':

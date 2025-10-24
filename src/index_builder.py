@@ -32,6 +32,9 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 
+# Default keywords to exclude sections
+DEFAULT_EXCLUSION_KEYWORDS = ['questions', 'exercises', 'summary', 'references']
+
 # ------------------------ Main index builder -----------------------------
 
 def build_index(
@@ -59,8 +62,12 @@ def build_index(
     sources: List[str] = []
     metadata: List[Dict] = []
 
-    # Extract sections from markdown
-    sections = extract_sections_from_markdown(markdown_file)
+    # Extract sections from markdown. Exclude some with certain
+    # keywords if required.
+    sections = extract_sections_from_markdown(
+        markdown_file,
+        exclusion_keywords=DEFAULT_EXCLUSION_KEYWORDS
+    )
 
     # Step 1: Chunk using DocumentChunker
     for i, c in enumerate(sections):
