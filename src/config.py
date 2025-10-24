@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 import yaml
 
@@ -56,7 +57,9 @@ class QueryPlanConfig:
 
     # ---------- factory + validation ----------
     @staticmethod
-    def from_yaml(path: os.PathLike) -> QueryPlanConfig:
+    def from_yaml(
+        path: os.PathLike, args: Optional[argparse.Namespace]
+    ) -> QueryPlanConfig:
         raw_config = yaml.safe_load(open(path))
         chunk_config = QueryPlanConfig.get_chunk_config(raw_config)
 
@@ -65,7 +68,7 @@ class QueryPlanConfig:
             chunk_config=chunk_config,
             # Retrieval + Ranking
             top_k=raw_config.get("top_k", 5),
-            pool_size=raw_config.get("pool_size", 60),
+            pool_size=args.pool_size or raw_config.get("pool_size", 60),
             embed_model=raw_config.get(
                 "embed_model", "sentence-transformers/all-MiniLM-L6-v2"
             ),
@@ -77,9 +80,10 @@ class QueryPlanConfig:
             max_gen_tokens=raw_config.get("max_gen_tokens", 400),
             rerank_mode=raw_config.get("rerank_mode", "none"),
             seg_filter=raw_config.get("seg_filter", None),
-            model_path=raw_config.get("model_path", None),
+            model_path=args.model_path or raw_config.get("model_path", None),
             # Testing
-            system_prompt_mode=raw_config.get("system_prompt_mode", "baseline"),
+            system_prompt_mode=args.system_prompt_mode
+            or raw_config.get("system_prompt_mode", "baseline"),
             disable_chunks=raw_config.get("disable_chunks", False),
             use_golden_chunks=raw_config.get("use_golden_chunks", False),
             output_mode=raw_config.get("output_mode", "terminal"),

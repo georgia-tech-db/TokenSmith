@@ -43,7 +43,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--system_prompt_mode",
         choices=["baseline", "tutor", "concise", "detailed"],
-        default="baseline",
         help="system prompt mode (choices: baseline, tutor, concise, detailed)"
     )
     
@@ -144,8 +143,8 @@ def get_answer(
         # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
     
     # Step 4: Generation
-    model_path = args.model_path or cfg.model_path
-    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+    model_path = cfg.model_path
+    system_prompt = cfg.system_prompt_mode
     ans = answer(
         question, 
         ranked_chunks, 
@@ -236,7 +235,7 @@ def main():
     config_path = pathlib.Path("config/config.yaml")
     cfg = None
     if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path)
+        cfg = QueryPlanConfig.from_yaml(config_path, args=args)
 
     if cfg is None:
         raise FileNotFoundError(
