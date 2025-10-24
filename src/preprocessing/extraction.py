@@ -59,12 +59,42 @@ def extract_sections_from_markdown(
             
             if section_content == '':
                 continue
+            else:
+                # Clean the section content
+                section_content = preprocess_extracted_section(section_content)
+
             sections.append({
                 'heading': heading,
                 'content': section_content
             })
 
     return sections
+
+
+def preprocess_extracted_section(text: str) -> str:
+    """
+    Cleans a raw textbook section to prepare it for chunking.
+
+    Args:
+        text: The raw text of the section.
+
+    Returns:
+        str: The cleaned text.
+    """
+    # Replaces all newline occurences with single spaces
+    text = text.replace('\n', ' ')
+
+    # Removes page number markers (e.g., "Page 1232")
+    text = re.sub(r'Page \d+', '', text)
+
+    # Removes bold formatting markers (**)
+    text = text.replace('**', '')
+
+    # Normalizes all whitespace to single spaces
+    cleaned_text = ' '.join(text.split())
+
+    return cleaned_text
+
 
 if __name__ == '__main__':
     # The user uploaded 'book_without_image.md'
