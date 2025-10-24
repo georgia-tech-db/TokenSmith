@@ -34,7 +34,7 @@ def extract_sections_from_markdown(file_path):
     # The first chunk might be content before the first heading
     if chunks[0].strip():
         sections.append({
-            'heading': 'Introduction',
+            'heading': '## Introduction',
             'content': chunks[0].strip()
         })
 
@@ -58,14 +58,11 @@ def extract_sections_from_markdown(file_path):
 if __name__ == '__main__':
     # The user uploaded 'book_without_image.md'
     markdown_file = 'data/book_without_image.md'
-    
     extracted_sections = extract_sections_from_markdown(markdown_file)
-
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-
         # To save the output to a structured file like JSON:
-        output_filename = 'data/extracted_sections.json'
+        output_filename = 'data/tmp_sections.json'
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")

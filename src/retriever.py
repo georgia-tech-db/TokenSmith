@@ -7,6 +7,8 @@ It also contains helpers for loading artifacts and filtering chunks.
 
 from __future__ import annotations
 
+import pathlib
+import os
 import pickle
 import re
 from abc import ABC, abstractmethod
@@ -17,6 +19,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from src.config import QueryPlanConfig
+from src.index_builder import preprocess_for_bm25
 
 
 # -------------------------- Embedder cache ------------------------------
@@ -32,21 +35,45 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(cfg: QueryPlanConfig) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
     """
-    index_prefix = cfg.get_index_prefix()
-
-    faiss_index = faiss.read_index(f"{index_prefix}.faiss")
-    bm25_index  = pickle.load(open(f"{index_prefix}_bm25.pkl", "rb"))
-    chunks      = pickle.load(open(f"{index_prefix}_chunks.pkl", "rb"))
-    sources     = pickle.load(open(f"{index_prefix}_sources.pkl", "rb"))
+    artifacts_dir = pathlib.Path(artifacts_dir)
+    faiss_index = faiss.read_index(str(artifacts_dir / f"{index_prefix}.faiss"))
+    bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
+    chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
+    sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
 
     return faiss_index, bm25_index, chunks, sources
+
+
+def load_summary_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[Optional[faiss.Index], Optional[List[Dict]]]:
+    """
+    Loads summary artifacts if they exist:
+      - FAISS summary index: {index_prefix}_summaries.faiss
+      - summaries:          {index_prefix}_summaries.pkl
+      
+    Returns:
+        Tuple of (summary_index, summaries) or (None, None) if not available
+    """
+    artifacts_dir = pathlib.Path(artifacts_dir)
+    summary_index_path = artifacts_dir / f"{index_prefix}_summaries.faiss"
+    summaries_path = artifacts_dir / f"{index_prefix}_summaries.pkl"
+    
+    if not (summary_index_path.exists() and summaries_path.exists()):
+        return None, None
+    
+    try:
+        summary_index = faiss.read_index(str(summary_index_path))
+        summaries = pickle.load(open(summaries_path, "rb"))
+        return summary_index, summaries
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load summary artifacts: {e}")
+        return None, None
 
 
 # -------------------------- Pretty previews -----------------------------
@@ -145,8 +172,7 @@ class BM25Retriever(Retriever):
         Returns BM25 scores for top 'pool_size' keyed by global chunk index.
         """
         # Tokenize the query in the same way the index was built
-        cleaned = re.sub(r"[^\w\s]", " ", query.lower())
-        tokenized_query = cleaned.split()
+        tokenized_query = preprocess_for_bm25(query)
 
         # Get scores for all documents in the corpus
         all_scores = self.index.get_scores(tokenized_query)
@@ -165,3 +191,52 @@ class BM25Retriever(Retriever):
         scores = {int(idx): float(score) for idx, score in zip(top_k_indices, top_scores)}
 
         return scores
+
+
+class SummaryRetriever:
+    """
+    Retriever specifically for section summaries using FAISS.
+    Returns top-k summaries based on semantic similarity.
+    """
+    name = "summaries"
+
+    def __init__(self, summary_index: faiss.Index, summaries: List[Dict], embed_model: str):
+        """
+        Args:
+            summary_index: FAISS index for summaries
+            summaries: List of summary dicts with 'heading', 'summary', etc.
+            embed_model: Path to embedding model
+        """
+        self.index = summary_index
+        self.summaries = summaries
+        self.embedder = _get_embedder(embed_model)
+
+    def get_top_summaries(self, query: str, top_k: int = 2) -> List[Dict]:
+        """
+        Retrieve top-k most relevant summaries for a query.
+        
+        Args:
+            query: User query
+            top_k: Number of summaries to retrieve
+            
+        Returns:
+            List of summary dicts
+        """
+        # Encode query
+        q_vec = self.embedder.encode([query]).astype("float32")
+        
+        # Safety check
+        if q_vec.shape[1] != self.index.d:
+            raise ValueError(
+                f"Embedding dim mismatch: index={self.index.d} vs query={q_vec.shape[1]}"
+            )
+        
+        # Search for top summaries
+        k = min(top_k, len(self.summaries))
+        distances, indices = self.index.search(q_vec, k)
+        
+        # Get valid indices
+        valid_idxs = [i for i in indices[0] if 0 <= i < len(self.summaries)]
+        
+        # Return corresponding summaries
+        return [self.summaries[i] for i in valid_idxs]

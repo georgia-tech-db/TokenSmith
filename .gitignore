@@ -2,6 +2,8 @@
 code-dump.txt
 .idea/
 logs/
+ideas.md
+nohup.out
 
 # --- Python ---
 __pycache__/
