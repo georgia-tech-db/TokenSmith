@@ -15,7 +15,7 @@ from typing import List, Dict
 
 import faiss
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from src.embedder import SentenceTransformer
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
@@ -42,7 +42,7 @@ def build_index(
     *,
     chunker: DocumentChunker,
     chunk_config: ChunkConfig,
-    embedding_model_path: os.PathLike,
+    embedding_model_path: str,
     artifacts_dir: os.PathLike,
     index_prefix: str, 
     do_visualize: bool = False,
@@ -57,7 +57,6 @@ def build_index(
         - {prefix}_sources.pkl
         - {prefix}_meta.pkl
     """
-    embedding_model_path = pathlib.Path(embedding_model_path)
     all_chunks: List[str] = []
     sources: List[str] = []
     metadata: List[Dict] = []
@@ -92,11 +91,11 @@ def build_index(
             metadata.append(meta)
 
     # Step 2: Create embeddings for FAISS index
-    print(f"Embedding {len(all_chunks):,} chunks with {embedding_model_path.stem} ...")
-    embedder = SentenceTransformer(str(embedding_model_path))
+    print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
+    embedder = SentenceTransformer(embedding_model_path)
     embeddings = embedder.encode(
         all_chunks, batch_size=4, show_progress_bar=True
-    ).astype("float32")
+    )
 
     # Step 3: Build FAISS index
     print(f"Building FAISS index for {len(all_chunks):,} chunks...")

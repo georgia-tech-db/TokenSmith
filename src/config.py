@@ -30,6 +30,13 @@ class QueryPlanConfig:
     max_gen_tokens: int
     
     model_path: os.PathLike
+    
+    # testing
+    system_prompt_mode: str
+    disable_chunks: bool
+    use_golden_chunks: bool
+    output_mode: str
+    metrics: list
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -62,7 +69,14 @@ class QueryPlanConfig:
             max_gen_tokens = raw_config.get("max_gen_tokens", 400),
             rerank_mode    = raw_config.get("rerank_mode", "none"),
             seg_filter     = raw_config.get("seg_filter", None),
-            model_path     = raw_config.get("model_path", None)
+            model_path     = raw_config.get("model_path", None),
+            
+            # Testing
+            system_prompt_mode = raw_config.get("system_prompt_mode", "baseline"),
+            disable_chunks  = raw_config.get("disable_chunks", False),
+            use_golden_chunks = raw_config.get("use_golden_chunks", False),
+            output_mode    = raw_config.get("output_mode", "terminal"),
+            metrics        = raw_config.get("metrics", ["all"])
         )
         cfg._validate()
         return cfg
@@ -100,5 +114,10 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
-            "model_path": self.model_path
+            "model_path": self.model_path,
+            "system_prompt_mode": self.system_prompt_mode,
+            "disable_chunks": self.disable_chunks,
+            "use_golden_chunks": self.use_golden_chunks,
+            "output_mode": self.output_mode,
+            "metrics": self.metrics
         }

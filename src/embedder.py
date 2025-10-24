@@ -23,6 +23,7 @@ class SentenceTransformer:
             verbose=False,
             n_batch=512,
             use_mmap=True,
+            logits_all=True
         )
         self._embedding_dimension = None
         
