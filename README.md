@@ -1,6 +1,6 @@
 # TokenSmith
 
-TokenSmith is a database system for textbook question answering using local LLMs. It uses `llama.cpp` for inference and a vector index for indexing PDF documents and answer natural-language queries.
+**TokenSmith** is a local-first database system for students to query textbooks, lecture slides, and notes and get fast, cited answers on their own machines using local LLMs. It is based on retrieval augmented generation (RAG) and applies database-inspired principles like indexing, latency-focused querying, caching, and incremental builds, to optimize the ingestion -> retrieval -> generation pipeline.
 
 ## Capabilities
 
