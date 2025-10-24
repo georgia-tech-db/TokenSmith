@@ -19,6 +19,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from src.config import QueryPlanConfig
+from src.index_builder import preprocess_for_bm25
 
 
 # -------------------------- Embedder cache ------------------------------
@@ -171,8 +172,7 @@ class BM25Retriever(Retriever):
         Returns BM25 scores for top 'pool_size' keyed by global chunk index.
         """
         # Tokenize the query in the same way the index was built
-        cleaned = re.sub(r"[^\w\s]", " ", query.lower())
-        tokenized_query = cleaned.split()
+        tokenized_query = preprocess_for_bm25(query)
 
         # Get scores for all documents in the corpus
         all_scores = self.index.get_scores(tokenized_query)
