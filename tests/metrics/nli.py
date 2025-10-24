@@ -5,7 +5,7 @@ from tests.metrics.base import MetricBase
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-class NLIClassification(MetricBase):
+class NLIEntailmentMetric(MetricBase):
     """NLI-based entailment metric using DeBERTa model."""
     
     def __init__(self):
@@ -31,7 +31,7 @@ class NLIClassification(MetricBase):
             self._tokenizer = AutoTokenizer.from_pretrained(model_name)
             self._model = AutoModelForSequenceClassification.from_pretrained(model_name)
             
-            print(f"NLI metric initialized with model: {model_name}")
+            # print(f"NLI metric initialized with model: {model_name}")
             return True
             
         except Exception as e:
