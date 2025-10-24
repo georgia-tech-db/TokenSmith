@@ -1,234 +1,208 @@
 # TokenSmith
 
-**TokenSmith** is a Retrieval-Augmented Generation (RAG) application that enables intelligent document search and question answering using local LLMs. Built with llama.cpp for efficient inference and FAISS for high-performance vector search, TokenSmith allows you to index PDF documents and chat with them using natural language queries.
+TokenSmith is a database system for textbook question answering using local LLMs. It uses `llama.cpp` for inference and a vector index for indexing PDF documents and answer natural-language queries.
 
-## 🚀 Features
+## Capabilities
 
-- **📚 PDF Document Processing**: Extract and index content from PDF documents
-- **🔍 Intelligent Retrieval**: Fast semantic search using FAISS vector database
-- **🤖 Local LLM Integration**: Powered by llama.cpp for privacy-focused inference
-- **⚡ Hardware Acceleration**: Supports Metal (Apple Silicon), CUDA (NVIDIA), and CPU inference
-- **🎯 Flexible Chunking**: Token-based or character-based document segmentation
-- **📊 Visualization Support**: Optional indexing progress visualization
-- **🛠️ Production-Ready**: Conda-based environment management with automated builds
-- **🔧 Configurable**: YAML-based configuration system
+* Parse and index PDF documents
+* Semantic retrieval with FAISS
+* Local inference via `llama.cpp` (GGUF models)
+* Acceleration: Metal (Apple Silicon), CUDA (NVIDIA), or CPU
+* Configurable chunking (tokens or characters)
+* Optional indexing progress visualization
+* Table preservation during indexing (flag-based)
 
-## 📋 Requirements
+## Requirements
 
-- **Python**: 3.9+ 
-- **Conda/Miniconda**: For environment management
-- **System Requirements**:
-  - macOS: Xcode Command Line Tools
-  - Linux: GCC, make, cmake
-  - Windows: Visual Studio Build Tools (for compilation)
+* **Python** 3.9+
+* **Conda/Miniconda**
+* **System prerequisites**:
 
-## 🚀 Quick Start
+  * macOS: Xcode Command Line Tools
+  * Linux: GCC, make, CMake
+  * Windows: Visual Studio Build Tools
 
-### 1. Clone the Repository
+## Quick Start
+
+### 1) Clone the repository
+
 ```shell
 git clone https://github.com/georgia-tech-db/TokenSmith.git
-cd tokensmith
+cd TokenSmith
 ```
 
-### One-command setup: creates conda env, builds llama.cpp, installs dependencies
+### 2) Build (creates env, builds llama.cpp, installs deps)
+
 ```shell
 make build
 ```
-This will:
-- Create a conda environment named `tokensmith`
-- Install all Python dependencies
-- Detect or build llama.cpp with platform-specific optimizations
-- Install TokenSmith in development mode
 
-### 3. Activate the Environment
+Creates a Conda env `tokensmith`, installs Python deps, and builds/detects `llama.cpp`.
+
+### 3) Activate the environment
+
 ```shell
 conda activate tokensmith
 ```
 
-### 4. Prepare Your Documents
-Place your PDF files in the data directory
+### 4) Prepare documents
+
 ```shell
 mkdir -p data/chapters
 cp your-documents.pdf data/chapters/
 ```
 
-### 5. Index Your Documents
-Index with default settings
+### 5) Index documents
+
 ```shell
 make run-index
 ```
-Or with custom parameters, eg.
+
+With custom parameters:
+
 ```shell
 make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
 ```
 
-### 6. Start Chatting
-Activate environment first (required for interactive mode)
+### 6) Chat
+
 ```shell
-conda activate tokensmith
 python -m src.main chat
 ```
 
-> You might have to download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into your `llama.cpp/models` if you get an error about a missing model.
+> If you see a missing-model error, download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into `llama.cpp/models`.
 
-### 7. Deactivate the Environment
+### 7) Deactivate
+
 ```shell
 conda deactivate
 ```
 
-## ⚙️ Configuration
+## Configuration
 
-TokenSmith uses YAML configuration files with the following priority order:
+Priority (highest → lowest):
 
-1. Command-line `--config` argument
-2. User config (`~/.config/tokensmith/config.yaml`)
-3. Default config (`config/config.yaml`)
+1. `--config` CLI argument
+2. `~/.config/tokensmith/config.yaml`
+3. `config/config.yaml`
 
-### Sample Configuration
+### Example
+
 ```yaml
-# config/config.yaml
-
 embed_model: "sentence-transformers/all-MiniLM-L6-v2"
 top_k: 5
 max_gen_tokens: 400
 halo_mode: "none"
 seg_filter: null
+
 # Model settings
 model_path: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
+
 # Indexing settings
 chunk_mode: "tokens" # or "chars"
 chunk_tokens: 500
 chunk_size_char: 20000
 ```
 
-## 🎮 Usage
+## Usage
 
 ### Basic indexing
+
 ```shell
 make run-index
 ```
 
-### Index specific PDF range
+### Index a specific PDF range
+
 ```shell
-make run-index ARGS="--pdf_range <start_page_number>-<end_page_number> --chunk_mode <tokens_or_chars>"
+make run-index ARGS="--pdf_range <start>-<end> --chunk_mode <tokens|chars>"
 ```
 
-### Index with visualization and table preservation
+### Index with tables/visualization
+
 ```shell
-make run-index ARGS="--keep_tables --visualize --chunk_tokens <number_of_chunk_tokens>"
+make run-index ARGS="--keep_tables --visualize --chunk_tokens <num_tokens>"
 ```
 
-### Custom paths and settings
+### Custom paths/settings
+
 ```shell
-make run-index ARGS="--pdf_dir <path_to_pdf> --index_prefix book_index --config <path_to_yaml_config_file>"
+make run-index ARGS="--pdf_dir <path_to_pdf> --index_prefix book_index --config <path_to_yaml>"
 ```
 
 ### Chat with custom settings
+
 ```shell
-python -m src.main chat --config <path_to_yaml_config_file> --model_path <path_to_llm_model>
+python -m src.main chat --config <path_to_yaml> --model_path <path_to_gguf>
 ```
 
-### Build with existing llama.cpp installation
+### Use an existing llama.cpp build
+
 ```shell
 export LLAMA_CPP_BINARY=/usr/local/bin/llama-cli
 make build
 ```
 
-### Update environment with new dependencies
+### Environment maintenance
+
 ```shell
 make update-env
-```
-
-### Export environment for sharing
-```shell
 make export-env
-```
-
-### Show installed packages
-```shell
 make show-deps
 ```
 
+## Command-Line Arguments
 
-## 📊 Command Line Arguments
+### Core
 
-### Core Arguments
-- `mode`: Operation mode (`index` or `chat`)
-- `--config`: Configuration file path
-- `--pdf_dir`: Directory containing PDF files
-- `--index_prefix`: Prefix for index files
-- `--model_path`: Path to GGUF model file
+* `mode`: `index` or `chat`
+* `--config`: path to YAML config
+* `--pdf_dir`: directory with PDFs
+* `--index_prefix`: prefix for index files
+* `--model_path`: path to GGUF model
 
-### Indexing Arguments
-- `--pdf_range`: Process specific page range (e.g., "1-10")
-- `--chunk_mode`: Chunking strategy (`tokens` or `chars`)
-- `--chunk_tokens`: Tokens per chunk (default: 500)
-- `--chunk_size_char`: Characters per chunk (default: 20000)
-- `--keep_tables`: Preserve table formatting
-- `--visualize`: Show indexing progress visualization
+### Indexing
 
-## 🔨 Development
+* `--pdf_range`: e.g., `1-10`
+* `--chunk_mode`: `tokens` or `chars`
+* `--chunk_tokens`: default 500
+* `--chunk_size_char`: default 20000
+* `--keep_tables`
+* `--visualize`
 
-### Available Make Targets
+## Development
+
 ```shell
-make help          # Show all available commands
-make env           # Create conda environment
-make build-llama   # Build llama.cpp from source
-make install        # Install package in development mode
-make build          # Full build process
-make test # Run tests
-make clean # Clean build artifacts
-make show-deps # Show installed packages
-make update-env # Update environment
-make export-env # Export environment with exact versions
-```
-
-### Adding Dependencies
-```shell
-# Add new conda package
-conda activate tokensmith
-conda install new-package
-```
-Add to environment.yml for persistence. Edit environment.yml, then:
-```shell
+make help
+make env
+make build-llama
+make install
+make build
+make test
+make clean
+make show-deps
 make update-env
+make export-env
 ```
 
-## 🧪 Testing Framework
-
-TokenSmith includes a comprehensive testing framework for evaluating RAG performance. The framework is fully integrated with the main pipeline, ensuring tests use the same code path as production.
-
-### Quick Start
+## Testing
 
 ```shell
-# Run all benchmarks
 pytest tests/
-
-# Run with terminal output to see detailed results
 pytest tests/ -s
-
-# Run specific benchmark
 pytest tests/ --benchmark-ids="test" -s
 ```
 
-### Features
+* Tests call the same `get_answer()` pipeline used by chat
+* Metrics: semantic similarity, BLEU, keyword matching, text similarity
+* Outputs: terminal logs and HTML report
+* System prompts: baseline, tutor, concise, detailed
+* Component isolation: run with/without chunks or with golden chunks
 
-- ✅ **Integrated Pipeline**: Tests use the same `get_answer()` function as chat
-- ✅ **Multiple Metrics**: Semantic similarity, BLEU, keyword matching, text similarity
-- ✅ **Flexible Output**: Terminal (detailed) or HTML (reports)
-- ✅ **System Prompts**: Four modes (baseline, tutor, concise, detailed)
-- ✅ **Component Isolation**: Test with/without chunks, or use golden chunks
-- ✅ **Beautiful Reports**: Interactive HTML reports with metric breakdowns
+Artifacts:
 
-### Results
+* `tests/results/benchmark_results.json`
+* `tests/results/benchmark_summary.html`
+* `tests/results/failed_tests.log`
 
-Test results are saved in:
-- `tests/results/benchmark_results.json` - Detailed JSON data
-- `tests/results/benchmark_summary.html` - Interactive HTML report
-- `tests/results/failed_tests.log` - Failure details
-
-### Documentation
-
-For complete testing documentation, usage examples, and configuration options:
-
-📖 **[tests/README.md](tests/README.md)** - Complete testing guide with all CLI options and examples
+Documentation: see `tests/README.md`.
