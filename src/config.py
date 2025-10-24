@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import os
+import pathlib
 from dataclasses import dataclass
-from typing import Dict, Callable, Any
+from typing import Any, Callable, Dict
 
 import yaml
-import pathlib
 
-from src.preprocessing.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
+from src.preprocessing.chunking import (
+    ChunkConfig,
+    ChunkStrategy,
+    SectionRecursiveConfig,
+    make_chunk_strategy,
+)
 
 
 @dataclass
@@ -28,9 +33,9 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
-    
+
     model_path: os.PathLike
-    
+
     # testing
     system_prompt_mode: str
     disable_chunks: bool
@@ -57,26 +62,28 @@ class QueryPlanConfig:
 
         cfg = QueryPlanConfig(
             # Chunking
-            chunk_config   = chunk_config,
-
+            chunk_config=chunk_config,
             # Retrieval + Ranking
-            top_k          = raw_config.get("top_k", 5),
-            pool_size      = raw_config.get("pool_size", 60),
-            embed_model    = raw_config.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-            ensemble_method= raw_config.get("ensemble_method", "rrf"),
-            rrf_k          = raw_config.get("rrf_k", 60),
-            ranker_weights = raw_config.get("ranker_weights", {"faiss":0.6,"bm25":0.4}),
-            max_gen_tokens = raw_config.get("max_gen_tokens", 400),
-            rerank_mode    = raw_config.get("rerank_mode", "none"),
-            seg_filter     = raw_config.get("seg_filter", None),
-            model_path     = raw_config.get("model_path", None),
-            
+            top_k=raw_config.get("top_k", 5),
+            pool_size=raw_config.get("pool_size", 60),
+            embed_model=raw_config.get(
+                "embed_model", "sentence-transformers/all-MiniLM-L6-v2"
+            ),
+            ensemble_method=raw_config.get("ensemble_method", "rrf"),
+            rrf_k=raw_config.get("rrf_k", 60),
+            ranker_weights=raw_config.get(
+                "ranker_weights", {"faiss": 0.6, "bm25": 0.4}
+            ),
+            max_gen_tokens=raw_config.get("max_gen_tokens", 400),
+            rerank_mode=raw_config.get("rerank_mode", "none"),
+            seg_filter=raw_config.get("seg_filter", None),
+            model_path=raw_config.get("model_path", None),
             # Testing
-            system_prompt_mode = raw_config.get("system_prompt_mode", "baseline"),
-            disable_chunks  = raw_config.get("disable_chunks", False),
-            use_golden_chunks = raw_config.get("use_golden_chunks", False),
-            output_mode    = raw_config.get("output_mode", "terminal"),
-            metrics        = raw_config.get("metrics", ["all"])
+            system_prompt_mode=raw_config.get("system_prompt_mode", "baseline"),
+            disable_chunks=raw_config.get("disable_chunks", False),
+            use_golden_chunks=raw_config.get("use_golden_chunks", False),
+            output_mode=raw_config.get("output_mode", "terminal"),
+            metrics=raw_config.get("metrics", ["all"]),
         )
         cfg._validate()
         return cfg
@@ -85,22 +92,24 @@ class QueryPlanConfig:
     def get_chunk_config(raw: Any) -> ChunkConfig:
         """Parse chunk configuration from YAML."""
         chunk_mode = raw.get("chunk_mode", "sections").lower()
-        
+
         if chunk_mode == "sections":
             return SectionRecursiveConfig(
                 recursive_chunk_size=raw.get("recursive_chunk_size", 1000),
-                recursive_overlap=raw.get("recursive_overlap", 0)
+                recursive_overlap=raw.get("recursive_overlap", 0),
             )
         else:
-            raise ValueError(f"Unknown chunk_mode: {chunk_mode}. Only 'sections' is supported.")
+            raise ValueError(
+                f"Unknown chunk_mode: {chunk_mode}. Only 'sections' is supported."
+            )
 
     def _validate(self) -> None:
         assert self.top_k > 0, "top_k must be > 0"
         assert self.pool_size >= self.top_k, "pool_size must be >= top_k"
-        assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
-        if self.ensemble_method.lower() in {"linear","weighted"}:
+        assert self.ensemble_method.lower() in {"linear", "weighted", "rrf"}
+        if self.ensemble_method.lower() in {"linear", "weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
-            self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
+            self.ranker_weights = {k: v / s for k, v in self.ranker_weights.items()}
         self.chunk_config.validate()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -119,5 +128,5 @@ class QueryPlanConfig:
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,
             "output_mode": self.output_mode,
-            "metrics": self.metrics
+            "metrics": self.metrics,
         }
