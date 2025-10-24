@@ -45,28 +45,24 @@ class QueryPlanConfig:
     # ---------- factory + validation ----------
     @staticmethod
     def from_yaml(path: os.PathLike) -> QueryPlanConfig:
-        raw = yaml.safe_load(open(path))
-
-        def pick(key, default=None):
-            return raw.get(key, default)
-
-        chunk_config = QueryPlanConfig.get_chunk_config(raw)
+        raw_config = yaml.safe_load(open(path))
+        chunk_config = QueryPlanConfig.get_chunk_config(raw_config)
 
         cfg = QueryPlanConfig(
             # Chunking
             chunk_config   = chunk_config,
 
             # Retrieval + Ranking
-            top_k          = pick("top_k", 5),
-            pool_size      = pick("pool_size", 60),
-            embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-            ensemble_method= pick("ensemble_method", "rrf"),
-            rrf_k          = pick("rrf_k", 60),
-            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
-            max_gen_tokens = pick("max_gen_tokens", 400),
-            rerank_mode    = pick("rerank_mode", "none"),
-            seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None)
+            top_k          = raw_config.get("top_k", 5),
+            pool_size      = raw_config.get("pool_size", 60),
+            embed_model    = raw_config.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+            ensemble_method= raw_config.get("ensemble_method", "rrf"),
+            rrf_k          = raw_config.get("rrf_k", 60),
+            ranker_weights = raw_config.get("ranker_weights", {"faiss":0.6,"bm25":0.4}),
+            max_gen_tokens = raw_config.get("max_gen_tokens", 400),
+            rerank_mode    = raw_config.get("rerank_mode", "none"),
+            seg_filter     = raw_config.get("seg_filter", None),
+            model_path     = raw_config.get("model_path", None)
         )
         cfg._validate()
         return cfg
