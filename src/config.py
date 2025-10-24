@@ -72,9 +72,9 @@ class QueryPlanConfig:
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
-            use_summaries  = pick("use_summaries", True),
+            use_summaries  = pick("use_summaries", False),
             num_summaries  = pick("num_summaries", 2),
-            generate_summaries = pick("generate_summaries", True),
+            generate_summaries = pick("generate_summaries", False),
             use_hyde       = pick("use_hyde", False),
             hyde_max_tokens= pick("hyde_max_tokens", 100),
         )

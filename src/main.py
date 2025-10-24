@@ -175,6 +175,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
                 top_summaries = summary_retriever.get_top_summaries(retrieval_query, top_k=cfg.num_summaries)
                 if top_summaries:
                     print(f"Using {len(top_summaries)} summaries + {len(ranked_chunks)} chunks")
+                    logger.log_summaries_used(top_summaries)
 
             model_path = args.model_path or cfg.model_path
             ans = answer(q, ranked_chunks, model_path, max_tokens=cfg.max_gen_tokens, summaries=top_summaries)

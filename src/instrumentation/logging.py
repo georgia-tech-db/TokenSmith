@@ -177,6 +177,22 @@ class RunLogger:
             chunks_data.append(chunk_info)
 
         self.current_query_data["chunks_used"] = chunks_data
+    
+    def log_summaries_used(self, summaries: List[str]):
+        """Log details about summaries used for generation."""
+        if not self.current_query_data:
+            return
+
+        summaries_data = []
+        for i, summary in enumerate(summaries):
+            summary_info = {
+                "rank": int(i + 1),
+                "char_length": len(summary),
+                "text": summary
+            }
+            summaries_data.append(summary_info)
+
+        self.current_query_data["summaries_used"] = summaries_data
 
     def log_generation(self, response: str, generation_params: Dict[str, Any],
                        prompt_length_estimate: Optional[int] = None):
