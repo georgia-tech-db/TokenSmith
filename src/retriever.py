@@ -15,7 +15,7 @@ from typing import List, Tuple, Optional, Dict
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from src.embedder import SentenceTransformer
 
 from src.config import QueryPlanConfig
 from src.index_builder import preprocess_for_bm25
@@ -28,7 +28,7 @@ _EMBED_CACHE: Dict[str, SentenceTransformer] = {}
 def _get_embedder(model_name: str) -> SentenceTransformer:
     if model_name not in _EMBED_CACHE:
         # Use the cached embedding model to avoid reloading it on every call
-        _EMBED_CACHE[model_name] = SentenceTransformer(model_name, device="cpu")
+        _EMBED_CACHE[model_name] = SentenceTransformer(model_name)
     return _EMBED_CACHE[model_name]
 
 
@@ -41,6 +41,7 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
     """
+    print(f"Loading artifacts from {artifacts_dir} for index prefix {index_prefix}")
     artifacts_dir = pathlib.Path(artifacts_dir)
     faiss_index = faiss.read_index(str(artifacts_dir / f"{index_prefix}.faiss"))
     bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))

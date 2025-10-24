@@ -25,4 +25,4 @@ class MetricBase(ABC):
         return True
     
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}(name='{self.name}', weight={self.weight})"
+        return f"{self.__class__.__name__}(name='{self.name}')"

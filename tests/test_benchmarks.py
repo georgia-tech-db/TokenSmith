@@ -1,9 +1,11 @@
 import json
+import pytest
 from pathlib import Path
 from datetime import datetime
 from tests.metrics import SimilarityScorer
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_tokensmith_benchmarks(benchmarks, config, results_dir):
     """
     Run all benchmarks through the TokenSmith system.
@@ -43,17 +45,17 @@ def print_test_config(config, scorer):
     print(f"\n{'='*60}")
     print("  TokenSmith Benchmark Configuration")
     print(f"{'='*60}")
-    print(f"  Generator Model:    {Path(config['generator_model']).name}")
+    print(f"  Generator Model:    {Path(config['model_path']).name}")
     print(f"  Embedding Model:    {Path(config['embed_model']).name if '/' in config['embed_model'] else config['embed_model']}")
-    print(f"  Retrieval Method:   {config['retrieval_method']}")
+    # print(f"  Retrieval Method:   {config['retrieval_method']}")
     
-    if config['retrieval_method'] == 'hybrid':
-        print(f"    • FAISS weight:   {config['faiss_weight']:.2f}")
-        print(f"    • BM25 weight:    {config['bm25_weight']:.2f}")
-        print(f"    • Tag weight:     {config['tag_weight']:.2f}")
+    # if config['retrieval_method'] == 'hybrid':
+    #     print(f"    • FAISS weight:   {config['faiss_weight']:.2f}")
+    #     print(f"    • BM25 weight:    {config['bm25_weight']:.2f}")
+    #     print(f"    • Tag weight:     {config['tag_weight']:.2f}")
     
     print(f"  System Prompt:      {config['system_prompt_mode']}")
-    print(f"  Chunks Enabled:     {config['enable_chunks']}")
+    print(f"  Chunks Enabled:     {not config['disable_chunks']}")
     print(f"  Golden Chunks:      {config['use_golden_chunks']}")
     print(f"  Output Mode:        {config['output_mode']}")
     print(f"  Metrics:            {', '.join(active_metrics)}")
@@ -71,13 +73,14 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     question = benchmark["question"]
     expected_answer = benchmark["expected_answer"]
     keywords = benchmark.get("keywords", [])
-    threshold = config["threshold_override"] or benchmark.get("similarity_threshold", 0.6)
-    golden_chunks = benchmark.get("golden_chunks")
+    threshold = config["threshold_override"] or benchmark["similarity_threshold"] or 0.6 
+    golden_chunks = benchmark.get("golden_chunks", None)
     
     # Print header
     print(f"\n{'─'*60}")
     print(f"  Benchmark: {benchmark_id}")
-    print(f"  Question: {question[:80]}...")
+    print(f"  Question: {question}")
+    print(f"  Threshold: {threshold}")
     print(f"{'─'*60}")
     
     # Get answer from TokenSmith
@@ -88,10 +91,14 @@ def run_benchmark(benchmark, config, results_dir, scorer):
             golden_chunks=golden_chunks if config["use_golden_chunks"] else None
         )
     except Exception as e:
+        import logging, traceback
         error_msg = f"Error running TokenSmith: {e}"
         print(f"  ❌ FAILED: {error_msg}")
         log_failure(results_dir, benchmark_id, error_msg)
+        traceback.print_exc()
+        logging.exception("Error running TokenSmith")
         return {"passed": False}
+
     
     # Validate answer
     if not retrieved_answer or not retrieved_answer.strip():
@@ -130,11 +137,11 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         "metric_weights": get_metric_weights(scorer, scores.get("active_metrics", [])),
         "timestamp": datetime.now().isoformat(),
         "config": {
-            "generator_model": config["generator_model"],
+            "model_path": config["model_path"],
             "embed_model": config["embed_model"],
-            "retrieval_method": config["retrieval_method"],
+            # "retrieval_method": config["retrieval_method"],
             "system_prompt_mode": config["system_prompt_mode"],
-            "enable_chunks": config["enable_chunks"],
+            "disable_chunks": config["disable_chunks"],
             "use_golden_chunks": config["use_golden_chunks"],
         }
     }
@@ -162,49 +169,82 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     Returns:
         str: Generated answer
     """
-    from src.retriever import load_artifacts, retrieve
-    from src.ranking.reranker import rerank
-    from src.generator import answer
+    from src.main import get_answer
+    from src.instrumentation.logging import init_logger, get_logger
+    from src.config import QueryPlanConfig
+    from src.retriever import BM25Retriever, FAISSRetriever, load_artifacts
+    from src.ranking.ranker import EnsembleRanker
+    import argparse
     
-    # Load artifacts
-    index, chunks, sources, vectorizer, chunk_tags = load_artifacts(config["index_prefix"])
+    # Create a mock args namespace with our config values
+    args = argparse.Namespace(
+        index_prefix=config["index_prefix"],
+        model_path=config.get("model_path"),
+    )
     
-    # Get chunks (either golden or retrieved)
+    # Create QueryPlanConfig from our test config
+    cfg = QueryPlanConfig(
+        chunk_config=QueryPlanConfig.get_chunk_config(config),
+        top_k=config.get("top_k", 5),
+        pool_size=config.get("pool_size", 60),
+        embed_model=config.get("embed_model"),
+        ensemble_method=config.get("retrieval_method", "rrf"),
+        rrf_k=60,
+        ranker_weights=config.get("ranker_weights", {"faiss": 0.6, "bm25": 0.4}),
+        rerank_mode=config.get("rerank_mode", "none"),
+        seg_filter=config.get("seg_filter", None),
+        system_prompt_mode=config.get("system_prompt_mode", "baseline"),
+        max_gen_tokens=config.get("max_gen_tokens", 400),
+        model_path=config.get("model_path"),
+        disable_chunks=config.get("disable_chunks", False),
+        use_golden_chunks=config.get("use_golden_chunks", False),
+        output_mode=config.get("output_mode", "html"),
+        metrics=config.get("metrics", ["all"])
+    )
+    
+    # Print status
     if golden_chunks and config["use_golden_chunks"]:
-        # Use provided golden chunks
-        retrieved_chunks = golden_chunks
         print(f"  📌 Using {len(golden_chunks)} golden chunks")
-    elif config["enable_chunks"]:
-        # Retrieve chunks using configured method
-        retrieved_chunks = retrieve(
-            query=question,
-            k=config["top_k"],
-            index=index,
-            chunks=chunks,
-            embed_model=config["embed_model"],
-            bm25_weight=config["bm25_weight"],
-            tag_weight=config["tag_weight"],
-            preview=False,  # Disable preview in tests
-            sources=sources,
-            vectorizer=vectorizer,
-            chunk_tags=chunk_tags,
-        )
-        
-        # Apply reranking
-        retrieved_chunks = rerank(question, retrieved_chunks, mode=config["halo_mode"])
-        print(f"  🔍 Retrieved {len(retrieved_chunks)} chunks")
-    else:
-        # No chunks - baseline mode
-        retrieved_chunks = []
+    elif config["disable_chunks"]:
         print(f"  📭 No chunks (baseline mode)")
+    else:
+        print(f"  🔍 Retrieving chunks...")
     
-    # Generate answer
-    generated = answer(
-        query=question,
-        chunks=retrieved_chunks,
-        model_path=config["generator_model"],
-        max_tokens=config["max_gen_tokens"],
-        system_prompt_mode=config["system_prompt_mode"],
+    init_logger(cfg)
+    logger = get_logger()
+
+    # Run the query through the main pipeline
+    artifacts_dir = cfg.make_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources = load_artifacts(
+        artifacts_dir=artifacts_dir, 
+        index_prefix=config["index_prefix"]
+    )
+
+    retrievers = [
+        FAISSRetriever(faiss_index, cfg.embed_model),
+        BM25Retriever(bm25_index)
+    ]
+    ranker = EnsembleRanker(
+        ensemble_method=cfg.ensemble_method,
+        weights=cfg.ranker_weights,
+        rrf_k=int(cfg.rrf_k)
+    )
+    
+    # Package artifacts for reuse
+    artifacts = {
+        "chunks": chunks,
+        "sources": sources,
+        "retrievers": retrievers,
+        "ranker": ranker
+    }
+
+    generated = get_answer(
+        question=question,
+        cfg=cfg,
+        args=args,
+        logger=logger,
+        artifacts=artifacts,
+        golden_chunks=golden_chunks
     )
     
     # Clean answer - extract up to end token if present
@@ -250,7 +290,7 @@ def print_result(benchmark_id, passed, final_score, threshold, scores, output_mo
         # Detailed terminal output
         status = "✅ PASSED" if passed else "❌ FAILED"
         print(f"\n  {status}")
-        print(f"  Final Score:  {final_score:.3f} (threshold: {threshold:.3f})")
+        print(f"  Final Score: {final_score:.3f} (threshold: {threshold:.3f})")
         
         # Show metric breakdown
         active_metrics = scores.get("active_metrics", [])

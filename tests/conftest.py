@@ -1,3 +1,4 @@
+import os
 import sys
 import yaml
 import pytest
@@ -28,7 +29,7 @@ def pytest_addoption(parser):
     
     # === Model Selection ===
     group.addoption(
-        "--generator-model",
+        "--model-path",
         default=None,
         help="Path to generator model (overrides config)"
     )
@@ -39,43 +40,42 @@ def pytest_addoption(parser):
     )
     
     # === Retrieval Configuration ===
-    group.addoption(
-        "--retrieval-method",
-        choices=["hybrid", "faiss", "bm25", "tag"],
-        default=None,
-        help="Retrieval method to use (overrides config)"
-    )
-    group.addoption(
-        "--faiss-weight",
-        type=float,
-        default=None,
-        help="Weight for FAISS retrieval in hybrid mode (0.0-1.0)"
-    )
-    group.addoption(
-        "--bm25-weight",
-        type=float,
-        default=None,
-        help="Weight for BM25 retrieval in hybrid mode (0.0-1.0)"
-    )
-    group.addoption(
-        "--tag-weight",
-        type=float,
-        default=None,
-        help="Weight for tag-based retrieval in hybrid mode (0.0-1.0)"
-    )
+    # group.addoption(
+    #     "--ensemble-method",
+    #     choices=["linear", "weighted", "rrf"],
+    #     default="rrf",
+    #     help="Ensemble method to use (overrides config)"
+    # )
+    # group.addoption(
+    #     "--rrf-k",
+    #     type=int,
+    #     default=60,
+    #     help="RRF k value to use (overrides config)"
+    # )
+    # group.addoption(
+    #     "--ranker-weights",
+    #     type=dict,
+    #     default=None,
+    #     help="Ranker weights to use (overrides config)"
+    # )
+    # group.addoption(
+    #     "--rerank-mode",
+    #     choices=["none", "rerank"],
+    #     default="none",
+    #     help="Rerank mode to use (overrides config)"
+    # )
+    # group.addoption(
+    #     "--seg-filter",
+    #     default=None,
+    #     help="Segment filter to use (overrides config)"
+    # )
     
     # === Generator Configuration ===
-    group.addoption(
-        "--enable-chunks",
-        action="store_true",
-        default=None,
-        help="Enable chunks in generator prompt"
-    )
     group.addoption(
         "--disable-chunks",
         action="store_true",
         default=None,
-        help="Disable chunks in generator prompt"
+        help="Enable chunks in generator prompt"
     )
     group.addoption(
         "--use-golden-chunks",
@@ -110,7 +110,7 @@ def pytest_addoption(parser):
         "--metrics",
         action="append",
         dest="metrics_list",
-        help="Metrics to use for evaluation (options: text, semantic, keyword, bleu, all)"
+        help="Metrics to use for evaluation (optionsRegistered metric:: text, semantic, keyword, bleu, all)"
     )
     group.addoption(
         "--threshold",
@@ -142,54 +142,52 @@ def config(pytestconfig):
     else:
         cfg = {}
     
-    # Get testing section or create empty dict
-    testing_cfg = cfg.get("testing", {})
-    
     # Merge CLI arguments (higher priority)
     merged_config = {
+        # Retrieval        
+        "top_k": cfg.get("top_k", 5),
+        "pool_size": cfg.get("pool_size", 60),
+        "ensemble_method": cfg.get("ensemble_method", "rrf"),
+        "rrf_k": cfg.get("rrf_k", 60),
+        "ranker_weights": cfg.get("ranker_weights", {"faiss":0.6,"bm25":0.4}),
+        "rerank_mode": cfg.get("rerank_mode", "none"),
+        "seg_filter": cfg.get("seg_filter", None),
+        "chunk_mode": cfg.get("chunk_mode", "sections"),
+        "recursive_chunk_size": cfg.get("recursive_chunk_size", 1000),
+        "recursive_overlap": cfg.get("recursive_overlap", 0),
+
         # Output
-        "output_mode": pytestconfig.getoption("--output-mode") or testing_cfg.get("output_mode", "html"),
+        "output_mode": pytestconfig.getoption("--output-mode") or cfg.get("output_mode", "terminal"),
         
         # Models
-        "generator_model": pytestconfig.getoption("--generator-model") or cfg.get("generator_model", "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"),
-        "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", "/nethome/sbansal309/tokensmith/models/Qwen3-Embedding-4B-Q8_0.gguf"),
-        
-        # Retrieval
-        "retrieval_method": pytestconfig.getoption("--retrieval-method") or cfg.get("retrieval_method", "hybrid"),
-        "faiss_weight": pytestconfig.getoption("--faiss-weight") or cfg.get("faiss_weight", 0.5),
-        "bm25_weight": pytestconfig.getoption("--bm25-weight") or cfg.get("bm25_weight", 0.3),
-        "tag_weight": pytestconfig.getoption("--tag-weight") or cfg.get("tag_weight", 0.2),
-        "top_k": cfg.get("top_k", 5),
-        "halo_mode": cfg.get("halo_mode", "halo"),
+        "model_path": pytestconfig.getoption("--model-path") or cfg.get("model_path", "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"),
+        "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", os.path.join(Path(__file__).parent.parent, "models", "Qwen3-Embedding-4B-Q8_0.gguf")),
         
         # Generator
-        "system_prompt_mode": pytestconfig.getoption("--system-prompt") or cfg.get("system_prompt_mode", "tutor"),
+        "system_prompt_mode": pytestconfig.getoption("--system-prompt") or cfg.get("system_prompt_mode", "baseline"),
         "max_gen_tokens": cfg.get("max_gen_tokens", 400),
         
         # Testing
         "artifacts_dir": pytestconfig.getoption("--artifacts_dir") or "index/tokens-200",
-        "index_prefix": pytestconfig.getoption("--index-prefix") or testing_cfg.get("index_prefix", "textbook_index"),
-        "metrics": pytestconfig.getoption("--list-metrics") or testing_cfg.get("metrics", ["all"]),
-        "threshold_override": pytestconfig.getoption("--threshold") or testing_cfg.get("threshold_override"),
+        "index_prefix": pytestconfig.getoption("--index-prefix") or cfg.get("index_prefix", "textbook_index"),
+        "metrics": pytestconfig.getoption("--metrics") or cfg.get("metrics", ["all"]),
+        "threshold_override": pytestconfig.getoption("--threshold") or cfg.get("threshold_override", None),
     }
-    
+
     # Handle enable/disable chunks
-    enable_chunks_cli = pytestconfig.getoption("--enable-chunks")
     disable_chunks_cli = pytestconfig.getoption("--disable-chunks")
     
-    if enable_chunks_cli:
-        merged_config["enable_chunks"] = True
-    elif disable_chunks_cli:
-        merged_config["enable_chunks"] = False
+    if disable_chunks_cli:
+        merged_config["disable_chunks"] = True
     else:
-        merged_config["enable_chunks"] = cfg.get("enable_chunks", True)
+        merged_config["disable_chunks"] = cfg.get("disable_chunks", False)
     
     # Handle golden chunks
     use_golden = pytestconfig.getoption("--use-golden-chunks")
     if use_golden is not None:
         merged_config["use_golden_chunks"] = use_golden
     else:
-        merged_config["use_golden_chunks"] = testing_cfg.get("use_golden_chunks", False)
+        merged_config["use_golden_chunks"] = cfg.get("use_golden_chunks", False)
     
     return merged_config
 

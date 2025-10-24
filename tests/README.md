@@ -1,4 +1,4 @@
-# TokenSmith Testing Framework
+# Testing Framework
 
 A simplified and flexible testing framework for benchmarking TokenSmith's RAG system.
 
@@ -17,292 +17,288 @@ The testing framework allows you to:
 
 Run all benchmarks with default configuration:
 ```bash
-pytest tests/test_benchmarks.py
+pytest tests/
 ```
 Use the `-s` flag to get the output from the LLM model. Without the `-s` flag, the command only shows the result for the metrics
 
-Run specific benchmarks:
 ```bash
-pytest tests/test_benchmarks.py --benchmark-ids="transactions,er_modeling"
+# Run with terminal output to see results immediately
+pytest tests/ -s
+
+# Run specific benchmark
+pytest tests/ --benchmark-ids="test" -s
+
+# Suppress warnings
+pytest tests/ -s -W ignore::DeprecationWarning
 ```
 
-### Terminal vs HTML Output
+### Common Patterns
 
-Show results in terminal (detailed output):
 ```bash
-pytest tests/test_benchmarks.py --output-mode=terminal
-```
+# Test with different system prompts
+pytest tests/ --system_prompt_mode=concise -s
 
-Generate HTML report (default):
-```bash
-pytest tests/test_benchmarks.py --output-mode=html
+# Test without chunks (baseline mode)
+pytest tests/ --disable-chunks -s
+
+# Test with golden chunks
+pytest tests/ --use-golden-chunks -s
+
+# Test with specific metrics
+pytest tests/ --metrics=semantic --metrics=keyword -s
+
+# Test with HTML output (default)
+pytest tests/ --output-mode=html
 ```
 
 ## Configuration
 
 ### Config File (config/config.yaml)
 
-The main configuration file supports all testing options:
-
 ```yaml
 # Embedding Configuration
 embed_model: "/path/to/Qwen3-Embedding-4B-Q8_0.gguf"
 
 # Retrieval Configuration
-retrieval_method: "hybrid"  # Options: hybrid, faiss, bm25, tag
-faiss_weight: 0.5
-bm25_weight: 0.3
-tag_weight: 0.2
 top_k: 5
-halo_mode: "halo"
+pool_size: 60
+ensemble_method: "rrf"  # or "linear", "weighted"
+ranker_weights:
+  faiss: 0.6
+  bm25: 0.4
+rrf_k: 60
 
 # Generator Configuration
-generator_model: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
+model_path: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
 max_gen_tokens: 400
 system_prompt_mode: "tutor"  # Options: baseline, tutor, concise, detailed
-enable_chunks: true
 
 # Testing Configuration
-testing:
-  output_mode: "html"  # Options: terminal, html
-  index_prefix: "textbook_index"
-  benchmark_ids: null  # or comma-separated list
-  metrics: ["all"]  # Options: text, semantic, keyword, bleu, all
-  threshold_override: null
-  use_golden_chunks: false
+use_golden_chunks: false
+output_mode: "terminal"  # terminal or html
+metrics: ["all"]  # or specific: ["semantic", "keyword", "bleu"]
 ```
 
-### Command-Line Arguments
+### CLI Arguments Reference
 
-All config options can be overridden via CLI:
+All config options can be overridden via CLI (CLI takes priority):
 
-#### Model Selection
-```bash
-# Choose generator model
-pytest tests/ --generator-model="models/my-model.gguf"
+| Argument | Options | Description |
+|----------|---------|-------------|
+| `--benchmark-ids` | comma-separated | Filter specific benchmarks (e.g., "test,transactions") |
+| `--system_prompt_mode` | baseline, tutor, concise, detailed | System prompt style |
+| `--enable-chunks` | flag | Enable chunks in generation (RAG mode) |
+| `--disable-chunks` | flag | Disable chunks (baseline mode) |
+| `--use-golden-chunks` | flag | Use pre-selected golden chunks |
+| `--output-mode` | terminal, html | Output format |
+| `--metrics` | metric name | Metrics to use (can specify multiple times) |
+| `-s` | flag | Show print statements (pytest flag) |
+| `-W ignore::DeprecationWarning` | flag | Suppress FAISS warnings |
 
-# Choose embedding model (defaults to Qwen3)
-pytest tests/ --embed-model="sentence-transformers/all-MiniLM-L6-v2"
-```
+## System Prompt Modes
 
-#### Retrieval Configuration
-```bash
-# Set retrieval method
-pytest tests/ --retrieval-method=faiss
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **baseline** | No system prompt | Testing generator alone |
+| **tutor** | Friendly, educational | Default, best for learning |
+| **concise** | Brief, direct | Quick answers, summaries |
+| **detailed** | Comprehensive | In-depth explanations |
 
-# Configure hybrid retrieval weights
-pytest tests/ --faiss-weight=0.6 --bm25-weight=0.3 --tag-weight=0.1
-```
+## Benchmarks Format
 
-#### System Prompts
-```bash
-# Baseline: No system prompt
-pytest tests/ --system-prompt=baseline
-
-# Tutor: Friendly tutoring style (default)
-pytest tests/ --system-prompt=tutor
-
-# Concise: Brief, direct answers
-pytest tests/ --system-prompt=concise
-
-# Detailed: Comprehensive explanations
-pytest tests/ --system-prompt=detailed
-```
-
-#### Chunks Control
-```bash
-# Disable chunks (test generator alone)
-pytest tests/ --disable-chunks
-
-# Enable chunks (default)
-pytest tests/ --enable-chunks
-
-# Use golden chunks from benchmarks.yaml
-pytest tests/ --use-golden-chunks
-```
-
-#### Metrics Selection
-```bash
-# Use specific metrics
-pytest tests/ --metrics=semantic --metrics=keyword
-
-# Override similarity threshold
-pytest tests/ --threshold=0.75
-
-# List available metrics
-pytest tests/ --list-metrics
-```
-
-## Benchmarks File (benchmarks.yaml)
-
-Each benchmark includes:
+Benchmarks are defined in `benchmarks.yaml`:
 
 ```yaml
 benchmarks:
-  - id: "transactions"
+  - id: "unique_id"
     question: "Your question here..."
     expected_answer: "Expected answer text..."
     keywords: ["keyword1", "keyword2"]
     similarity_threshold: 0.7
-    golden_chunks: null  # Optional: list of best chunks for this question
+    golden_chunks: null  # or list of best chunks
 ```
 
 ### Golden Chunks
 
-Golden chunks are pre-selected text snippets that are most relevant to a question. 
-To use golden chunks:
-1. Add them to benchmarks.yaml:
+Golden chunks are pre-selected text snippets most relevant to a question. To use:
+
+1. Add to benchmarks.yaml:
    ```yaml
    golden_chunks:
      - "First most relevant chunk..."
      - "Second most relevant chunk..."
    ```
 
-2. Enable in config.yaml:
-   ```yaml
-   testing:
-     use_golden_chunks: true
-   ```
-
-   Or via CLI:
+2. Run with golden chunks:
    ```bash
-   pytest tests/ --use-golden-chunks
+   pytest tests/ --use-golden-chunks -s
    ```
 
-## Example Use Cases
+## Output Modes
 
-### Compare Retrieval Methods
+### Terminal Mode (Detailed)
 
-Test FAISS-only retrieval:
 ```bash
-pytest tests/ --retrieval-method=faiss --output-mode=terminal
+pytest tests/ --output-mode=terminal -s
 ```
 
-Test hybrid retrieval with different weights:
-```bash
-pytest tests/ --faiss-weight=0.7 --bm25-weight=0.2 --tag-weight=0.1
+Shows:
+- Configuration details
+- Per-benchmark progress
+- Retrieval info
+- Metric breakdowns
+- Retrieved answer display
+- Pass/fail status
+
+Example output:
 ```
-
-### Compare System Prompts
-
-Test all prompt modes:
-```bash
-for mode in baseline tutor concise detailed; do
-    pytest tests/ --system-prompt=$mode --output-mode=terminal
-done
-```
-
-### Test Generator Alone
-
-Disable chunks to test generator without retrieval:
-```bash
-pytest tests/ --disable-chunks --system-prompt=baseline
-```
-
-Or use golden chunks for controlled testing:
-```bash
-pytest tests/ --use-golden-chunks
-```
-
-### Run Specific Benchmarks
-
-Test only database-related questions:
-```bash
-pytest tests/ --benchmark-ids="transactions,materialization"
-```
-
-### Generate Reports
-
-Run tests and generate HTML report:
-```bash
-pytest tests/ --output-mode=html
-# Opens: tests/results/benchmark_summary.html
-```
-
-## Results
-
-### Terminal Output
-
-When using `--output-mode=terminal`, you get detailed output:
-```
-==============================================================
+============================================================
   TokenSmith Benchmark Configuration
-==============================================================
+============================================================
   Generator Model:    qwen2.5-0.5b-instruct-q5_k_m.gguf
   Embedding Model:    Qwen3-Embedding-4B-Q8_0.gguf
-  Retrieval Method:   hybrid
-    • FAISS weight:   0.50
-    • BM25 weight:    0.30
-    • Tag weight:     0.20
   System Prompt:      tutor
   Chunks Enabled:     True
-  Golden Chunks:      False
-  Output Mode:        terminal
-  Metrics:            semantic, text, keyword, bleu
-==============================================================
+============================================================
 
 ────────────────────────────────────────────────────────────
-  Benchmark: transactions
-  Question: How do atomicity, consistency, isolation, and...
+  Benchmark: test
+  Question: What are the contributions...
 ────────────────────────────────────────────────────────────
-  🔍 Retrieved 5 chunks
+  🔍 Retrieving chunks...
 
   ✅ PASSED
   Final Score:  0.847 (threshold: 0.700)
   Metric Breakdown:
     • semantic    : 0.892
     • text        : 0.834
-    • keyword     : 0.815
-    • bleu        : 0.847
-    • keywords    : 4/5
+
+  📝 Retrieved Answer:
+  ----------------------------------------------------------
+  The answer text appears here with proper formatting...
+  ----------------------------------------------------------
 ```
 
-### HTML Report
+### HTML Mode (Reports)
 
-When using `--output-mode=html` (default), results are saved to:
-- `tests/results/benchmark_results.json` - Detailed JSON results
-- `tests/results/benchmark_summary.html` - Interactive HTML report
+```bash
+pytest tests/ --output-mode=html
+```
+
+Generates:
+- `tests/results/benchmark_summary.html` - Interactive report
+- `tests/results/benchmark_results.json` - Detailed data
 - `tests/results/failed_tests.log` - Failure details
 
+## Usage Examples
 
-## Adding New Features
+### Experiment with System Prompts
 
-### Add a New Metric
-
-1. Create metric in `tests/utils/metrics/`:
-   ```python
-   from .base import MetricBase
-   
-   class MyMetric(MetricBase):
-       def __init__(self):
-           super().__init__(name="my_metric", weight=1.0)
-       
-       def calculate(self, answer, expected, keywords=None):
-           # Your metric logic
-           return score
-   ```
-
-2. Register in `tests/utils/metrics/__init__.py`
-
-3. Use it:
-   ```bash
-   pytest tests/ --metrics=my_metric -s
-   ```
-
-### Add a New System Prompt
-
-Edit `src/generator.py`:
-```python
-def get_system_prompt(mode="tutor"):
-    prompts = {
-        "my_mode": "Your custom prompt...",
-        # ... existing modes
-    }
-    return prompts.get(mode, prompts["tutor"])
-```
-
-Use it:
 ```bash
-pytest tests/ --system-prompt=my_mode -s
+# Compare all prompt modes
+for mode in baseline tutor concise detailed; do
+    echo "===== Testing $mode ====="
+    pytest tests/ --system_prompt_mode=$mode --benchmark-ids="test" -s
+done
 ```
 
+### Component Isolation (Ablation Study)
+
+```bash
+# 1. Pure generator (no RAG, no prompt)
+pytest tests/ --disable-chunks --system_prompt_mode=baseline -s
+
+# 2. Generator with prompt (no RAG)
+pytest tests/ --disable-chunks --system_prompt_mode=tutor -s
+
+# 3. RAG without prompt
+pytest tests/ --enable-chunks --system_prompt_mode=baseline -s
+
+# 4. Full system (RAG + prompt)
+pytest tests/ --enable-chunks --system_prompt_mode=tutor -s
+```
+
+### Test Specific Benchmarks
+
+```bash
+# Run one benchmark for quick iteration
+pytest tests/ --benchmark-ids="test" -s
+
+# Run multiple specific benchmarks
+pytest tests/ --benchmark-ids="test,transactions" -s
+```
+
+### Metrics Selection
+
+```bash
+# List available metrics
+pytest tests/ --list-metrics
+
+# Use specific metric
+pytest tests/ --metrics=semantic -s
+
+# Use multiple metrics
+pytest tests/ --metrics=semantic --metrics=keyword -s
+
+# Use all metrics (default)
+pytest tests/ --metrics=all -s
+```
+
+## Results Files
+
+After running tests, check:
+
+```bash
+# View JSON results
+cat tests/results/benchmark_results.json | python -m json.tool
+
+# Open HTML report (Linux)
+xdg-open tests/results/benchmark_summary.html
+
+# Check failures
+cat tests/results/failed_tests.log
+```
+
+## Troubleshooting
+
+### No Output Visible
+
+**Problem**: Test passes but no output shown \
+**Solution**: Add `-s` flag to see print statements
+```bash
+pytest tests/ -s
+```
+
+### FAISS Warnings
+
+**Problem**: Many deprecation warnings \
+**Solution**: Suppress with pytest flag
+```bash
+pytest tests/ -W ignore::DeprecationWarning
+```
+
+## Advanced Usage
+
+### Run Specific Test Function
+```bash
+pytest tests/test_benchmarks.py::test_tokensmith_benchmarks -s
+```
+
+### Generate HTML Report Only
+```bash
+pytest tests/ --output-mode=html
+# No terminal output, only HTML report generated
+```
+
+### Verbose trace callback printing
+```bash
+pytest --log-cli-level=DEBUG tests/ --config=config/test_config.yaml --benchmark-ids='test' -vv -s --pdb --full-trace --showlocals
+```
+
+## Metrics Explained
+
+- **Semantic Similarity**: Uses sentence embeddings to measure meaning similarity
+- **Keyword Matching**: Checks if important keywords are present
+- **NLI Classification**: Find NLI entailment score between answer and expected text
+
+All metrics are weighted and combined into a final score, which is compared against the benchmark's threshold.

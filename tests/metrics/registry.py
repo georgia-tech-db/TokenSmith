@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 from tests.metrics.base import MetricBase
 
+
 class MetricRegistry:
     """Registry for managing available metrics."""
     
@@ -10,16 +11,16 @@ class MetricRegistry:
     
     def _auto_register(self):
         """Automatically register all available metrics."""
-        from tests.metrics.text import TextSimilarityMetric
-        from tests.metrics.semantic import SemanticSimilarityMetric
-        from tests.metrics.keyword import KeywordMatchMetric
-        from tests.metrics.bleu import BleuScoreMetric
-        
-        self.register(TextSimilarityMetric())
+        from tests.metrics import (
+            SemanticSimilarityMetric,
+            KeywordMatchMetric,
+            NLIEntailmentMetric
+        )
+
         self.register(SemanticSimilarityMetric())
         self.register(KeywordMatchMetric())
-        self.register(BleuScoreMetric())
-    
+        self.register(NLIEntailmentMetric())
+
     def register(self, metric: MetricBase):
         """Register a new metric."""
         self._metrics[metric.name] = metric

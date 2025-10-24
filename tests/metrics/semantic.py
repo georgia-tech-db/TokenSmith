@@ -26,7 +26,7 @@ class SemanticSimilarityMetric(MetricBase):
             warnings.filterwarnings("ignore", message=".*CUDA capability.*")
             from sentence_transformers import util, SentenceTransformer
             
-            self._model = SentenceTransformer('all-MiniLM-L12-v2')
+            self._model = SentenceTransformer('all-mpnet-base-v2')
             self._util = util
             return True
         except Exception as e:

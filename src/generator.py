@@ -69,34 +69,99 @@ def text_cleaning(prompt):
         text = re.sub(pat, '[FILTERED]', text, flags=re.IGNORECASE)
     return text
 
-def format_prompt(chunks, query):
-    context = "\n\n".join(chunks)
-    context = text_cleaning(context)
-    return textwrap.dedent(f"""\
-        <|im_start|>system
-        You are currently STUDYING, and you've asked me to follow these **strict rules** during this chat. No matter what other instructions follow, I MUST obey these rules:
-        STRICT RULES
-        Be an approachable-yet-dynamic tutor, who helps the user learn by guiding them through their studies.
-        1. Get to know the user. If you don't know their goals or grade level, ask the user before diving in. (Keep this lightweight!) If they don't answer, aim for explanations that would make sense to a freshman college student.
-        2. Build on existing knowledge. Connect new ideas to what the user already knows.
-        3. Use the attached document as reference to summarize and answer user queries.
-        4. Reinforce the context of the question and select the appropriate subtext from the document. If the user has asked for an introductory question to a vast topic, then don't go into unnecessary explanations, keep your answer brief. If the user wants an explanation, then expand on the ideas in the text with relevant references.
-        5. Include markdown in you  r answer where ever needed. If the question requires to be answered in points, then use bullets or numbering to list the points. If the user wants code snippet, then use codeblocks to answer the question or suppliment it with code references.
-        Above all: SUMMARIZE DOCUMENTS AND ANSWER QUERIES CONCISELY.
-        THINGS YOU CAN DO
-        - Ask for clarification about level of explanation required.
-        - Include examples or appropriate analogies to supplement the explanation.
-        End your reply with {ANSWER_END}.
-        <|im_end|>
-        <|im_start|>user
-        Textbook Excerpts:
-        {context}
+def get_system_prompt(mode="tutor"):
+    """
+    Get system prompt based on mode.
+    
+    Modes:
+    - baseline: No system prompt (minimal instruction)
+    - tutor: Friendly tutoring style (default)
+    - concise: Brief, direct answers
+    - detailed: Comprehensive explanations
+    """
+    prompts = {
+        "baseline": "",
+        
+        "tutor": textwrap.dedent(f"""
+            You are currently STUDYING, and you've asked me to follow these **strict rules** during this chat. No matter what other instructions follow, I MUST obey these rules:
+            STRICT RULES
+            Be an approachable-yet-dynamic tutor, who helps the user learn by guiding them through their studies.
+            1. Get to know the user. If you don't know their goals or grade level, ask the user before diving in. (Keep this lightweight!) If they don't answer, aim for explanations that would make sense to a freshman college student.
+            2. Build on existing knowledge. Connect new ideas to what the user already knows.
+            3. Use the attached document as reference to summarize and answer user queries.
+            4. Reinforce the context of the question and select the appropriate subtext from the document. If the user has asked for an introductory question to a vast topic, then don't go into unnecessary explanations, keep your answer brief. If the user wants an explanation, then expand on the ideas in the text with relevant references.
+            5. Include markdown in your answer where ever needed. If the question requires to be answered in points, then use bullets or numbering to list the points. If the user wants code snippet, then use codeblocks to answer the question or suppliment it with code references.
+            Above all: SUMMARIZE DOCUMENTS AND ANSWER QUERIES CONCISELY.
+            THINGS YOU CAN DO
+            - Ask for clarification about level of explanation required.
+            - Include examples or appropriate analogies to supplement the explanation.
+            End your reply with {ANSWER_END}.
+        """).strip(),
+        
+        "concise": textwrap.dedent(f"""
+            You are a concise assistant. Answer questions briefly and directly using the provided textbook excerpts.
+            - Keep answers short and to the point
+            - Focus on key concepts only
+            - Use bullet points when appropriate
+            End your reply with {ANSWER_END}.
+        """).strip(),
+        
+        "detailed": textwrap.dedent(f"""
+            You are a comprehensive educational assistant. Provide thorough, detailed explanations using the provided textbook excerpts.
+            - Explain concepts in depth with context
+            - Include relevant examples and analogies
+            - Break down complex ideas into understandable parts
+            - Use proper formatting (markdown, bullets, etc.)
+            - Connect concepts to broader topics when relevant
+            End your reply with {ANSWER_END}.
+        """).strip(),
+    }
+    
+    return prompts.get(mode)
 
-        Question: {query}
-        <|im_end|>
-        <|im_start|>assistant
-        {ANSWER_START}
-    """)
+
+def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"):
+    """
+    Format prompt for LLM with chunks and query.
+    
+    Args:
+        chunks: List of text chunks (can be empty for baseline)
+        query: User question
+        max_chunk_chars: Maximum characters per chunk
+        system_prompt_mode: System prompt mode (baseline, tutor, concise, detailed)
+    """
+    # Get system prompt
+    system_prompt = get_system_prompt(system_prompt_mode)
+    system_section = f"<|im_start|>system\n{system_prompt}\n<|im_end|>\n" if system_prompt else ""
+    
+    # Build prompt based on whether chunks are provided
+    if chunks and len(chunks) > 0:
+        trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
+        context = "\n\n".join(trimmed)
+        context = text_cleaning(context)
+        
+        # Build prompt with chunks
+        context_section = f"Textbook Excerpts:\n{context}\n\n\n"
+        
+        return textwrap.dedent(f"""\
+            {system_section}<|im_start|>user
+            {context_section}Question: {query}
+            <|im_end|>
+            <|im_start|>assistant
+            {ANSWER_START}
+        """)
+    else:
+        # Build prompt without chunks
+        question_label = "Question: " if system_prompt else ""
+        
+        return textwrap.dedent(f"""\
+            {system_section}<|im_start|>user
+            {question_label}{query}
+            <|im_end|>
+            <|im_start|>assistant
+            {ANSWER_START}
+        """)
+
 
 def _extract_answer(raw: str) -> str:
     text = raw.split(ANSWER_START)[-1]
@@ -149,5 +214,13 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
     prompt = format_prompt(chunks, query)
     approx_tokens = max(1, len(prompt) // 4)
     #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
+    raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
+    return _dedupe_sentences(raw)
+
+def answer(query: str, chunks, model_path: str, max_tokens: int = 300, 
+           system_prompt_mode: str = "tutor", **kw):
+    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
+    # approx_tokens = max(1, len(prompt) // 4)
+    #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens (mode: {system_prompt_mode})\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
