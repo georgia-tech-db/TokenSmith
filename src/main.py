@@ -1,9 +1,8 @@
 import argparse
-import pathlib
 import sys
 from typing import Dict, Optional
 
-from src.config import QueryPlanConfig
+from src.config import QueryPlanConfig, get_valid_config_path
 from src.generator import answer
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
@@ -230,17 +229,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 def main():
     """Main entry point for the script."""
     args = parse_args()
-
-    # Config loading
-    config_path = pathlib.Path("config/config.yaml")
-    cfg = None
-    if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path, args=args)
-
-    if cfg is None:
-        raise FileNotFoundError(
-            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
-        )
+    cfg = QueryPlanConfig(get_valid_config_path(), args=args)
 
     init_logger(cfg)
 

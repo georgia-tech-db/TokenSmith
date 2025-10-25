@@ -15,6 +15,20 @@ from src.preprocessing.chunking import (
     make_chunk_strategy,
 )
 
+def get_valid_config_path() -> os.PathLike:
+    primary_config_path = pathlib.Path.home() / ".config" / "tokensmith" / "config.yaml"
+    backup_config_path = pathlib.Path("config", "config.yaml")
+    
+    if primary_config_path.exists():
+        return primary_config_path
+    
+    if backup_config_path.exists():
+        return backup_config_path
+
+    raise FileNotFoundError(
+        "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+    )
+
 
 @dataclass
 class QueryPlanConfig:
