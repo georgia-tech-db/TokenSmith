@@ -1,13 +1,33 @@
 from __future__ import annotations
 
+import argparse
 import os
+import pathlib
 from dataclasses import dataclass
-from typing import Dict, Callable, Any
+from typing import Any, Callable, Dict, Optional
 
 import yaml
-import pathlib
 
-from src.preprocessing.chunking import ChunkStrategy, make_chunk_strategy, SectionRecursiveConfig, ChunkConfig
+from src.preprocessing.chunking import (
+    ChunkConfig,
+    ChunkStrategy,
+    SectionRecursiveConfig,
+    make_chunk_strategy,
+)
+
+def get_valid_config_path() -> os.PathLike:
+    primary_config_path = pathlib.Path.home() / ".config" / "tokensmith" / "config.yaml"
+    backup_config_path = pathlib.Path("config", "config.yaml")
+    
+    if primary_config_path.exists():
+        return primary_config_path
+    
+    if backup_config_path.exists():
+        return backup_config_path
+
+    raise FileNotFoundError(
+        "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+    )
 
 
 @dataclass
@@ -28,9 +48,9 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
-    
+
     model_path: os.PathLike
-    
+
     # testing
     system_prompt_mode: str
     disable_chunks: bool
@@ -51,36 +71,37 @@ class QueryPlanConfig:
 
     # ---------- factory + validation ----------
     @staticmethod
-    def from_yaml(path: os.PathLike) -> QueryPlanConfig:
-        raw = yaml.safe_load(open(path))
-
-        def pick(key, default=None):
-            return raw.get(key, default)
-
-        chunk_config = QueryPlanConfig.get_chunk_config(raw)
+    def from_yaml(
+        path: os.PathLike, args: Optional[argparse.Namespace]
+    ) -> QueryPlanConfig:
+        raw_config = yaml.safe_load(open(path))
+        chunk_config = QueryPlanConfig.get_chunk_config(raw_config)
 
         cfg = QueryPlanConfig(
             # Chunking
-            chunk_config   = chunk_config,
-
+            chunk_config=chunk_config,
             # Retrieval + Ranking
-            top_k          = pick("top_k", 5),
-            pool_size      = pick("pool_size", 60),
-            embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
-            ensemble_method= pick("ensemble_method", "rrf"),
-            rrf_k          = pick("rrf_k", 60),
-            ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
-            max_gen_tokens = pick("max_gen_tokens", 400),
-            rerank_mode    = pick("rerank_mode", "none"),
-            seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None),
-            
+            top_k=raw_config.get("top_k", 5),
+            pool_size=args.pool_size or raw_config.get("pool_size", 60),
+            embed_model=raw_config.get(
+                "embed_model", "sentence-transformers/all-MiniLM-L6-v2"
+            ),
+            ensemble_method=raw_config.get("ensemble_method", "rrf"),
+            rrf_k=raw_config.get("rrf_k", 60),
+            ranker_weights=raw_config.get(
+                "ranker_weights", {"faiss": 0.6, "bm25": 0.4}
+            ),
+            max_gen_tokens=raw_config.get("max_gen_tokens", 400),
+            rerank_mode=raw_config.get("rerank_mode", "none"),
+            seg_filter=raw_config.get("seg_filter", None),
+            model_path=args.model_path or raw_config.get("model_path", None),
             # Testing
-            system_prompt_mode = pick("system_prompt_mode", "baseline"),
-            disable_chunks  = pick("disable_chunks", False),
-            use_golden_chunks = pick("use_golden_chunks", False),
-            output_mode    = pick("output_mode", "terminal"),
-            metrics        = pick("metrics", ["all"])
+            system_prompt_mode=args.system_prompt_mode
+            or raw_config.get("system_prompt_mode", "baseline"),
+            disable_chunks=raw_config.get("disable_chunks", False),
+            use_golden_chunks=raw_config.get("use_golden_chunks", False),
+            output_mode=raw_config.get("output_mode", "terminal"),
+            metrics=raw_config.get("metrics", ["all"]),
         )
         cfg._validate()
         return cfg
@@ -89,22 +110,24 @@ class QueryPlanConfig:
     def get_chunk_config(raw: Any) -> ChunkConfig:
         """Parse chunk configuration from YAML."""
         chunk_mode = raw.get("chunk_mode", "sections").lower()
-        
+
         if chunk_mode == "sections":
             return SectionRecursiveConfig(
                 recursive_chunk_size=raw.get("recursive_chunk_size", 1000),
-                recursive_overlap=raw.get("recursive_overlap", 0)
+                recursive_overlap=raw.get("recursive_overlap", 0),
             )
         else:
-            raise ValueError(f"Unknown chunk_mode: {chunk_mode}. Only 'sections' is supported.")
+            raise ValueError(
+                f"Unknown chunk_mode: {chunk_mode}. Only 'sections' is supported."
+            )
 
     def _validate(self) -> None:
         assert self.top_k > 0, "top_k must be > 0"
         assert self.pool_size >= self.top_k, "pool_size must be >= top_k"
-        assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
-        if self.ensemble_method.lower() in {"linear","weighted"}:
+        assert self.ensemble_method.lower() in {"linear", "weighted", "rrf"}
+        if self.ensemble_method.lower() in {"linear", "weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
-            self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
+            self.ranker_weights = {k: v / s for k, v in self.ranker_weights.items()}
         self.chunk_config.validate()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -123,5 +146,5 @@ class QueryPlanConfig:
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,
             "output_mode": self.output_mode,
-            "metrics": self.metrics
+            "metrics": self.metrics,
         }

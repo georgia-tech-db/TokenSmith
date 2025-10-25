@@ -1,9 +1,8 @@
 import argparse
-import pathlib
 import sys
 from typing import Dict, Optional
 
-from src.config import QueryPlanConfig
+from src.config import QueryPlanConfig, get_valid_config_path
 from src.generator import answer
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
@@ -43,7 +42,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--system_prompt_mode",
         choices=["baseline", "tutor", "concise", "detailed"],
-        default="baseline",
         help="system prompt mode (choices: baseline, tutor, concise, detailed)"
     )
     
@@ -144,8 +142,8 @@ def get_answer(
         # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
     
     # Step 4: Generation
-    model_path = args.model_path or cfg.model_path
-    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+    model_path = cfg.model_path
+    system_prompt = cfg.system_prompt_mode
     ans = answer(
         question, 
         ranked_chunks, 
@@ -231,17 +229,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 def main():
     """Main entry point for the script."""
     args = parse_args()
-
-    # Config loading
-    config_path = pathlib.Path("config/config.yaml")
-    cfg = None
-    if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path)
-
-    if cfg is None:
-        raise FileNotFoundError(
-            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
-        )
+    cfg = QueryPlanConfig(get_valid_config_path(), args=args)
 
     init_logger(cfg)
 
