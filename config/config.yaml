@@ -1,4 +1,4 @@
-embed_model: "Qwen/Qwen3-Embedding-4B"
+embed_model: "Qwen3-Embedding-4B-Q5_K_M.gguf"
 top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
@@ -7,6 +7,10 @@ rrf_k: 60
 max_gen_tokens: 400
 seg_filter: null
 chunk_mode : "sections"
-model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+model_path: "qwen2.5-1.5b-instruct-q5_k_m.gguf"
 recursive_chunk_size: 2000
 recursive_overlap: 400
+hallucination_detection:
+  enabled: true
+  model_path: "KRLabsOrg/lettucedect-base-modernbert-en-v1"
+  threshold: 0.1
