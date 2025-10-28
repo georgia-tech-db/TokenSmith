@@ -232,7 +232,7 @@ def get_answer(
             model_path=cfg.hallucination_model_path,
             threshold=cfg.hallucination_threshold
         )
-        context_texts = [chunk.page_content for chunk in ranked_chunks]
+        context_texts = ranked_chunks  # chunks are already strings
         hallucination_result = detector.detect_hallucinations(question, ans, context_texts)
         
         if hallucination_result['is_hallucinated']:
