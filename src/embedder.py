@@ -4,13 +4,13 @@ from llama_cpp import Llama
 from tqdm import tqdm
 
 class SentenceTransformer:
-    def __init__(self, model_path: str, n_ctx: int = 40960, n_threads: int = None):
+    def __init__(self, model_path: str, n_ctx: int = 32768, n_threads: int = None):
         """
         Initialize with a local GGUF model file path.
         
         Args:
             model_path: Path to your local .gguf file
-            n_ctx: Context window size (increased to match Qwen3 training context)
+            n_ctx: Context window size (default 32768 to match Qwen3 training context)
             n_threads: Number of threads to use (None = auto-detect)
         """
         print(f"Loading model with n_ctx={n_ctx}, n_threads={n_threads}")
