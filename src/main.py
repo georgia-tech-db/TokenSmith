@@ -10,6 +10,7 @@ from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.hallucination_detector import create_detector
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,6 +154,20 @@ def get_answer(
         max_tokens=cfg.max_gen_tokens, 
         system_prompt_mode=system_prompt
     )
+    
+    # Step 5: Hallucination Detection (if enabled)
+    if cfg.hallucination_enabled and ranked_chunks:
+        detector = create_detector(
+            model_path=cfg.hallucination_model_path,
+            threshold=cfg.hallucination_threshold
+        )
+        context_texts = ranked_chunks  # chunks are already strings
+        hallucination_result = detector.detect_hallucinations(question, ans, context_texts)
+        
+        if hallucination_result['is_hallucinated']:
+            # Add warning to the answer
+            warning = f"\n\n<!!!> WARNING: This answer may contain hallucinations. {hallucination_result['unsupported_fraction']:.1%} of the content appears unsupported by the provided context."
+            ans += warning
     
     return ans
 
