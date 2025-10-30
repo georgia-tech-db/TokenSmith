@@ -237,7 +237,7 @@ def get_answer(
         
         if hallucination_result['is_hallucinated']:
             # Add warning to the answer
-            warning = f"\n\n⚠️ WARNING: This answer may contain hallucinations. {hallucination_result['unsupported_fraction']:.1%} of the content appears unsupported by the provided context."
+            warning = f"\n\n<!!!> WARNING: This answer may contain hallucinations. {hallucination_result['unsupported_fraction']:.1%} of the content appears unsupported by the provided context."
             ans += warning
     
     if is_test_mode:
