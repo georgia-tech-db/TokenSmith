@@ -24,12 +24,28 @@
 
 ## Quick Start
 
-### 1) Clone the repository
+### 1) Clone the repository and Download the models
 
 ```shell
 git clone https://github.com/georgia-tech-db/TokenSmith.git
 cd TokenSmith
 ```
+
+Create the model directory and put in the appropriate models in it.
+```shell
+mkdir models
+cd models
+```
+
+Now, let's say config.yaml has following configs:
+```yaml
+embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+```
+For above config file, download appropriate files from the below link 
+and put them in the `models/` folder with the expected file name.
+- https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/tree/main
+- https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/main
 
 ### 2) Build (creates env, builds llama.cpp, installs deps)
 
