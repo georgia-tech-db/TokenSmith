@@ -28,19 +28,27 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
-    
     model_path: os.PathLike
+
+    # summary features
+    use_summaries: bool
+    num_summaries: int
+    generate_summaries: bool
+
+    # query enhancement
+    use_hyde: bool
+    hyde_max_tokens: int
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
 
-    def get_index_prefix(self) -> os.PathLike:
+    def make_artifacts_directory(self) -> os.PathLike:
         """Returns the path prefix for index artifacts."""
         strategy = self.make_strategy()
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
-        return strategy_dir / "textbook_index"
+        return strategy_dir
 
     # ---------- factory + validation ----------
     @staticmethod
@@ -53,10 +61,7 @@ class QueryPlanConfig:
         chunk_config = QueryPlanConfig.get_chunk_config(raw)
 
         cfg = QueryPlanConfig(
-            # Chunking
             chunk_config   = chunk_config,
-
-            # Retrieval + Ranking
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
@@ -66,13 +71,18 @@ class QueryPlanConfig:
             max_gen_tokens = pick("max_gen_tokens", 400),
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None)
+            model_path     = pick("model_path", None),
+            use_summaries  = pick("use_summaries", False),
+            num_summaries  = pick("num_summaries", 2),
+            generate_summaries = pick("generate_summaries", False),
+            use_hyde       = pick("use_hyde", False),
+            hyde_max_tokens= pick("hyde_max_tokens", 100),
         )
         cfg._validate()
         return cfg
 
     @staticmethod
-    def get_chunk_config(raw) -> ChunkConfig:
+    def get_chunk_config(raw: Any) -> ChunkConfig:
         """Parse chunk configuration from YAML."""
         chunk_mode = raw.get("chunk_mode", "sections").lower()
         
@@ -104,5 +114,10 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
-            "model_path": self.model_path
+            "model_path": self.model_path,
+            "use_summaries": self.use_summaries,
+            "num_summaries": self.num_summaries,
+            "generate_summaries": self.generate_summaries,
+            "use_hyde": self.use_hyde,
+            "hyde_max_tokens": self.hyde_max_tokens,
         }
