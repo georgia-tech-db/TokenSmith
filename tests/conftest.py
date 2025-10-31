@@ -172,6 +172,10 @@ def config(pytestconfig):
         "index_prefix": pytestconfig.getoption("--index-prefix") or cfg.get("index_prefix", "textbook_index"),
         "metrics": pytestconfig.getoption("--metrics") or cfg.get("metrics", ["all"]),
         "threshold_override": pytestconfig.getoption("--threshold") or cfg.get("threshold_override", None),
+        
+        # Query Enhancement (HyDE)
+        "use_hyde": cfg.get("use_hyde", False),
+        "hyde_max_tokens": cfg.get("hyde_max_tokens", 100),
     }
 
     # Handle enable/disable chunks
