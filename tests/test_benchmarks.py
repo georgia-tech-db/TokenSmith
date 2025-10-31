@@ -57,6 +57,7 @@ def print_test_config(config, scorer):
     print(f"  System Prompt:      {config['system_prompt_mode']}")
     print(f"  Chunks Enabled:     {not config['disable_chunks']}")
     print(f"  Golden Chunks:      {config['use_golden_chunks']}")
+    print(f"  HyDE Enabled:       {config.get('use_hyde', False)}")
     print(f"  Output Mode:        {config['output_mode']}")
     print(f"  Metrics:            {', '.join(active_metrics)}")
     print(f"{'='*60}\n")
@@ -180,6 +181,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     args = argparse.Namespace(
         index_prefix=config["index_prefix"],
         model_path=config.get("model_path"),
+        system_prompt_mode=config.get("system_prompt_mode", "baseline"),
     )
     
     # Create QueryPlanConfig from our test config
@@ -199,7 +201,9 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         disable_chunks=config.get("disable_chunks", False),
         use_golden_chunks=config.get("use_golden_chunks", False),
         output_mode=config.get("output_mode", "html"),
-        metrics=config.get("metrics", ["all"])
+        metrics=config.get("metrics", ["all"]),
+        use_hyde=config.get("use_hyde", False),
+        hyde_max_tokens=config.get("hyde_max_tokens", 100),
     )
     
     # Print status
@@ -208,6 +212,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     elif config["disable_chunks"]:
         print(f"  📭 No chunks (baseline mode)")
     else:
+        if config.get("use_hyde", False):
+            print(f"  🔬 HyDE enabled - generating hypothetical document...")
         print(f"  🔍 Retrieving chunks...")
     
     init_logger(cfg)

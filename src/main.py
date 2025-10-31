@@ -10,6 +10,7 @@ from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.query_enhancement import generate_hypothetical_document
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,11 +126,21 @@ def get_answer(
         # No chunks - baseline mode
         ranked_chunks = []
     else:
+        # Step 0: Query Enhancement (HyDE)
+        retrieval_query = question
+        if cfg.use_hyde:
+            model_path = args.model_path or cfg.model_path
+            hypothetical_doc = generate_hypothetical_document(
+                question, model_path, max_tokens=cfg.hyde_max_tokens
+            )
+            retrieval_query = hypothetical_doc
+            print(f"🔍 HyDE query: {hypothetical_doc}")
+        
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(question, pool_n, chunks)
+            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
