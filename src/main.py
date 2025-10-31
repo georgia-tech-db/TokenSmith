@@ -89,7 +89,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     artifacts_dir = cfg.make_artifacts_directory()
 
     build_index(
-        markdown_file="data/book_without_image.md",
+        markdown_file="data/book_with_pages.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
