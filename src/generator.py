@@ -169,6 +169,8 @@ def _extract_answer(raw: str) -> str:
 
 def run_llama_cpp(prompt: str, model_path: str, max_tokens: int = 300,
                   threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.2):
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}. Follow README steps to download the model.")
     llama_binary = resolve_llama_binary()
     cmd = [
         llama_binary,

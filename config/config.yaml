@@ -1,4 +1,4 @@
-embed_model: "Qwen/Qwen3-Embedding-4B"
+embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
 top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
