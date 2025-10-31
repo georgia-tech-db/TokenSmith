@@ -48,6 +48,8 @@ def extract_sections_from_markdown(
 
     # Process the rest of the chunks
     for chunk in chunks[1:]:
+        if not chunk:
+            continue
         if chunk.strip():
             # Split the chunk into the heading and the rest of the content
             parts = chunk.split('\n', 1)
@@ -240,9 +242,6 @@ def preprocess_extracted_section(text: str) -> str:
     """
     # Replaces all newline occurences with single spaces
     text = text.replace('\n', ' ')
-
-    # Removes page number markers (e.g., "Page 1232")
-    text = re.sub(r'Page \d+', '', text)
 
     # Removes bold formatting markers (**)
     text = text.replace('**', '')
