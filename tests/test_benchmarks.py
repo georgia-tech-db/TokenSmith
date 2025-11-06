@@ -3,7 +3,6 @@ import pytest
 from pathlib import Path
 from datetime import datetime
 from tests.metrics import SimilarityScorer
-import tests.metrics.llm_judge
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -111,8 +110,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Calculate scores
     try:
-        tests.metrics.llm_judge.get_score(question, retrieved_answer)
-        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords)
+        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question)
     except Exception as e:
         error_msg = f"Scoring error: {e}"
         print(f"  ❌ FAILED: {error_msg}")

@@ -22,14 +22,18 @@ def generate_hypothetical_document(
     """
     prompt = textwrap.dedent(f"""\
         <|im_start|>system
-        You are a helpful assistant. Generate a brief, factual answer to the following question.
-        Write as if you are a textbook excerpt. Be specific and use technical terms.
-        The book excerpt should be as if they are from: Database System Concepts Seventh Edition by Avi Silberschatz, Henry F. Korth, S. Sudarshan.
+        You are a database systems expert. Generate a concise, technical answer using precise database terminology.
+        Write in the formal academic style of Database System Concepts (Silberschatz, Korth, Sudarshan).
+        Use specific terms for: relational model concepts (relations, tuples, attributes, keys, schemas), 
+        SQL and query languages, transactions (ACID properties, concurrency control, recovery), 
+        storage structures (indexes, B+ trees), normalization (functional dependencies, normal forms), 
+        and database design (E-R model, decomposition).
+        Focus on definitions, mechanisms, and technical accuracy rather than examples.
         <|im_end|>
         <|im_start|>user
         Question: {query}
         
-        Write a brief answer (2-3 sentences). End the answer with {ANSWER_END}.
+        Generate a precise answer (2-4 sentences) using appropriate technical terminology. End with {ANSWER_END}.
         <|im_end|>
         <|im_start|>assistant
         {ANSWER_START}

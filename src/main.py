@@ -134,7 +134,7 @@ def get_answer(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
             retrieval_query = hypothetical_doc
-            print(f"🔍 HyDE query: {hypothetical_doc}")
+            # print(f"🔍 HyDE query: {hypothetical_doc}")
         
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)

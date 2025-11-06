@@ -262,6 +262,9 @@ def pytest_sessionfinish(session, exitstatus):
             cfg = yaml.safe_load(f) or {}
         output_mode = cfg.get("testing", {}).get("output_mode", "html")
     
+    # Check if async_llm_judge was used and process batch grading
+    _process_async_llm_judge()
+    
     # Only generate HTML report if in html mode
     if output_mode == "html":
         from tests.utils import generate_summary_report
@@ -269,3 +272,46 @@ def pytest_sessionfinish(session, exitstatus):
         generate_summary_report(results_dir)
     else:
         print("\n✅ Test session complete (terminal output mode)")
+
+
+def _process_async_llm_judge():
+    """Process async LLM judge batch grading if it was used."""
+    # Find most recent log directory
+    logs_dir = Path(__file__).parent.parent / "logs"
+    if not logs_dir.exists():
+        return
+    
+    subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
+    if not subdirs:
+        return
+    
+    log_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+    history_file = log_dir / "test_history.txt"
+    
+    # Check if async_llm_judge was used (test_history.txt exists)
+    if not history_file.exists():
+        return
+    
+    # Check if file has content
+    if history_file.stat().st_size == 0:
+        return
+    
+    print("\n" + "="*60)
+    print("🤖 Async LLM Judge: Processing batch grading...")
+    print("="*60)
+    
+    try:
+        from tests.metrics.async_llm_judge import batch_grade_all, print_results
+        
+        # Run batch grading
+        batch_grade_all(log_dir)
+        
+        # Print results
+        print_results(log_dir)
+        
+    except ImportError as e:
+        print(f"⚠️  Could not import async_llm_judge: {e}")
+    except Exception as e:
+        print(f"⚠️  Async LLM judge batch processing failed: {e}")
+        import traceback
+        traceback.print_exc()
