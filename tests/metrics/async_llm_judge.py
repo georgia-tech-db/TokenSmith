@@ -3,12 +3,13 @@ from pathlib import Path
 from datetime import datetime
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from tests.metrics.base import MetricBase
 
 # Shared state for async grading
 _results_lock = threading.Lock()
 _grading_results: Dict[str, Dict] = {}
-_active_threads: List[threading.Thread] = []
+_executor: Optional[ThreadPoolExecutor] = None
 _client = None
 _doc_data = None
 _initialized = False
@@ -46,7 +47,7 @@ class AsyncLLMJudgeMetric(MetricBase):
     
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
         """
-        Spawn thread to grade answer. Return current score if available, else 0.0.
+        Submit grading task to thread pool. Return current score if available, else 0.0.
         
         Args:
             answer: Generated answer
@@ -58,7 +59,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         """
         question = expected
         
-        # Check if already graded
+        # Check if already graded or queued
         with _results_lock:
             if question in _grading_results:
                 result = _grading_results[question]
@@ -66,14 +67,9 @@ class AsyncLLMJudgeMetric(MetricBase):
                     return result["normalized_score"]
                 return 0.0
         
-        # Spawn grading thread
-        thread = threading.Thread(
-            target=_grade_one,
-            args=(question, answer),
-            daemon=True
-        )
-        thread.start()
-        _active_threads.append(thread)
+        # Submit to thread pool
+        if _executor:
+            _executor.submit(_grade_one, question, answer)
         
         return 0.0
     
@@ -92,8 +88,8 @@ def _check_dependencies() -> bool:
 
 
 def _lazy_init():
-    """Initialize client and load document once."""
-    global _client, _doc_data, _initialized
+    """Initialize client, executor, and load document once."""
+    global _client, _doc_data, _initialized, _executor
     
     if _initialized:
         return
@@ -105,6 +101,7 @@ def _lazy_init():
         _client = genai.Client()
         doc_url = "https://my.uopeople.edu/pluginfile.php/57436/mod_book/chapter/37620/Database%20System%20Concepts%204th%20Edition%20By%20Silberschatz-Korth-Sudarshan.pdf"
         _doc_data = httpx.get(doc_url).content
+        _executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="llm_judge")
         _initialized = True
     except Exception as e:
         print(f"Failed to initialize async LLM judge: {e}")
@@ -163,9 +160,9 @@ def _grade_one(question: str, answer: str):
 
 
 def wait_for_grading(timeout: float = 300):
-    """Wait for all grading threads to complete."""
-    for thread in _active_threads:
-        thread.join(timeout=timeout)
+    """Wait for all grading tasks to complete."""
+    if _executor:
+        _executor.shutdown(wait=True, cancel_futures=False)
 
 
 def get_results() -> Dict[str, Dict]:
