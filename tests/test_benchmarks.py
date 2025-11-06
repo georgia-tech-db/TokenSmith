@@ -3,6 +3,7 @@ import pytest
 from pathlib import Path
 from datetime import datetime
 from tests.metrics import SimilarityScorer
+import tests.metrics.llm_judge
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -110,6 +111,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Calculate scores
     try:
+        tests.metrics.llm_judge.get_score(question, retrieved_answer)
         scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords)
     except Exception as e:
         error_msg = f"Scoring error: {e}"
@@ -181,7 +183,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     args = argparse.Namespace(
         index_prefix=config["index_prefix"],
         model_path=config.get("model_path"),
-        system_prompt_mode=config.get("system_prompt_mode", "baseline"),
+        system_prompt_mode=config.get("system_prompt_mode"),
     )
     
     # Create QueryPlanConfig from our test config
