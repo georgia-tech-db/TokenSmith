@@ -19,6 +19,9 @@ def generate_summary_report(results_dir: Path):
     if not results:
         return
     
+    # Load async LLM judge results if available
+    async_llm_results = _load_async_llm_results()
+    
     # Determine which metrics were used
     all_metrics = set()
     for result in results:
@@ -28,6 +31,11 @@ def generate_summary_report(results_dir: Path):
     html_content = _generate_html_template()
     html_content += _generate_summary_stats(results, all_metrics)
     html_content += _generate_detailed_results(results, all_metrics)
+    
+    # Add separate async LLM judge section if available
+    if async_llm_results:
+        html_content += _generate_async_llm_section(results, async_llm_results)
+    
     html_content += "</body>\n</html>"
     
     # Write HTML report
@@ -65,12 +73,28 @@ def _generate_html_template() -> str:
             background: #f9f9f9; 
             padding: 10px; 
             border-radius: 3px; 
-            white-space: pre;
-            overflow-x: auto;
-            overflow-y: hidden;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
             max-width: 100%;
             width: 100%;
             box-sizing: border-box;
+        }
+        .answer-content {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 3px;
+            line-height: 1.6;
+        }
+        .answer-content ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .answer-content li {
+            margin: 5px 0;
+        }
+        .answer-content p {
+            margin: 10px 0;
         }
     </style>
 </head>
@@ -113,6 +137,36 @@ def _generate_summary_stats(results: List[Dict[Any, Any]], active_metrics: set) 
     html += "</div></div>"
     return html
 
+def _convert_markdown_to_html(text: str) -> str:
+    """Convert markdown to HTML."""
+    try:
+        import markdown
+        return markdown.markdown(text)
+    except ImportError:
+        # Fallback to plain text if markdown not available
+        return f'<pre style="white-space: pre-wrap;">{text}</pre>'
+
+
+def _load_async_llm_results() -> Dict[str, Dict]:
+    """Load async LLM judge results if available."""
+    logs_dir = Path("logs")
+    if not logs_dir.exists():
+        return {}
+    
+    subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
+    if not subdirs:
+        return {}
+    
+    log_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+    results_file = log_dir / "async_llm_results.json"
+    
+    if not results_file.exists():
+        return {}
+    
+    with open(results_file) as f:
+        return json.load(f)
+
+
 def _generate_detailed_results(results: List[Dict[Any, Any]], active_metrics: set) -> str:
     """Generate detailed results section."""
     html = "<h2>Detailed Results</h2>"
@@ -121,10 +175,11 @@ def _generate_detailed_results(results: List[Dict[Any, Any]], active_metrics: se
         status_class = "passed" if result['passed'] else "failed"
         status_text = "PASSED" if result['passed'] else "FAILED"
         scores = result['scores']
+        question = result['question']
         
         html += f"""
     <div class="test-result {status_class}">
-        <h3>{result['question']} - <span class="score">{status_text}</span></h3>
+        <h3>{question} - <span class="score">{status_text}</span></h3>
         <p><strong>Final Score:</strong> <span class="score">{scores['final_score']:.3f}</span></p>
         <p><strong>Threshold:</strong> {result['threshold']:.3f}</p>
         <p><strong>Active Metrics:</strong> {', '.join(result.get('active_metrics', []))}</p>
@@ -143,15 +198,63 @@ def _generate_detailed_results(results: List[Dict[Any, Any]], active_metrics: se
         keywords_matched = scores.get('keywords_matched', 0)
         html += f'<div class="metric-item"><strong>Keywords Matched:</strong> {keywords_matched}/{keywords_count}</div>'
         
-        html += """
-        </div>
+        html += "</div>"
         
+        html += f"""
         <h4>Expected Answer:</h4>
-        <pre>{}</pre>
+        <pre>{result['expected_answer']}</pre>
         
         <h4>Retrieved Answer:</h4>
-        <pre>{}</pre>
+        <div class="answer-content">{_convert_markdown_to_html(result['retrieved_answer'])}</div>
     </div>
-        """.format(result['expected_answer'], result['retrieved_answer'])
+        """
+    
+    return html
+
+
+def _generate_async_llm_section(results: List[Dict[Any, Any]], async_llm_results: Dict[str, Dict]) -> str:
+    """Generate separate async LLM judge results section."""
+    html = """
+    <h2>Async LLM Judge Results</h2>
+    <div class="summary">
+        <p><em>These evaluations are performed separately and do not affect pass/fail decisions.</em></p>
+    """
+    
+    # Calculate average score
+    scores = [r['score'] for r in async_llm_results.values() if 'error' not in r]
+    if scores:
+        avg_score = sum(scores) / len(scores)
+        html += f"<p><strong>Average LLM Score:</strong> {avg_score:.2f}/5</p>"
+    
+    html += "</div>"
+    
+    for result in results:
+        question = result['question']
+        
+        if question in async_llm_results:
+            llm_result = async_llm_results[question]
+            
+            if "error" in llm_result:
+                html += f"""
+    <div class="test-result">
+        <h3>{question}</h3>
+        <p style="color: #f44336;"><strong>Error:</strong> {llm_result['error']}</p>
+    </div>
+                """
+            else:
+                html += f"""
+    <div class="test-result">
+        <h3>{question}</h3>
+        <p><strong>LLM Score:</strong> <span class="score">{llm_result['score']}/5</span> ({llm_result['normalized_score']:.3f})</p>
+        
+        <div class="metric-grid">
+            <div class="metric-item"><strong>Accuracy:</strong> {llm_result['accuracy']}</div>
+            <div class="metric-item"><strong>Completeness:</strong> {llm_result['completeness']}</div>
+            <div class="metric-item"><strong>Clarity:</strong> {llm_result['clarity']}</div>
+        </div>
+        
+        <p><strong>Overall Reasoning:</strong> {llm_result['overall_reasoning']}</p>
+    </div>
+                """
     
     return html

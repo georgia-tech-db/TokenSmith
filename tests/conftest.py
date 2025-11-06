@@ -249,7 +249,7 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Generate report after all tests complete (only if HTML mode)."""
+    """Generate report after all tests complete."""
     config = session.config
     
     # Get output mode from config
@@ -262,8 +262,8 @@ def pytest_sessionfinish(session, exitstatus):
             cfg = yaml.safe_load(f) or {}
         output_mode = cfg.get("testing", {}).get("output_mode", "html")
     
-    # Check if async_llm_judge was used and process batch grading
-    _process_async_llm_judge()
+    # Wait for async LLM grading to complete
+    _wait_for_async_grading()
     
     # Only generate HTML report if in html mode
     if output_mode == "html":
@@ -274,44 +274,31 @@ def pytest_sessionfinish(session, exitstatus):
         print("\n✅ Test session complete (terminal output mode)")
 
 
-def _process_async_llm_judge():
-    """Process async LLM judge batch grading if it was used."""
-    # Find most recent log directory
-    logs_dir = Path(__file__).parent.parent / "logs"
-    if not logs_dir.exists():
-        return
-    
-    subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
-    if not subdirs:
-        return
-    
-    log_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
-    history_file = log_dir / "test_history.txt"
-    
-    # Check if async_llm_judge was used (test_history.txt exists)
-    if not history_file.exists():
-        return
-    
-    # Check if file has content
-    if history_file.stat().st_size == 0:
-        return
-    
-    print("\n" + "="*60)
-    print("🤖 Async LLM Judge: Processing batch grading...")
-    print("="*60)
-    
+def _wait_for_async_grading():
+    """Wait for async LLM grading threads to complete."""
     try:
-        from tests.metrics.async_llm_judge import batch_grade_all, print_results
+        from tests.metrics.async_llm_judge import wait_for_grading, get_results, save_results
         
-        # Run batch grading
-        batch_grade_all(log_dir)
+        print("\n" + "="*60)
+        print("⏳ Waiting for async LLM grading to complete...")
+        print("="*60)
         
-        # Print results
-        print_results(log_dir)
+        wait_for_grading(timeout=300)
         
-    except ImportError as e:
-        print(f"⚠️  Could not import async_llm_judge: {e}")
+        results = get_results()
+        if results:
+            # Save results
+            logs_dir = Path(__file__).parent.parent / "logs"
+            subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
+            if subdirs:
+                log_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+                results_file = log_dir / "async_llm_results.json"
+                save_results(results_file)
+                
+                print(f"✅ Async LLM grading complete: {len(results)} answers graded")
+                print(f"Results saved to: {results_file}\n")
+        
+    except ImportError:
+        pass
     except Exception as e:
-        print(f"⚠️  Async LLM judge batch processing failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"⚠️  Async LLM grading failed: {e}")
