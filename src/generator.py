@@ -1,4 +1,4 @@
-import os, subprocess, textwrap, re, shutil, pathlib
+import os, subprocess, textwrap, re, shutil, pathlib, pty
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -226,3 +226,87 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300,
     #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens (mode: {system_prompt_mode})\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)
+
+
+def run_llama_cpp_stream(prompt: str, model_path: str, max_tokens: int = 300,
+                         threads: int = 8, n_gpu_layers: int = 8, temperature: float = 0.2):
+    llama_binary = resolve_llama_binary()
+    cmd = [
+        llama_binary,
+        "-m", model_path,
+        "-p", prompt,
+        "-n", str(max_tokens),
+        "-t", str(threads),
+        "-ngl", str(n_gpu_layers),
+        "--temp", str(temperature),
+        "--top-k", "20",
+        "--top-p", "0.9",
+        "--repeat-penalty", "1.15",
+        "--repeat-last-n", "256",
+        "-no-cnv",
+        "-r", ANSWER_END,  
+    ]
+
+    master_fd, slave_fd = pty.openpty()
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=slave_fd,
+        stderr=subprocess.DEVNULL,
+        env={**os.environ, "GGML_LOG_LEVEL": "ERROR", "LLAMA_LOG_LEVEL": "ERROR"},
+        close_fds=True,
+    )
+    os.close(slave_fd)
+
+    try:
+        buf = b""
+        end_marker = ANSWER_END.encode("utf-8", errors="ignore")
+        while True:
+            chunk = os.read(master_fd, 64)
+            if not chunk:
+                break
+            buf += chunk
+            try:
+                yield chunk.decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+            if end_marker in buf:
+                break
+    finally:
+        os.close(master_fd)
+        proc.wait()
+
+def answer_stream(query: str, chunks, model_path: str, max_tokens: int = 300,
+                  system_prompt_mode: str = "tutor", **kw):
+    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
+
+    started = False
+    pending = ""  
+    start_tag = ANSWER_START
+    end_tag = ANSWER_END
+    start_len = len(start_tag)
+    end_len = len(end_tag)
+
+    for piece in run_llama_cpp_stream(prompt, model_path, max_tokens=max_tokens, **kw):
+        pending += piece
+
+        if not started:
+            idx = pending.find(start_tag)
+            if idx != -1:
+                started = True
+                pending = pending[idx + start_len:]
+            else:
+                if len(pending) > start_len - 1:
+                    pending = pending[-(start_len - 1):]
+                continue 
+
+        end_idx = pending.find(end_tag)
+        if end_idx != -1:
+            to_yield = pending[:end_idx]
+            if to_yield:
+                yield to_yield
+            break
+        else:
+            if pending:
+                yield pending
+                pending = ""

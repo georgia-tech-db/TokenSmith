@@ -4,7 +4,7 @@ import sys
 from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
-from src.generator import answer
+from src.generator import answer, answer_stream
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
@@ -46,7 +46,11 @@ def parse_args() -> argparse.Namespace:
         default="baseline",
         help="system prompt mode (choices: baseline, tutor, concise, detailed)"
     )
-    
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="stream generation output (default: %(default)s)"
+    ) 
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
     indexing_group.add_argument(
@@ -146,15 +150,27 @@ def get_answer(
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-    ans = answer(
-        question, 
-        ranked_chunks, 
-        model_path, 
-        max_tokens=cfg.max_gen_tokens, 
-        system_prompt_mode=system_prompt
-    )
+    if args.streaming: # Streamed generation
+            for delta in answer_stream(
+                question, 
+                ranked_chunks, 
+                model_path, 
+                max_tokens=cfg.max_gen_tokens, 
+                system_prompt_mode=system_prompt
+            ):
+                sys.stdout.write(delta)
+                sys.stdout.flush()
+            ans = ""  # Placeholder since streaming handles output
+    else:
+        ans = answer(
+            question, 
+            ranked_chunks, 
+            model_path, 
+            max_tokens=cfg.max_gen_tokens, 
+            system_prompt_mode=system_prompt,
+        )
     
-    return ans
+        return ans
 
 
 def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
@@ -210,11 +226,11 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             # Use the single query function
             ans = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
-
-            print("\n=================== START OF ANSWER ===================")
-            print(ans.strip() if ans and ans.strip() else "(No output from model)")
-            print("\n==================== END OF ANSWER ====================")
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            if not args.streaming: # Only print if not streaming
+                print("\n=================== START OF ANSWER ===================")
+                print(ans.strip() if ans and ans.strip() else "(No output from model)")
+                print("\n==================== END OF ANSWER ====================")
+                logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
