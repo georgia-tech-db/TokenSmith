@@ -96,6 +96,23 @@ def _generate_html_template() -> str:
         .answer-content p {
             margin: 10px 0;
         }
+        details {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 3px;
+        }
+        summary {
+            cursor: pointer;
+            font-weight: bold;
+            user-select: none;
+        }
+        .chunk-item {
+            background: #fff;
+            padding: 10px;
+            margin: 5px 0;
+            border-left: 3px solid #2196F3;
+        }
     </style>
 </head>
 <body>
@@ -199,6 +216,41 @@ def _generate_detailed_results(results: List[Dict[Any, Any]], active_metrics: se
         html += f'<div class="metric-item"><strong>Keywords Matched:</strong> {keywords_matched}/{keywords_count}</div>'
         
         html += "</div>"
+        
+        # Add chunks info if available
+        chunks_info = result.get('chunks_info', [])
+        if chunks_info:
+            hyde_query = result.get('hyde_query')
+            
+            chunk_count = len(chunks_info)
+            html += f"""
+        <details>
+            <summary>📦 Retrieved Chunks ({chunk_count} chunks)</summary>
+            <div style="margin-top: 10px;">
+            """
+            
+            # Show HyDE query if available
+            if hyde_query:
+                html += f"""
+                <div style="background: #fff3cd; padding: 10px; margin-bottom: 10px; border-left: 3px solid #ffc107;">
+                    <strong>🔍 HyDE Query (used for retrieval):</strong>
+                    <pre style="margin-top: 5px; white-space: pre-wrap;">{hyde_query}</pre>
+                </div>
+                """
+            
+            for chunk in chunks_info:
+                html += f"""
+                <div class="chunk-item">
+                    <strong>Rank {chunk['rank']}</strong> | Chunk ID: {chunk.get('chunk_id', '?')} | 
+                    FAISS: rank #{chunk.get('faiss_rank', '?')} (score: {chunk['faiss_score']:.4f}) | 
+                    BM25: rank #{chunk.get('bm25_rank', '?')} (score: {chunk['bm25_score']:.4f})
+                    <pre style="margin-top: 5px;">{chunk['content']}</pre>
+                </div>
+                """
+            html += """
+            </div>
+        </details>
+        """
         
         html += f"""
         <h4>Expected Answer:</h4>

@@ -3,8 +3,13 @@ from pathlib import Path
 from datetime import datetime
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from google import genai
+from google.genai import types
+import httpx
 from tests.metrics.base import MetricBase
+from tests.metrics.llm_judge import GradingResult
 
 # Shared state for async grading
 _results_lock = threading.Lock()
@@ -13,6 +18,11 @@ _executor: Optional[ThreadPoolExecutor] = None
 _client = None
 _doc_data = None
 _initialized = False
+
+# Rate limiting
+_rate_limit_lock = threading.Lock()
+_last_request_time = 0.0
+_min_request_interval = 1.0  # Minimum 1 second between requests
 
 
 class AsyncLLMJudgeMetric(MetricBase):
@@ -43,7 +53,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         return 0.0
     
     def is_available(self) -> bool:
-        return _check_dependencies()
+        return True
     
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
         """
@@ -77,16 +87,6 @@ class AsyncLLMJudgeMetric(MetricBase):
         return f"{self.__class__.__name__}(name='{self.name}')"
 
 
-def _check_dependencies() -> bool:
-    """Check if required packages available."""
-    try:
-        import google.genai
-        import httpx
-        return True
-    except ImportError:
-        return False
-
-
 def _lazy_init():
     """Initialize client, executor, and load document once."""
     global _client, _doc_data, _initialized, _executor
@@ -94,69 +94,88 @@ def _lazy_init():
     if _initialized:
         return
     
-    try:
-        from google import genai
-        import httpx
-        
-        _client = genai.Client()
-        doc_url = "https://my.uopeople.edu/pluginfile.php/57436/mod_book/chapter/37620/Database%20System%20Concepts%204th%20Edition%20By%20Silberschatz-Korth-Sudarshan.pdf"
-        _doc_data = httpx.get(doc_url).content
-        _executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="llm_judge")
-        _initialized = True
-    except Exception as e:
-        print(f"Failed to initialize async LLM judge: {e}")
+    _client = genai.Client()
+    doc_url = "https://my.uopeople.edu/pluginfile.php/57436/mod_book/chapter/37620/Database%20System%20Concepts%204th%20Edition%20By%20Silberschatz-Korth-Sudarshan.pdf"
+    _doc_data = httpx.get(doc_url).content
+    _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="llm_judge")
+    _initialized = True
+
+
+def _perform_attempt(question: str, answer: str) -> Dict:
+    """Perform a single grading attempt."""
+    # Rate limiting: enforce minimum interval between requests
+    with _rate_limit_lock:
+        global _last_request_time
+        elapsed = time.time() - _last_request_time
+        if elapsed < _min_request_interval:
+            time.sleep(_min_request_interval - elapsed)
+        _last_request_time = time.time()
+    
+    prompt = _build_grading_prompt(question, answer)
+    
+    response = _client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            types.Part.from_bytes(
+                data=_doc_data,
+                mime_type='application/pdf',
+            ),
+            prompt
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=GradingResult,
+        )
+    )
+    
+    grading = GradingResult.model_validate_json(response.text)
+    normalized_score = (grading.score - 1) / 4.0
+    
+    return {
+        "score": grading.score,
+        "normalized_score": normalized_score,
+        "accuracy": grading.accuracy,
+        "completeness": grading.completeness,
+        "clarity": grading.clarity,
+        "overall_reasoning": grading.overall_reasoning,
+        "answer": answer,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 def _grade_one(question: str, answer: str):
-    """Grade a single Q&A pair in background thread."""
+    """Grade a single Q&A pair in background thread with retry logic."""
     if not _initialized:
         return
     
-    try:
-        from google.genai import types
-        from tests.metrics.llm_judge import GradingResult
-        
-        prompt = _build_grading_prompt(question, answer)
-        
-        response = _client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part.from_bytes(
-                    data=_doc_data,
-                    mime_type='application/pdf',
-                ),
-                prompt
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GradingResult,
-            )
-        )
-        
-        grading = GradingResult.model_validate_json(response.text)
-        normalized_score = (grading.score - 1) / 4.0
-        
-        result = {
-            "score": grading.score,
-            "normalized_score": normalized_score,
-            "accuracy": grading.accuracy,
-            "completeness": grading.completeness,
-            "clarity": grading.clarity,
-            "overall_reasoning": grading.overall_reasoning,
-            "answer": answer,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        with _results_lock:
-            _grading_results[question] = result
+    max_retries = 3
+    base_delay = 20.0 # 20 seconds
+    
+    for attempt in range(max_retries):
+        try:
+            result = _perform_attempt(question, answer)
+            with _results_lock:
+                _grading_results[question] = result
+            return  # Success
             
-    except Exception as e:
-        with _results_lock:
-            _grading_results[question] = {
-                "error": str(e),
-                "answer": answer,
-                "timestamp": datetime.now().isoformat()
-            }
+        except Exception as e:
+            error_str = str(e)
+            is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+            
+            if is_rate_limit and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                print(f"⚠️  Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            
+            # Final attempt failed or non-rate-limit error
+            with _results_lock:
+                _grading_results[question] = {
+                    "error": error_str,
+                    "answer": answer,
+                    "timestamp": datetime.now().isoformat()
+                }
+            break
 
 
 def wait_for_grading(timeout: float = 300):
