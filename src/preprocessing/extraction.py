@@ -71,6 +71,9 @@ def extract_sections_from_markdown(
     return sections
 
 
+# Pre-compile regex patterns for better performance
+_PAGE_NUMBER_RE = re.compile(r'Page \d+')
+
 def preprocess_extracted_section(text: str) -> str:
     """
     Cleans a raw textbook section to prepare it for chunking.
@@ -85,7 +88,7 @@ def preprocess_extracted_section(text: str) -> str:
     text = text.replace('\n', ' ')
 
     # Removes page number markers (e.g., "Page 1232")
-    text = re.sub(r'Page \d+', '', text)
+    text = _PAGE_NUMBER_RE.sub('', text)
 
     # Removes bold formatting markers (**)
     text = text.replace('**', '')

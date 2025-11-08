@@ -129,6 +129,9 @@ def build_index(
 
 # ------------------------ Helper functions ------------------------------
 
+# Pre-compile regex for better performance
+_BM25_CLEANUP_RE = re.compile(r"[^a-z0-9_'#+-]")
+
 def preprocess_for_bm25(text: str) -> list[str]:
     """
     Simplifies text to keep only letters, numbers, underscores, hyphens,
@@ -138,7 +141,7 @@ def preprocess_for_bm25(text: str) -> list[str]:
     text = text.lower()
 
     # Keep only allowed characters
-    text = re.sub(r"[^a-z0-9_'#+-]", " ", text)
+    text = _BM25_CLEANUP_RE.sub(" ", text)
 
     # Split by whitespace
     tokens = text.split()

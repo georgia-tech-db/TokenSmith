@@ -11,6 +11,7 @@ import pathlib
 import os
 import pickle
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 
 import faiss
@@ -30,6 +31,18 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
         # Use the cached embedding model to avoid reloading it on every call
         _EMBED_CACHE[model_name] = SentenceTransformer(model_name)
     return _EMBED_CACHE[model_name]
+
+
+# -------------------------- Query embedding cache -----------------------
+
+@lru_cache(maxsize=128)
+def _get_query_embedding(query: str, model_name: str) -> np.ndarray:
+    """
+    Cache query embeddings to avoid recomputing for repeated queries.
+    LRU cache evicts least recently used entries when cache is full.
+    """
+    embedder = _get_embedder(model_name)
+    return embedder.encode([query]).astype("float32")
 
 
 # -------------------------- Read artifacts -------------------------------
@@ -98,6 +111,7 @@ class FAISSRetriever(Retriever):
 
     def __init__(self, index, embed_model: str):
         self.index = index
+        self.embed_model = embed_model
         self.embedder = _get_embedder(embed_model)
 
     def get_scores(self,
@@ -107,8 +121,8 @@ class FAISSRetriever(Retriever):
         """
         Returns FAISS scores for top 'pool_size' keyed by global chunk index.
         """
-        # FAISS expects a 2D array
-        q_vec = self.embedder.encode([query]).astype("float32")
+        # Use cached query embedding
+        q_vec = _get_query_embedding(query, self.embed_model)
         
         # Safety check on vector dimensions
         if q_vec.shape[1] !=  self.index.d:
