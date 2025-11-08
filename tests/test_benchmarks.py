@@ -57,6 +57,7 @@ def print_test_config(config, scorer):
     print(f"  System Prompt:      {config['system_prompt_mode']}")
     print(f"  Chunks Enabled:     {not config['disable_chunks']}")
     print(f"  Golden Chunks:      {config['use_golden_chunks']}")
+    print(f"  HyDE Enabled:       {config.get('use_hyde', False)}")
     print(f"  Output Mode:        {config['output_mode']}")
     print(f"  Metrics:            {', '.join(active_metrics)}")
     print(f"{'='*60}\n")
@@ -85,7 +86,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Get answer from TokenSmith
     try:
-        retrieved_answer = get_tokensmith_answer(
+        retrieved_answer, chunks_info, hyde_query = get_tokensmith_answer(
             question=question,
             config=config,
             golden_chunks=golden_chunks if config["use_golden_chunks"] else None
@@ -109,7 +110,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Calculate scores
     try:
-        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords)
+        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question)
     except Exception as e:
         error_msg = f"Scoring error: {e}"
         print(f"  ❌ FAILED: {error_msg}")
@@ -135,6 +136,8 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         "passed": passed,
         "active_metrics": scores.get("active_metrics", []),
         "metric_weights": get_metric_weights(scorer, scores.get("active_metrics", [])),
+        "chunks_info": chunks_info if chunks_info else [],
+        "hyde_query": hyde_query if hyde_query else None,
         "timestamp": datetime.now().isoformat(),
         "config": {
             "model_path": config["model_path"],
@@ -167,7 +170,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         golden_chunks: Optional list of golden chunks to use instead of retrieval
     
     Returns:
-        str: Generated answer
+        tuple: (Generated answer, chunks_info list, hyde_query)
     """
     from src.main import get_answer
     from src.instrumentation.logging import init_logger, get_logger
@@ -180,6 +183,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     args = argparse.Namespace(
         index_prefix=config["index_prefix"],
         model_path=config.get("model_path"),
+        system_prompt_mode=config.get("system_prompt_mode"),
     )
     
     # Create QueryPlanConfig from our test config
@@ -199,7 +203,9 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         disable_chunks=config.get("disable_chunks", False),
         use_golden_chunks=config.get("use_golden_chunks", False),
         output_mode=config.get("output_mode", "html"),
-        metrics=config.get("metrics", ["all"])
+        metrics=config.get("metrics", ["all"]),
+        use_hyde=config.get("use_hyde", False),
+        hyde_max_tokens=config.get("hyde_max_tokens", 100),
     )
     
     # Print status
@@ -208,6 +214,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     elif config["disable_chunks"]:
         print(f"  📭 No chunks (baseline mode)")
     else:
+        if config.get("use_hyde", False):
+            print(f"  🔬 HyDE enabled - generating hypothetical document...")
         print(f"  🔍 Retrieving chunks...")
     
     init_logger(cfg)
@@ -238,19 +246,26 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         "ranker": ranker
     }
 
-    generated = get_answer(
+    result = get_answer(
         question=question,
         cfg=cfg,
         args=args,
         logger=logger,
         artifacts=artifacts,
-        golden_chunks=golden_chunks
+        golden_chunks=golden_chunks,
+        is_test_mode=True
     )
+    
+    # Handle return value (answer, chunks_info, hyde_query) or just answer
+    if isinstance(result, tuple):
+        generated, chunks_info, hyde_query = result
+    else:
+        generated, chunks_info, hyde_query = result, None, None
     
     # Clean answer - extract up to end token if present
     generated = clean_answer(generated)
     
-    return generated
+    return generated, chunks_info, hyde_query
 
 
 def clean_answer(text):
@@ -309,24 +324,8 @@ def print_result(benchmark_id, passed, final_score, threshold, scores, output_mo
         if retrieved_answer:
             print(f"\n  📝 Retrieved Answer:")
             print(f"  {'-'*58}")
-            # Wrap answer text for better readability
-            answer_lines = retrieved_answer.split('\n')
-            for line in answer_lines:
-                if len(line) <= 56:
-                    print(f"  {line}")
-                else:
-                    # Simple word wrap
-                    words = line.split()
-                    current_line = ""
-                    for word in words:
-                        if len(current_line) + len(word) + 1 <= 56:
-                            current_line += (" " if current_line else "") + word
-                        else:
-                            if current_line:
-                                print(f"  {current_line}")
-                            current_line = word
-                    if current_line:
-                        print(f"  {current_line}")
+            for line in retrieved_answer.split('\n'):
+                print(f"  {line}")
             print(f"  {'-'*58}")
     else:
         # Compact output for HTML mode
@@ -348,7 +347,7 @@ def save_result(results_dir, result_data):
     """Save benchmark result to JSON file (one result per line)."""
     results_file = results_dir / "benchmark_results.json"
     with open(results_file, "a") as f:
-        json.dump(result_data, f, indent=None)
+        json.dump(result_data, f, indent=None, ensure_ascii=False, default=str)
         f.write("\n")
 
 
