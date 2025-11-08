@@ -172,6 +172,10 @@ def config(pytestconfig):
         "index_prefix": pytestconfig.getoption("--index-prefix") or cfg.get("index_prefix", "textbook_index"),
         "metrics": pytestconfig.getoption("--metrics") or cfg.get("metrics", ["all"]),
         "threshold_override": pytestconfig.getoption("--threshold") or cfg.get("threshold_override", None),
+        
+        # Query Enhancement (HyDE)
+        "use_hyde": cfg.get("use_hyde", False),
+        "hyde_max_tokens": cfg.get("hyde_max_tokens", 100),
     }
 
     # Handle enable/disable chunks
@@ -245,7 +249,7 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Generate report after all tests complete (only if HTML mode)."""
+    """Generate report after all tests complete."""
     config = session.config
     
     # Get output mode from config
@@ -258,6 +262,9 @@ def pytest_sessionfinish(session, exitstatus):
             cfg = yaml.safe_load(f) or {}
         output_mode = cfg.get("testing", {}).get("output_mode", "html")
     
+    # Wait for async LLM grading to complete
+    _wait_for_async_grading()
+    
     # Only generate HTML report if in html mode
     if output_mode == "html":
         from tests.utils import generate_summary_report
@@ -265,3 +272,33 @@ def pytest_sessionfinish(session, exitstatus):
         generate_summary_report(results_dir)
     else:
         print("\n✅ Test session complete (terminal output mode)")
+
+
+def _wait_for_async_grading():
+    """Wait for async LLM grading threads to complete."""
+    try:
+        from tests.metrics.async_llm_judge import wait_for_grading, get_results, save_results
+        
+        print("\n" + "="*60)
+        print("⏳ Waiting for async LLM grading to complete...")
+        print("="*60)
+        
+        wait_for_grading(timeout=300)
+        
+        results = get_results()
+        if results:
+            # Save results
+            logs_dir = Path(__file__).parent.parent / "logs"
+            subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
+            if subdirs:
+                log_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+                results_file = log_dir / "async_llm_results.json"
+                save_results(results_file)
+                
+                print(f"✅ Async LLM grading complete: {len(results)} answers graded")
+                print(f"Results saved to: {results_file}\n")
+        
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"⚠️  Async LLM grading failed: {e}")
