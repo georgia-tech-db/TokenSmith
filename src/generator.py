@@ -212,13 +212,6 @@ def _dedupe_sentences(text: str) -> str:
             cleaned.append(s)
     return " ".join(cleaned)
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
-    prompt = format_prompt(chunks, query)
-    approx_tokens = max(1, len(prompt) // 4)
-    #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
-    raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
-    return _dedupe_sentences(raw)
-
 def answer(query: str, chunks, model_path: str, max_tokens: int = 300, 
            system_prompt_mode: str = "tutor", **kw):
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)

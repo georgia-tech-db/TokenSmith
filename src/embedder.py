@@ -84,10 +84,10 @@ class SentenceTransformer:
                 except Exception as e:
                     print(f"Error encoding text: {e}")
                     batch_embeddings.append([0.0] * self.embedding_dimension)
-			
+            
             if len(batch_embeddings) != len(batch_texts):
                 batch_embeddings.extend([[0.0] * self.embedding_dimension] * (len(batch_texts) - len(batch_embeddings)))
-			
+            
             embeddings.extend(batch_embeddings)
                 
         vecs = np.array(embeddings, dtype=np.float32)

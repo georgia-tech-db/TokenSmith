@@ -151,9 +151,19 @@ class BM25Retriever(Retriever):
         # Get scores for all documents in the corpus
         all_scores = self.index.get_scores(tokenized_query)
 
-        # Find the indices of the top 'pool_size' scores
+        # Find the indices of the top 'pool_size' scores efficiently
         num_candidates = min(pool_size, len(all_scores))
-        top_k_indices = np.argpartition(-all_scores, kth=num_candidates-1)[:num_candidates]
+        
+        # For small pool sizes, argsort is faster and simpler
+        # For large pool sizes, argpartition + sorting is more efficient
+        if num_candidates < len(all_scores) * 0.1:
+            # Use argpartition for larger datasets (top 10% or less)
+            partition_indices = np.argpartition(-all_scores, num_candidates-1)[:num_candidates]
+            # Sort the partitioned results to get proper top-k
+            top_k_indices = partition_indices[np.argsort(-all_scores[partition_indices])]
+        else:
+            # For small datasets or large k, just sort everything
+            top_k_indices = np.argsort(-all_scores)[:num_candidates]
 
         # Remove invalid indices and ensure they are within bounds
         top_k_indices = [i for i in top_k_indices if 0 <= i < len(chunks)]

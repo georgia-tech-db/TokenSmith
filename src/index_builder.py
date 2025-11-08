@@ -94,7 +94,7 @@ def build_index(
     print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
     embedder = SentenceTransformer(embedding_model_path)
     embeddings = embedder.encode(
-        all_chunks, batch_size=4, show_progress_bar=True
+        all_chunks, batch_size=32, show_progress_bar=True
     )
 
     # Step 3: Build FAISS index
