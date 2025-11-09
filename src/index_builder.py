@@ -16,7 +16,7 @@ from typing import List, Dict
 
 import faiss
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from src.embedder import SentenceTransformer
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
