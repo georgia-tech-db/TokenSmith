@@ -1,4 +1,5 @@
 import argparse
+import json
 import pathlib
 import sys
 from typing import Dict, Optional
@@ -124,6 +125,33 @@ def get_answer(
     elif cfg.disable_chunks:
         # No chunks - baseline mode
         ranked_chunks = []
+    elif cfg.use_indexed_chunks:
+        # Use chunks from the textbook index
+        with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+            page_to_chunk_map = json.load(f)
+        with open('data/extracted_index.json', 'r') as f:
+            extracted_index = json.load(f)
+
+        keywords = get_keywords(question)
+        chunk_ids = set()
+        ranked_chunks = []
+
+        print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
+
+        chunk_ids = {
+            chunk_id
+            for word in keywords
+            if word in extracted_index
+            for page_no in extracted_index[word]
+            for chunk_id in page_to_chunk_map.get(str(page_no), [])
+        }
+                
+        for cid in chunk_ids:
+            ranked_chunks.append(chunks[cid])
+
+        print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
+        # print(ranked_chunks)
+
     else:
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
@@ -156,6 +184,17 @@ def get_answer(
     
     return ans
 
+def get_keywords(question: str) -> list:
+    """
+    Simple keyword extraction from the question.
+    """
+    stopwords = set([
+        "the", "is", "at", "which", "on", "for", "a", "an", "and", "or", "in", 
+        "to", "of", "by", "with", "that", "this", "it", "as", "are", "was", "what"
+    ])
+    words = question.lower().split()
+    keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
+    return keywords
 
 def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     """

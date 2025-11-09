@@ -37,6 +37,7 @@ class QueryPlanConfig:
     use_golden_chunks: bool
     output_mode: str
     metrics: list
+    use_indexed_chunks: bool
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -80,7 +81,8 @@ class QueryPlanConfig:
             disable_chunks  = pick("disable_chunks", False),
             use_golden_chunks = pick("use_golden_chunks", False),
             output_mode    = pick("output_mode", "terminal"),
-            metrics        = pick("metrics", ["all"])
+            metrics        = pick("metrics", ["all"]),
+            use_indexed_chunks= pick("use_indexed_chunks", False)
         )
         cfg._validate()
         return cfg
@@ -123,5 +125,6 @@ class QueryPlanConfig:
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,
             "output_mode": self.output_mode,
-            "metrics": self.metrics
+            "metrics": self.metrics,
+            "use_indexed_chunks": self.use_indexed_chunks
         }
