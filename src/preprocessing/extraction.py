@@ -39,12 +39,13 @@ def extract_sections_from_markdown(
 
     sections = []
     
-    # The first chunk might be content before the first heading
-    if chunks[0].strip():
-        sections.append({
-            'heading': 'Introduction',
-            'content': chunks[0].strip()
-        })
+    # The first chunk might be content before the first heading.
+    # For now, we will skip it to reduce noise.
+    #if chunks[0].strip():
+    #    sections.append({
+    #        'heading': 'Introduction',
+    #        'content': chunks[0].strip()
+    #    })
 
     # Process the rest of the chunks
     for chunk in chunks[1:]:
