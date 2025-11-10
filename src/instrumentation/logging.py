@@ -22,8 +22,8 @@ class RunLogger:
         self.config = config
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Create logs directory
-        self.logs_dir = Path("logs")
+        # Create logs directory scoped to config project root
+        self.logs_dir = self.config.project_root / "logs"
         self.logs_dir.mkdir(exist_ok=True)
 
         # Create session log file
