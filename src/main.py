@@ -1,4 +1,5 @@
 import argparse
+import json
 import pathlib
 import sys
 from typing import Dict, Optional
@@ -10,6 +11,7 @@ from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.query_enhancement import generate_hypothetical_document
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,7 +91,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     artifacts_dir = cfg.make_artifacts_directory()
 
     build_index(
-        markdown_file="data/book_without_image.md",
+        markdown_file="data/book_with_pages.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
@@ -98,6 +100,34 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         do_visualize=args.visualize,
     )
 
+def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
+    """
+    Retrieve chunks from the indexed chunks based on simple keyword matching.
+    """
+    with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+            page_to_chunk_map = json.load(f)
+    with open('data/extracted_index.json', 'r') as f:
+        extracted_index = json.load(f)
+
+    keywords = get_keywords(question)
+    chunk_ids = set()
+    ranked_chunks = []
+
+    print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
+
+    chunk_ids = {
+        chunk_id
+        for word in keywords
+        if word in extracted_index
+        for page_no in extracted_index[word]
+        for chunk_id in page_to_chunk_map.get(str(page_no), [])
+    }
+            
+    for cid in chunk_ids:
+        ranked_chunks.append(chunks[cid])
+
+    print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
+    return ranked_chunks
 
 def get_answer(
     question: str,
@@ -105,7 +135,8 @@ def get_answer(
     args: argparse.Namespace,
     logger: "RunLogger",
     artifacts: Optional[Dict] = None,
-    golden_chunks: Optional[list] = None
+    golden_chunks: Optional[list] = None,
+    is_test_mode: bool = False
 ) -> str:
     """
     Run a single query through the pipeline.
@@ -118,18 +149,34 @@ def get_answer(
     logger.log_query_start(question)
     
     # Step 1: Get chunks (golden, retrieved, or none)
+    chunks_info = None
+    hyde_query = None
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
     elif cfg.disable_chunks:
         # No chunks - baseline mode
         ranked_chunks = []
+    elif cfg.use_indexed_chunks:
+        # Use chunks from the textbook index
+        ranked_chunks = use_indexed_chunks(question, chunks, logger)
     else:
+        # Step 0: Query Enhancement (HyDE)
+        retrieval_query = question
+        if cfg.use_hyde:
+            model_path = args.model_path or cfg.model_path
+            hypothetical_doc = generate_hypothetical_document(
+                question, model_path, max_tokens=cfg.hyde_max_tokens
+            )
+            retrieval_query = hypothetical_doc
+            hyde_query = hypothetical_doc
+            # print(f"🔍 HyDE query: {hypothetical_doc}")
+        
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(question, pool_n, chunks)
+            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
@@ -138,6 +185,30 @@ def get_answer(
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
+        
+        # Capture chunk info if in test mode
+        if is_test_mode:
+            # Compute individual ranker ranks
+            faiss_scores = raw_scores.get("faiss", {})
+            bm25_scores = raw_scores.get("bm25", {})
+            
+            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)  # Higher score = better
+            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)  # Higher score = better
+            
+            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
+            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+            
+            chunks_info = []
+            for rank, idx in enumerate(topk_idxs, 1):
+                chunks_info.append({
+                    "rank": rank,
+                    "chunk_id": idx,
+                    "content": chunks[idx],
+                    "faiss_score": faiss_scores.get(idx, 0),
+                    "faiss_rank": faiss_ranks.get(idx, 0),
+                    "bm25_score": bm25_scores.get(idx, 0),
+                    "bm25_rank": bm25_ranks.get(idx, 0),
+                })
         
         # Step 3: Final Re-ranking (if enabled)
         # Disabled till we fix the core pipeline
@@ -154,8 +225,21 @@ def get_answer(
         system_prompt_mode=system_prompt
     )
     
+    if is_test_mode:
+        return ans, chunks_info, hyde_query
     return ans
 
+def get_keywords(question: str) -> list:
+    """
+    Simple keyword extraction from the question.
+    """
+    stopwords = set([
+        "the", "is", "at", "which", "on", "for", "a", "an", "and", "or", "in", 
+        "to", "of", "by", "with", "that", "this", "it", "as", "are", "was", "what"
+    ])
+    words = question.lower().split()
+    keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
+    return keywords
 
 def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     """

@@ -1,0 +1,4500 @@
+{
+  "ADO (ActiveX DataObjects)": [
+    1239
+  ],
+  "ADO.NET": [
+    184,
+    1239
+  ],
+  "AES (Advanced Encryption Standard)": [
+    448,
+    449
+  ],
+  "ANSI (American National Standards Institute)": [
+    65,
+    1237
+  ],
+  "ASP (Active Server Page)": [
+    405
+  ],
+  "Azure Stream Analytics": [
+    505
+  ],
+  "BCNF decomposition algorithm": [
+    331,
+    332,
+    333,
+    336
+  ],
+  "BI (business intelligence)": [
+    521
+  ],
+  "BSP (bulk synchronous processing)": [
+    510,
+    511
+  ],
+  "C++": [
+    16,
+    197,
+    199,
+    205,
+    206,
+    377,
+    417,
+    1239
+  ],
+  "CAD (computer-aided design)": [
+    390,
+    391,
+    968
+  ],
+  "CGI (common gateway interface) standard": [
+    409
+  ],
+  "CLI (Call Level Interface) standards": [
+    197,
+    1238,
+    1239
+  ],
+  "CLR (Common Language Runtime)": [
+    206
+  ],
+  "CSS (cascading stylesheet) standard": [
+    408
+  ],
+  "DAOs (distributed autonomous organizations)": [
+    1272
+  ],
+  "DEC Rdb": [
+    26
+  ],
+  "DKNF (domain-key normal form)": [
+    341
+  ],
+  "DN (distinguished name)": [
+    1241,
+    1242
+  ],
+  "DOM (Document Object Model)": [
+    423
+  ],
+  "DVDs (digital video disks)": [
+    560,
+    561
+  ],
+  "ETL (extract, transform and load) tasks": [
+    520,
+    524
+  ],
+  "GAV (global-as-view) approach": [
+    1078,
+    1079
+  ],
+  "GIST (Generalized Search Tree)": [
+    670
+  ],
+  "GPUs (graphics processing units)": [
+    1064
+  ],
+  "HBase": [
+    477,
+    480,
+    489,
+    668,
+    971,
+    1024,
+    1028,
+    1029,
+    1030,
+    1031
+  ],
+  "HTML (HyperText Markup Language)": [
+    404,
+    406,
+    407,
+    408,
+    426
+  ],
+  "HTTP (Hyper Text Transfer Protocol)": [
+    405,
+    406,
+    407,
+    408,
+    409,
+    410,
+    411,
+    412,
+    413
+  ],
+  "ICOs (initial coin offerings)": [
+    1272
+  ],
+  "IDE (integrated development environment)": [
+    416
+  ],
+  "IDF (inverse document frequency)": [
+    384
+  ],
+  "IEEE (Institute of Electrical and Electronics Engineers)": [
+    1237
+  ],
+  "IS (intention-shard) mode": [
+    855
+  ],
+  "ISO (International Organization for Standardization)": [
+    65,
+    1237,
+    1241
+  ],
+  "IX (intention-exclusive) mode": [
+    855
+  ],
+  "JDBC (Java Database Connectivity)": [
+    184,
+    185,
+    186,
+    187,
+    188,
+    189,
+    190,
+    191,
+    192,
+    193
+  ],
+  "JSON (JavaScript Object Notation)": [
+    368,
+    369
+  ],
+  "JSP (Java Server Pages)": [
+    405,
+    417,
+    418
+  ],
+  "KDD (knowledge discovery in databases)": [
+    540
+  ],
+  "LANs (local-area networks)": [
+    977,
+    978,
+    985,
+    989
+  ],
+  "LAV (local-as-view) approach": [
+    1079
+  ],
+  "LDAP (Lightweight Directory Access Protocol)": [
+    442,
+    1085,
+    1240,
+    1241,
+    1242,
+    1243
+  ],
+  "LDIF (LDAP Data Interchange Format)": [
+    1242
+  ],
+  "MOLAP (multidimensional OLAP)": [
+    535
+  ],
+  "MRU (most recently used) strategy": [
+    608,
+    609
+  ],
+  "NAS (network attached storage)": [
+    563,
+    934
+  ],
+  "NFNF (non first-normal-form)": [
+    367
+  ],
+  "NUMA (Non-Uniform Memory Access)": [
+    981,
+    1063
+  ],
+  "NVMe (Non-Volatile Memory Express) interface": [
+    562
+  ],
+  "ODBC (Open Database Connectivity)": [
+    194,
+    195,
+    196,
+    197
+  ],
+  "ODMG (Object Database Management Group)": [
+    1239,
+    1240
+  ],
+  "OGC (Open Geospatial Consortium)": [
+    388
+  ],
+  "OLTP (online transaction processing)": [
+    4,
+    521,
+    1231,
+    1232
+  ],
+  "OMG (Object Management Group)": [
+    288
+  ],
+  "PJNF (project-join normal form)": [
+    341
+  ],
+  "PSM (Persistent Storage Module)": [
+    201
+  ],
+  "PWA (Progressive Web Apps)": [
+    429
+  ],
+  "RDMA (remote direct memory access)": [
+    979
+  ],
+  "RDNs (relative distinguished names)": [
+    1241,
+    1242
+  ],
+  "REST (Representation State Transfer)": [
+    426,
+    427
+  ],
+  "SAN (storage area network)": [
+    562,
+    563,
+    570,
+    934,
+    985
+  ],
+  "SCM (storage class memory)": [
+    569,
+    588,
+    948
+  ],
+  "SIMD (Single Instruction Multiple Data)": [
+    1064
+  ],
+  "SIX (shared and intention-exclusive) mode": [
+    855
+  ],
+  "SQL (Structured Query Language)": [
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114
+  ],
+  "SSDs (solid-state drives)": [
+    18,
+    560,
+    568,
+    569,
+    570,
+    1229
+  ],
+  "SSI (serializable snapshot isolation) protocol": [
+    878
+  ],
+  "SVM (Support Vector Machine)": [
+    544,
+    545
+  ],
+  "TIN (triangulated irregular network)": [
+    393
+  ],
+  "TPC (Transaction Processing Performance Council)": [
+    1232,
+    1233,
+    1234
+  ],
+  "TPS (transactions per second)": [
+    1232
+  ],
+  "UML (Unified Modeling Language)": [
+    288,
+    289,
+    290,
+    291
+  ],
+  "USB (Universal Serial Bus) slots": [
+    560
+  ],
+  "VMs (virtual machines)": [
+    970,
+    991,
+    992,
+    993,
+    994
+  ],
+  "VPD (Virtual Private Database)": [
+    173,
+    444,
+    445
+  ],
+  "WAL (write-ahead logging)": [
+    926,
+    927,
+    928,
+    929,
+    934
+  ],
+  "WANs (wide-area networks)": [
+    989
+  ],
+  "WORM (write once, read-many) disks": [
+    561,
+    1022
+  ],
+  "XSRF (cross-site request forgery)": [
+    439,
+    440
+  ],
+  "XSS (cross-site scripting)": [
+    439,
+    440
+  ],
+  "aborted transactions": [
+    805,
+    806,
+    807,
+    819,
+    820
+  ],
+  "abstraction": [
+    2,
+    9,
+    10,
+    11,
+    12,
+    15
+  ],
+  "access paths": [
+    695
+  ],
+  "access types": [
+    624
+  ],
+  "accessing from programming languages": [
+    183,
+    184,
+    185,
+    186,
+    187,
+    188,
+    189,
+    190,
+    191,
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198
+  ],
+  "adaptive lock granularity": [
+    969,
+    970
+  ],
+  "add constraint": [
+    146
+  ],
+  "advanced SQL": [
+    183,
+    184,
+    185,
+    186,
+    187,
+    188,
+    189,
+    190,
+    191,
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198,
+    199,
+    200,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206,
+    207,
+    208,
+    209,
+    210,
+    211,
+    212,
+    213,
+    214,
+    215,
+    216,
+    217,
+    218,
+    219,
+    220,
+    221,
+    222,
+    223,
+    224,
+    225,
+    226,
+    227,
+    228,
+    229,
+    230,
+    231
+  ],
+  "advertisement data": [
+    469
+  ],
+  "after triggers": [
+    210
+  ],
+  "aggregation": [
+    277
+  ],
+  "airlines, database applications for": [
+    3
+  ],
+  "aliases": [
+    81,
+    336,
+    1242
+  ],
+  "analysis pass": [
+    944
+  ],
+  "anonymous smart contracts": [
+    1272,
+    1273
+  ],
+  "anonymity": [
+    1252,
+    1253,
+    1258,
+    1259
+  ],
+  "application architectures": [
+    429,
+    430,
+    431,
+    432,
+    433,
+    434
+  ],
+  "application design": [
+    403,
+    404,
+    405,
+    406,
+    407,
+    408,
+    409,
+    410,
+    411,
+    412,
+    413,
+    414,
+    415,
+    416,
+    417,
+    418,
+    419,
+    420,
+    421,
+    422,
+    423,
+    424,
+    425,
+    426,
+    427,
+    428,
+    429,
+    430,
+    431,
+    432,
+    433,
+    434,
+    435,
+    436,
+    437,
+    438,
+    439,
+    440,
+    441,
+    442,
+    443,
+    444,
+    445,
+    446,
+    447,
+    448,
+    449,
+    450,
+    451,
+    452,
+    453
+  ],
+  "application migration": [
+    1035,
+    1036
+  ],
+  "archival data": [
+    561
+  ],
+  "arity": [
+    54
+  ],
+  "as clause": [
+    79,
+    81
+  ],
+  "as of period for": [
+    157
+  ],
+  "asc expression": [
+    84
+  ],
+  "assertions": [
+    152,
+    153
+  ],
+  "assignment operation": [
+    55,
+    56,
+    201
+  ],
+  "associative property": [
+    749,
+    750
+  ],
+  "asymmetric fragment-and-replicate joins": [
+    1046,
+    1062
+  ],
+  "asymmetric-key encryption": [
+    448
+  ],
+  "asynchronous view maintenance": [
+    1138,
+    1139,
+    1140
+  ],
+  "at-least-once semantics": [
+    1074
+  ],
+  "atomicity": [
+    820,
+    821
+  ],
+  "attribute-value skew": [
+    1008
+  ],
+  "authentication": [
+    441,
+    442,
+    443
+  ],
+  "authorization": [
+    166
+  ],
+  "automatic commit": [
+    144,
+    822
+  ],
+  "autonomy": [
+    988
+  ],
+  "avg expression": [
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    723,
+    781,
+    782
+  ],
+  "axioms": [
+    321
+  ],
+  "backpropagation algorithm": [
+    545
+  ],
+  "balanced trees": [
+    634
+  ],
+  "banking": [
+    520,
+    521
+  ],
+  "base query": [
+    217
+  ],
+  "batch scaleup": [
+    973
+  ],
+  "batch update": [
+    1221
+  ],
+  "begin atomic...end": [
+    145,
+    201,
+    208,
+    209,
+    211
+  ],
+  "begin transaction operation": [
+    799
+  ],
+  "before triggers": [
+    210
+  ],
+  "big-bang approach": [
+    1236
+  ],
+  "binary operations": [
+    48
+  ],
+  "binary relationship sets": [
+    249,
+    283,
+    284,
+    285
+  ],
+  "blind writes": [
+    868
+  ],
+  "blobs": [
+    156,
+    193,
+    594,
+    652
+  ],
+  "block-level striping": [
+    572
+  ],
+  "bottom-up B-tree construction": [
+    654,
+    655
+  ],
+  "bottom-up design": [
+    273
+  ],
+  "buffer blocks": [
+    910,
+    911,
+    912
+  ],
+  "buffer trees": [
+    668,
+    669,
+    670
+  ],
+  "build input": [
+    713
+  ],
+  "bulk export utility": [
+    1222
+  ],
+  "bulk insert utility": [
+    1222
+  ],
+  "callable statements": [
+    190,
+    191
+  ],
+  "case construct": [
+    112,
+    113
+  ],
+  "cascadeless schedules": [
+    820,
+    821
+  ],
+  "cascading stylesheet (CSS) standard": [
+    408
+  ],
+  "cast": [
+    155,
+    159
+  ],
+  "centroid": [
+    548
+  ],
+  "chain replication protocol": [
+    1127,
+    1128
+  ],
+  "char": [
+    67
+  ],
+  "check clause": [
+    152,
+    153
+  ],
+  "checkpoint log records": [
+    943
+  ],
+  "checksums": [
+    565
+  ],
+  "chicken-little approach": [
+    1236
+  ],
+  "circular arcs": [
+    388
+  ],
+  "classifiers": [
+    541,
+    542,
+    543,
+    545
+  ],
+  "client-side scripting languages": [
+    421,
+    422,
+    423,
+    424,
+    425,
+    426,
+    427,
+    428,
+    429
+  ],
+  "clobs": [
+    156,
+    193,
+    594,
+    652
+  ],
+  "cloud computing": [
+    990,
+    991,
+    992,
+    993,
+    994,
+    995
+  ],
+  "cluster key": [
+    600,
+    601
+  ],
+  "clustering indices": [
+    625,
+    632,
+    633,
+    695,
+    697,
+    698
+  ],
+  "coalesce function": [
+    114,
+    155,
+    230,
+    231
+  ],
+  "coalescing nodes": [
+    641,
+    886
+  ],
+  "coarse-grained parallelism": [
+    963,
+    970
+  ],
+  "colocation of data": [
+    1068,
+    1069
+  ],
+  "column-oriented storage": [
+    525,
+    526,
+    588,
+    611,
+    612,
+    613,
+    614,
+    615,
+    616,
+    617,
+    734,
+    1182
+  ],
+  "column stores": [
+    612,
+    615,
+    1025,
+    1224
+  ],
+  "combine function": [
+    490
+  ],
+  "common gateway interface (CGI) standard": [
+    423,
+    424
+  ],
+  "Common Language Runtime (CLR)": [
+    425,
+    426
+  ],
+  "composite query per hour metric": [
+    1234
+  ],
+  "compression": [
+    1305
+  ],
+  "conceptual-design phase": [
+    17,
+    18,
+    242
+  ],
+  "concurrency control": [
+    835,
+    836,
+    837,
+    838,
+    839,
+    840,
+    841,
+    842,
+    843,
+    844,
+    845,
+    846,
+    847,
+    848,
+    849,
+    850,
+    851,
+    852,
+    853,
+    854,
+    855,
+    856,
+    857,
+    858,
+    859,
+    860,
+    861,
+    862,
+    863,
+    864,
+    865,
+    866,
+    867,
+    868,
+    869,
+    870,
+    871,
+    872,
+    873,
+    874,
+    875,
+    876,
+    877,
+    878,
+    879,
+    880,
+    881,
+    882,
+    883,
+    884,
+    885,
+    886,
+    887,
+    888,
+    889,
+    890,
+    891,
+    892,
+    893,
+    894
+  ],
+  "concurrent transactions": [
+    1224,
+    1225,
+    1226,
+    1227
+  ],
+  "confidence": [
+    540,
+    547
+  ],
+  "conflict equivalence": [
+    815
+  ],
+  "connection pooling": [
+    436
+  ],
+  "continuous queries": [
+    503,
+    731
+  ],
+  "conversions": [
+    155,
+    156,
+    469,
+    843
+  ],
+  "coordinators": [
+    1099,
+    1104,
+    1106,
+    1107,
+    1146,
+    1147,
+    1148,
+    1149,
+    1150
+  ],
+  "correlated evaluation": [
+    775
+  ],
+  "correlated subqueries": [
+    101
+  ],
+  "correlation name": [
+    81,
+    101
+  ],
+  "correlation variables": [
+    81,
+    775
+  ],
+  "count function": [
+    91,
+    92,
+    94,
+    96,
+    531,
+    532,
+    723,
+    766,
+    781
+  ],
+  "count values": [
+    220
+  ],
+  "crabbing protocol": [
+    885,
+    886
+  ],
+  "create assertion": [
+    153
+  ],
+  "create cluster": [
+    601
+  ],
+  "create distinct type": [
+    160
+  ],
+  "create domain": [
+    159,
+    160
+  ],
+  "create function": [
+    200,
+    203,
+    204,
+    215,
+    538,
+    539
+  ],
+  "create index": [
+    164,
+    165,
+    664,
+    540
+  ],
+  "create procedure": [
+    200,
+    205
+  ],
+  "create recursive view": [
+    218
+  ],
+  "create role": [
+    168
+  ],
+  "create schema": [
+    163
+  ],
+  "create sequence construct": [
+    161
+  ],
+  "create temporary table": [
+    214
+  ],
+  "create type": [
+    158,
+    159,
+    160,
+    378,
+    379,
+    380
+  ],
+  "create unique index": [
+    165,
+    664
+  ],
+  "cross-site request forgery (XSRF)": [
+    554,
+    555
+  ],
+  "cross-site scripting (XSS)": [
+    556
+  ],
+  "cross-tabulation": [
+    226,
+    227,
+    528,
+    529,
+    530,
+    531,
+    532,
+    533,
+    557
+  ],
+  "cube construct": [
+    227,
+    228,
+    229,
+    230,
+    231,
+    536,
+    537,
+    538,
+    561
+  ],
+  "current date": [
+    154
+  ],
+  "cursor stability": [
+    563,
+    881
+  ],
+  "cylinders": [
+    565
+  ],
+  "DAGs (directed acyclic graphs)": [
+    499,
+    506,
+    507,
+    1071,
+    1072
+  ],
+  "Dart language": [
+    428,
+    429
+  ],
+  "data abstraction": [
+    2,
+    9,
+    10,
+    11,
+    12,
+    15
+  ],
+  "data-at-rest": [
+    502
+  ],
+  "database-as-a-service platform": [
+    571,
+    993
+  ],
+  "database design": [
+    573
+  ],
+  "data-definition language (DDL)": [
+    630
+  ],
+  "data inconsistency": [
+    6
+  ],
+  "data items": [
+    968
+  ],
+  "data lakes": [
+    527,
+    1078
+  ],
+  "data-manipulation language (DML)": [
+    645,
+    646
+  ],
+  "data parallelism": [
+    1042,
+    1057
+  ],
+  "data-server systems": [
+    963,
+    964,
+    968,
+    969,
+    970
+  ],
+  "data streams": [
+    668,
+    731
+  ],
+  "data striping": [
+    571,
+    572
+  ],
+  "datetime data type": [
+    154,
+    531
+  ],
+  "debugging": [
+    199,
+    322
+  ],
+  "decentralization": [
+    1251,
+    1252,
+    1259,
+    1270
+  ],
+  "decision support": [
+    521,
+    1231,
+    1232,
+    1233
+  ],
+  "decision-support queries": [
+    521,
+    971
+  ],
+  "declare statement": [
+    201,
+    202,
+    203
+  ],
+  "deferred integrity constraints": [
+    151
+  ],
+  "deferred-modification technique": [
+    718,
+    915
+  ],
+  "deferred view maintenance": [
+    719,
+    779,
+    1215,
+    1216
+  ],
+  "desc expression": [
+    729,
+    84
+  ],
+  "dicing": [
+    530,
+    732
+  ],
+  "dictionary attacks": [
+    449,
+    733
+  ],
+  "digital certificates": [
+    451,
+    452,
+    453
+  ],
+  "distinct types": [
+    90,
+    92,
+    98,
+    99,
+    100,
+    158,
+    159,
+    160
+  ],
+  "downgrade": [
+    843
+  ],
+  "dumping": [
+    930,
+    931
+  ],
+  "duplicate elimination": [
+    719,
+    720,
+    787,
+    1049
+  ],
+  "durability": [
+    789
+  ],
+  "dynamic hashing": [
+    661,
+    800,
+    1195,
+    1196,
+    1197,
+    1198,
+    1199,
+    1200,
+    1201,
+    1202,
+    1203
+  ],
+  "dynamic-programming algorithm": [
+    767,
+    801
+  ],
+  "dynamic repartitioning": [
+    1010,
+    1011,
+    1012,
+    1013
+  ],
+  "dynamic SQL": [
+    66,
+    184,
+    201
+  ],
+  "e-commerce, streaming data and": [
+    501,
+    806
+  ],
+  "edge switches": [
+    807,
+    977
+  ],
+  "embedded multivalued dependencies": [
+    341,
+    808
+  ],
+  "encryption": [
+    810
+  ],
+  "entity-relationship (E-R) diagrams": [
+    822
+  ],
+  "equality-generating dependencies": [
+    337,
+    859
+  ],
+  "equi-depth histograms": [
+    759,
+    860
+  ],
+  "equivalence": [
+    861
+  ],
+  "escape": [
+    83,
+    870
+  ],
+  "except all": [
+    89,
+    97
+  ],
+  "except clause": [
+    216,
+    877
+  ],
+  "except construct": [
+    102,
+    878
+  ],
+  "exclusive locks": [
+    880
+  ],
+  "extendable hashing": [
+    661,
+    888,
+    1195,
+    1196
+  ],
+  "Extensible Markup Language. See XML": [
+    889,
+    890
+  ],
+  "external language routines": [
+    203,
+    204,
+    205,
+    206
+  ],
+  "external sorting": [
+    701,
+    893
+  ],
+  "external sort-merge algorithm": [
+    701,
+    702,
+    703,
+    704
+  ],
+  "extract, transform and load (ETL) tasks": [
+    895
+  ],
+  "extraneous functional dependencies": [
+    324,
+    896
+  ],
+  "factorials": [
+    811,
+    897
+  ],
+  "fact tables": [
+    524,
+    898
+  ],
+  "failed transactions": [
+    806,
+    899,
+    907,
+    909
+  ],
+  "fail-stop assumption": [
+    901,
+    908,
+    1267
+  ],
+  "false cycles": [
+    1114,
+    1115
+  ],
+  "fanout": [
+    635,
+    904
+  ],
+  "fat-tree topology": [
+    905,
+    977
+  ],
+  "fifth normal form": [
+    341,
+    926
+  ],
+  "file headers": [
+    590,
+    591
+  ],
+  "file manager": [
+    19,
+    928
+  ],
+  "file organization": [
+    588,
+    589,
+    590,
+    591,
+    592,
+    593,
+    594,
+    595,
+    596,
+    597,
+    598,
+    599,
+    600,
+    601,
+    602
+  ],
+  "file system consistency check": [
+    610,
+    941
+  ],
+  "fine-grained locking": [
+    947
+  ],
+  "first committer wins": [
+    874,
+    944
+  ],
+  "first normal form (1NF)": [
+    342,
+    343
+  ],
+  "first updater wins": [
+    874,
+    875
+  ],
+  "flash-as-buffer approach": [
+    1229,
+    948
+  ],
+  "float": [
+    67,
+    952
+  ],
+  "followers": [
+    1155,
+    953
+  ],
+  "forced output": [
+    607,
+    912
+  ],
+  "for clause": [
+    534,
+    955
+  ],
+  "for each row clause": [
+    207,
+    208,
+    209,
+    210,
+    212
+  ],
+  "for each statement clause": [
+    76,
+    209,
+    210
+  ],
+  "foreign-currency exchange": [
+    1277,
+    958
+  ],
+  "foreign keys": [
+    45,
+    46,
+    69,
+    70,
+    959
+  ],
+  "foreign tables": [
+    1077,
+    960
+  ],
+  "forking": [
+    1257,
+    1258,
+    1263
+  ],
+  "fourth normal form (4NF)": [
+    336,
+    339,
+    340,
+    341
+  ],
+  "fragment-and-replicate joins": [
+    1046,
+    1047,
+    1062
+  ],
+  "fragmentation": [
+    579,
+    965
+  ],
+  "free lists": [
+    591,
+    966
+  ],
+  "free-space maps": [
+    596,
+    597
+  ],
+  "full nodes": [
+    1256,
+    1268
+  ],
+  "functions and procedures": [
+    198,
+    199,
+    200,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206
+  ],
+  "gas concept for transactions": [
+    1270,
+    1271
+  ],
+  "generalization": [
+    995
+  ],
+  "getFloat method": [
+    188,
+    1007
+  ],
+  "global indices": [
+    1017,
+    1018,
+    1019
+  ],
+  "global schema": [
+    1076,
+    1078,
+    1079
+  ],
+  "global wait-for graphs": [
+    1021,
+    1113,
+    1114
+  ],
+  "grant command": [
+    170,
+    1038
+  ],
+  "granted by current role": [
+    172,
+    173
+  ],
+  "grant privileges": [
+    166,
+    167,
+    1040,
+    170,
+    171
+  ],
+  "group by clause": [
+    92,
+    93,
+    94,
+    95,
+    96,
+    105,
+    142,
+    221,
+    227,
+    228,
+    229,
+    230
+  ],
+  "group by construct": [
+    534,
+    536,
+    537
+  ],
+  "group by cube": [
+    536,
+    1047
+  ],
+  "grouping sets construct": [
+    230,
+    538
+  ],
+  "hackers.": [
+    1050
+  ],
+  "hard disk drives (HDDs).": [
+    1053
+  ],
+  "hash file organization": [
+    595,
+    659
+  ],
+  "hash indices": [
+    1066
+  ],
+  "hash join": [
+    1074
+  ],
+  "hash partitioning": [
+    476,
+    1005,
+    1006,
+    1007
+  ],
+  "hash-table overflow": [
+    715,
+    1083
+  ],
+  "heap files": [
+    595,
+    596,
+    597,
+    1203
+  ],
+  "heuristics": [
+    766,
+    771,
+    772,
+    773,
+    774,
+    786,
+    1189
+  ],
+  "hierarchical architecture": [
+    979,
+    980,
+    986
+  ],
+  "hierarchical clustering": [
+    548,
+    1094
+  ],
+  "high availability proxy": [
+    932,
+    933
+  ],
+  "higher normal forms": [
+    319,
+    1099
+  ],
+  "histograms": [
+    1100
+  ],
+  "hopping window": [
+    505,
+    1111
+  ],
+  "horizontal partitioning": [
+    1004,
+    1112,
+    1216,
+    1217
+  ],
+  "hot-spare configuration": [
+    933,
+    1114
+  ],
+  "if clauses": [
+    212,
+    1143
+  ],
+  "if-then-else statements": [
+    202,
+    1144
+  ],
+  "in construct": [
+    99,
+    1145
+  ],
+  "incremental view maintenance": [
+    1146,
+    779,
+    780,
+    781,
+    782
+  ],
+  "increment lock": [
+    892,
+    893
+  ],
+  "indexed nested-loop join": [
+    707,
+    708,
+    728
+  ],
+  "index scans": [
+    696,
+    698,
+    699,
+    769
+  ],
+  "index-sequential files": [
+    625,
+    634,
+    635
+  ],
+  "indices": [
+    623,
+    624,
+    625,
+    626,
+    627,
+    628,
+    629,
+    630,
+    631,
+    632,
+    633,
+    634,
+    635,
+    636,
+    637,
+    638,
+    639,
+    640,
+    641,
+    642,
+    643,
+    644,
+    645,
+    646,
+    647,
+    648,
+    649,
+    650,
+    651,
+    652,
+    653,
+    654,
+    655,
+    656,
+    657,
+    658,
+    659,
+    660,
+    661,
+    662,
+    663,
+    664,
+    665,
+    666,
+    667,
+    668,
+    669,
+    670,
+    671,
+    672,
+    673,
+    674,
+    675,
+    676,
+    1175,
+    1176,
+    1177,
+    1178,
+    1179,
+    1180,
+    1181,
+    1182,
+    1183,
+    1184,
+    1185,
+    1186,
+    1187,
+    1188,
+    1189,
+    1190,
+    1191,
+    1192,
+    1193,
+    1194,
+    1195,
+    1196,
+    1197,
+    1198,
+    1199,
+    1200,
+    1201,
+    1202,
+    1203
+  ],
+  "information extraction": [
+    549,
+    1193
+  ],
+  "information retrieval.": [
+    1194,
+    1195
+  ],
+  "inner joins": [
+    132,
+    133,
+    134,
+    135,
+    136,
+    771
+  ],
+  "intention-exclusive (IX) mode": [
+    1245,
+    855
+  ],
+  "intention lock modes": [
+    855,
+    1247
+  ],
+  "interoperation parallelism": [
+    1040,
+    1261,
+    1052,
+    1053,
+    1054,
+    1055
+  ],
+  "interquery parallelism": [
+    1039,
+    1263
+  ],
+  "intersect all": [
+    88,
+    97
+  ],
+  "intersection operation": [
+    750,
+    782
+  ],
+  "inverse document frequency (IDF)": [
+    1272
+  ],
+  "inverted indices": [
+    721,
+    1273
+  ],
+  "irrefutability": [
+    1257,
+    1259
+  ],
+  "is not null": [
+    89,
+    90
+  ],
+  "is not unknown": [
+    90,
+    1283
+  ],
+  "is null": [
+    89,
+    1284
+  ],
+  "isolation": [
+    1289
+  ],
+  "is unknown": [
+    90,
+    1303
+  ],
+  "iteration": [
+    201,
+    202,
+    214,
+    215,
+    216
+  ],
+  "join conditions": [
+    130,
+    131
+  ],
+  "joins": [
+    1347
+  ],
+  "key-value locking": [
+    887,
+    1389
+  ],
+  "keyword queries": [
+    383,
+    385,
+    386,
+    387,
+    1392,
+    721
+  ],
+  "killing the mutant": [
+    1234,
+    1394
+  ],
+  "knowledge discovery in databases (KDD)": [
+    1395
+  ],
+  "knowledge graphs": [
+    374,
+    375,
+    386,
+    387,
+    549
+  ],
+  "lambda architecture": [
+    504,
+    1071
+  ],
+  "latch-free data structure": [
+    888,
+    889,
+    890
+  ],
+  "latency": [
+    989,
+    1401
+  ],
+  "latent failure": [
+    575,
+    1402
+  ],
+  "lazy generation of tuples": [
+    727,
+    1404
+  ],
+  "leaders": [
+    1155,
+    1409
+  ],
+  "learners": [
+    1148,
+    1153
+  ],
+  "Lightweight Directory Access Protocol (LDAP)": [
+    1413,
+    1414,
+    442,
+    1085,
+    1415,
+    1240,
+    1241,
+    1242,
+    1243
+  ],
+  "like operator": [
+    82,
+    83
+  ],
+  "limit clause": [
+    222,
+    1416
+  ],
+  "local-area networks (LANs)": [
+    1419,
+    977,
+    978,
+    985,
+    989
+  ],
+  "local-as-view (LAV) approach": [
+    1421,
+    1079
+  ],
+  "local autonomy": [
+    988,
+    1423
+  ],
+  "local indices": [
+    1017,
+    1424
+  ],
+  "localtimestamp": [
+    154,
+    1424
+  ],
+  "local transactions": [
+    988,
+    1098,
+    1132
+  ],
+  "local wait-for graphs": [
+    1113,
+    1427
+  ],
+  "lock-free data structure": [
+    890,
+    1428
+  ],
+  "locking protocols": [
+    1429
+  ],
+  "lock managers": [
+    844,
+    845,
+    965,
+    1160
+  ],
+  "lock point": [
+    841,
+    1440
+  ],
+  "locks": [
+    1441
+  ],
+  "lock table": [
+    844,
+    845,
+    967
+  ],
+  "log disks": [
+    610,
+    1462
+  ],
+  "log force": [
+    927,
+    1463
+  ],
+  "logical clock": [
+    1118,
+    1464
+  ],
+  "logical counter": [
+    862,
+    1465
+  ],
+  "logical-design phase": [
+    18,
+    242
+  ],
+  "logical error": [
+    907,
+    1467
+  ],
+  "logical level of abstraction": [
+    9,
+    10,
+    11,
+    12
+  ],
+  "logical logging": [
+    936,
+    1469
+  ],
+  "logically implied schema": [
+    320,
+    1470
+  ],
+  "logical operations": [
+    1471
+  ],
+  "logical routing of tuples": [
+    506,
+    507,
+    1071,
+    1072,
+    1073
+  ],
+  "logical schema": [
+    12,
+    13,
+    1223,
+    1224
+  ],
+  "logical undo operations": [
+    935,
+    936,
+    937,
+    938,
+    939,
+    940,
+    941
+  ],
+  "log sequence number (LSN)": [
+    1484,
+    941,
+    942,
+    943,
+    944,
+    945,
+    946
+  ],
+  "log-structured merge (LSM) trees": [
+    1485
+  ],
+  "lookup": [
+    1497
+  ],
+  "lossless decomposition": [
+    307,
+    308,
+    312,
+    313
+  ],
+  "main-memory databases": [
+    616,
+    617
+  ],
+  "man-in-the-middle attacks": [
+    442,
+    1524
+  ],
+  "metadata": [
+    14,
+    191,
+    192,
+    193,
+    470,
+    602,
+    603,
+    604,
+    1020,
+    1021,
+    1022
+  ],
+  "min function": [
+    91,
+    92,
+    723,
+    766,
+    782
+  ],
+  "minus": [
+    88,
+    1574
+  ],
+  "mirroring": [
+    571,
+    572,
+    573,
+    576,
+    577
+  ],
+  "mobile application platforms": [
+    1576,
+    428,
+    429
+  ],
+  "mobile phone applications": [
+    469,
+    1577
+  ],
+  "multidimensional data": [
+    524,
+    1585,
+    527,
+    528,
+    529,
+    530,
+    531,
+    532
+  ],
+  "multidimensional OLAP (MOLAP)": [
+    1587,
+    1588
+  ],
+  "multilevel indices": [
+    628,
+    629,
+    630
+  ],
+  "multiple granularity": [
+    1590
+  ],
+  "multiple inheritance": [
+    275,
+    1599
+  ],
+  "multiple-key access": [
+    633,
+    634,
+    1600,
+    661,
+    662,
+    663
+  ],
+  "multiprogramming": [
+    809,
+    1601
+  ],
+  "multiset except": [
+    88,
+    1602
+  ],
+  "multiset types": [
+    366,
+    1603
+  ],
+  "multitasking": [
+    961,
+    963
+  ],
+  "multiuser systems": [
+    962,
+    1604
+  ],
+  "multivalued attributes": [
+    251,
+    252,
+    1605,
+    342
+  ],
+  "multivalued data types": [
+    366,
+    367
+  ],
+  "multiversion concurrency control (MVCC)": [
+    869,
+    870,
+    871,
+    872
+  ],
+  "multiversion two-phase locking (MV2PL) protocol": [
+    871,
+    872,
+    1129,
+    1130,
+    1131
+  ],
+  "mutations": [
+    1234,
+    1610
+  ],
+  "mutual exclusion": [
+    965,
+    967
+  ],
+  "na\u00efve Bayesian classifiers": [
+    543,
+    1620
+  ],
+  "namenode": [
+    475,
+    1020
+  ],
+  "NAND flash memory": [
+    567,
+    568
+  ],
+  "nearest-neighbor queries": [
+    394,
+    672,
+    674
+  ],
+  "nearness queries": [
+    394,
+    1626
+  ],
+  "nested data types": [
+    367,
+    368
+  ],
+  "nested-loop join": [
+    1628
+  ],
+  "nesting": [
+    854,
+    946
+  ],
+  "network attached storage (NAS)": [
+    1641
+  ],
+  "network latency": [
+    969,
+    1643
+  ],
+  "network partition": [
+    481,
+    989,
+    1104,
+    1105
+  ],
+  "network round-trip time": [
+    969,
+    1646
+  ],
+  "next-key locking protocols": [
+    887,
+    1651
+  ],
+  "nextval for": [
+    1226,
+    1652
+  ],
+  "non first-normal-form (NFNF)": [
+    1653
+  ],
+  "non-blocking two-phase commit": [
+    1674,
+    1161
+  ],
+  "nonces": [
+    1265,
+    1271
+  ],
+  "nonleaf nodes": [
+    635,
+    636,
+    642,
+    645,
+    646,
+    647,
+    648,
+    649,
+    650,
+    651,
+    652,
+    653,
+    654,
+    655,
+    656,
+    663
+  ],
+  "nonprocedural DMLs": [
+    15,
+    1679
+  ],
+  "nonprocedural languages": [
+    15,
+    16,
+    18,
+    26
+  ],
+  "nonrepudiation": [
+    451,
+    1682
+  ],
+  "Non-Volatile Memory Express (NVMe) interface": [
+    1684
+  ],
+  "non-volatile random-access memory (NVRAM)": [
+    579,
+    580,
+    948
+  ],
+  "non-volatile storage": [
+    560,
+    562,
+    587,
+    588,
+    804,
+    908,
+    909,
+    910,
+    930,
+    931
+  ],
+  "non-volatile write buffers": [
+    579,
+    580
+  ],
+  "NOR flash memory": [
+    567,
+    1689
+  ],
+  "normalization": [
+    1700
+  ],
+  "not connective": [
+    74,
+    1709
+  ],
+  "not exists construct": [
+    101,
+    102,
+    1710,
+    108,
+    218
+  ],
+  "notifications": [
+    436,
+    1712
+  ],
+  "not in construct": [
+    99,
+    100
+  ],
+  "not null": [
+    69,
+    89,
+    90,
+    142,
+    146,
+    150,
+    159
+  ],
+  "not operation": [
+    89,
+    90
+  ],
+  "not unique construct": [
+    103,
+    1717
+  ],
+  "null bitmap": [
+    593,
+    1718
+  ],
+  "null rejecting property": [
+    751,
+    1719
+  ],
+  "numeric": [
+    67,
+    70
+  ],
+  "object classes": [
+    1242,
+    1734
+  ],
+  "Object Management Group (OMG)": [
+    1737
+  ],
+  "object of triples": [
+    372,
+    1738
+  ],
+  "object-oriented databases (OODB)": [
+    9,
+    26,
+    377,
+    431,
+    1239,
+    1240
+  ],
+  "object-relational databases": [
+    377,
+    378,
+    379,
+    380,
+    381
+  ],
+  "object-relational mapping (ORM)": [
+    377,
+    381,
+    382,
+    431,
+    432,
+    433,
+    434,
+    1239,
+    1240
+  ],
+  "observable external writes": [
+    807,
+    1751
+  ],
+  "on condition": [
+    130,
+    131
+  ],
+  "on delete cascade": [
+    150,
+    210
+  ],
+  "one-to-many mapping": [
+    252,
+    253,
+    254,
+    255
+  ],
+  "one-to-one mapping": [
+    252,
+    253,
+    254
+  ],
+  "on update cascade": [
+    150,
+    1773
+  ],
+  "open addressing": [
+    1194,
+    1774
+  ],
+  "operation nodes": [
+    506,
+    507
+  ],
+  "optimistic concurrency control": [
+    1780,
+    869
+  ],
+  "optimistic concurrency control without read validation": [
+    883,
+    1781,
+    891
+  ],
+  "optimization cost budget": [
+    774,
+    1783
+  ],
+  "oracles": [
+    1271,
+    1272
+  ],
+  "or connective": [
+    74,
+    1801
+  ],
+  "order by clause": [
+    83,
+    84,
+    219,
+    220,
+    221,
+    222,
+    534
+  ],
+  "ordered merge": [
+    1056,
+    1807
+  ],
+  "or operation": [
+    89,
+    90
+  ],
+  "orphaned blocks": [
+    1257,
+    1263
+  ],
+  "outer-join operation": [
+    57,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    722,
+    723,
+    765,
+    782
+  ],
+  "outer relation": [
+    704,
+    1810
+  ],
+  "overflow buckets": [
+    659,
+    660,
+    1194,
+    1195
+  ],
+  "overflow chaining": [
+    659,
+    660
+  ],
+  "overlapping generalization": [
+    279,
+    1813,
+    290
+  ],
+  "overlapping specialization": [
+    272,
+    1815,
+    275
+  ],
+  "overlays": [
+    393,
+    1817
+  ],
+  "page (blocks)": [
+    567,
+    1818
+  ],
+  "PageLSN": [
+    942,
+    943,
+    944,
+    945
+  ],
+  "PageRank": [
+    385,
+    386
+  ],
+  "page shipping": [
+    968,
+    1821
+  ],
+  "parallel external sort-merge": [
+    1042,
+    1043
+  ],
+  "parallel indices": [
+    1017,
+    1018,
+    1019
+  ],
+  "parallelism": [
+    1842
+  ],
+  "parallel joins": [
+    1043,
+    1044,
+    1045,
+    1046,
+    1047,
+    1048
+  ],
+  "parallel processing": [
+    437,
+    488,
+    489
+  ],
+  "parity bits": [
+    572,
+    574,
+    577
+  ],
+  "parsing": [
+    1868
+  ],
+  "partial aggregation": [
+    1049,
+    1871
+  ],
+  "partial generalization": [
+    275,
+    1872
+  ],
+  "partially committed transactions": [
+    1873,
+    806
+  ],
+  "partial participation": [
+    255,
+    1874
+  ],
+  "partial rollback": [
+    853,
+    1875
+  ],
+  "partial schedules": [
+    819,
+    1876
+  ],
+  "partial specialization": [
+    275,
+    1877
+  ],
+  "participation in relationship sets": [
+    1878,
+    247
+  ],
+  "partitioning attribute": [
+    479,
+    1880
+  ],
+  "partitioning keys": [
+    475,
+    476
+  ],
+  "partitioning vector": [
+    1005,
+    1882
+  ],
+  "partitions": [
+    1883
+  ],
+  "path expressions": [
+    372,
+    381
+  ],
+  "period declaration": [
+    157,
+    1948
+  ],
+  "permissioned blockchains": [
+    1949,
+    1253,
+    1254,
+    1950,
+    1256,
+    1257,
+    1263,
+    1266,
+    1951,
+    1274
+  ],
+  "persistent messaging": [
+    990,
+    1016,
+    1108,
+    1109,
+    1110,
+    1137
+  ],
+  "Persistent Storage Module (PSM)": [
+    1953,
+    1954
+  ],
+  "phantom phenomenon": [
+    827,
+    1955,
+    858,
+    859,
+    860,
+    861,
+    877,
+    878,
+    879,
+    885,
+    887
+  ],
+  "PHP": [
+    405,
+    417,
+    418
+  ],
+  "physical data independence": [
+    9,
+    10,
+    13
+  ],
+  "physical-design phase": [
+    18,
+    1959,
+    242,
+    243
+  ],
+  "physical equivalence rules": [
+    771,
+    1961
+  ],
+  "physical logging": [
+    936,
+    1963
+  ],
+  "physiological redo operations": [
+    1970,
+    941
+  ],
+  "Pig Latin": [
+    494,
+    1972
+  ],
+  "pivot attribute": [
+    227,
+    1977
+  ],
+  "pivot clause": [
+    227,
+    534
+  ],
+  "pivot-table": [
+    226,
+    227,
+    528,
+    529
+  ],
+  "plan caching": [
+    774,
+    1980
+  ],
+  "platters": [
+    563,
+    565
+  ],
+  "point queries": [
+    1006,
+    1190
+  ],
+  "population": [
+    547,
+    1989
+  ],
+  "precision": [
+    386,
+    2011
+  ],
+  "precision locking": [
+    861,
+    2012
+  ],
+  "predicate locking": [
+    828,
+    861
+  ],
+  "predicate of triples": [
+    372,
+    2015
+  ],
+  "predicate reads": [
+    858,
+    859,
+    860,
+    861
+  ],
+  "prefix compression": [
+    653,
+    2018
+  ],
+  "Pregel system": [
+    511,
+    2019
+  ],
+  "price per TPS": [
+    1232,
+    2020
+  ],
+  "primary indices": [
+    625,
+    695,
+    1017,
+    1018
+  ],
+  "primary keys": [
+    2022
+  ],
+  "privacy": [
+    438,
+    446,
+    1252
+  ],
+  "privileges": [
+    2032
+  ],
+  "probe input": [
+    713,
+    2041
+  ],
+  "procedural DMLS": [
+    15,
+    2042
+  ],
+  "procedural languages": [
+    184,
+    199,
+    204
+  ],
+  "procedures": [
+    2045
+  ],
+  "programming languages.": [
+    2050,
+    2051
+  ],
+  "projection": [
+    2056
+  ],
+  "project-join normal form (PJNF)": [
+    2060
+  ],
+  "project operation": [
+    49,
+    50
+  ],
+  "proof-of-stake consensus": [
+    1256,
+    1266
+  ],
+  "proof-of-work consensus": [
+    1256,
+    2065,
+    1264,
+    1265,
+    1266
+  ],
+  "proposers": [
+    1148,
+    1152
+  ],
+  "public blockchains": [
+    1253,
+    1255,
+    1257,
+    1258,
+    1259,
+    1263,
+    1264
+  ],
+  "public-key encryption": [
+    448,
+    449,
+    1260,
+    1261
+  ],
+  "publish-subscribe (pub-sub) systems": [
+    507,
+    1072,
+    2071,
+    2072,
+    1137,
+    1138,
+    1139
+  ],
+  "pulling data": [
+    727,
+    2073
+  ],
+  "pushing data": [
+    727,
+    2074
+  ],
+  "put function": [
+    477,
+    478
+  ],
+  "quadratic split heuristic": [
+    1189,
+    2084
+  ],
+  "quadtrees": [
+    392,
+    674,
+    1186,
+    1187
+  ],
+  "queries": [
+    1195
+  ],
+  "query cost": [
+    2123
+  ],
+  "query-evaluation engine": [
+    20,
+    2127
+  ],
+  "query-execution engine": [
+    691,
+    2136
+  ],
+  "query optimization": [
+    743,
+    744,
+    745,
+    746,
+    747,
+    748,
+    749,
+    750,
+    751,
+    752,
+    753,
+    754,
+    755,
+    756,
+    757,
+    758,
+    759,
+    760,
+    761,
+    762,
+    763,
+    764,
+    765,
+    766,
+    767,
+    768,
+    769,
+    770,
+    771,
+    772,
+    773,
+    774,
+    775,
+    776,
+    777,
+    778,
+    779,
+    780,
+    781,
+    782,
+    783,
+    784,
+    785,
+    786,
+    787
+  ],
+  "query processing": [
+    689,
+    690,
+    691,
+    692,
+    693,
+    694,
+    695,
+    696,
+    697,
+    698,
+    699,
+    700,
+    701,
+    702,
+    703,
+    704,
+    705,
+    706,
+    707,
+    708,
+    709,
+    710,
+    711,
+    712,
+    713,
+    714,
+    715,
+    716,
+    717,
+    718,
+    719,
+    720,
+    721,
+    722,
+    723,
+    724,
+    725,
+    726,
+    727,
+    728,
+    729,
+    730,
+    731,
+    732,
+    733,
+    734
+  ],
+  "query processor": [
+    18,
+    20
+  ],
+  "quorum consensus protocol": [
+    2177,
+    1124,
+    1125
+  ],
+  "Raft protocol": [
+    1148,
+    1155,
+    1156,
+    1157,
+    1158,
+    1267
+  ],
+  "RAID.": [
+    2180
+  ],
+  "range partitioning": [
+    476,
+    1005,
+    1007,
+    1178
+  ],
+  "range-partitioning sort": [
+    2183,
+    1041,
+    1042
+  ],
+  "range-partitioning vector": [
+    2185,
+    1008,
+    1009
+  ],
+  "range queries": [
+    638,
+    672,
+    674,
+    1006,
+    1190
+  ],
+  "ranking": [
+    219,
+    220,
+    221,
+    222,
+    223,
+    383,
+    384,
+    385,
+    386
+  ],
+  "read authorization": [
+    14,
+    2192
+  ],
+  "read committed": [
+    821,
+    880,
+    1225
+  ],
+  "read cost": [
+    1127,
+    1128
+  ],
+  "read one, write all copies protocol": [
+    2194
+  ],
+  "read one, write all protocol": [
+    1125,
+    2196
+  ],
+  "read quorum": [
+    1124,
+    2198
+  ],
+  "read uncommitted": [
+    821,
+    2199
+  ],
+  "read-write contention": [
+    2200,
+    1224,
+    1225
+  ],
+  "ready state": [
+    989,
+    1102
+  ],
+  "real-time transaction systems": [
+    2202,
+    894
+  ],
+  "recovery systems": [
+    907,
+    908,
+    909,
+    910,
+    911,
+    912,
+    913,
+    914,
+    915,
+    916,
+    917,
+    918,
+    919,
+    920,
+    921,
+    922,
+    923,
+    924,
+    925,
+    926,
+    927,
+    928,
+    929,
+    930,
+    931,
+    932,
+    933,
+    934,
+    935,
+    936,
+    937,
+    938,
+    939,
+    940,
+    941,
+    942,
+    943,
+    944,
+    945,
+    946,
+    947,
+    948
+  ],
+  "redo pass": [
+    944,
+    945
+  ],
+  "redundancy": [
+    2232
+  ],
+  "redundant arrays of independent disks (RAID)": [
+    570,
+    571,
+    572,
+    573,
+    574,
+    575,
+    576,
+    577
+  ],
+  "reflexivity rule": [
+    321,
+    2247
+  ],
+  "region quadtrees": [
+    1187,
+    2248
+  ],
+  "relational OLAP (ROLAP)": [
+    2279
+  ],
+  "report generators": [
+    538,
+    539,
+    540
+  ],
+  "Representation State Transfer (REST)": [
+    2317
+  ],
+  "request operation": [
+    835,
+    836,
+    837,
+    838,
+    839,
+    840,
+    841,
+    844,
+    845,
+    846,
+    849,
+    850,
+    851,
+    852,
+    853,
+    886
+  ],
+  "Resilient Distributed Datasets (RDDs)": [
+    496,
+    497,
+    498,
+    499,
+    1061
+  ],
+  "resource consumption": [
+    694,
+    695,
+    1065,
+    1066
+  ],
+  "Resource Description Framework (RDF)": [
+    324
+  ],
+  "right outer join": [
+    132,
+    133,
+    134,
+    135,
+    136,
+    722
+  ],
+  "rollback": [
+    2342
+  ],
+  "rollback work": [
+    143,
+    144,
+    145
+  ],
+  "rollup construct": [
+    227,
+    228,
+    229,
+    230,
+    231,
+    530,
+    531,
+    536,
+    537,
+    538
+  ],
+  "row-level authorization": [
+    173,
+    2352
+  ],
+  "R-timestamp": [
+    862,
+    865,
+    870
+  ],
+  "R-trees": [
+    663,
+    670,
+    674,
+    675,
+    676,
+    1187,
+    1188,
+    1189,
+    1190
+  ],
+  "SAML (Security Assertion Markup Language)": [
+    2355,
+    2356,
+    442,
+    443
+  ],
+  "savepoints": [
+    947,
+    2360
+  ],
+  "scanning a relation": [
+    1006,
+    2363
+  ],
+  "schema diagrams": [
+    46,
+    47
+  ],
+  "scrubbing": [
+    575,
+    2392
+  ],
+  "SCSI (small-computer-system interconnect)": [
+    562,
+    563
+  ],
+  "search keys": [
+    2394
+  ],
+  "search operation": [
+    1188,
+    2398
+  ],
+  "secondary indices": [
+    625,
+    2399,
+    632,
+    633,
+    652,
+    653,
+    695,
+    696,
+    697,
+    698,
+    2400,
+    1017,
+    1018,
+    1019
+  ],
+  "secondary site": [
+    931,
+    2401
+  ],
+  "secondary storage": [
+    561,
+    2402
+  ],
+  "second normal form (2NF)": [
+    316,
+    341,
+    342,
+    356
+  ],
+  "sectors": [
+    564,
+    565,
+    566
+  ],
+  "security": [
+    2405
+  ],
+  "Security Assertion Markup Language (SAML)": [
+    2417
+  ],
+  "seek time": [
+    566,
+    567,
+    692,
+    2418,
+    710
+  ],
+  "select all": [
+    73,
+    2420
+  ],
+  "select authorization, privileges and": [
+    166,
+    167
+  ],
+  "select clause": [
+    2423
+  ],
+  "select distinct": [
+    72,
+    73,
+    90,
+    99,
+    100,
+    142
+  ],
+  "select-from-where": [
+    2430
+  ],
+  "selection": [
+    2435
+  ],
+  "selectivity": [
+    762,
+    2442
+  ],
+  "select operation": [
+    49,
+    2443
+  ],
+  "semi-structured data models": [
+    2445,
+    365,
+    366,
+    367,
+    368,
+    369,
+    370,
+    371,
+    372,
+    373,
+    374,
+    375,
+    376
+  ],
+  "sensor data": [
+    470,
+    501
+  ],
+  "sequence counters": [
+    1226,
+    2455
+  ],
+  "sequential-access storage": [
+    561,
+    2456,
+    567,
+    578
+  ],
+  "sequential computation": [
+    974,
+    2458
+  ],
+  "sequential file organization": [
+    595,
+    2459,
+    597,
+    598
+  ],
+  "Serial Attached SCSI (SAS) interface": [
+    562,
+    2462
+  ],
+  "serializability": [
+    2463
+  ],
+  "set autocommit off": [
+    144,
+    2488
+  ],
+  "set clause": [
+    113,
+    2489
+  ],
+  "set default": [
+    150,
+    2490
+  ],
+  "set-difference operation": [
+    55,
+    750
+  ],
+  "set null": [
+    150,
+    2492
+  ],
+  "set operations": [
+    2493
+  ],
+  "set types": [
+    366,
+    367
+  ],
+  "shared and intention-exclusive (SIX) mode": [
+    2505
+  ],
+  "shared-disk architecture": [
+    979,
+    980,
+    984,
+    985
+  ],
+  "shared locks": [
+    825,
+    835,
+    854,
+    880,
+    1124
+  ],
+  "shared-memory architecture": [
+    2508,
+    21,
+    22,
+    2509,
+    979,
+    980,
+    981,
+    982,
+    983,
+    984,
+    2510,
+    1061,
+    1062,
+    1063,
+    1064
+  ],
+  "shared-mode locks": [
+    835,
+    2511
+  ],
+  "shared scans": [
+    785,
+    786
+  ],
+  "show warnings": [
+    746,
+    2515
+  ],
+  "Single Instruction Multiple Data (SIMD)": [
+    1851,
+    2517,
+    2518,
+    1064
+  ],
+  "single lock-manager": [
+    1111,
+    2519
+  ],
+  "single sign-on system": [
+    442,
+    443
+  ],
+  "single-user systems": [
+    962,
+    2521
+  ],
+  "single-valued attributes": [
+    251,
+    2522
+  ],
+  "sites": [
+    986,
+    2523
+  ],
+  "skew": [
+    2525
+  ],
+  "slicing": [
+    530,
+    2533
+  ],
+  "smart cards": [
+    451,
+    2535
+  ],
+  "smart contracts": [
+    1258,
+    2537,
+    1269,
+    1270,
+    1271,
+    1272,
+    1273
+  ],
+  "snapshot isolation": [
+    2538
+  ],
+  "snowflake schema": [
+    524,
+    2542
+  ],
+  "soft deadlines": [
+    894,
+    2545
+  ],
+  "software-as-a-service model": [
+    993,
+    2546
+  ],
+  "some construct": [
+    100,
+    2548
+  ],
+  "sorting": [
+    2549
+  ],
+  "sort-merge-join algorithm": [
+    2556,
+    708,
+    709,
+    710,
+    711,
+    712
+  ],
+  "sound axioms": [
+    321,
+    2557
+  ],
+  "source-driven architecture": [
+    522,
+    2558
+  ],
+  "sparse column data representation": [
+    366,
+    2560
+  ],
+  "spatial graphs": [
+    390,
+    2567
+  ],
+  "specialization": [
+    2568
+  ],
+  "specification of functional requirements": [
+    17,
+    18,
+    242
+  ],
+  "sql security invoker": [
+    170,
+    2577
+  ],
+  "sqlstate": [
+    205,
+    2577
+  ],
+  "SQL (Structured Query Language)": [
+    2578
+  ],
+  "start with/connect by prior syntax": [
+    218
+  ],
+  "state machines": [
+    1158,
+    1159,
+    1160,
+    1161
+  ],
+  "static hashing": [
+    661,
+    1190,
+    1191,
+    1192,
+    1193,
+    1194,
+    1195,
+    1202,
+    1203
+  ],
+  "statistical analysis": [
+    520,
+    527
+  ],
+  "statistics": [
+    757,
+    758,
+    759,
+    760,
+    761,
+    762,
+    763,
+    764,
+    765,
+    766
+  ],
+  "steal policy": [
+    927,
+    2635
+  ],
+  "stepped-merge indices": [
+    667,
+    2636,
+    1179,
+    1180,
+    1181
+  ],
+  "stock market, streaming data and": [
+    2637,
+    2638,
+    501
+  ],
+  "stop words": [
+    385,
+    2639
+  ],
+  "storage": [
+    587,
+    588,
+    589,
+    590,
+    591,
+    592,
+    593,
+    594,
+    595,
+    596,
+    597,
+    598,
+    599,
+    600,
+    601,
+    602,
+    603,
+    604,
+    605,
+    606,
+    607,
+    608,
+    609,
+    610,
+    611,
+    612,
+    613,
+    614,
+    615,
+    616,
+    617
+  ],
+  "storage area network (SAN)": [
+    2686
+  ],
+  "stored functions/procedures": [
+    2689,
+    1031
+  ],
+  "straggler nodes": [
+    1060,
+    1061
+  ],
+  "streaming data": [
+    500,
+    501,
+    502,
+    503,
+    504,
+    505,
+    506,
+    507,
+    508
+  ],
+  "stream query languages": [
+    503,
+    504,
+    505,
+    506
+  ],
+  "strict two-phase locking protocol": [
+    2702,
+    2703,
+    842,
+    843
+  ],
+  "string operations": [
+    2704
+  ],
+  "stripe": [
+    613,
+    614
+  ],
+  "striping data": [
+    571,
+    572
+  ],
+  "strong entity sets": [
+    259,
+    265,
+    266,
+    267
+  ],
+  "Structured Query Language.": [
+    2716
+  ],
+  "structured types": [
+    158,
+    159,
+    160
+  ],
+  "suffix": [
+    1243,
+    2718
+  ],
+  "sum function": [
+    91,
+    139,
+    228,
+    536,
+    2735,
+    723,
+    766,
+    781
+  ],
+  "superclass-subclass relationship": [
+    272,
+    274
+  ],
+  "superkeys": [
+    43,
+    44,
+    257,
+    258,
+    309,
+    310,
+    312
+  ],
+  "supersteps": [
+    510,
+    2739
+  ],
+  "superusers": [
+    166,
+    2740
+  ],
+  "supply chains": [
+    1266,
+    1278
+  ],
+  "support": [
+    547,
+    2742
+  ],
+  "symmetric fragment-and-replicate joins": [
+    1046,
+    2698
+  ],
+  "symmetric-key encryption": [
+    448,
+    2699
+  ],
+  "sys_context function": [
+    173,
+    2699
+  ],
+  "system architecture.": [
+    2700
+  ],
+  "system catalogs": [
+    602,
+    603,
+    604,
+    1009
+  ],
+  "system error": [
+    907,
+    2719
+  ],
+  "table alias": [
+    81,
+    2722
+  ],
+  "table functions": [
+    200,
+    2723
+  ],
+  "table inheritance": [
+    379,
+    380
+  ],
+  "table partitioning": [
+    601,
+    602
+  ],
+  "tables": [
+    2726
+  ],
+  "tab-separated values": [
+    1222,
+    2743
+  ],
+  "tag library": [
+    418,
+    2744
+  ],
+  "tags": [
+    370,
+    371,
+    372,
+    406,
+    407,
+    418,
+    440
+  ],
+  "tamper resistance": [
+    1253,
+    1254,
+    1255,
+    2746,
+    1259,
+    1260
+  ],
+  "tangles": [
+    1278,
+    2748
+  ],
+  "tape storage": [
+    561,
+    2749
+  ],
+  "Tapestry": [
+    419,
+    2750
+  ],
+  "telecommunications, database applications for": [
+    3
+  ],
+  "temporal data": [
+    347,
+    348,
+    349,
+    350,
+    351
+  ],
+  "temporal data indices": [
+    675,
+    676
+  ],
+  "term frequency (TF)": [
+    384,
+    2763
+  ],
+  "ternary relationship sets": [
+    249,
+    2764,
+    250,
+    284
+  ],
+  "tertiary storage": [
+    561,
+    2766
+  ],
+  "test-and-set": [
+    966,
+    2767
+  ],
+  "test suites": [
+    1234,
+    1235
+  ],
+  "text mining": [
+    549,
+    2769
+  ],
+  "textual data": [
+    382,
+    383,
+    384,
+    385,
+    386,
+    387
+  ],
+  "TF-IDF approach": [
+    384,
+    385
+  ],
+  "TF (term frequency)": [
+    2776
+  ],
+  "then clause": [
+    212,
+    2777
+  ],
+  "theta-join operations": [
+    748,
+    749
+  ],
+  "third normal form (3NF)": [
+    2779,
+    317,
+    318,
+    319,
+    333,
+    334,
+    335
+  ],
+  "Thomas' write rule": [
+    864,
+    865,
+    866
+  ],
+  "3D-XPoint memory technology": [
+    2782,
+    569
+  ],
+  "3NF decomposition algorithm": [
+    334,
+    335
+  ],
+  "3NF synthesis algorithm": [
+    335,
+    2785
+  ],
+  "three-tier architecture": [
+    23,
+    2786
+  ],
+  "throughput": [
+    2787
+  ],
+  "throughput test": [
+    1234,
+    2813
+  ],
+  "tickets and ticketing": [
+    1133,
+    1279
+  ],
+  "tiles": [
+    392,
+    2789
+  ],
+  "time intervals": [
+    675,
+    676
+  ],
+  "time-lock transactions": [
+    1273,
+    2791
+  ],
+  "timestamps": [
+    2792
+  ],
+  "time to completion": [
+    1231,
+    2803
+  ],
+  "timezone": [
+    154,
+    2803
+  ],
+  "tokens": [
+    1272,
+    2805
+  ],
+  "total generalization": [
+    275,
+    2814
+  ],
+  "total specialization": [
+    275,
+    2815
+  ],
+  "tracks": [
+    564,
+    2818
+  ],
+  "training instances": [
+    541,
+    543,
+    546
+  ],
+  "transaction coordinators": [
+    1099,
+    1104,
+    1106,
+    1107
+  ],
+  "transaction managers": [
+    18,
+    19,
+    20,
+    21,
+    1098,
+    1099
+  ],
+  "transactions": [
+    799,
+    800,
+    801,
+    802,
+    803,
+    804,
+    805,
+    806,
+    807,
+    808,
+    809,
+    810,
+    811,
+    812,
+    813,
+    814,
+    815,
+    816,
+    817,
+    818,
+    819,
+    820,
+    821,
+    822,
+    823,
+    824,
+    825,
+    826,
+    827,
+    828
+  ],
+  "transaction time": [
+    347,
+    2875
+  ],
+  "transitivity rule": [
+    321,
+    2884
+  ],
+  "translation table": [
+    568,
+    2885
+  ],
+  "tree-like server systems": [
+    977,
+    978
+  ],
+  "tree-like topology": [
+    977,
+    2886
+  ],
+  "tree protocol": [
+    846,
+    847,
+    848
+  ],
+  "trees": [
+    2922
+  ],
+  "triangulation": [
+    388,
+    393
+  ],
+  "triggers": [
+    2905
+  ],
+  "trim": [
+    82,
+    2914
+  ],
+  "triple representation": [
+    372,
+    373,
+    374
+  ],
+  "trivial functional dependencies": [
+    2916,
+    311
+  ],
+  "try-with-resources construct": [
+    187,
+    2918,
+    2919
+  ],
+  "tumbling window": [
+    505,
+    2920
+  ],
+  "tuning.": [
+    2923
+  ],
+  "tuning wizards": [
+    1215,
+    2925
+  ],
+  "tuple-generating dependencies": [
+    2927,
+    2928,
+    337
+  ],
+  "tuples": [
+    2931
+  ],
+  "two-phase commit (2PC) protocol": [
+    989,
+    1016,
+    1101,
+    1102,
+    1103,
+    1104,
+    1105,
+    1106,
+    1107,
+    1161,
+    1276
+  ],
+  "two-phase locking protocol": [
+    841,
+    842,
+    843,
+    844,
+    871,
+    872,
+    1129,
+    1130,
+    1131
+  ],
+  "two-tier architecture": [
+    23,
+    2954
+  ],
+  "type inheritance": [
+    378,
+    379
+  ],
+  "types of access": [
+    15,
+    23
+  ],
+  "unary operations": [
+    48,
+    2959
+  ],
+  "undo operation": [
+    2960
+  ],
+  "undo pass": [
+    944,
+    945,
+    946
+  ],
+  "union all": [
+    86,
+    97
+  ],
+  "union operation": [
+    53,
+    54,
+    86,
+    87,
+    228
+  ],
+  "union rule": [
+    321,
+    2965
+  ],
+  "unique construct": [
+    103,
+    147
+  ],
+  "uniquifiers": [
+    649,
+    650
+  ],
+  "universal Turing machines": [
+    16,
+    2969
+  ],
+  "university databases": [
+    2970
+  ],
+  "update hot spots": [
+    1225,
+    3010
+  ],
+  "updates": [
+    3011
+  ],
+  "upgrade": [
+    843,
+    3021
+  ],
+  "URLs (uniform resource locators)": [
+    405,
+    406
+  ],
+  "U.S. National Institute for Standards and Technology": [
+    3023,
+    3024,
+    288
+  ],
+  "user-defined types": [
+    158,
+    159,
+    160,
+    378
+  ],
+  "user interfaces": [
+    3027
+  ],
+  "utilization of resources": [
+    808,
+    3041
+  ],
+  "validation": [
+    3042
+  ],
+  "validation phase": [
+    866,
+    3053
+  ],
+  "valid time": [
+    157,
+    347,
+    348,
+    349,
+    350
+  ],
+  "value for entity set attributes": [
+    245,
+    3055
+  ],
+  "varchar": [
+    67,
+    68,
+    70
+  ],
+  "variable-length records": [
+    592,
+    593,
+    594
+  ],
+  "variety of data": [
+    468,
+    3058
+  ],
+  "vector data": [
+    392,
+    393
+  ],
+  "velocity of data": [
+    468,
+    3060
+  ],
+  "verification of contents": [
+    1145,
+    3061
+  ],
+  "vertical partitioning": [
+    1004,
+    3063
+  ],
+  "view equivalence": [
+    818,
+    3064
+  ],
+  "views": [
+    3065
+  ],
+  "view serializability": [
+    818,
+    819,
+    867,
+    868
+  ],
+  "virtual nodes": [
+    1009,
+    1010
+  ],
+  "virtual processor approach": [
+    1010,
+    3083
+  ],
+  "volatile storage": [
+    560,
+    562,
+    804,
+    908
+  ],
+  "volume of data": [
+    468,
+    3086
+  ],
+  "wait-die scheme": [
+    850,
+    1112
+  ],
+  "wait-for graphs": [
+    851,
+    852,
+    1113,
+    1114
+  ],
+  "wear leveling": [
+    568,
+    3093
+  ],
+  "web application frameworks": [
+    418,
+    419
+  ],
+  "web-based services, database applications for": [
+    3,
+    3095
+  ],
+  "web crawlers": [
+    383,
+    3096
+  ],
+  "web servers": [
+    408,
+    409,
+    410,
+    411
+  ],
+  "when clause": [
+    212,
+    3102
+  ],
+  "where clause": [
+    3103
+  ],
+  "while loop": [
+    196,
+    3112
+  ],
+  "while statements": [
+    201,
+    3112
+  ],
+  "wide-area networks (WANs)": [
+    3113
+  ],
+  "wide-column stores": [
+    1023,
+    3114
+  ],
+  "with data clause": [
+    162,
+    3115
+  ],
+  "with grant option": [
+    170,
+    171
+  ],
+  "word count program": [
+    483,
+    484,
+    485,
+    486,
+    490,
+    491,
+    492
+  ],
+  "workers": [
+    1051,
+    3118
+  ],
+  "workflow": [
+    3119
+  ],
+  "workload": [
+    783,
+    1215,
+    1217
+  ],
+  "write-ahead logging (WAL)": [
+    3133
+  ],
+  "write amplification": [
+    1180,
+    3134
+  ],
+  "write once, read-many (WORM) disks": [
+    3135,
+    3136
+  ],
+  "write operations": [
+    826,
+    3137
+  ],
+  "write-optimized index structures": [
+    3138,
+    3139,
+    665,
+    666,
+    667,
+    668,
+    669,
+    670
+  ],
+  "write phase": [
+    866,
+    3140
+  ],
+  "write quorum": [
+    1124,
+    3141
+  ],
+  "XML (Extensible Markup Language)": [
+    3144
+  ],
+  "Zab protocol": [
+    1152,
+    3153
+  ]
+}
