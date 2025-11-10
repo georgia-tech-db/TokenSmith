@@ -53,6 +53,22 @@ and put them in the `models/` folder with the expected file name.
 make build
 ```
 
+#### Troubleshooting: NumPy Version Conflict
+
+If you encounter `NumPy 1.x cannot be run in NumPy 2.x` errors after installation:
+
+```shell
+# Remove conflicting package
+conda activate tokensmith
+conda uninstall faiss-cpu -y
+# Reinstall with compatible versions
+conda install -c conda-forge faiss-cpu
+```
+
+This ensures FAISS and NumPy are compatible. Above will downgrade the numpy version.
+We can not use later version of faiss from pip (which is compatible with newer numpy version),
+because of multiple instantiations of OpenMP on Apple Silicon.
+
 Creates a Conda env `tokensmith`, installs Python deps, and builds/detects `llama.cpp`.
 
 ### 3) Activate the environment
