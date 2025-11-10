@@ -41,6 +41,11 @@ class QueryPlanConfig:
     output_mode: str
     metrics: list
 
+    # query enhancement
+    use_hyde: bool
+    hyde_max_tokens: int
+    use_indexed_chunks: bool
+
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
@@ -106,7 +111,12 @@ class QueryPlanConfig:
             disable_chunks  = pick("disable_chunks", False),
             use_golden_chunks = pick("use_golden_chunks", False),
             output_mode    = pick("output_mode", "terminal"),
-            metrics        = pick("metrics", ["all"])
+            metrics        = pick("metrics", ["all"]),
+            use_indexed_chunks= pick("use_indexed_chunks", False),
+            
+            # Query Enhancement
+            use_hyde       = pick("use_hyde", False),
+            hyde_max_tokens= pick("hyde_max_tokens", 100),
         )
         cfg._validate()
         return cfg
@@ -149,5 +159,8 @@ class QueryPlanConfig:
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,
             "output_mode": self.output_mode,
-            "metrics": self.metrics
+            "metrics": self.metrics,
+            "use_indexed_chunks": self.use_indexed_chunks,
+            "use_hyde": self.use_hyde,
+            "hyde_max_tokens": self.hyde_max_tokens,
         }

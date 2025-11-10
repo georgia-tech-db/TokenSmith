@@ -35,3 +35,39 @@ benchmarks:
     expected_answer: "SQL's serializable level aims for schedules equivalent to some serial execution and prevents phenomena like dirty reads, nonrepeatable reads, and phantoms; weaker levels like read committed prevent dirty reads but allow nonrepeatable reads and phantoms, while repeatable read prevents nonrepeatable reads but may still allow phantoms; strict two-phase locking or predicate locking/index locking can enforce serializability by holding appropriate locks until commit, eliminating these anomalies."
     keywords: ["serializable", "read committed", "repeatable read", "dirty read", "nonrepeatable read", "phantom", "two-phase locking", "predicate locking"]
     similarity_threshold: 0.7
+
+  - id: "primary_foreign_keys"
+    question: "Explain primary keys and foreign keys"
+    expected_answer: "A primary key is a set of one or more attributes that uniquely identifies each tuple in a relation, chosen from candidate keys which are minimal superkeys; primary key attributes are underlined in schema diagrams and cannot have null values. A foreign key is a set of attributes in one relation (the referencing relation) that references the primary key of another relation (the referenced relation), establishing a referential integrity constraint that requires values in the foreign key to match values in the referenced primary key, thereby linking related data across tables."
+    keywords: ["primary key", "foreign key", "unique identifier", "referential integrity", "candidate key", "superkey"]
+    similarity_threshold: 0.72
+
+  - id: "database_schema"
+    question: "What is a database schema"
+    expected_answer: "A database schema is the overall logical design and structure of the database, analogous to variable declarations in a program, defining the relations, their attributes, data types, and constraints including primary keys and foreign keys. The schema remains relatively stable over time, while a database instance represents the actual collection of data stored at a particular moment, with values that change as information is inserted, deleted, or modified."
+    keywords: ["database schema", "logical design", "structure", "database instance", "relations", "attributes", "constraints"]
+    similarity_threshold: 0.70
+
+  - id: "book_authors"
+    question: "Tell me about the authors of the book"
+    expected_answer: "The authors of Database System Concepts Seventh Edition are Abraham Silberschatz, a Professor at Yale University and former Bell Labs vice president who is an ACM and IEEE fellow; Henry F. Korth, a Professor at Lehigh University who previously worked at Bell Labs and is also an ACM and IEEE fellow; and S. Sudarshan, the Subrao M. Nilekani Chair Professor at the Indian Institute of Technology Bombay who received his Ph.D. from the University of Wisconsin and is an ACM fellow, with research focusing on query processing and optimization."
+    keywords: ["Abraham Silberschatz", "Henry Korth", "Sudarshan", "Yale", "Lehigh", "IIT Bombay", "Bell Labs"]
+    similarity_threshold: 0.65
+
+  - id: "aries_atomicity"
+    question: "How does the recovery manager use ARIES to ensure atomicity"
+    expected_answer: "The ARIES recovery algorithm ensures atomicity by maintaining a write-ahead log where all updates are recorded before being applied to the database, with each log record containing transaction ID, data item, old value, and new value. During normal operation, log records are written to stable storage before the transaction commits; if a transaction aborts or the system crashes, the recovery manager uses the log to undo uncommitted transactions by applying the old values in reverse order, ensuring that partial effects of incomplete transactions are completely rolled back and the all-or-nothing property of atomicity is preserved."
+    keywords: ["ARIES", "write-ahead log", "log records", "undo", "rollback", "stable storage", "atomicity", "recovery"]
+    similarity_threshold: 0.75
+
+  - id: "oltp_vs_analytics"
+    question: "Contrast the goals of Online Transaction Processing and data analytics"
+    expected_answer: "Online Transaction Processing (OLTP) supports a large number of concurrent users performing small, fast transactions that retrieve and update relatively small amounts of data with requirements for high throughput, low latency, and immediate consistency, typically using normalized schemas optimized for transactional integrity. Data analytics, in contrast, processes large volumes of historical data to draw conclusions and infer patterns for business intelligence and decision support, involving complex queries that scan and aggregate data across many records, often using denormalized schemas like star schemas in data warehouses optimized for read-heavy analytical workloads rather than transactional updates."
+    keywords: ["OLTP", "online transaction processing", "data analytics", "business intelligence", "decision support", "throughput", "data warehouse", "transactional", "analytical"]
+    similarity_threshold: 0.73
+
+  - id: "lossy_decomposition"
+    question: "Show me what happens during a lossy decomposition"
+    expected_answer: "A lossy decomposition occurs when a relation R is decomposed into smaller relations R1 and R2 such that joining them back together produces spurious tuples not present in the original relation, resulting in loss of information about which attribute combinations actually existed. This happens when the intersection of R1 and R2 does not form a superkey for either relation, violating the lossless-join condition; the natural join of the decomposed relations generates extra tuples from invalid combinations, making it impossible to reconstruct the original data accurately, which is why database design insists that all decompositions must be lossless."
+    keywords: ["lossy decomposition", "spurious tuples", "lossless join", "superkey", "natural join", "information loss", "functional dependency"]
+    similarity_threshold: 0.70
