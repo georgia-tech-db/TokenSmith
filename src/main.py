@@ -192,20 +192,13 @@ def get_answer(
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-    # ans = answer(
-    #     question,
-    #     ranked_chunks,
-    #     model_path,
-    #     max_tokens=cfg.max_gen_tokens,
-    #     system_prompt_mode=system_prompt
-    # )
 
     stream_iter = answer(
         question,
         ranked_chunks,
-        args.model_path or cfg.model_path,
+        model_path,
         max_tokens=cfg.max_gen_tokens,
-        system_prompt_mode=args.system_prompt_mode,
+        system_prompt_mode=system_prompt,
     )
 
     # Accumulate the full text while rendering incremental Markdown chunks

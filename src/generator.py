@@ -1,4 +1,5 @@
 import textwrap, re
+from llama_cpp import Llama
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -109,8 +110,6 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
             <|im_start|>assistant
             {ANSWER_START}
         """)
-
-from llama_cpp import Llama
 
 _LLM_CACHE = {}
 
