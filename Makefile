@@ -34,7 +34,7 @@ install:
 	conda run -n tokensmith pip install -e . --no-deps
 
 # Full build process
-build: env build-llama install
+build: env install
 	@echo "TokenSmith build complete! Activate environment with: conda activate tokensmith"
 
 # Show installed packages

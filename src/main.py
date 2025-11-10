@@ -1,7 +1,12 @@
+# noinspection PyUnresolvedReferences
+import faiss  # force single OpenMP init
+
 import argparse
 import pathlib
 import sys
 from typing import Dict, Optional
+
+from rich.live import Live
 
 from src.config import QueryPlanConfig
 from src.generator import answer
@@ -11,7 +16,8 @@ from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
-
+from rich.console import Console
+from rich.markdown import Markdown
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
@@ -105,6 +111,7 @@ def get_answer(
     cfg: QueryPlanConfig,
     args: argparse.Namespace,
     logger: "RunLogger",
+    console: "Console",
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False
@@ -185,14 +192,35 @@ def get_answer(
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-    ans = answer(
-        question, 
-        ranked_chunks, 
-        model_path, 
-        max_tokens=cfg.max_gen_tokens, 
-        system_prompt_mode=system_prompt
+    # ans = answer(
+    #     question,
+    #     ranked_chunks,
+    #     model_path,
+    #     max_tokens=cfg.max_gen_tokens,
+    #     system_prompt_mode=system_prompt
+    # )
+
+    stream_iter = answer(
+        question,
+        ranked_chunks,
+        args.model_path or cfg.model_path,
+        max_tokens=cfg.max_gen_tokens,
+        system_prompt_mode=args.system_prompt_mode,
     )
-    
+
+    # Accumulate the full text while rendering incremental Markdown chunks
+    ans = ""
+    is_first = True
+    with Live(console=console, refresh_per_second=5) as live:
+        for delta in stream_iter:
+            if is_first:
+                # we need to do this to ensure this marker comes after warning noise in Macs.
+                console.print("\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n")
+                is_first = False
+            ans += delta
+            live.update(Markdown(ans))
+    console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
+
     if is_test_mode:
         return ans, chunks_info, hyde_query
     return ans
@@ -203,6 +231,8 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     Initializes artifacts and runs the main interactive chat loop.
     """
     logger = get_logger()
+    console = Console()
+
     # planner = HeuristicQueryPlanner(cfg)
 
     # Load artifacts, initialize retrievers and rankers once before the loop.
@@ -249,12 +279,8 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
                 print("Goodbye!")
                 break
 
-            # Use the single query function
-            ans = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
-
-            print("\n=================== START OF ANSWER ===================")
-            print(ans.strip() if ans and ans.strip() else "(No output from model)")
-            print("\n==================== END OF ANSWER ====================")
+            # Use the single query function. get_answer also renders the streaming markdown.
+            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
             logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
 
         except KeyboardInterrupt:
