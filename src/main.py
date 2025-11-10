@@ -9,7 +9,7 @@ from typing import Dict, Optional
 from rich.live import Live
 
 from src.config import QueryPlanConfig
-from src.generator import answer
+from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
@@ -219,6 +219,8 @@ def get_answer(
                 is_first = False
             ans += delta
             live.update(Markdown(ans))
+    ans = dedupe_generated_text(ans)
+    live.update(Markdown(ans))
     console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
 
     if is_test_mode:

@@ -150,3 +150,20 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: fl
 def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_prompt_mode: str = "tutor"):
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
     return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=0.2)
+
+def dedupe_generated_text(text: str) -> str:
+    """
+    Removes immediate consecutive duplicate sentences or lines from LLM output.
+    Keeps Markdown/code formatting intact.
+    """
+    lines = text.split("\n")
+    cleaned = []
+    prev = None
+    for line in lines:
+        normalized = line.strip().lower()
+        # Skip if this line is a repeat of the previous one
+        if normalized == prev and normalized != "":
+            continue
+        cleaned.append(line)
+        prev = normalized
+    return "\n".join(cleaned)
