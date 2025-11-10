@@ -100,6 +100,34 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         do_visualize=args.visualize,
     )
 
+def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
+    """
+    Retrieve chunks from the indexed chunks based on simple keyword matching.
+    """
+    with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+            page_to_chunk_map = json.load(f)
+    with open('data/extracted_index.json', 'r') as f:
+        extracted_index = json.load(f)
+
+    keywords = get_keywords(question)
+    chunk_ids = set()
+    ranked_chunks = []
+
+    print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
+
+    chunk_ids = {
+        chunk_id
+        for word in keywords
+        if word in extracted_index
+        for page_no in extracted_index[word]
+        for chunk_id in page_to_chunk_map.get(str(page_no), [])
+    }
+            
+    for cid in chunk_ids:
+        ranked_chunks.append(chunks[cid])
+
+    print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
+    return ranked_chunks
 
 def get_answer(
     question: str,
@@ -131,31 +159,7 @@ def get_answer(
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         # Use chunks from the textbook index
-        with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
-            page_to_chunk_map = json.load(f)
-        with open('data/extracted_index.json', 'r') as f:
-            extracted_index = json.load(f)
-
-        keywords = get_keywords(question)
-        chunk_ids = set()
-        ranked_chunks = []
-
-        print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
-
-        chunk_ids = {
-            chunk_id
-            for word in keywords
-            if word in extracted_index
-            for page_no in extracted_index[word]
-            for chunk_id in page_to_chunk_map.get(str(page_no), [])
-        }
-                
-        for cid in chunk_ids:
-            ranked_chunks.append(chunks[cid])
-
-        print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
-        # print(ranked_chunks)
-
+        ranked_chunks = use_indexed_chunks(question, chunks, logger)
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
