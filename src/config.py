@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Callable, Any
 
 import yaml
@@ -14,6 +14,9 @@ from src.preprocessing.chunking import ChunkStrategy, make_chunk_strategy, Secti
 class QueryPlanConfig:
     # chunking
     chunk_config: ChunkConfig
+
+    # filesystem context
+    project_root: pathlib.Path = field(repr=False)
 
     # retrieval + ranking
     top_k: int
@@ -45,35 +48,58 @@ class QueryPlanConfig:
     def make_artifacts_directory(self) -> os.PathLike:
         """Returns the path prefix for index artifacts."""
         strategy = self.make_strategy()
-        strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
+        strategy_dir = self.project_root / "index" / strategy.artifact_folder_name()
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
 
     # ---------- factory + validation ----------
     @staticmethod
     def from_yaml(path: os.PathLike) -> QueryPlanConfig:
-        raw = yaml.safe_load(open(path))
+        config_path = pathlib.Path(path).resolve()
+        with open(config_path, "r", encoding="utf-8") as fp:
+            raw = yaml.safe_load(fp)
+
+        config_dir = config_path.parent
+        if config_dir.name == "config" and config_dir.parent.name != "src":
+            project_root = (config_dir.parent / "src").resolve()
+        else:
+            project_root = config_dir.parent.resolve()
 
         def pick(key, default=None):
             return raw.get(key, default)
 
         chunk_config = QueryPlanConfig.get_chunk_config(raw)
 
+        embed_model = pick("embed_model", "models/Qwen3-Embedding-4B-Q5_K_M.gguf")
+        if isinstance(embed_model, str):
+            embed_model_path = pathlib.Path(embed_model)
+            if not embed_model_path.is_absolute():
+                embed_model = str((project_root / embed_model_path).resolve())
+
+        model_path = pick("model_path", None)
+        if isinstance(model_path, str):
+            model_path_path = pathlib.Path(model_path)
+            if not model_path_path.is_absolute():
+                model_path = str((project_root / model_path_path).resolve())
+
         cfg = QueryPlanConfig(
             # Chunking
             chunk_config   = chunk_config,
 
+            # Filesystem context
+            project_root   = project_root,
+
             # Retrieval + Ranking
             top_k          = pick("top_k", 5),
             pool_size      = pick("pool_size", 60),
-            embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
+            embed_model    = embed_model,
             ensemble_method= pick("ensemble_method", "rrf"),
             rrf_k          = pick("rrf_k", 60),
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
-            model_path     = pick("model_path", None),
+            model_path     = model_path,
             
             # Testing
             system_prompt_mode = pick("system_prompt_mode", "baseline"),

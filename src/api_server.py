@@ -3,11 +3,10 @@ FastAPI server for TokenSmith chat functionality.
 Provides REST API endpoints for the React frontend.
 """
 
-import asyncio
 import pathlib
 import re
-from typing import Dict, List
 from contextlib import asynccontextmanager
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,11 +19,15 @@ from src.ranking.ranker import EnsembleRanker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 
 
-# Global variables for loaded artifacts
-_artifacts = None
-_retrievers = None
-_ranker = None
-_config = None
+# Constants
+INDEX_PREFIX = "textbook_index"
+
+
+# Global state populated during app lifespan
+_artifacts: Optional[Dict[str, List[str]]] = None
+_retrievers: Optional[List] = None
+_ranker: Optional[EnsembleRanker] = None
+_config: Optional[QueryPlanConfig] = None
 _logger = None
 
 
@@ -44,54 +47,75 @@ class ChatResponse(BaseModel):
     query: str
 
 
+def _resolve_config_path() -> pathlib.Path:
+    """Return the absolute path to the API config."""
+    return pathlib.Path(__file__).resolve().parent / "config" / "config.yaml"
+
+
+def _ensure_initialized():
+    if not all([_config, _artifacts, _retrievers, _ranker]):
+        raise HTTPException(
+            status_code=503,
+            detail="Artifacts not loaded. Please run indexing first."
+        )
+
+
+def _retrieve_and_rank(query: str):
+    chunks = _artifacts["chunks"]
+    pool_n = max(_config.pool_size, _config.top_k + 10)
+    raw_scores: Dict[str, Dict[int, float]] = {}
+
+    for retriever in _retrievers:
+        raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
+
+    ordered = _ranker.rank(raw_scores=raw_scores)
+    topk_idxs = apply_seg_filter(_config, chunks, ordered)
+    return raw_scores, topk_idxs
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
     global _artifacts, _retrievers, _ranker, _config, _logger
-    
-    # Load configuration
-    config_path = pathlib.Path("src/config/config.yaml")
+
+    config_path = _resolve_config_path()
     if not config_path.exists():
-        raise FileNotFoundError("No config file found at src/config/config.yaml")
-    
+        raise FileNotFoundError(f"No config file found at {config_path}")
+
     _config = QueryPlanConfig.from_yaml(config_path)
-    _logger = init_logger(_config)
-    
-    # Load artifacts
+    init_logger(_config)
+    _logger = get_logger()
+
     try:
         artifacts_dir = _config.make_artifacts_directory()
         faiss_index, bm25_index, chunks, sources = load_artifacts(
-            artifacts_dir=artifacts_dir, 
-            index_prefix="textbook_index"
+            artifacts_dir=artifacts_dir,
+            index_prefix=INDEX_PREFIX
         )
-        
+
         _artifacts = {
-            "faiss_index": faiss_index,
-            "bm25_index": bm25_index,
             "chunks": chunks,
-            "sources": sources
+            "sources": sources,
         }
-        
+
         _retrievers = [
             FAISSRetriever(faiss_index, _config.embed_model),
-            BM25Retriever(bm25_index)
+            BM25Retriever(bm25_index),
         ]
-        
+
         _ranker = EnsembleRanker(
             ensemble_method=_config.ensemble_method,
             weights=_config.ranker_weights,
-            rrf_k=int(_config.rrf_k)
+            rrf_k=int(_config.rrf_k),
         )
-        
+
         print("✅ TokenSmith API initialized successfully")
-        
-    except Exception as e:
-        print(f"⚠️  Warning: Could not load artifacts: {e}")
+    except Exception as exc:
+        print(f"⚠️  Warning: Could not load artifacts: {exc}")
         print("   Run indexing first or check your configuration")
-    
+
     yield
-    
-    # Cleanup on shutdown
+
     print("🔄 Shutting down TokenSmith API...")
 
 
@@ -133,26 +157,22 @@ async def test_chat(request: ChatRequest):
     """Test chat endpoint that bypasses generation to isolate issues."""
     print(f"🔍 Test chat request: {request.query}")
     
-    if not _artifacts or not _retrievers or not _ranker:
-        return {"error": "Artifacts not loaded", "status": "error"}
+    try:
+        _ensure_initialized()
+    except HTTPException as exc:
+        return {"error": exc.detail, "status": "error"}
     
     if not request.query.strip():
         return {"error": "Query cannot be empty", "status": "error"}
     
+    if _config.disable_chunks:
+        return {
+            "error": "Chunk retrieval disabled in configuration; enable chunks to test retrieval.",
+            "status": "error",
+        }
+
     try:
-        # Just do retrieval and ranking, skip generation
-        pool_n = max(_config.pool_size, _config.top_k + 10)
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        
-        for retriever in _retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(
-                request.query, pool_n, _artifacts["chunks"]
-            )
-        
-        # Step 2: Ranking
-        ordered = _ranker.rank(raw_scores=raw_scores)
-        topk_idxs = apply_seg_filter(_config, _artifacts["chunks"], ordered)
-        
+        raw_scores, topk_idxs = _retrieve_and_rank(request.query)
         ranked_chunks = [_artifacts["chunks"][i] for i in topk_idxs]
         
         return {
@@ -160,6 +180,7 @@ async def test_chat(request: ChatRequest):
             "query": request.query,
             "chunks_found": len(ranked_chunks),
             "top_chunks": ranked_chunks[:3],  # First 3 chunks
+            "raw_scores": raw_scores,
             "message": "Retrieval and ranking successful, generation skipped"
         }
         
@@ -173,113 +194,57 @@ async def chat(request: ChatRequest):
     """Main chat endpoint."""
     print(f"🔍 Received chat request: {request.query}")  # Debug logging
     
-    if not _artifacts or not _retrievers or not _ranker:
-        print("Artifacts not loaded")
-        raise HTTPException(
-            status_code=503, 
-            detail="Artifacts not loaded. Please run indexing first."
-        )
+    _ensure_initialized()
     
     if not request.query.strip():
         print("Empty query received")
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
     try:
-        # Log query start (with error handling)
+        chunks = _artifacts["chunks"]
+        sources = _artifacts["sources"]
+
         if _logger:
             _logger.log_query_start(request.query)
         else:
-            print(f"Logger not available, skipping query logging")
+            print("Logger not available, skipping query logging")
         
-        # Step 1: Retrieval
-        print(f"Starting retrieval step...")
-        pool_n = max(_config.pool_size, _config.top_k + 10)
-        print(f"Pool size: {pool_n}")
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        
-        print(f"Number of retrievers: {len(_retrievers)}")
-        
-        # TEMPORARY WORKAROUND: Only use BM25 retriever to avoid FAISS segfault
-        print(f"Using BM25-only mode to avoid FAISS segfault...")
-        for i, retriever in enumerate(_retrievers):
-            if retriever.name == "bm25":
-                print(f"Running BM25 retriever only: {retriever.name}")
-                try:
-                    scores = retriever.get_scores(
-                        request.query, pool_n, _artifacts["chunks"]
-                    )
-                    raw_scores[retriever.name] = scores
-                    print(f"BM25 retriever completed successfully")
-                except Exception as retriever_error:
-                    print(f"BM25 retriever failed: {str(retriever_error)}")
-                    raise retriever_error
-            else:
-                print(f"Skipping {retriever.name} retriever to avoid segfault")
-        
-        print(f"Retrieval completed. Raw scores keys: {list(raw_scores.keys())}")
-        
-        # Step 2: Ranking
-        print(f"Starting ranking step...")
-        try:
-            ordered = _ranker.rank(raw_scores=raw_scores)
-            print(f"Ranking completed successfully")
-        except Exception as ranking_error:
-            print(f"Ranking failed: {str(ranking_error)}")
-            raise ranking_error
-        
-        print(f"Starting segment filter...")
-        try:
-            topk_idxs = apply_seg_filter(_config, _artifacts["chunks"], ordered)
-            print(f"Segment filter completed. Top K indices: {len(topk_idxs)}")
-        except Exception as filter_error:
-            print(f"Segment filter failed: {str(filter_error)}")
-            raise filter_error
-        
-        if _logger:
-            _logger.log_chunks_used(topk_idxs, _artifacts["chunks"], _artifacts["sources"])
-        
-        ranked_chunks = [_artifacts["chunks"][i] for i in topk_idxs]
-        
-        # Step 3: Generation
+        if _config.disable_chunks:
+            print("Chunk usage disabled in configuration; skipping retrieval.")
+            ranked_chunks: List[str] = []
+            topk_idxs: List[int] = []
+        else:
+            _, topk_idxs = _retrieve_and_rank(request.query)
+            ranked_chunks = [chunks[i] for i in topk_idxs]
+            if _logger:
+                _logger.log_chunks_used(topk_idxs, chunks, sources)
+
         max_tokens = _config.max_gen_tokens
         model_path = _config.model_path
-        
-        print(f"Starting generation with model: {model_path}")
-        print(f"Max tokens: {max_tokens}")
-        print(f"Number of chunks: {len(ranked_chunks)}")
-        
-        # Run generation synchronously (like main.py) to avoid threading issues
+
+        if not model_path:
+            raise HTTPException(status_code=500, detail="Model path not configured.")
+
         try:
-            print(f"About to call answer function...")
-            print(f"Query: {request.query}")
-            print(f"Chunks count: {len(ranked_chunks)}")
-            print(f"Model path: {model_path}")
-            print(f"Max tokens: {max_tokens}")
-            
-            # Test with a simple call first
-            if len(ranked_chunks) > 0:
-                print(f"First chunk preview: {ranked_chunks[0][:100]}...")
-            
-            print(f"Calling answer function directly (synchronous)...")
-            # Call answer directly like main.py does - no thread pool
             answer_text = answer(
-                request.query, 
-                ranked_chunks, 
-                model_path, 
-                max_tokens
+                request.query,
+                ranked_chunks,
+                model_path,
+                max_tokens,
+                system_prompt_mode=_config.system_prompt_mode,
             )
-            print(f"Generation completed successfully: {answer_text[:100]}...")
         except Exception as gen_error:
             print(f"Generation failed: {str(gen_error)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            # Return a fallback response instead of crashing
-            answer_text = f"I apologize, but I encountered an error while generating a response. The query was: '{request.query}'. Please try again or check the server logs for more details."
-        
-        # Prepare sources for the chunks used - convert to new format
+            if _logger:
+                _logger.log_error(gen_error, context="generation")
+            answer_text = (
+                "I’m sorry, but I couldn’t generate a response due to an internal error. "
+                "Please try again or check the server logs for more details."
+            )
+
         sources_used = []
         for i in topk_idxs:
-            source_text = _artifacts["sources"][i]
+            source_text = sources[i]
             # Extract page number from source text if available, otherwise use 1
             page = 1
             if "page" in source_text.lower():
@@ -309,7 +274,7 @@ async def chat(request: ChatRequest):
     except Exception as e:
         print(f"Error processing query: {str(e)}")
         if _logger:
-            _logger.log_error(str(e))
+            _logger.log_error(e)
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
