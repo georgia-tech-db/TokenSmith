@@ -6,6 +6,7 @@ from tests.metrics.keyword_match import KeywordMatchMetric
 from tests.metrics.nli import NLIEntailmentMetric
 from tests.metrics.llm_judge import LLMJudgeMetric
 from tests.metrics.async_llm_judge import AsyncLLMJudgeMetric
+from tests.metrics.chunk_retrieval import ChunkRetrievalMetric
 
 __all__ = [
     'MetricBase',
@@ -16,4 +17,5 @@ __all__ = [
     'NLIEntailmentMetric',
     'LLMJudgeMetric',
     'AsyncLLMJudgeMetric',
+    'ChunkRetrievalMetric',
 ]
