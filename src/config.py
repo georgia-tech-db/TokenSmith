@@ -31,6 +31,11 @@ class QueryPlanConfig:
     
     model_path: os.PathLike
     
+    # hallucination detection
+    hallucination_enabled: bool
+    hallucination_model_path: str
+    hallucination_threshold: float
+    
     # testing
     system_prompt_mode: str
     disable_chunks: bool
@@ -79,6 +84,11 @@ class QueryPlanConfig:
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
+            
+            # Hallucination Detection
+            hallucination_enabled = pick("hallucination_detection", {}).get("enabled", False),
+            hallucination_model_path = pick("hallucination_detection", {}).get("model_path", "KRLabsOrg/lettucedect-base-modernbert-en-v1"),
+            hallucination_threshold = pick("hallucination_detection", {}).get("threshold", 0.1),
             
             # Testing
             system_prompt_mode = pick("system_prompt_mode", "baseline"),
@@ -129,6 +139,9 @@ class QueryPlanConfig:
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path,
+            "hallucination_enabled": self.hallucination_enabled,
+            "hallucination_model_path": self.hallucination_model_path,
+            "hallucination_threshold": self.hallucination_threshold,
             "system_prompt_mode": self.system_prompt_mode,
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,
