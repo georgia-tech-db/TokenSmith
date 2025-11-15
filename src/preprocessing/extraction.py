@@ -138,6 +138,41 @@ def extract_index_with_range_expansion(text_content):
     # Convert the dictionary to a nicely formatted JSON string
     return json.dumps(index_data, indent=2)
 
+def build_inverted_index(index_file_path: str):
+    """
+    Processes the index to map individual words to page numbers.
+    
+    Example input:
+    "HTML (HyperText Markup Language)": [404, 406]
+    
+    Example output:
+    'html': {404, 406},
+    'hypertext': {404, 406},
+    'markup': {404, 406},
+    'language': {404, 406}
+    """
+    word_map = {}
+
+    with open(index_file_path, 'r', encoding='utf-8') as f:
+        index_data = json.load(f)
+    
+    for key_string, page_nos in index_data.items():
+        # Use regex to split on any non-alphanumeric character
+        # This handles spaces, parentheses, slashes, etc.
+        words = re.split(r'\W+', key_string.lower())
+        
+        for word in words:
+            if word:  # Filter out empty strings
+                if word not in word_map:
+                    word_map[word] = set()
+                # Add all pages for this key to the set
+                word_map[word].update(page_nos)
+    
+    print( f"Built inverted index with {len(word_map)} unique words." )
+
+    with open('data/inverted_index.json', 'w', encoding='utf-8') as f:
+        json.dump({k: sorted(list(v)) for k, v in word_map.items()}, f, indent=2)
+
 def extract_page_from_file(file_path, op_file):
 
     """

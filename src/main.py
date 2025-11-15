@@ -106,7 +106,7 @@ def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list
     """
     with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
             page_to_chunk_map = json.load(f)
-    with open('data/extracted_index.json', 'r') as f:
+    with open('data/inverted_index.json', 'r') as f:
         extracted_index = json.load(f)
 
     keywords = get_keywords(question)
