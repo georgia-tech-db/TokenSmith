@@ -2,13 +2,17 @@ import argparse
 import json
 import pathlib
 import sys
+import time
+import math
+from datetime import datetime
 from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
-from src.generator import answer
+from src.generator import answer, format_prompt, get_llm_stats, set_model_cache_enabled
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
+from src.ranking.reranker import rerank as rerank_candidates
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
@@ -18,6 +22,12 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
     parser = argparse.ArgumentParser(
         description="Welcome to TokenSmith!"
+    )
+
+    parser.add_argument(
+        "--config",
+        default="config/config.yaml",
+        help="path to YAML config (default: %(default)s)"
     )
 
     # Required arguments
@@ -47,6 +57,62 @@ def parse_args() -> argparse.Namespace:
         choices=["baseline", "tutor", "concise", "detailed"],
         default="baseline",
         help="system prompt mode (choices: baseline, tutor, concise, detailed)"
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="deterministic decoding: temp=0, top_k=1, top_p=1, seed=0"
+    )
+    parser.add_argument(
+        "--no_cache_model",
+        action="store_true",
+        help="disable in-process model cache; force reload each question"
+    )
+    # Context display options (chat)
+    parser.add_argument(
+        "--show_context",
+        action="store_true",
+        help="print retrieved context chunks and sources after each answer"
+    )
+    parser.add_argument(
+        "--sources_only",
+        action="store_true",
+        help="print retrieved context only (skip model generation)"
+    )
+    parser.add_argument(
+        "--context_k",
+        type=int,
+        default=3,
+        help="number of retrieved chunks to display when showing context (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--context_chars",
+        type=int,
+        default=400,
+        help="maximum characters per chunk preview when showing context (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--prompt_chunk_chars",
+        type=int,
+        default=400,
+        help="maximum characters per chunk included per chunk in the LLM prompt (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--few_shot",
+        action="store_true",
+        help="prepend a few short exemplars to guide style and citations"
+    )
+    parser.add_argument(
+        "--abstain_threshold",
+        type=float,
+        default=0.2,
+        help="if retrieval confidence is below this, abstain with 'I don't know'"
+    )
+    parser.add_argument(
+        "--score_warp_gamma",
+        type=float,
+        default=2.5,
+        help="nonlinear warp gamma for bounded scores in [0,1]; higher pushes 0.6 closer to 1 (default: %(default)s)"
     )
     
     # Indexing-specific arguments
@@ -135,9 +201,8 @@ def get_answer(
     args: argparse.Namespace,
     logger: "RunLogger",
     artifacts: Optional[Dict] = None,
-    golden_chunks: Optional[list] = None,
-    is_test_mode: bool = False
-) -> str:
+    golden_chunks: Optional[list] = None
+) -> tuple[str, Dict[str, float], list]:
     """
     Run a single query through the pipeline.
     """    
@@ -149,17 +214,23 @@ def get_answer(
     logger.log_query_start(question)
     
     # Step 1: Get chunks (golden, retrieved, or none)
-    chunks_info = None
-    hyde_query = None
+    retrieval_ms = 0.0
+    ranking_ms = 0.0
+    prompt_ms = 0.0
+    generation_ms = 0.0
+    tokens_generated = 0
+    confidence = 0.0
+
+    context_items: list = []
+
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
+        confidence = 1.0
     elif cfg.disable_chunks:
         # No chunks - baseline mode
         ranked_chunks = []
-    elif cfg.use_indexed_chunks:
-        # Use chunks from the textbook index
-        ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        confidence = 0.0
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
@@ -175,40 +246,65 @@ def get_answer(
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
+        t0 = time.perf_counter()
         for retriever in retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+            raw_scores[retriever.name] = retriever.get_scores(question, pool_n, chunks)
+        retrieval_ms = (time.perf_counter() - t0) * 1000.0
         # TODO: Fix retrieval logging.
         
-        # Step 2: Ranking
+        # Step 2: Ranking (fusion) + optional cross-encoder rerank
+        t1 = time.perf_counter()
         ordered = ranker.rank(raw_scores=raw_scores)
-        topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+        topk_idxs = ordered
+        rerank_scores_map: Dict[int, float] = {}
+        rerank_failed = False
+        if cfg.rerank_mode and cfg.rerank_mode.lower() == "cross_encoder":
+            rerank_pool = max(cfg.top_k, int(cfg.rerank_top_n))
+            candidate_idxs = ordered[:rerank_pool]
+            candidates = [(i, chunks[i]) for i in candidate_idxs]
+            reranked = rerank_candidates(
+                question,
+                candidates,
+                mode="cross_encoder",
+                top_n=rerank_pool,
+                model_name=cfg.rerank_model,
+            )
+            if reranked:
+                topk_idxs = [idx for idx, _ in reranked]
+                rerank_scores_map = {idx: score for idx, score in reranked}
+            else:
+                rerank_failed = True
+        # Apply segment filter and trim to top_k
+        topk_idxs = apply_seg_filter(cfg, chunks, topk_idxs)[: cfg.top_k]
+        ranking_ms = (time.perf_counter() - t1) * 1000.0
         logger.log_chunks_used(topk_idxs, chunks, sources)
+        if rerank_failed:
+            raise RuntimeError("Cross-encoder rerank returned no results")
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        
-        # Capture chunk info if in test mode
-        if is_test_mode:
-            # Compute individual ranker ranks
-            faiss_scores = raw_scores.get("faiss", {})
-            bm25_scores = raw_scores.get("bm25", {})
-            
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)  # Higher score = better
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)  # Higher score = better
-            
-            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
-            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
-            
-            chunks_info = []
-            for rank, idx in enumerate(topk_idxs, 1):
-                chunks_info.append({
-                    "rank": rank,
-                    "chunk_id": idx,
-                    "content": chunks[idx],
-                    "faiss_score": faiss_scores.get(idx, 0),
-                    "faiss_rank": faiss_ranks.get(idx, 0),
-                    "bm25_score": bm25_scores.get(idx, 0),
-                    "bm25_rank": bm25_ranks.get(idx, 0),
-                })
+        # Compute confidence: prefer reranker scores; otherwise fall back to fused retriever scores
+        confidence = 0.0
+        try:
+            if rerank_scores_map:
+                top_scores = [rerank_scores_map[i] for i in topk_idxs if i in rerank_scores_map]
+                if top_scores:
+                    confidence = 1.0 / (1.0 + math.exp(-top_scores[0]))
+        except Exception:
+            confidence = 0.0
+        # Prepare context preview items (surface rerank scores in output)
+        k = max(1, int(getattr(args, "context_k", 3)))
+        maxc = int(getattr(args, "context_chars", 400))
+        for rank, i in enumerate(topk_idxs[:k], start=1):
+            chunk_text = chunks[i] or ""
+            preview = chunk_text if maxc <= 0 else chunk_text[:maxc]
+            s_r = float(rerank_scores_map.get(i, 0.0)) if "rerank_scores_map" in locals() else 0.0
+            context_items.append({
+                "S": rank,
+                "index": int(i),
+                "source": str(sources[i]),
+                "preview": preview,
+                "score_rerank": s_r,
+            })
         
         # Step 3: Final Re-ranking (if enabled)
         # Disabled till we fix the core pipeline
@@ -217,17 +313,80 @@ def get_answer(
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-    ans = answer(
-        question, 
-        ranked_chunks, 
-        model_path, 
-        max_tokens=cfg.max_gen_tokens, 
-        system_prompt_mode=system_prompt
+    # Measure prompt formatting separately (for visibility)
+    p0 = time.perf_counter()
+    _ = format_prompt(
+        ranked_chunks,
+        question,
+        max_chunk_chars=int(getattr(args, "prompt_chunk_chars", 400)),
+        system_prompt_mode=system_prompt,
+        few_shot=bool(getattr(args, "few_shot", False))
     )
-    
-    if is_test_mode:
-        return ans, chunks_info, hyde_query
-    return ans
+    prompt_ms = (time.perf_counter() - p0) * 1000.0
+
+    # Abstain if low confidence (only when using retrieval)
+    abstain_threshold = float(getattr(args, "abstain_threshold", 0.2))
+    try:
+        if not (golden_chunks and cfg.use_golden_chunks) and not cfg.disable_chunks:
+            if confidence < abstain_threshold:
+                ans = "I don't know"
+                generation_ms = 0.0
+                tokens_generated = 0
+                stats = {
+                    "retrieval_ms": retrieval_ms,
+                    "ranking_ms": ranking_ms,
+                    "prompt_ms": prompt_ms,
+                    "generation_ms": generation_ms,
+                    "model_load_ms": 0.0,
+                    "tokens_generated": float(tokens_generated),
+                    "tokens_per_sec": 0.0,
+                    "confidence": float(confidence),
+                }
+                return ans, stats, context_items
+    except Exception:
+        pass
+
+    # Step 4: Generation
+    pre_llm = get_llm_stats()
+    if getattr(args, "sources_only", False):
+        ans = ""
+        generation_ms = 0.0
+    else:
+        g0 = time.perf_counter()
+        ans = answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+            prompt_chunk_chars=int(getattr(args, "prompt_chunk_chars", 400)),
+            few_shot=bool(getattr(args, "few_shot", False)),
+            **({"temperature": 0.0, "top_k": 1, "top_p": 1.0, "seed": 0} if getattr(args, "deterministic", False) else {})
+        )
+    generation_ms = (time.perf_counter() - g0) * 1000.0
+    post_llm = get_llm_stats()
+    model_load_ms = 0.0
+    try:
+        if post_llm.get("misses", 0) > pre_llm.get("misses", 0):
+            model_load_ms = float(post_llm.get("last_load_ms") or 0.0)
+    except Exception:
+        model_load_ms = 0.0
+
+    # Rough token count estimate if backend doesn't provide usage
+    tokens_generated = max(1, len(ans) // 4)
+
+    stats = {
+        "retrieval_ms": retrieval_ms,
+        "ranking_ms": ranking_ms,
+        "prompt_ms": prompt_ms,
+        "generation_ms": generation_ms,
+        "model_load_ms": model_load_ms,
+        "tokens_generated": float(tokens_generated),
+        "tokens_per_sec": (tokens_generated / (generation_ms / 1000.0)) if generation_ms > 0 else 0.0,
+        "confidence": float(confidence),
+    }
+
+    return ans, stats, context_items
 
 def get_keywords(question: str) -> list:
     """
@@ -292,13 +451,38 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
                 print("Goodbye!")
                 break
 
-            # Use the single query function
-            ans = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
+            # Timing: start
+            start_wall = datetime.now().isoformat(timespec='seconds')
+            start_t = time.perf_counter()
+            print(f"[TIMING] start={start_wall}")
 
-            print("\n=================== START OF ANSWER ===================")
-            print(ans.strip() if ans and ans.strip() else "(No output from model)")
-            print("\n==================== END OF ANSWER ====================")
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            # Respect --no_cache_model setting
+            set_model_cache_enabled(not args.no_cache_model)
+
+            # Use the single query function
+            ans, stats, context_items = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
+
+            if not args.sources_only:
+                print("\n=================== START OF ANSWER ===================")
+                print(ans.strip() if ans and ans.strip() else "(No output from model)")
+                print("\n==================== END OF ANSWER ====================")
+                logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            # Optionally print retrieved context
+            if args.show_context or args.sources_only:
+                print("\n=================== RETRIEVED CONTEXT ===================")
+                for item in context_items:
+                    sr = float(item.get('score_rerank', 0.0))
+                    print(f"[S{item['S']}] {item['source']} (idx={item['index']}) | rerank={sr:.3f}\n{item['preview']}")
+                    print("------------------------------------------------------")
+                print("================= END RETRIEVED CONTEXT ================")
+            # Stage-level timing
+            print(f"[TIMING] retrieval_ms={stats['retrieval_ms']:.1f} ranking_ms={stats['ranking_ms']:.1f} prompt_ms={stats['prompt_ms']:.1f} model_load_ms={stats['model_load_ms']:.1f} generation_ms={stats['generation_ms']:.1f} tokens_generated={int(stats['tokens_generated'])} tokens_per_sec={stats['tokens_per_sec']:.2f} confidence={stats.get('confidence', 0.0):.2f}")
+            
+
+            # Timing: end
+            end_wall = datetime.now().isoformat(timespec='seconds')
+            elapsed = time.perf_counter() - start_t
+            print(f"[TIMING] end={end_wall} elapsed={elapsed:.2f}s")
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
@@ -317,14 +501,15 @@ def main():
     args = parse_args()
 
     # Config loading
-    config_path = pathlib.Path("config/config.yaml")
-    cfg = None
+    config_path = pathlib.Path(args.config)
     if config_path.exists():
         cfg = QueryPlanConfig.from_yaml(config_path)
+    else:
+        cfg = None
 
     if cfg is None:
         raise FileNotFoundError(
-            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+            f"No config file provided and no fallback found. Tried: {config_path}"
         )
 
     init_logger(cfg)

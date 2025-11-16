@@ -1,9 +1,12 @@
-embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+embed_model: "sentence-transformers/all-MiniLM-L6-v2"
 top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0}
 rrf_k: 60
+rerank_mode: "cross_encoder"
+rerank_top_n: 20
+rerank_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
 max_gen_tokens: 400
 seg_filter: null
 chunk_mode : "sections"

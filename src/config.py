@@ -28,6 +28,8 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
+    rerank_top_n: int
+    rerank_model: str
     
     model_path: os.PathLike
     
@@ -77,6 +79,8 @@ class QueryPlanConfig:
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             rerank_mode    = pick("rerank_mode", "none"),
+            rerank_top_n   = pick("rerank_top_n", 20),
+            rerank_model   = pick("rerank_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
             
@@ -127,6 +131,8 @@ class QueryPlanConfig:
             "rrf_k": self.rrf_k,
             "ranker_weights": self.ranker_weights,
             "rerank_mode": self.rerank_mode,
+            "rerank_top_n": self.rerank_top_n,
+            "rerank_model": self.rerank_model,
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path,
             "system_prompt_mode": self.system_prompt_mode,
