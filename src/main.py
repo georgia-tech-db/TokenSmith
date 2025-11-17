@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
-from src.generator import answer, format_prompt, get_llm_stats, set_model_cache_enabled
+from src.generator import answer, format_prompt, get_llm_stats
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
@@ -22,12 +22,6 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
     parser = argparse.ArgumentParser(
         description="Welcome to TokenSmith!"
-    )
-
-    parser.add_argument(
-        "--config",
-        default="config/config.yaml",
-        help="path to YAML config (default: %(default)s)"
     )
 
     # Required arguments
@@ -64,20 +58,9 @@ def parse_args() -> argparse.Namespace:
         help="deterministic decoding: temp=0, top_k=1, top_p=1, seed=0"
     )
     parser.add_argument(
-        "--no_cache_model",
-        action="store_true",
-        help="disable in-process model cache; force reload each question"
-    )
-    # Context display options (chat)
-    parser.add_argument(
         "--show_context",
         action="store_true",
         help="print retrieved context chunks and sources after each answer"
-    )
-    parser.add_argument(
-        "--sources_only",
-        action="store_true",
-        help="print retrieved context only (skip model generation)"
     )
     parser.add_argument(
         "--context_k",
@@ -98,21 +81,10 @@ def parse_args() -> argparse.Namespace:
         help="maximum characters per chunk included per chunk in the LLM prompt (default: %(default)s)"
     )
     parser.add_argument(
-        "--few_shot",
-        action="store_true",
-        help="prepend a few short exemplars to guide style and citations"
-    )
-    parser.add_argument(
         "--abstain_threshold",
         type=float,
         default=0.2,
         help="if retrieval confidence is below this, abstain with 'I don't know'"
-    )
-    parser.add_argument(
-        "--score_warp_gamma",
-        type=float,
-        default=2.5,
-        help="nonlinear warp gamma for bounded scores in [0,1]; higher pushes 0.6 closer to 1 (default: %(default)s)"
     )
     
     # Indexing-specific arguments
@@ -319,8 +291,7 @@ def get_answer(
         ranked_chunks,
         question,
         max_chunk_chars=int(getattr(args, "prompt_chunk_chars", 400)),
-        system_prompt_mode=system_prompt,
-        few_shot=bool(getattr(args, "few_shot", False))
+        system_prompt_mode=system_prompt
     )
     prompt_ms = (time.perf_counter() - p0) * 1000.0
 
@@ -348,21 +319,16 @@ def get_answer(
 
     # Step 4: Generation
     pre_llm = get_llm_stats()
-    if getattr(args, "sources_only", False):
-        ans = ""
-        generation_ms = 0.0
-    else:
-        g0 = time.perf_counter()
-        ans = answer(
-            question,
-            ranked_chunks,
-            model_path,
-            max_tokens=cfg.max_gen_tokens,
-            system_prompt_mode=system_prompt,
-            prompt_chunk_chars=int(getattr(args, "prompt_chunk_chars", 400)),
-            few_shot=bool(getattr(args, "few_shot", False)),
-            **({"temperature": 0.0, "top_k": 1, "top_p": 1.0, "seed": 0} if getattr(args, "deterministic", False) else {})
-        )
+    g0 = time.perf_counter()
+    ans = answer(
+        question,
+        ranked_chunks,
+        model_path,
+        max_tokens=cfg.max_gen_tokens,
+        system_prompt_mode=system_prompt,
+        prompt_chunk_chars=int(getattr(args, "prompt_chunk_chars", 400)),
+        **({"temperature": 0.0, "top_k": 1, "top_p": 1.0, "seed": 0} if getattr(args, "deterministic", False) else {})
+    )
     generation_ms = (time.perf_counter() - g0) * 1000.0
     post_llm = get_llm_stats()
     model_load_ms = 0.0
@@ -456,19 +422,15 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             start_t = time.perf_counter()
             print(f"[TIMING] start={start_wall}")
 
-            # Respect --no_cache_model setting
-            set_model_cache_enabled(not args.no_cache_model)
-
             # Use the single query function
             ans, stats, context_items = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
 
-            if not args.sources_only:
-                print("\n=================== START OF ANSWER ===================")
-                print(ans.strip() if ans and ans.strip() else "(No output from model)")
-                print("\n==================== END OF ANSWER ====================")
-                logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            print("\n=================== START OF ANSWER ===================")
+            print(ans.strip() if ans and ans.strip() else "(No output from model)")
+            print("\n==================== END OF ANSWER ====================")
+            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
             # Optionally print retrieved context
-            if args.show_context or args.sources_only:
+            if args.show_context:
                 print("\n=================== RETRIEVED CONTEXT ===================")
                 for item in context_items:
                     sr = float(item.get('score_rerank', 0.0))
@@ -501,15 +463,12 @@ def main():
     args = parse_args()
 
     # Config loading
-    config_path = pathlib.Path(args.config)
-    if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path)
-    else:
-        cfg = None
+    config_path = pathlib.Path("config/config.yaml")
+    cfg = QueryPlanConfig.from_yaml(config_path)
 
     if cfg is None:
         raise FileNotFoundError(
-            f"No config file provided and no fallback found. Tried: {config_path}"
+            f"No config file found at {config_path}"
         )
 
     init_logger(cfg)
