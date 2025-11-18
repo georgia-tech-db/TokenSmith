@@ -111,7 +111,7 @@ def get_answer(
     cfg: QueryPlanConfig,
     args: argparse.Namespace,
     logger: "RunLogger",
-    console: "Console",
+    console: Optional["Console"],
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False
@@ -201,7 +201,22 @@ def get_answer(
         system_prompt_mode=system_prompt,
     )
 
-    # Accumulate the full text while rendering incremental Markdown chunks
+    if is_test_mode:
+        # We do not render MD in the test mode
+        ans = ""
+        for delta in stream_iter:
+            ans += delta
+        ans = dedupe_generated_text(ans)
+        return ans, chunks_info, hyde_query
+    else:
+        # Accumulate the full text while rendering incremental Markdown chunks
+        ans = render_streaming_ans(console, stream_iter)
+    return ans
+
+
+def render_streaming_ans(console, stream_iter):
+    if not console:
+        raise ValueError("Console must be non null for rendering.")
     ans = ""
     is_first = True
     with Live(console=console, refresh_per_second=5) as live:
@@ -215,9 +230,6 @@ def get_answer(
     ans = dedupe_generated_text(ans)
     live.update(Markdown(ans))
     console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
-
-    if is_test_mode:
-        return ans, chunks_info, hyde_query
     return ans
 
 
