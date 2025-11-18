@@ -2,6 +2,7 @@
 import faiss  # force single OpenMP init
 
 import argparse
+import json
 import pathlib
 import sys
 from typing import Dict, Optional
@@ -96,7 +97,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     artifacts_dir = cfg.make_artifacts_directory()
 
     build_index(
-        markdown_file="data/book_without_image.md",
+        markdown_file="data/book_with_pages.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
@@ -105,6 +106,34 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         do_visualize=args.visualize,
     )
 
+def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
+    """
+    Retrieve chunks from the indexed chunks based on simple keyword matching.
+    """
+    with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+            page_to_chunk_map = json.load(f)
+    with open('data/extracted_index.json', 'r') as f:
+        extracted_index = json.load(f)
+
+    keywords = get_keywords(question)
+    chunk_ids = set()
+    ranked_chunks = []
+
+    print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
+
+    chunk_ids = {
+        chunk_id
+        for word in keywords
+        if word in extracted_index
+        for page_no in extracted_index[word]
+        for chunk_id in page_to_chunk_map.get(str(page_no), [])
+    }
+            
+    for cid in chunk_ids:
+        ranked_chunks.append(chunks[cid])
+
+    print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
+    return ranked_chunks
 
 def get_answer(
     question: str,
@@ -135,6 +164,9 @@ def get_answer(
     elif cfg.disable_chunks:
         # No chunks - baseline mode
         ranked_chunks = []
+    elif cfg.use_indexed_chunks:
+        # Use chunks from the textbook index
+        ranked_chunks = use_indexed_chunks(question, chunks, logger)
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
@@ -232,6 +264,17 @@ def render_streaming_ans(console, stream_iter):
     console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
     return ans
 
+def get_keywords(question: str) -> list:
+    """
+    Simple keyword extraction from the question.
+    """
+    stopwords = set([
+        "the", "is", "at", "which", "on", "for", "a", "an", "and", "or", "in", 
+        "to", "of", "by", "with", "that", "this", "it", "as", "are", "was", "what"
+    ])
+    words = question.lower().split()
+    keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
+    return keywords
 
 def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     """

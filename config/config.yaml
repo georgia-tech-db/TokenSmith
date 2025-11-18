@@ -12,3 +12,4 @@ recursive_chunk_size: 2000
 recursive_overlap: 200
 use_hyde: false
 hyde_max_tokens: 300
+use_indexed_chunks: false
