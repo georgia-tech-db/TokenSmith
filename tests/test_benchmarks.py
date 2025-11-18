@@ -252,6 +252,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         args=args,
         logger=logger,
         artifacts=artifacts,
+        console=None,
         golden_chunks=golden_chunks,
         is_test_mode=True
     )

@@ -11,11 +11,10 @@ dependencies:
   - make
   - pkg-config
   - git
-  - numpy<2.0
-  - faiss-cpu
 
   # Use pip only for packages not in conda or needing special compilation
   - pip:
+    - faiss-cpu
     - llama-cpp-python  # Needs CMAKE_ARGS for Metal/CUDA
     - pyyaml
     - tqdm
@@ -23,6 +22,8 @@ dependencies:
     - transformers
     - sentence-transformers
     - rank_bm25
-    - langchain-experimental
+    - langchain
+    - langchain_text_splitters
+    - google-genai
     - pytest
     - rich
