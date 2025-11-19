@@ -11,6 +11,7 @@
 * Configurable chunking (tokens or characters)
 * Optional indexing progress visualization
 * Table preservation during indexing (flag-based)
+* Pull information directly from course discussion forums
 
 ## Requirements
 

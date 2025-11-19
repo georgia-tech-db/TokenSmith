@@ -165,3 +165,73 @@ class BM25Retriever(Retriever):
         scores = {int(idx): float(score) for idx, score in zip(top_k_indices, top_scores)}
 
         return scores
+    
+# -------------------------- Cascade Retrieval core ------------------------------ #
+
+class CascadeRetriever(Retriever):
+    """ Allows for cascaded index searching"""
+
+    def __init__(self, 
+                 primary_retrievers: List[Retriever], 
+                 secondary_retrievers: List[Retriever], 
+                 primary_ranker, 
+                 secondary_ranker, 
+                 primary_chunks, 
+                 secondary_chunks, 
+                 threshold: float):
+
+        # ----- Primary index retrieval ----- #
+        self.primary_retrievers = primary_retrievers
+        self.primary_ranker = primary_ranker
+        self.primary_chunks = primary_chunks
+
+        # ----- Secondary index retrieval ----- #
+        self.secondary_retrievers = secondary_retrievers
+        self.secondary_ranker = secondary_ranker
+        self.secondary_chunks = secondary_chunks
+
+        self.threshold = threshold
+
+    def get_ranked_chunks(self, query: str, pool_size: int, top_k: int) -> Tuple[List[str], str, float]:
+        """
+        Look at the most recent source of truth retriever. If the threshold is not met, then look at the second most 
+        recent source of truth
+        Returns:
+        - list of chunks
+        - the source ('primary' or 'secondary)
+        - the best score from the primary search.
+        """
+        # query
+        primary_scores: Dict[str, Dict[int, float]] = {}
+        for retriever in self.primary_retrievers:
+            primary_scores[retriever.name] = retriever.get_scores(query, pool_size, self.primary_chunks)
+
+        # Rank
+        top_score = 0.0
+        primary_topk_idxs = []
+        if any(primary_scores.values()):
+            primary_ordered = self.primary_ranker.rank(raw_scores=primary_scores)
+            primary_topk_idxs = primary_ordered[:top_k]
+            
+            if primary_topk_idxs:
+                top_chunk_idx = primary_topk_idxs[0]
+                top_score = primary_scores.get("bm25", {}).get(top_chunk_idx, 0.0)
+
+        #print(self.threshold)
+        if top_score >= self.threshold:
+            print("[CascadeRetriever] Using primary index.")
+            return [self.primary_chunks[i] for i in primary_topk_idxs], "primary", top_score
+        else:
+            print("[CascadeRetriever] Primary index failed to meet threshold. Using secondary index.")
+            # query second latest source of truth
+            secondary_scores: Dict[str, Dict[int, float]] = {}
+            for retriever in self.secondary_retrievers:
+                secondary_scores[retriever.name] = retriever.get_scores(query, pool_size, self.secondary_chunks)
+            
+            secondary_ordered = self.secondary_ranker.rank(raw_scores=secondary_scores)
+            secondary_topk_idxs = secondary_ordered[:top_k]
+            
+            return [self.secondary_chunks[i] for i in secondary_topk_idxs], "secondary", top_score
+
+    def get_scores(self, query: str, pool_size: int, chunks: List[str]):
+        return self.primary_retrievers[0].get_scores(query, pool_size, chunks)

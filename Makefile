@@ -58,6 +58,17 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
+get-threads:
+	@echo "Getting forum threads"
+	conda run --no-capture-output -n tokensmith python -m EdDiscussion.get_ed_threads
+	conda run --no-capture-output -n tokensmith python -m EdDiscussion.clean_ed_threads
+	mv threads_clean.json data
+	rm -rf threads_reduced.json
+
+build-thread-index:
+	@echo "Indexing threads"
+	conda run --no-capture-output -n tokensmith python -m scripts.index_ed_threads
+
 # Run modes
 run-index:
 	@echo "Running TokenSmith index mode with additional CLI args: $(ARGS)"

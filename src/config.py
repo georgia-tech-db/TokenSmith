@@ -24,6 +24,7 @@ class QueryPlanConfig:
     rrf_k: int
     ranker_weights: Dict[str, float]
     rerank_mode: str
+    cascade_threshold: float
     seg_filter: Callable
 
     # generation
@@ -77,6 +78,7 @@ class QueryPlanConfig:
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
             rerank_mode    = pick("rerank_mode", "none"),
+            cascade_threshold = pick("cascade_threshold", 10.0),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
             
@@ -129,6 +131,7 @@ class QueryPlanConfig:
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
             "model_path": self.model_path,
+            "cascade_threshold": self.cascade_threshold,
             "system_prompt_mode": self.system_prompt_mode,
             "disable_chunks": self.disable_chunks,
             "use_golden_chunks": self.use_golden_chunks,

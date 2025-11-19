@@ -3,6 +3,7 @@ top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0}
+cascade_threshold: 10.0
 rrf_k: 60
 max_gen_tokens: 400
 seg_filter: null
@@ -11,5 +12,5 @@ model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
 recursive_chunk_size: 2000
 recursive_overlap: 200
 use_hyde: false
-hyde_max_tokens: 600
+hyde_max_tokens: 100
 use_indexed_chunks: false

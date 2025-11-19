@@ -10,7 +10,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, CascadeRetriever, FAISSRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
 
 
@@ -141,10 +141,12 @@ def get_answer(
     """
     Run a single query through the pipeline.
     """    
-    chunks = artifacts["chunks"]
-    sources = artifacts["sources"]
-    retrievers = artifacts["retrievers"]
-    ranker = artifacts["ranker"]
+    #chunks = artifacts["chunks"]
+    cascade_retriever = artifacts["cascade_retriever"]
+    all_sources = artifacts["sources"]
+    #sources = artifacts["sources"]
+    #retrievers = artifacts["retrievers"]
+    #ranker = artifacts["ranker"]
     
     logger.log_query_start(question)
     
@@ -153,13 +155,16 @@ def get_answer(
     hyde_query = None
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
+        source_name = 'golden'
         ranked_chunks = golden_chunks
     elif cfg.disable_chunks:
         # No chunks - baseline mode
+        source_name = 'no_chunking'
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         # Use chunks from the textbook index
         ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        source_name = 'textbook'
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
@@ -172,47 +177,31 @@ def get_answer(
             hyde_query = hypothetical_doc
             # print(f"🔍 HyDE query: {hypothetical_doc}")
         
-        # Step 1: Retrieval
-        pool_n = max(cfg.pool_size, cfg.top_k + 10)
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
+        # Retrieval and ranking
+        ranked_chunks, source_name, _ = cascade_retriever.get_ranked_chunks(
+            query=retrieval_query, 
+            pool_size=cfg.pool_size, 
+            top_k=cfg.top_k
+        )
+        current_sources = all_sources.get(source_name, [])
+        logger.log_chunks_used(
+            [cascade_retriever.primary_chunks.index(c) if source_name == "primary" else cascade_retriever.secondary_chunks.index(c) for c in ranked_chunks], 
+            ranked_chunks, 
+            current_sources
+        )
         
-        # Step 2: Ranking
-        ordered = ranker.rank(raw_scores=raw_scores)
-        topk_idxs = apply_seg_filter(cfg, chunks, ordered)
-        logger.log_chunks_used(topk_idxs, chunks, sources)
-        
-        ranked_chunks = [chunks[i] for i in topk_idxs]
-        
-        # Capture chunk info if in test mode
         if is_test_mode:
-            # Compute individual ranker ranks
-            faiss_scores = raw_scores.get("faiss", {})
-            bm25_scores = raw_scores.get("bm25", {})
-            
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)  # Higher score = better
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)  # Higher score = better
-            
-            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
-            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
-            
             chunks_info = []
-            for rank, idx in enumerate(topk_idxs, 1):
+            for rank, chunk_content in enumerate(ranked_chunks, 1):
                 chunks_info.append({
                     "rank": rank,
-                    "chunk_id": idx,
-                    "content": chunks[idx],
-                    "faiss_score": faiss_scores.get(idx, 0),
-                    "faiss_rank": faiss_ranks.get(idx, 0),
-                    "bm25_score": bm25_scores.get(idx, 0),
-                    "bm25_rank": bm25_ranks.get(idx, 0),
+                    "content": chunk_content,
+                    "source_index": source_name
                 })
         
-        # Step 3: Final Re-ranking (if enabled)
-        # Disabled till we fix the core pipeline
-        # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+    # Step 3: Final Re-ranking (if enabled)
+    # Disabled till we fix the core pipeline
+    # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
     
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
@@ -253,28 +242,54 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
+
         artifacts_dir = cfg.make_artifacts_directory()
-        faiss_index, bm25_index, chunks, sources = load_artifacts(
+        primary_faiss, primary_bm25, primary_chunks, primary_sources = load_artifacts(
             artifacts_dir=artifacts_dir, 
-            index_prefix=args.index_prefix
+            index_prefix="threads_index"
         )
 
-        retrievers = [
-            FAISSRetriever(faiss_index, cfg.embed_model),
-            BM25Retriever(bm25_index)
+        primary_retrievers = [
+            FAISSRetriever(primary_faiss, cfg.embed_model),
+            BM25Retriever(primary_bm25)
         ]
-        ranker = EnsembleRanker(
+        primary_ranker = EnsembleRanker(
             ensemble_method=cfg.ensemble_method,
             weights=cfg.ranker_weights,
             rrf_k=int(cfg.rrf_k)
         )
+
+        secondary_faiss, secondary_bm25, secondary_chunks, secondary_sources = load_artifacts(
+            artifacts_dir=artifacts_dir, 
+            index_prefix=args.index_prefix
+        )
+        secondary_retrievers = [
+            FAISSRetriever(secondary_faiss, cfg.embed_model),
+            BM25Retriever(secondary_bm25)
+        ]
+
+        secondary_ranker = EnsembleRanker(
+            ensemble_method=cfg.ensemble_method,
+            weights=cfg.ranker_weights,
+            rrf_k=int(cfg.rrf_k)
+        )
+
+        cascade_retriever = CascadeRetriever(
+            primary_retrievers=primary_retrievers,
+            secondary_retrievers=secondary_retrievers,
+            primary_ranker=primary_ranker,
+            secondary_ranker=secondary_ranker,
+            primary_chunks=primary_chunks,
+            secondary_chunks=secondary_chunks,
+            threshold=cfg.cascade_threshold
+        )
         
-        # Package artifacts for reuse
         artifacts = {
-            "chunks": chunks,
-            "sources": sources,
-            "retrievers": retrievers,
-            "ranker": ranker
+            "cascade_retriever": cascade_retriever,
+            "sources": {
+                "primary": primary_sources,
+                "secondary": secondary_sources
+            }
         }
     except Exception as e:
         print(f"ERROR: Failed to initialize chat artifacts: {e}")
