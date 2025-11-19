@@ -22,6 +22,8 @@ dependencies:
     - nltk
     - transformers
     - sentence-transformers
+    - matplotlib
+    - docling
     - rank_bm25
     - langchain
     - pytest

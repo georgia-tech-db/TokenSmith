@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="generate visualizations during indexing"
     )
+    indexing_group.add_argument(
+        "--score",
+        action="store_true",
+        help="calculuate indexing score"
+    )
 
     return parser.parse_args()
 
@@ -98,6 +103,8 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
         do_visualize=args.visualize,
+        do_calculate_score=args.score,
+        bm25_type = cfg.bm25_type,
     )
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
@@ -177,6 +184,7 @@ def get_answer(
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
@@ -185,7 +193,7 @@ def get_answer(
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        
+
         # Capture chunk info if in test mode
         if is_test_mode:
             # Compute individual ranker ranks
@@ -209,6 +217,10 @@ def get_answer(
                     "bm25_score": bm25_scores.get(idx, 0),
                     "bm25_rank": bm25_ranks.get(idx, 0),
                 })
+
+            # I printed score on the outside temporarily, since I cannot run tests without Google API key
+            # this code has been modifide afterwards, where this print statement is now inside is_test_mode
+            print(f"first chunk info is {chunks_info}")
         
         # Step 3: Final Re-ranking (if enabled)
         # Disabled till we fix the core pipeline

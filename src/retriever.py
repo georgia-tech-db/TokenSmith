@@ -15,7 +15,7 @@ from typing import List, Tuple, Optional, Dict
 
 import faiss
 import numpy as np
-from src.embedder import SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
 from src.config import QueryPlanConfig
 from src.index_builder import preprocess_for_bm25

@@ -25,6 +25,7 @@ class QueryPlanConfig:
     ranker_weights: Dict[str, float]
     rerank_mode: str
     seg_filter: Callable
+    bm25_type: str
 
     # generation
     max_gen_tokens: int
@@ -79,6 +80,7 @@ class QueryPlanConfig:
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
+            bm25_type      = pick("bm25_type", "bm25"),
             
             # Testing
             system_prompt_mode = pick("system_prompt_mode", "baseline"),
