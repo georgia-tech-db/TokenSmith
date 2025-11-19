@@ -34,20 +34,31 @@ def _get_embedder(model_name: str) -> SentenceTransformer:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, object, List[str], List[str], List[Dict]]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
+      - BM25 index:  {index_prefix}_bm25.pkl
       - chunks:      {index_prefix}_chunks.pkl
       - sources:     {index_prefix}_sources.pkl
+      - metadata:    {index_prefix}_meta.pkl
     """
     artifacts_dir = pathlib.Path(artifacts_dir)
     faiss_index = faiss.read_index(str(artifacts_dir / f"{index_prefix}.faiss"))
     bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
     chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
     sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
+    
+    # Load metadata if it exists
+    metadata_path = artifacts_dir / f"{index_prefix}_meta.pkl"
+    if metadata_path.exists():
+        metadata = pickle.load(open(metadata_path, "rb"))
+    else:
+        # Create empty metadata list if file doesn't exist (backward compatibility)
+        metadata = [{}] * len(chunks)
+        print(f"Warning: Metadata file not found at {metadata_path}. Using empty metadata.")
 
-    return faiss_index, bm25_index, chunks, sources
+    return faiss_index, bm25_index, chunks, sources, metadata
 
 
 # -------------------------- Pretty previews -----------------------------

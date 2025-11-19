@@ -68,3 +68,8 @@ run-chat:
 	@echo "Note: Chat mode requires interactive terminal. If this fails, use:"
 	@echo "  conda activate tokensmith && python -m src.main chat $(ARGS)"
 	conda run --no-capture-output -n tokensmith --no-capture-output python -m src.main chat $(ARGS)
+
+run-ui:
+	@echo "Starting TokenSmith Web UI..."
+	@echo "The UI will open in your browser at http://localhost:8501"
+	conda run --no-capture-output -n tokensmith streamlit run src/ui.py

@@ -2,6 +2,38 @@ import numpy as np
 from typing import List, Union
 from llama_cpp import Llama
 from tqdm import tqdm
+import multiprocessing
+from multiprocessing import Pool, cpu_count
+import os
+
+
+def _encode_worker(texts: List[str], model_path: str, batch_size: int, embedding_dim: int) -> np.ndarray:
+    """
+    Worker function that loads model and encodes texts.
+    Each worker process gets its own model instance.
+    """
+    # Load model in worker process
+    model = Llama(
+        model_path=model_path,
+        n_ctx=40960,
+        embedding=True,
+        verbose=False,
+        n_batch=512,
+        use_mmap=True,
+        logits_all=True
+    )
+    
+    embeddings = []
+    for text in texts:
+        try:
+            emb = model.create_embedding(text)['data'][0]['embedding']
+            embeddings.append(emb)
+        except Exception as e:
+            print(f"Error encoding text in worker: {e}")
+            embeddings.append([0.0] * embedding_dim)
+    
+    return np.array(embeddings, dtype=np.float32)
+
 
 class SentenceTransformer:
     def __init__(self, model_path: str, n_ctx: int = 40960, n_threads: int = None):
@@ -15,6 +47,7 @@ class SentenceTransformer:
         """
         print(f"Loading model with n_ctx={n_ctx}, n_threads={n_threads}")
         
+        self._model_path = model_path  # Store for parallel encoding
         self.model = Llama(
             model_path=model_path,
             n_ctx=n_ctx,
@@ -99,6 +132,59 @@ class SentenceTransformer:
             vecs = vecs / norms
             
         return vecs
+    
+    def encode_parallel(self,
+                       texts: List[str],
+                       num_workers: int = None,
+                       batch_size: int = 32,
+                       show_progress_bar: bool = True) -> np.ndarray:
+        """
+        Encode texts in parallel using multiprocessing.
+        Each worker gets its own model instance.
+        
+        Args:
+            texts: List of texts to encode
+            num_workers: Number of worker processes (None = auto-detect)
+            batch_size: Batch size per worker
+            show_progress_bar: Whether to show progress bar
+            
+        Returns:
+            numpy.ndarray: Float32 embeddings array
+        """
+        if not texts:
+            return np.array([], dtype=np.float32).reshape(0, -1)
+        
+        if num_workers is None:
+            num_workers = max(1, min(cpu_count() - 1, len(texts) // 10))
+            num_workers = max(1, num_workers)  # At least 1 worker
+        
+        # For small batches, use regular encoding
+        if len(texts) < 100 or num_workers == 1:
+            return self.encode(texts, batch_size=batch_size, show_progress_bar=show_progress_bar)
+        
+        # Split texts into worker chunks
+        chunk_size = max(1, len(texts) // num_workers)
+        text_chunks = [texts[i:i+chunk_size] for i in range(0, len(texts), chunk_size)]
+        
+        # Get model path from the model object (we need to store it)
+        model_path = getattr(self, '_model_path', None)
+        if model_path is None:
+            # Fallback to regular encoding if we can't get model path
+            print("Warning: Cannot determine model path for parallel encoding. Using sequential encoding.")
+            return self.encode(texts, batch_size=batch_size, show_progress_bar=show_progress_bar)
+        
+        print(f"Encoding {len(texts)} texts using {num_workers} workers...")
+        
+        # Create worker pool
+        worker_args = [(chunk, model_path, batch_size, self.embedding_dimension) 
+                      for chunk in text_chunks]
+        
+        with Pool(num_workers) as pool:
+            results = pool.starmap(_encode_worker, worker_args)
+        
+        # Concatenate results
+        all_embeddings = np.vstack(results)
+        return all_embeddings
 
     def embed_one(self, text: str, normalize: bool = False) -> List[float]:
         """Encode single text and return as list."""

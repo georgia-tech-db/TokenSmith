@@ -13,3 +13,26 @@ recursive_overlap: 200
 use_hyde: false
 hyde_max_tokens: 600
 use_indexed_chunks: false
+
+# Indexing performance settings
+indexing:
+  use_parallel_embedding: true
+  num_workers: null  # Auto-detect if null
+  batch_size: 32
+  use_incremental: true
+  cache_dir: "index/.cache"
+
+# Contextual retrieval settings
+contextual_retrieval:
+  enabled: true
+  expansion_window: 2
+  decay_factor: 0.5
+  cross_ref_boost: 1.3
+
+# Query planner settings
+use_query_planner: true
+
+# Conversation memory settings
+conversation:
+  enabled: true
+  max_history: 5  # 5 turns = 10 messages
