@@ -120,31 +120,86 @@ def get_system_prompt(mode="tutor"):
     return prompts.get(mode)
 
 
-def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"):
+def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor", chunk_metadata=None, conversation_history=None):
     """
-    Format prompt for LLM with chunks and query.
+    Format prompt for LLM with chunks, query, metadata, and conversation history.
     
     Args:
         chunks: List of text chunks (can be empty for baseline)
         query: User question
         max_chunk_chars: Maximum characters per chunk
         system_prompt_mode: System prompt mode (baseline, tutor, concise, detailed)
+        chunk_metadata: List of metadata dicts for each chunk (optional)
+        conversation_history: List of previous conversation turns (optional)
     """
     # Get system prompt
     system_prompt = get_system_prompt(system_prompt_mode)
-    system_section = f"<|im_start|>system\n{system_prompt}\n<|im_end|>\n" if system_prompt else ""
+    
+    # Add citation instruction if metadata is available
+    citation_instruction = ""
+    if chunk_metadata and len(chunk_metadata) > 0:
+        citation_instruction = "\nIMPORTANT: When answering, cite your sources using [Page X, Chapter Y, Section Z] notation. Include citations for all information you use from the textbook excerpts.\n"
+    
+    if system_prompt:
+        system_prompt = system_prompt + citation_instruction
+        system_section = f"<|im_start|>system\n{system_prompt}\n<|im_end|>\n"
+    else:
+        system_section = ""
+    
+    # Build conversation history if provided
+    history_section = ""
+    if conversation_history and len(conversation_history) > 0:
+        for turn in conversation_history:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role == "user":
+                history_section += f"<|im_start|>user\n{content}\n<|im_end|>\n"
+            elif role == "assistant":
+                history_section += f"<|im_start|>assistant\n{content}\n<|im_end|>\n"
     
     # Build prompt based on whether chunks are provided
     if chunks and len(chunks) > 0:
-        trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
-        context = "\n\n".join(trimmed)
+        # Build context with detailed citations
+        context_parts = []
+        for idx, chunk in enumerate(chunks):
+            trimmed = (chunk or "")[:max_chunk_chars]
+            
+            # Add detailed citation if metadata available
+            if chunk_metadata and idx < len(chunk_metadata):
+                meta = chunk_metadata[idx]
+                page_num = meta.get('page_number')
+                chapter = meta.get('chapter', 0)
+                section_hierarchy = meta.get('section_hierarchy', {})
+                section = meta.get('section', 'Unknown')
+                
+                # Build citation string
+                citation_parts = []
+                if page_num:
+                    citation_parts.append(f"Page {page_num}")
+                if chapter > 0:
+                    citation_parts.append(f"Chapter {chapter}")
+                if section_hierarchy.get('section', 0) > 0:
+                    section_str = f"{section_hierarchy['section']}"
+                    if section_hierarchy.get('subsection', 0) > 0:
+                        section_str += f".{section_hierarchy['subsection']}"
+                    citation_parts.append(f"Section {section_str}")
+                
+                if citation_parts:
+                    citation = f"[Source: {', '.join(citation_parts)}]"
+                    context_parts.append(f"{citation}\n{trimmed}")
+                else:
+                    context_parts.append(trimmed)
+            else:
+                context_parts.append(trimmed)
+        
+        context = "\n\n".join(context_parts)
         context = text_cleaning(context)
         
         # Build prompt with chunks
         context_section = f"Textbook Excerpts:\n{context}\n\n\n"
         
         return textwrap.dedent(f"""\
-            {system_section}<|im_start|>user
+            {system_section}{history_section}<|im_start|>user
             {context_section}Question: {query}
             <|im_end|>
             <|im_start|>assistant
@@ -155,7 +210,7 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
         question_label = "Question: " if system_prompt else ""
         
         return textwrap.dedent(f"""\
-            {system_section}<|im_start|>user
+            {system_section}{history_section}<|im_start|>user
             {question_label}{query}
             <|im_end|>
             <|im_start|>assistant
@@ -212,17 +267,11 @@ def _dedupe_sentences(text: str) -> str:
             cleaned.append(s)
     return " ".join(cleaned)
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, **kw):
-    prompt = format_prompt(chunks, query)
-    approx_tokens = max(1, len(prompt) // 4)
-    #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens\n")
-    raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
-    return _dedupe_sentences(raw)
-
 def answer(query: str, chunks, model_path: str, max_tokens: int = 300, 
-           system_prompt_mode: str = "tutor", **kw):
-    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
+           system_prompt_mode: str = "tutor", chunk_metadata=None, conversation_history=None, **kw):
+    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode, 
+                          chunk_metadata=chunk_metadata, conversation_history=conversation_history)
     # approx_tokens = max(1, len(prompt) // 4)
-    #print(f"\n⚙️  Prompt length ≈ {approx_tokens} tokens (mode: {system_prompt_mode})\n")
+    #print(f"\nPrompt length ≈ {approx_tokens} tokens (mode: {system_prompt_mode})\n")
     raw = run_llama_cpp(prompt, model_path, max_tokens=max_tokens, **kw)
     return _dedupe_sentences(raw)

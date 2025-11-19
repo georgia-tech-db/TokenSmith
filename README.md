@@ -82,6 +82,19 @@ make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
 
 ### 6) Chat
 
+**Option A: Web UI (Recommended)**
+```shell
+make run-ui
+# or
+streamlit run src/ui.py
+```
+Opens a modern web interface in your browser with:
+- Clean chat interface with message history
+- Multiple chat sessions (create new chats anytime)
+- Citation display with page numbers and sections
+- Settings panel for answer style customization
+
+**Option B: Command Line**
 ```shell
 python -m src.main chat
 ```
