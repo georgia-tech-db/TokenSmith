@@ -3,6 +3,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+try:
+    import numpy as _np
+except Exception:  # pragma: no cover - numpy is always available in runtime env
+    _np = None
+
 from src.config import QueryPlanConfig
 
 INSTANCE: Optional["RunLogger"]= None
@@ -162,6 +167,15 @@ class RunLogger:
 
         self.current_query_data["chunks_used"] = chunks_data
 
+    def log_stage_timings(self, timings: Dict[str, float]) -> None:
+        """Record latency measurements for major pipeline stages."""
+        if not self.current_query_data or not timings:
+            return
+        # Round for readability but keep enough precision for analysis
+        self.current_query_data.setdefault("latency", {})
+        for name, duration in timings.items():
+            self.current_query_data["latency"][name] = round(duration, 4)
+
     def log_generation(self, response: str, generation_params: Dict[str, Any],
                        prompt_length_estimate: Optional[int] = None):
         """Log generation parameters and results."""
@@ -206,7 +220,7 @@ class RunLogger:
     def _write_log(self, data: Dict[str, Any]):
         """Write a log entry to the JSONL file."""
         with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+            f.write(json.dumps(_json_safe(data), ensure_ascii=False) + "\n")
 
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary statistics for the current session."""
@@ -253,6 +267,19 @@ class RunLogger:
 def init_logger(cfg: QueryPlanConfig):
     global INSTANCE
     INSTANCE = RunLogger(cfg)
+
+
+def _json_safe(obj: Any):
+    """Recursively convert numpy scalars or other non-serializable objects."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_json_safe(v) for v in obj)
+    if _np is not None and isinstance(obj, _np.generic):
+        return obj.item()
+    return obj
 
 def load_session_logs(session_id: str) -> List[Dict[str, Any]]:
     """Load all log entries for a session."""
