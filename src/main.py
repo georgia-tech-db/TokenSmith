@@ -1,8 +1,12 @@
 import argparse
 import json
+import hashlib
 import pathlib
 import sys
-from typing import Dict, Optional
+import time
+from typing import Dict, Optional, Any, List
+
+import numpy as np
 
 from src.config import QueryPlanConfig
 from src.generator import answer
@@ -12,7 +16,115 @@ from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
+from src.embedder import SentenceTransformer
 
+_SEMANTIC_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+_SEMANTIC_CACHE_THRESHOLD = 0.85
+_SEMANTIC_CACHE_MAX_ENTRIES = 50
+_QUESTION_EMBEDDERS: Dict[str, SentenceTransformer] = {}
+
+
+def _normalize_question(q: str) -> str:
+    return " ".join((q or "").strip().lower().split())
+
+
+def _make_cache_config_key(
+    cfg: QueryPlanConfig,
+    args: argparse.Namespace,
+    golden_chunks: Optional[list],
+) -> str:
+    payload = {
+        "model_path": args.model_path or cfg.model_path,
+        "embed_model": cfg.embed_model,
+        "top_k": cfg.top_k,
+        "pool_size": cfg.pool_size,
+        "system_prompt_mode": args.system_prompt_mode or cfg.system_prompt_mode,
+        "ensemble_method": cfg.ensemble_method,
+        "ranker_weights": cfg.ranker_weights,
+        "use_hyde": cfg.use_hyde,
+        "use_indexed_chunks": cfg.use_indexed_chunks,
+        "disable_chunks": cfg.disable_chunks,
+        "use_golden_chunks": bool(golden_chunks and cfg.use_golden_chunks),
+        "index_prefix": getattr(args, "index_prefix", None),
+    }
+    if golden_chunks and cfg.use_golden_chunks:
+        sig = hashlib.sha256("||".join(golden_chunks).encode("utf-8")).hexdigest()
+        payload["golden_signature"] = sig
+    return json.dumps(payload, sort_keys=True)
+
+
+def _semantic_cache_lookup(config_key: str, query_embedding: np.ndarray):
+    entries = _SEMANTIC_CACHE.get(config_key) or []
+    if not entries or query_embedding is None:
+        return None
+    best_entry = None
+    best_score = -1.0
+    for entry in entries:
+        cached_vec = entry.get("embedding")
+        if cached_vec is None:
+            continue
+        sim = float(np.dot(cached_vec, query_embedding))
+        if sim > best_score:
+            best_score = sim
+            best_entry = entry
+    if best_entry and best_score >= _SEMANTIC_CACHE_THRESHOLD:
+        return best_entry["payload"]
+    return None
+
+
+def _semantic_cache_store(
+    config_key: str,
+    normalized_question: str,
+    question_embedding: Optional[np.ndarray],
+    payload: Dict[str, Any],
+) -> None:
+    if question_embedding is None:
+        return
+    entries = _SEMANTIC_CACHE.setdefault(config_key, [])
+    entries.append(
+        {
+            "question": normalized_question,
+            "embedding": question_embedding.astype(np.float32),
+            "payload": payload,
+        }
+    )
+    if len(entries) > _SEMANTIC_CACHE_MAX_ENTRIES:
+        entries.pop(0)
+
+
+def _get_question_embedder(
+    retrievers: List[Any], cfg: QueryPlanConfig
+) -> Optional[SentenceTransformer]:
+    for retriever in retrievers or []:
+        if isinstance(retriever, FAISSRetriever):
+            return retriever.embedder
+    model_path = cfg.embed_model
+    if not model_path:
+        return None
+    embedder = _QUESTION_EMBEDDERS.get(model_path)
+    if embedder is None:
+        embedder = SentenceTransformer(model_path)
+        _QUESTION_EMBEDDERS[model_path] = embedder
+    return embedder
+
+
+def _compute_question_embedding(
+    question: str,
+    retrievers: List[Any],
+    cfg: QueryPlanConfig,
+) -> Optional[np.ndarray]:
+    embedder = _get_question_embedder(retrievers, cfg)
+    if not embedder:
+        return None
+    vec = embedder.encode(
+        [question],
+        batch_size=1,
+        normalize=True,
+        show_progress_bar=False,
+    )
+    if vec.size == 0:
+        return None
+    return vec[0]
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
@@ -147,10 +259,33 @@ def get_answer(
     ranker = artifacts["ranker"]
     
     logger.log_query_start(question)
+    normalized_question = _normalize_question(question)
+    config_cache_key = _make_cache_config_key(cfg, args, golden_chunks)
+    stage_timings: Dict[str, float] = {}
+    question_embedding: Optional[np.ndarray] = None
+
+    semantic_hit = None
+    if _SEMANTIC_CACHE.get(config_cache_key):
+        question_embedding = _compute_question_embedding(
+            normalized_question, retrievers, cfg
+        )
+        semantic_hit = _semantic_cache_lookup(config_cache_key, question_embedding)
+
+    if semantic_hit:
+        chunk_indices = semantic_hit.get("chunk_indices", [])
+        if chunk_indices and not cfg.disable_chunks and not cfg.use_indexed_chunks:
+            logger.log_chunks_used(chunk_indices, chunks, sources)
+        stage_timings["semantic_cache_hit_seconds"] = 0.0
+        logger.log_stage_timings(stage_timings)
+        ans = semantic_hit.get("answer", "")
+        if is_test_mode:
+            return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+        return ans
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
+    chunk_indices: list[int] = []
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
@@ -159,15 +294,19 @@ def get_answer(
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         # Use chunks from the textbook index
+        lookup_start = time.perf_counter()
         ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        stage_timings["indexed_chunk_lookup_seconds"] = time.perf_counter() - lookup_start
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
         if cfg.use_hyde:
             model_path = args.model_path or cfg.model_path
+            hyde_start = time.perf_counter()
             hypothetical_doc = generate_hypothetical_document(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
+            stage_timings["hyde_seconds"] = time.perf_counter() - hyde_start
             retrieval_query = hypothetical_doc
             hyde_query = hypothetical_doc
             # print(f"🔍 HyDE query: {hypothetical_doc}")
@@ -175,14 +314,19 @@ def get_answer(
         # Step 1: Retrieval
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
+        retrieval_start = time.perf_counter()
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+        stage_timings["retrieval_seconds"] = time.perf_counter() - retrieval_start
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
+        ranking_start = time.perf_counter()
         ordered = ranker.rank(raw_scores=raw_scores)
         topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+        stage_timings["ranking_seconds"] = time.perf_counter() - ranking_start
         logger.log_chunks_used(topk_idxs, chunks, sources)
+        chunk_indices = topk_idxs
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
         
@@ -217,6 +361,7 @@ def get_answer(
     # Step 4: Generation
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+    generation_start = time.perf_counter()
     ans = answer(
         question, 
         ranked_chunks, 
@@ -224,7 +369,26 @@ def get_answer(
         max_tokens=cfg.max_gen_tokens, 
         system_prompt_mode=system_prompt
     )
+    stage_timings["generation_seconds"] = time.perf_counter() - generation_start
+    logger.log_stage_timings(stage_timings)
     
+    cache_payload = {
+        "answer": ans,
+        "chunks_info": chunks_info,
+        "hyde_query": hyde_query,
+        "chunk_indices": chunk_indices,
+    }
+    if question_embedding is None:
+        question_embedding = _compute_question_embedding(
+            normalized_question, retrievers, cfg
+        )
+    _semantic_cache_store(
+        config_cache_key,
+        normalized_question,
+        question_embedding,
+        cache_payload,
+    )
+
     if is_test_mode:
         return ans, chunks_info, hyde_query
     return ans

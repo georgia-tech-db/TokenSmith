@@ -1,0 +1,72 @@
+benchmarks:
+  - id: "ra_joins_variation"
+    question: "In relational algebra, compare natural, theta, and outer joins, and explain which associativity/commutativity rules let an optimizer reorder them."
+    expected_answer: "Natural join is an equijoin on all shared attributes and is both commutative and associative, enabling join reordering; theta join generalizes join predicates beyond equality and inherits the same algebraic rules when predicates align; outer joins (left/right/full) preserve unmatched tuples by padding nulls, so they must respect the semantics of retaining rows, but otherwise behave like joins with null-extended results." 
+    keywords: ["natural join", "theta join", "outer join", "associative", "commutative"]
+    similarity_threshold: 0.76
+
+  - id: "aggregation_nulls_variation"
+    question: "Describe how grouping/aggregation and generalized projection behave, and spell out what SQL-style null handling looks like for selection, joins, projection, set ops, and aggregates."
+    expected_answer: "Grouping partitions tuples by the GROUP BY list and aggregates reduce each partition with functions (avg, sum, count, etc.); generalized projection extends basic projection with arithmetic expressions and renaming; null comparisons in selections/joins evaluate to UNKNOWN so the tuples drop unless explicitly tested, projections propagate nulls, set operations treat nulls as ordinary values for equality, and aggregates ignore null arguments except COUNT(*), returning null only when no non-null values exist." 
+    keywords: ["grouping", "aggregates", "generalized projection", "null handling"]
+    similarity_threshold: 0.78
+
+  - id: "acid_variation"
+    question: "Give a concise summary of ACID and how schedulers/recovery systems deliver those guarantees when transactions overlap or a crash happens."
+    expected_answer: "Atomicity = all-or-nothing (undo/redo logging plus abort); Consistency = each transaction preserves invariants, enforced by admitting only serializable/recoverable schedules; Isolation = concurrency control (e.g., strict two-phase locking) makes interleavings equivalent to some serial order; Durability = once commit happens, WAL/checkpointing ensures effects survive crashes. Together the lock manager, log manager, and recovery process enforce ACID during concurrent execution and failures." 
+    keywords: ["atomicity", "consistency", "isolation", "durability", "logging", "2PL"]
+    similarity_threshold: 0.8
+
+  - id: "bptree_variation"
+    question: "Why do databases rely on B+ trees instead of binary trees on disk? Outline structure plus search/insert/delete mechanics."
+    expected_answer: "B+ trees store keys only in leaves sorted and linked for scans, with internal nodes holding separators pointing to child nodes; tree height is low thanks to high fan-out, so search walks a few nodes; inserts split full nodes and propagate new separators upward, deletes redistribute or merge siblings to keep occupancy. High fan-out minimizes random I/O, whereas binary trees would have tall height and poor cache behavior." 
+    keywords: ["fan-out", "linked leaves", "split", "merge", "log height"]
+    similarity_threshold: 0.76
+
+  - id: "fd_variation"
+    question: "Define functional dependencies and show how they guide BCNF/3NF decompositions that are lossless and, when possible, dependency-preserving."
+    expected_answer: "An FD X->Y states that tuples agreeing on X must agree on Y; BCNF demands every nontrivial FD have X as a superkey, 3NF allows right-hand attributes that are prime; to normalize, we decompose using violating FDs while ensuring at least one schema in the decomposition contains a candidate key so the join is lossless, and we pick schemas so each FD is preserved somewhere (always possible for 3NF)." 
+    keywords: ["functional dependency", "BCNF", "3NF", "lossless", "preservation"]
+    similarity_threshold: 0.74
+
+  - id: "sql_isolation_variation"
+    question: "List the standard SQL isolation levels, the anomalies they admit, and how stricter levels or locking strategies prevent those phenomena."
+    expected_answer: "Read committed forbids dirty reads but still allows nonrepeatable reads and phantoms; repeatable read adds protection against nonrepeatable reads yet can suffer phantoms; only serializable guarantees schedules equivalent to some serial order, typically via predicate/index locking or strict 2PL that holds locks to commit. Those locks keep writers from exposing uncommitted data and keep readers from seeing phantom inserts, so the classic anomalies disappear." 
+    keywords: ["read committed", "repeatable read", "serializable", "dirty read", "phantom", "locking"]
+    similarity_threshold: 0.74
+
+  - id: "pk_fk_variation"
+    question: "Rephrase the definitions of primary keys and foreign keys and how they enforce uniqueness plus referential integrity."
+    expected_answer: "A primary key is a minimal set of attributes chosen from the candidate keys that uniquely labels each tuple and cannot contain NULLs; it becomes the referenced identifier in other tables. A foreign key is a column list in one relation that must match an existing primary (or candidate) key in another, so database constraints ensure inserts/updates reference valid parent rows and keep related data linked." 
+    keywords: ["primary key", "foreign key", "candidate key", "referential integrity"]
+    similarity_threshold: 0.7
+
+  - id: "schema_variation"
+    question: "What do we mean by a database schema versus an instance when describing a system's structure?"
+    expected_answer: "The schema is the relatively static blueprint—relations, attribute names/types, and constraints—that defines the logical organization; an instance is the actual set of tuples stored at some moment. Schemas change rarely, whereas instances evolve whenever data is inserted, deleted, or updated." 
+    keywords: ["schema", "instance", "logical design", "structure"]
+    similarity_threshold: 0.68
+
+  - id: "authors_variation"
+    question: "Summarize who wrote the Database System Concepts text and their institutional backgrounds."
+    expected_answer: "Database System Concepts was authored by Abraham Silberschatz (Yale professor, ex Bell Labs VP, ACM/IEEE fellow), Henry F. Korth (Lehigh professor, previously Bell Labs, ACM/IEEE fellow), and S. Sudarshan (IIT Bombay chair professor, Wisconsin PhD, ACM fellow). Each brings academic and industry experience in database research and education." 
+    keywords: ["Silberschatz", "Korth", "Sudarshan", "Yale", "Lehigh", "IIT Bombay"]
+    similarity_threshold: 0.65
+
+  - id: "aries_variation"
+    question: "Briefly explain how ARIES logging/recovery keeps transactions atomic."
+    expected_answer: "ARIES writes log records (with LSNs, before/after images) to stable storage before database pages, so on abort or crash the recovery manager can undo incomplete transactions by replaying the log backward and redo committed effects forward. This write-ahead logging plus undo/redo protocol ensures each transaction is all-or-nothing despite failures." 
+    keywords: ["ARIES", "write-ahead logging", "undo", "redo", "atomicity"]
+    similarity_threshold: 0.75
+
+  - id: "oltp_analytics_variation"
+    question: "Differentiate OLTP workloads from analytical/decision-support workloads."
+    expected_answer: "OLTP handles many concurrent short transactions with strict consistency and low latency, typically on normalized schemas; analytics (OLAP/BI) scans large historical datasets with complex aggregations, favors throughput over per-query latency, and often uses star/cube schemas. The goals—fast updates vs. deep insights—drive very different designs." 
+    keywords: ["OLTP", "OLAP", "transactions", "analytics", "data warehouse"]
+    similarity_threshold: 0.72
+
+  - id: "lossy_variation"
+    question: "Illustrate what makes a decomposition lossy and why designers insist on the lossless condition."
+    expected_answer: "If you split relation R into R1 and R2 where the common attributes are not a key for either side, a natural join of R1 and R2 can produce spurious tuples—combinations of attribute values that never coexisted—which means the original R cannot be reconstructed precisely. Such lossy decompositions lose information, so normalization procedures require the shared attributes to form a key (or satisfy the FD condition) to guarantee lossless joins." 
+    keywords: ["lossy decomposition", "spurious tuple", "lossless join", "superkey"]
+    similarity_threshold: 0.72
