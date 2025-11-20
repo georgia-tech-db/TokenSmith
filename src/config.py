@@ -40,6 +40,7 @@ class QueryPlanConfig:
 
     # query enhancement
     use_hyde: bool
+    use_multi_query: bool
     hyde_max_tokens: int
     use_indexed_chunks: bool
 
@@ -90,6 +91,7 @@ class QueryPlanConfig:
             
             # Query Enhancement
             use_hyde       = pick("use_hyde", False),
+            use_multi_query= pick("use_multi_query", False),
             hyde_max_tokens= pick("hyde_max_tokens", 100),
         )
         cfg._validate()
@@ -136,5 +138,6 @@ class QueryPlanConfig:
             "metrics": self.metrics,
             "use_indexed_chunks": self.use_indexed_chunks,
             "use_hyde": self.use_hyde,
+            "use_multi_query": self.use_multi_query,
             "hyde_max_tokens": self.hyde_max_tokens,
         }

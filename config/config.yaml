@@ -1,4 +1,4 @@
-embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+embed_model: "sentence-transformers/all-MiniLM-L6-v2"
 top_k: 5
 pool_size: 50
 ensemble_method: "rrf"
@@ -11,5 +11,6 @@ model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
 recursive_chunk_size: 2000
 recursive_overlap: 200
 use_hyde: false
+use_multi_query: true
 hyde_max_tokens: 600
 use_indexed_chunks: false

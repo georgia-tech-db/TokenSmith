@@ -1,41 +1,55 @@
 import numpy as np
 from typing import List, Union
-from llama_cpp import Llama
+import os
 from tqdm import tqdm
 
 class SentenceTransformer:
-    def __init__(self, model_path: str, n_ctx: int = 40960, n_threads: int = None):
+    def __init__(self, model_path: str, n_ctx: int = 8192, n_threads: int = None):
         """
-        Initialize with a local GGUF model file path.
+        Initialize with a local GGUF model file path OR a HuggingFace model name.
         
         Args:
-            model_path: Path to your local .gguf file
-            n_ctx: Context window size (increased to match Qwen3 training context)
-            n_threads: Number of threads to use (None = auto-detect)
+            model_path: Path to .gguf file OR HuggingFace model name (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
+            n_ctx: Context window size (only for GGUF)
+            n_threads: Number of threads to use (only for GGUF)
         """
-        print(f"Loading model with n_ctx={n_ctx}, n_threads={n_threads}")
-        
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            embedding=True,
-            verbose=False,
-            n_batch=512,
-            use_mmap=True,
-            logits_all=True
-        )
+        self.model_path = model_path
+        self.is_gguf = model_path.endswith(".gguf")
         self._embedding_dimension = None
-        
-        _ = self.embedding_dimension
-        print(f"Model loaded successfully. Embedding dimension: {self._embedding_dimension}")
+
+        if self.is_gguf:
+            from llama_cpp import Llama
+            print(f"Loading GGUF model with n_ctx={n_ctx}, n_threads={n_threads}")
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                embedding=True,
+                verbose=False,
+                n_batch=512,
+                use_mmap=True,
+                logits_all=False
+            )
+            # Cache dim
+            _ = self.embedding_dimension
+            print(f"GGUF Model loaded. Embedding dimension: {self._embedding_dimension}")
+        else:
+            from sentence_transformers import SentenceTransformer as ST
+            print(f"Loading HuggingFace model: {model_path}")
+            self.model = ST(model_path)
+            self._embedding_dimension = self.model.get_sentence_embedding_dimension()
+            print(f"HF Model loaded. Embedding dimension: {self._embedding_dimension}")
 
     @property
     def embedding_dimension(self) -> int:
         """Get embedding dimension (cached after first call)."""
         if self._embedding_dimension is None:
-            test_embedding = self.model.create_embedding("test")['data'][0]['embedding']
-            self._embedding_dimension = len(test_embedding)
+            if self.is_gguf:
+                test_embedding = self.model.create_embedding("test")['data'][0]['embedding']
+                self._embedding_dimension = len(test_embedding)
+            else:
+                # Should be set in init for HF, but just in case
+                self._embedding_dimension = self.model.get_sentence_embedding_dimension()
         return self._embedding_dimension
 
     def encode(self, 
@@ -47,16 +61,6 @@ class SentenceTransformer:
                **kwargs) -> np.ndarray:
         """
         Encode texts to embeddings with batch processing.
-        
-        Args:
-            texts: Single text or list of texts to encode
-            batch_size: Number of texts to process at once
-            normalize: Whether to normalize embeddings
-            device: Compatibility param (ignored, CPU only)
-            show_progress_bar: Whether to show progress bar
-            
-        Returns:
-            numpy.ndarray: Float32 embeddings array
         """
         if isinstance(texts, str):
             texts = [texts]
@@ -64,8 +68,18 @@ class SentenceTransformer:
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, -1)
         
+        # HuggingFace path
+        if not self.is_gguf:
+            return self.model.encode(
+                texts, 
+                batch_size=batch_size, 
+                normalize_embeddings=normalize, 
+                show_progress_bar=show_progress_bar,
+                convert_to_numpy=True
+            )
+
+        # GGUF path
         print(f"Encoding {len(texts)} texts with batch_size={batch_size}")
-        
         embeddings = []
         
         # Process in batches
@@ -83,11 +97,18 @@ class SentenceTransformer:
                     batch_embeddings.append(embedding)
                 except Exception as e:
                     print(f"Error encoding text: {e}")
-                    batch_embeddings.append([0.0] * self.embedding_dimension)
-			
+                    # Return zero vector on failure
+                    if self._embedding_dimension:
+                         batch_embeddings.append([0.0] * self._embedding_dimension)
+                    else:
+                         # Fallback if dim unknown (unlikely)
+                         batch_embeddings.append([])
+
+            # Pad if needed (shouldn't happen with loop above but good safety)
             if len(batch_embeddings) != len(batch_texts):
-                batch_embeddings.extend([[0.0] * self.embedding_dimension] * (len(batch_texts) - len(batch_embeddings)))
-			
+                 dim = self.embedding_dimension
+                 batch_embeddings.extend([[0.0] * dim] * (len(batch_texts) - len(batch_embeddings)))
+            
             embeddings.extend(batch_embeddings)
                 
         vecs = np.array(embeddings, dtype=np.float32)

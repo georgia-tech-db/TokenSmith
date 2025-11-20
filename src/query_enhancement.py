@@ -48,3 +48,39 @@ def generate_hypothetical_document(
     )
     
     return hypothetical.strip()
+
+def generate_multi_queries(
+    query: str,
+    model_path: str,
+    n: int = 3,
+    **llm_kwargs
+) -> list[str]:
+    """
+    Generate multiple search query variations to improve recall.
+    """
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are a helpful assistant that generates search queries.
+        <|im_end|>
+        <|im_start|>user
+        Generate {n} different search queries related to the following user question.
+        The queries should cover different aspects or terminology of the question to maximize retrieval coverage.
+        Return ONLY the queries, one per line. Do not number them.
+        
+        User Question: {query}
+        <|im_end|>
+        <|im_start|>assistant
+        {ANSWER_START}
+        """)
+    
+    prompt = text_cleaning(prompt)
+    raw_output = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=100,
+        **llm_kwargs
+    )
+    
+    # Parse output: split by newlines and clean up
+    queries = [q.strip() for q in raw_output.split('\n') if q.strip()]
+    return queries[:n]
