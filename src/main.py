@@ -5,13 +5,7 @@ import sys
 from typing import Dict, Optional
 
 from src.config import QueryPlanConfig
-from src.generator import answer
-from src.index_builder import build_index
-from src.instrumentation.logging import init_logger, get_logger, RunLogger
-from src.ranking.ranker import EnsembleRanker
-from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
-from src.query_enhancement import generate_hypothetical_document
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,8 +17,8 @@ def parse_args() -> argparse.Namespace:
     # Required arguments
     parser.add_argument(
         "mode",
-        choices=["index", "chat"],
-        help="operation mode: 'index' to build index, 'chat' to query"
+        choices=["index", "chat", "history"],
+        help="operation mode: 'index' to build index, 'chat' to query, 'history' to view past chats"
     )
 
     # Common arguments
@@ -72,7 +66,9 @@ def parse_args() -> argparse.Namespace:
 
 def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
     """Handles the logic for building the index."""
-
+    from src.index_builder import build_index
+    from src.preprocessing.chunking import DocumentChunker
+    
     # Robust range filtering
     try:
         if args.pdf_range:
@@ -100,7 +96,7 @@ def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
         do_visualize=args.visualize,
     )
 
-def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
+def use_indexed_chunks(question: str, chunks: list, logger) -> list:
     """
     Retrieve chunks from the indexed chunks based on simple keyword matching.
     """
@@ -133,14 +129,18 @@ def get_answer(
     question: str,
     cfg: QueryPlanConfig,
     args: argparse.Namespace,
-    logger: "RunLogger",
+    logger,
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False
 ) -> str:
     """
     Run a single query through the pipeline.
-    """    
+    """
+    from src.generator import answer
+    from src.retriever import apply_seg_filter
+    from src.query_enhancement import generate_hypothetical_document, generate_multi_queries
+    
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
@@ -151,6 +151,7 @@ def get_answer(
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
+    
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
@@ -161,22 +162,45 @@ def get_answer(
         # Use chunks from the textbook index
         ranked_chunks = use_indexed_chunks(question, chunks, logger)
     else:
-        # Step 0: Query Enhancement (HyDE)
-        retrieval_query = question
+        # Step 0: Query Enhancement
+        retrieval_queries = [question]
+        
+        # HyDE (Mutually exclusive with Multi-Query for now, or prioritized)
         if cfg.use_hyde:
             model_path = args.model_path or cfg.model_path
             hypothetical_doc = generate_hypothetical_document(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
-            retrieval_query = hypothetical_doc
+            retrieval_queries = [hypothetical_doc]
             hyde_query = hypothetical_doc
             # print(f"🔍 HyDE query: {hypothetical_doc}")
-        
-        # Step 1: Retrieval
+            
+        # Multi-Query Expansion
+        elif hasattr(cfg, 'use_multi_query') and cfg.use_multi_query:
+            print("Generating query variations...")
+            model_path = args.model_path or cfg.model_path
+            variations = generate_multi_queries(question, model_path)
+            print(f"Variations: {variations}")
+            retrieval_queries.extend(variations)
+
+        # Step 1: Retrieval (Multi-Query Aggregation)
         pool_n = max(cfg.pool_size, cfg.top_k + 10)
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+        
+        # We will aggregate scores across all queries
+        # Structure: retriever_name -> {chunk_id -> max_score}
+        aggregated_scores: Dict[str, Dict[int, float]] = {r.name: {} for r in retrievers}
+        
+        for q_text in retrieval_queries:
+            for retriever in retrievers:
+                scores = retriever.get_scores(q_text, pool_n, chunks)
+                # Max-score aggregation
+                for cid, score in scores.items():
+                    if cid not in aggregated_scores[retriever.name]:
+                        aggregated_scores[retriever.name][cid] = score
+                    else:
+                        aggregated_scores[retriever.name][cid] = max(aggregated_scores[retriever.name][cid], score)
+        
+        raw_scores = aggregated_scores
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
@@ -245,6 +269,10 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     """
     Initializes artifacts and runs the main interactive chat loop.
     """
+    from src.instrumentation.logging import get_logger
+    from src.retriever import BM25Retriever, FAISSRetriever, load_artifacts
+    from src.ranking.ranker import EnsembleRanker
+    
     logger = get_logger()
     # planner = HeuristicQueryPlanner(cfg)
 
@@ -281,6 +309,12 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
         print("Please ensure you have run 'index' mode first.")
         sys.exit(1)
 
+    # Initialize Database
+    from src.database import Database
+    db = Database()
+    session_id = db.create_session()
+    print(f"Started new chat session (ID: {session_id})")
+
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
@@ -291,6 +325,27 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             if q.lower() in {"exit", "quit"}:
                 print("Goodbye!")
                 break
+            
+            if q.lower() in {"history", "/history"}:
+                history = db.get_history(session_id)
+                print("\n=== Current Session History ===")
+                for msg in history:
+                    role = msg['role'].upper()
+                    print(f"\n[{role}]: {msg['content']}")
+                print("===============================\n")
+                continue
+
+            # Check cache first
+            cached_ans = db.get_cached_response(q)
+            if cached_ans:
+                print("\n=================== START OF ANSWER (CACHED) ===================")
+                print(cached_ans)
+                print("\n==================== END OF ANSWER ====================")
+                # Log it as if it were generated, or maybe just skip logging?
+                # For now, let's just add to history
+                db.add_message(session_id, "user", q)
+                db.add_message(session_id, "assistant", cached_ans)
+                continue
 
             # Use the single query function
             ans = get_answer(q, cfg, args, logger=logger,artifacts=artifacts)
@@ -298,6 +353,13 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             print("\n=================== START OF ANSWER ===================")
             print(ans.strip() if ans and ans.strip() else "(No output from model)")
             print("\n==================== END OF ANSWER ====================")
+            
+            # Store in DB and Cache
+            if ans and ans.strip():
+                db.add_message(session_id, "user", q)
+                db.add_message(session_id, "assistant", ans)
+                db.cache_response(q, ans)
+
             logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
 
         except KeyboardInterrupt:
@@ -307,10 +369,54 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             print(f"\nAn unexpected error occurred: {e}")
             logger.log_error(str(e))
             break
+    
+    db.close()
 
     # TODO: Fix completion logging.
     # logger.log_query_complete()
 
+
+def run_history_mode(args: argparse.Namespace):
+    """Display chat history."""
+    from src.database import Database
+    import datetime
+    
+    db = Database()
+    sessions = db.get_sessions(limit=20)
+    
+    if not sessions:
+        print("No chat history found.")
+        return
+
+    print("\n=== Recent Chat Sessions ===")
+    for s in sessions:
+        ts = datetime.datetime.fromtimestamp(s['created_at']).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"ID: {s['id']} | Date: {ts} | Messages: {s['message_count']}")
+    
+    print("\nTo view a specific session, enter its ID (or 'q' to quit):")
+    while True:
+        choice = input("> ").strip()
+        if choice.lower() in ('q', 'quit', 'exit'):
+            break
+        
+        try:
+            sid = int(choice)
+            history = db.get_history(sid)
+            if not history:
+                print("Session not found or empty.")
+                continue
+                
+            print(f"\n=== Session {sid} ===")
+            for msg in history:
+                role = msg['role'].upper()
+                print(f"\n[{role}]: {msg['content']}")
+            print("\n===================\n")
+            print("Enter another ID or 'q' to quit:")
+            
+        except ValueError:
+            print("Invalid input. Enter a number or 'q'.")
+    
+    db.close()
 
 def main():
     """Main entry point for the script."""
@@ -327,12 +433,15 @@ def main():
             "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
         )
 
+    from src.instrumentation.logging import init_logger
     init_logger(cfg)
 
     if args.mode == "index":
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "history":
+        run_history_mode(args)
 
 
 if __name__ == "__main__":
