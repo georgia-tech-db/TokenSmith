@@ -25,6 +25,7 @@ dependencies:
     - rank_bm25
     - langchain
     - pytest
+    - langchain-text-splitters
     - fastapi
     - uvicorn
     - pydantic
