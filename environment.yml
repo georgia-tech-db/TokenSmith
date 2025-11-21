@@ -14,9 +14,8 @@ dependencies:
 
   # Use pip only for packages not in conda or needing special compilation
   - pip:
-    - llama-cpp-python  # Needs CMAKE_ARGS for Metal/CUDA
-    - pymupdf
     - faiss-cpu
+    - llama-cpp-python  # Needs CMAKE_ARGS for Metal/CUDA
     - pyyaml
     - tqdm
     - nltk
@@ -24,7 +23,10 @@ dependencies:
     - sentence-transformers
     - rank_bm25
     - langchain
+    - langchain_text_splitters
+    - google-genai
     - pytest
+    - rich
     - langchain-text-splitters
     - fastapi
     - uvicorn

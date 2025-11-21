@@ -33,7 +33,7 @@ def generate_hypothetical_document(
         <|im_start|>user
         Question: {query}
         
-        Generate a precise answer (2-4 sentences) using appropriate technical terminology. End with {ANSWER_END}.
+        Generate a precise and a concise answer (2-4 sentences) using appropriate technical terminology. End with {ANSWER_END}.
         <|im_end|>
         <|im_start|>assistant
         {ANSWER_START}
