@@ -27,3 +27,7 @@ dependencies:
     - google-genai
     - pytest
     - rich
+    - langchain-text-splitters
+    - fastapi
+    - uvicorn
+    - pydantic

@@ -76,7 +76,8 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     keywords = benchmark.get("keywords", [])
     threshold = config["threshold_override"] or benchmark["similarity_threshold"] or 0.6 
     golden_chunks = benchmark.get("golden_chunks", None)
-    
+    ideal_retrieved_chunks = benchmark.get("ideal_retrieved_chunks", None)
+
     # Print header
     print(f"\n{'─'*60}")
     print(f"  Benchmark: {benchmark_id}")
@@ -110,7 +111,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Calculate scores
     try:
-        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question)
+        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question, ideal_retrieved_chunks=ideal_retrieved_chunks, actual_retrieved_chunks=chunks_info)
     except Exception as e:
         error_msg = f"Scoring error: {e}"
         print(f"  ❌ FAILED: {error_msg}")
@@ -206,6 +207,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         metrics=config.get("metrics", ["all"]),
         use_hyde=config.get("use_hyde", False),
         hyde_max_tokens=config.get("hyde_max_tokens", 100),
+        use_indexed_chunks=config.get("use_indexed_chunks", False),
     )
     
     # Print status
