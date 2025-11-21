@@ -26,3 +26,6 @@ dependencies:
     - langchain
     - pytest
     - langchain-text-splitters
+    - fastapi
+    - uvicorn
+    - pydantic
