@@ -15,7 +15,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
 from rich.console import Console
 from rich.markdown import Markdown
@@ -300,6 +300,13 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             FAISSRetriever(faiss_index, cfg.embed_model),
             BM25Retriever(bm25_index)
         ]
+        
+        # Add index keyword retriever if weight > 0
+        if cfg.ranker_weights.get("index_keywords", 0) > 0:
+            retrievers.append(
+                IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
+            )
+        
         ranker = EnsembleRanker(
             ensemble_method=cfg.ensemble_method,
             weights=cfg.ranker_weights,
