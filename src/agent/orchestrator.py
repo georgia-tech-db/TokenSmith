@@ -13,6 +13,7 @@ from typing import Optional, Dict, List, Any
 
 from src.agent.context_manager import ContextRegistry
 from src.agent.tools import AgentToolkit
+from src.agent.logger import AgentLogger
 from src.generator import get_llama_model, ANSWER_END
 
 
@@ -118,6 +119,12 @@ class AgentOrchestrator:
         self.model_path = model_path
         self.config = config or AgentConfig()
         self.registry = ContextRegistry()
+        self.logger = AgentLogger()
+        self.logger.log_session_start({
+            "model_path": model_path,
+            "reasoning_limit": self.config.reasoning_limit,
+            "tool_limit": self.config.tool_limit,
+        })
 
     def _build_investigation_prompt(self, question: str, history: List[str]) -> str:
         """Build prompt for investigation step."""
@@ -199,11 +206,10 @@ What's your next step?
 
         return self.registry.list_ids()
 
-    def synthesize(self, question: str, keep_ids: List[str]) -> str:
-        """Generate final answer from curated context."""
+    def _build_synthesis_prompt(self, question: str, keep_ids: List[str]) -> str:
+        """Build prompt for synthesis step."""
         context = self.registry.get_context(keep_ids)
-
-        prompt = f"""<|im_start|>system
+        return f"""<|im_start|>system
 You are a helpful assistant. Answer questions based on the provided context.
 <|im_end|>
 <|im_start|>user
@@ -212,6 +218,9 @@ You are a helpful assistant. Answer questions based on the provided context.
 <|im_start|>assistant
 """
 
+    def synthesize(self, question: str, keep_ids: List[str]) -> str:
+        """Generate final answer from curated context."""
+        prompt = self._build_synthesis_prompt(question, keep_ids)
         model = get_llama_model(self.model_path)
         result = model.create_completion(
             prompt,
@@ -220,6 +229,20 @@ You are a helpful assistant. Answer questions based on the provided context.
             stop=[ANSWER_END, "<|im_end|>"],
         )
         return result["choices"][0]["text"].strip()
+
+    def _synthesize_with_logging(self, question: str, keep_ids: List[str]) -> str:
+        """Synthesize with logging."""
+        prompt = self._build_synthesis_prompt(question, keep_ids)
+        model = get_llama_model(self.model_path)
+        result = model.create_completion(
+            prompt,
+            max_tokens=self.config.max_generation_tokens,
+            temperature=0.2,
+            stop=[ANSWER_END, "<|im_end|>"],
+        )
+        response = result["choices"][0]["text"].strip()
+        self.logger.log_synthesis(prompt, response, keep_ids)
+        return response
 
     def run(self, question: str) -> Dict[str, Any]:
         """
@@ -259,6 +282,15 @@ You are a helpful assistant. Answer questions based on the provided context.
             response = self._run_reasoning_step(prompt)
 
             step = parse_agent_response(response)
+            parsed_dict = {
+                "thought": step.thought,
+                "tool_name": step.tool_name,
+                "tool_args": step.tool_args,
+                "context_action": step.context_action,
+                "signal": step.signal,
+            } if step else None
+            self.logger.log_reasoning_step(prompt, response, parsed_dict)
+
             if step is None:
                 history.append(f"Step {reasoning_count}: [Parse error] {response[:100]}")
                 yield {"type": "status", "message": f"Parse error at step {reasoning_count}, retrying..."}
@@ -284,6 +316,7 @@ You are a helpful assistant. Answer questions based on the provided context.
 
             observation = self.toolkit.execute(step.tool_name, step.tool_args)
             ref_id = self.registry.add_observation(observation)
+            self.logger.log_tool_execution(step.tool_name, step.tool_args, observation, ref_id)
             history.append(f"  Tool: {step.tool_name} → {ref_id}")
 
             self._apply_context_action(step.context_action)
@@ -293,7 +326,12 @@ You are a helpful assistant. Answer questions based on the provided context.
 
         yield {"type": "status", "message": "Generating answer..."}
 
-        answer = self.synthesize(question, keep_ids)
+        answer = self._synthesize_with_logging(question, keep_ids)
+
+        self.logger.log_query_complete(answer, {
+            "kept_observations": keep_ids,
+            "total_observations": len(self.registry),
+        })
 
         yield {
             "type": "answer",
