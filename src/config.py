@@ -31,6 +31,7 @@ class RAGConfig:
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+    temperature: float = 0.7
     
     # testing
     system_prompt_mode: str = "baseline"

@@ -267,7 +267,6 @@ class IndexKeywordRetriever(Retriever):
     @staticmethod
     def _extract_keywords(query: str) -> List[str]:
         """Extract keywords from query by removing stopwords and lemmatizing."""
-        
         stopwords = {
             "the", "is", "at", "which", "on", "for", "a", "an", "and", "or", "in",
             "to", "of", "by", "with", "that", "this", "it", "as", "are", "was", 
