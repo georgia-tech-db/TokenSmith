@@ -128,15 +128,21 @@ class AgentOrchestrator:
 
     def _build_investigation_prompt(self, question: str, history: List[str]) -> str:
         """Build prompt for investigation step."""
+        obs_ids = self.registry.list_ids()
+        current_obs = self.registry.get_context(obs_ids) if obs_ids else "None yet."
+
         system = AGENT_SYSTEM_PROMPT.format(
             tool_descriptions=AgentToolkit.get_tool_descriptions(),
-            observation_ids=self.registry.list_ids() or "[]",
+            observation_ids=obs_ids or "[]",
         )
 
         history_text = "\n".join(history) if history else "No history yet."
 
         return f"""<|im_start|>system
 {system}
+
+Current observations:
+{current_obs}
 <|im_end|>
 <|im_start|>user
 Question: {question}
