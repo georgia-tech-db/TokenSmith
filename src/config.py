@@ -42,6 +42,10 @@ class QueryPlanConfig:
     use_hyde: bool
     hyde_max_tokens: int
     use_indexed_chunks: bool
+    
+    # index keyword paths
+    extracted_index_path: os.PathLike
+    page_to_chunk_map_path: os.PathLike
 
     # agent mode
     use_agent: bool
@@ -101,6 +105,10 @@ class QueryPlanConfig:
             use_agent      = pick("use_agent", False),
             agent_reasoning_limit = pick("agent_reasoning_limit", 5),
             agent_tool_limit = pick("agent_tool_limit", 20),
+            
+            # Index keyword paths
+            extracted_index_path = pick("extracted_index_path", "data/extracted_index.json"),
+            page_to_chunk_map_path = pick("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
         )
         cfg._validate()
         return cfg
