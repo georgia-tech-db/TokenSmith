@@ -32,3 +32,4 @@ dependencies:
     - uvicorn
     - pydantic
     - docling
+    - markdown

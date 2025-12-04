@@ -176,7 +176,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     from src.main import get_answer
     from src.instrumentation.logging import init_logger, get_logger
     from src.config import QueryPlanConfig
-    from src.retriever import BM25Retriever, FAISSRetriever, load_artifacts
+    from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
     from src.ranking.ranker import EnsembleRanker
     import argparse
     
@@ -208,6 +208,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         use_hyde=config.get("use_hyde", False),
         hyde_max_tokens=config.get("hyde_max_tokens", 100),
         use_indexed_chunks=config.get("use_indexed_chunks", False),
+        extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
+        page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
     )
     
     # Print status
@@ -234,6 +236,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         FAISSRetriever(faiss_index, cfg.embed_model),
         BM25Retriever(bm25_index)
     ]
+    
+    # Add index keyword retriever if weight > 0
+    if cfg.ranker_weights.get("index_keywords", 0) > 0:
+        retrievers.append(
+            IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
+        )
+    
     ranker = EnsembleRanker(
         ensemble_method=cfg.ensemble_method,
         weights=cfg.ranker_weights,
