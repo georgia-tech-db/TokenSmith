@@ -55,19 +55,20 @@ class AsyncLLMJudgeMetric(MetricBase):
     def is_available(self) -> bool:
         return True
     
-    def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
+    def calculate(self, answer: str, question: Optional[str] = None, expected: str = "", **kwargs) -> float:
         """
         Submit grading task to thread pool. Return current score if available, else 0.0.
-        
+
         Args:
             answer: Generated answer
-            expected: Question
-            keywords: Not used
-            
+            question: The original question (preferred)
+            expected: Fallback if question not provided
+            **kwargs: Ignored (keywords, chunks not used)
+
         Returns:
             Current score from shared dict, or 0.0 if still grading
         """
-        question = expected
+        question = question if question and question.strip() else expected if expected.strip() else "Evaluate this answer"
         
         # Check if already graded or queued
         with _results_lock:

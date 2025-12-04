@@ -109,9 +109,22 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         log_failure(results_dir, benchmark_id, error_msg)
         return {"passed": False}
     
+    # Extract chunk content from chunks_info for faithfulness metrics
+    chunks = None
+    if chunks_info:
+        # chunks_info is a list of dicts with "content" field
+        chunks = [chunk_dict.get("content", "") for chunk_dict in chunks_info if isinstance(chunk_dict, dict)]
+
     # Calculate scores
     try:
-        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question, ideal_retrieved_chunks=ideal_retrieved_chunks, actual_retrieved_chunks=chunks_info)
+        scores = scorer.calculate_scores(
+            retrieved_answer,
+            expected_answer,
+            keywords,
+            question=question,
+            ideal_retrieved_chunks=ideal_retrieved_chunks,
+            actual_retrieved_chunks=chunks_info,
+        )
     except Exception as e:
         error_msg = f"Scoring error: {e}"
         print(f"  ❌ FAILED: {error_msg}")
@@ -210,6 +223,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         use_indexed_chunks=config.get("use_indexed_chunks", False),
         extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
         page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
+        use_indexed_chunks=config.get("use_indexed_chunks", False),
     )
     
     # Print status
