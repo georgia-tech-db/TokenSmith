@@ -17,7 +17,7 @@ from src.config import QueryPlanConfig
 from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 
 
 # Constants
@@ -103,6 +103,12 @@ async def lifespan(app: FastAPI):
             FAISSRetriever(faiss_index, _config.embed_model),
             BM25Retriever(bm25_index),
         ]
+        
+        # Add index keyword retriever if weight > 0
+        if _config.ranker_weights.get("index_keywords", 0) > 0:
+            _retrievers.append(
+                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
+            )
 
         _ranker = EnsembleRanker(
             ensemble_method=_config.ensemble_method,
