@@ -15,7 +15,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
 from rich.console import Console
 from rich.markdown import Markdown
@@ -198,12 +198,15 @@ def get_answer(
             # Compute individual ranker ranks
             faiss_scores = raw_scores.get("faiss", {})
             bm25_scores = raw_scores.get("bm25", {})
+            index_scores = raw_scores.get("index_keywords", {})
             
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)  # Higher score = better
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)  # Higher score = better
+            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
+            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
+            index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
             
             faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
             bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+            index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
             
             chunks_info = []
             for rank, idx in enumerate(topk_idxs, 1):
@@ -215,6 +218,8 @@ def get_answer(
                     "faiss_rank": faiss_ranks.get(idx, 0),
                     "bm25_score": bm25_scores.get(idx, 0),
                     "bm25_rank": bm25_ranks.get(idx, 0),
+                    "index_score": index_scores.get(idx, 0),
+                    "index_rank": index_ranks.get(idx, 0),
                 })
         
         # Step 3: Final Re-ranking (if enabled)
@@ -300,6 +305,13 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             FAISSRetriever(faiss_index, cfg.embed_model),
             BM25Retriever(bm25_index)
         ]
+        
+        # Add index keyword retriever if weight > 0
+        if cfg.ranker_weights.get("index_keywords", 0) > 0:
+            retrievers.append(
+                IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
+            )
+        
         ranker = EnsembleRanker(
             ensemble_method=cfg.ensemble_method,
             weights=cfg.ranker_weights,
