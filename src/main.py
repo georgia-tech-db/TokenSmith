@@ -299,7 +299,7 @@ def run_agent_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         sources=sources,
         embed_model=cfg.embed_model,
         markdown_path="data/book_with_pages.md",
-        sections_path="data/extracted_sections.json",
+        summaries_path="data/section_summaries.json",
     )
 
     agent_config = AgentConfig(

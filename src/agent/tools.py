@@ -38,7 +38,7 @@ class GrepMatch:
 
 
 class IndexScout:
-    """Semantic search that returns metadata without full text."""
+    """Semantic search that returns structured metadata."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class IndexScout:
             if idx < 0 or idx >= len(self.chunks):
                 continue
             score = 1.0 / (1.0 + float(dist))
-            preview = self.chunks[idx][:100].replace("\n", " ")
+            preview = self.chunks[idx][:150].replace("\n", " ")
             results.append(
                 ChunkMetadata(
                     chunk_id=int(idx),
@@ -80,14 +80,13 @@ class IndexScout:
         return results
 
     def format_result(self, results: List[ChunkMetadata]) -> str:
-        """Format search results as readable text for the agent."""
+        """Format as machine-readable structured output."""
         if not results:
             return "No results found."
-        lines = []
-        for r in results:
-            lines.append(
-                f"Chunk {r.chunk_id} (score={r.score:.3f}, source={r.source}): {r.preview}..."
-            )
+        lines = ["Search results (use chunk_id for read_content):"]
+        for i, r in enumerate(results):
+            lines.append(f"  [{i}] chunk_id={r.chunk_id} score={r.score:.3f} source={r.source}")
+            lines.append(f"      preview: {r.preview}")
         return "\n".join(lines)
 
 
@@ -118,15 +117,15 @@ class NavigationalReader:
         texts = []
         for cid in chunk_ids:
             src = self.sources[cid] if cid < len(self.sources) else "unknown"
-            texts.append(f"[Chunk {cid} | {src}]\n{self.chunks[cid]}")
+            texts.append(f"--- Chunk {cid} (source: {src}) ---\n{self.chunks[cid]}")
 
         return "\n\n".join(texts), chunk_ids
 
     def format_result(self, text: str, chunk_ids: List[int]) -> str:
         """Format for agent consumption."""
         if not text:
-            return "No content found for the specified range."
-        return f"Read chunks {chunk_ids}:\n{text}"
+            return "ERROR: No content found for specified range."
+        return f"Content from chunks {chunk_ids}:\n\n{text}"
 
 
 class GrepSearch:
@@ -153,7 +152,11 @@ class GrepSearch:
         Returns matches with surrounding context.
         """
         lines = self._load_lines()
-        compiled = re.compile(pattern, re.IGNORECASE)
+        try:
+            compiled = re.compile(pattern, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"Invalid regex pattern: {pattern} ({e})")
+
         matches = []
 
         for i, line in enumerate(lines):
@@ -176,61 +179,70 @@ class GrepSearch:
     def format_result(self, matches: List[GrepMatch]) -> str:
         """Format grep results for agent."""
         if not matches:
-            return "No matches found."
-        lines = []
+            return f"No matches found for pattern."
+        lines = [f"Found {len(matches)} matches:"]
         for m in matches:
-            lines.append(f"Line {m.line_number}: {m.content}")
+            lines.append(f"\n  Line {m.line_number}: {m.content}")
             if m.context_before:
-                lines.append(f"  Before: {' | '.join(m.context_before[-2:])}")
+                for ctx in m.context_before[-2:]:
+                    lines.append(f"    (before) {ctx}")
             if m.context_after:
-                lines.append(f"  After: {' | '.join(m.context_after[:2])}")
+                for ctx in m.context_after[:2]:
+                    lines.append(f"    (after) {ctx}")
         return "\n".join(lines)
 
 
 class SectionSummarizer:
-    """Retrieve section content from extracted_sections.json."""
+    """Retrieve section summaries from generated summaries file."""
 
-    def __init__(self, sections_path: str, max_chars: int = 1000):
-        self.sections_path = Path(sections_path)
-        self.max_chars = max_chars
-        self._sections: Optional[List[Dict]] = None
+    def __init__(self, summaries_path: str):
+        self.summaries_path = Path(summaries_path)
+        self._summaries: Optional[List[Dict]] = None
 
-    def _load_sections(self) -> List[Dict]:
-        if self._sections is None:
-            with open(self.sections_path, "r", encoding="utf-8") as f:
-                self._sections = json.load(f)
-        return self._sections
+    def _load_summaries(self) -> List[Dict]:
+        if self._summaries is None:
+            if not self.summaries_path.exists():
+                raise FileNotFoundError(
+                    f"Summaries file not found: {self.summaries_path}\n"
+                    "Run: python -m src.agent.generate_summaries"
+                )
+            with open(self.summaries_path, "r", encoding="utf-8") as f:
+                self._summaries = json.load(f)
+        return self._summaries
 
     def get_section_summary(self, section_name: str) -> Optional[Dict]:
-        """
-        Find section by name (case-insensitive partial match).
-        Returns heading and truncated content.
-        """
-        sections = self._load_sections()
+        """Find section by name and return its summary."""
+        summaries = self._load_summaries()
         section_name_lower = section_name.lower()
 
-        for section in sections:
-            heading = section.get("heading", "")
+        for summ in summaries:
+            heading = summ.get("heading", "")
             if section_name_lower in heading.lower():
-                content = section.get("content", "")
                 return {
                     "heading": heading,
-                    "content": content[: self.max_chars],
-                    "full_length": len(content),
+                    "summary": summ.get("summary", ""),
+                    "content_length": summ.get("content_length", 0),
                 }
         return None
 
-    def list_sections(self, limit: int = 20) -> List[str]:
-        """List available section headings."""
-        sections = self._load_sections()
-        return [s.get("heading", "Untitled") for s in sections[:limit]]
+    def list_sections(self, limit: int = 30) -> List[str]:
+        """List available section headings with summaries."""
+        summaries = self._load_summaries()
+        results = []
+        for s in summaries[:limit]:
+            heading = s.get("heading", "Untitled")
+            summary = s.get("summary", "")
+            if summary:
+                results.append(f"{heading}: {summary[:100]}")
+            else:
+                results.append(heading)
+        return results
 
     def format_result(self, result: Optional[Dict]) -> str:
-        """Format section result for agent."""
+        """Format section summary for agent."""
         if result is None:
-            return "Section not found."
-        truncated = "(truncated)" if result["full_length"] > self.max_chars else ""
-        return f"{result['heading']}\n{result['content']} {truncated}"
+            return "ERROR: Section not found. Use list_sections to see available sections."
+        return f"Section: {result['heading']}\nSummary: {result['summary']}\nFull length: {result['content_length']} chars"
 
 
 class AgentToolkit:
@@ -243,52 +255,56 @@ class AgentToolkit:
         sources: List[str],
         embed_model: str,
         markdown_path: str,
-        sections_path: str,
+        summaries_path: str,
     ):
         self.index_scout = IndexScout(faiss_index, chunks, sources, embed_model)
         self.reader = NavigationalReader(chunks, sources)
         self.grep = GrepSearch(markdown_path)
-        self.summarizer = SectionSummarizer(sections_path)
+        self.summarizer = SectionSummarizer(summaries_path)
 
     def execute(self, tool_name: str, tool_args: Dict) -> str:
         """Execute a tool by name with given arguments."""
-        if tool_name == "search_index":
-            results = self.index_scout.search_index(
-                query=tool_args["query"],
-                top_k=tool_args.get("top_k", 10),
-            )
-            return self.index_scout.format_result(results)
+        try:
+            if tool_name == "search_index":
+                results = self.index_scout.search_index(
+                    query=tool_args["query"],
+                    top_k=tool_args.get("top_k", 10),
+                )
+                return self.index_scout.format_result(results)
 
-        elif tool_name == "read_content":
-            text, chunk_ids = self.reader.read_content(
-                target_chunk_id=tool_args["target_chunk_id"],
-                relative_start=tool_args.get("relative_start", 0),
-                relative_end=tool_args.get("relative_end", 0),
-            )
-            return self.reader.format_result(text, chunk_ids)
+            elif tool_name == "read_content":
+                text, chunk_ids = self.reader.read_content(
+                    target_chunk_id=tool_args["target_chunk_id"],
+                    relative_start=tool_args.get("relative_start", 0),
+                    relative_end=tool_args.get("relative_end", 0),
+                )
+                return self.reader.format_result(text, chunk_ids)
 
-        elif tool_name == "grep_text":
-            matches = self.grep.grep_text(
-                pattern=tool_args["pattern"],
-                context_lines=tool_args.get("context_lines", 2),
-                max_matches=tool_args.get("max_matches", 10),
-            )
-            return self.grep.format_result(matches)
+            elif tool_name == "grep_text":
+                matches = self.grep.grep_text(
+                    pattern=tool_args["pattern"],
+                    context_lines=tool_args.get("context_lines", 2),
+                    max_matches=tool_args.get("max_matches", 10),
+                )
+                return self.grep.format_result(matches)
 
-        elif tool_name == "get_section_summary":
-            result = self.summarizer.get_section_summary(
-                section_name=tool_args["section_name"]
-            )
-            return self.summarizer.format_result(result)
+            elif tool_name == "get_section_summary":
+                result = self.summarizer.get_section_summary(
+                    section_name=tool_args["section_name"]
+                )
+                return self.summarizer.format_result(result)
 
-        elif tool_name == "list_sections":
-            sections = self.summarizer.list_sections(
-                limit=tool_args.get("limit", 20)
-            )
-            return "\n".join(sections)
+            elif tool_name == "list_sections":
+                sections = self.summarizer.list_sections(
+                    limit=tool_args.get("limit", 30)
+                )
+                return "Available sections:\n" + "\n".join(sections)
 
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
+            else:
+                return f"ERROR: Unknown tool '{tool_name}'. Available: search_index, read_content, grep_text, get_section_summary, list_sections"
+
+        except Exception as e:
+            return f"ERROR executing {tool_name}: {type(e).__name__}: {str(e)}"
 
     @staticmethod
     def get_tool_descriptions() -> str:
@@ -296,21 +312,26 @@ class AgentToolkit:
         return """Available tools:
 
 1. search_index(query: str, top_k: int = 10)
-   - Semantic search returning chunk metadata (IDs, scores, sources, previews)
-   - Use to find relevant sections before reading full content
+   - Returns: Structured list with chunk_id, score, source, preview
+   - Use chunk_id from results for read_content
+   - Best for: Finding relevant content by semantic similarity
 
 2. read_content(target_chunk_id: int, relative_start: int = 0, relative_end: int = 0)
-   - Read chunks with relative offsets from target
-   - Example: target=100, start=-1, end=2 reads chunks 99-102
+   - Returns: Full text of specified chunk range
+   - relative_start=-1, relative_end=1 reads 3 chunks (before, target, after)
+   - Use chunk_id from search_index results
 
 3. grep_text(pattern: str, context_lines: int = 2, max_matches: int = 10)
-   - Regex search across raw markdown
-   - Use for exact phrases, variable names, specific terms
+   - Returns: Line numbers and matches with context
+   - Use for: Exact terms, code snippets, specific phrases
+   - Pattern is case-insensitive regex
 
 4. get_section_summary(section_name: str)
-   - Get section content by heading name (partial match)
-   - Returns truncated content for overview
+   - Returns: AI-generated summary of section
+   - Use for: Quick overview before reading full content
+   - Partial match on section heading
 
-5. list_sections(limit: int = 20)
-   - List available section headings"""
+5. list_sections(limit: int = 30)
+   - Returns: Available section headings with brief summaries
+   - Use for: Understanding document structure"""
 
