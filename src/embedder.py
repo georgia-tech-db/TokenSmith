@@ -1,5 +1,8 @@
+import sqlite3
+import hashlib
 import numpy as np
-from typing import List, Union
+from pathlib import Path
+from typing import List, Union, Optional
 from llama_cpp import Llama
 from tqdm import tqdm
 
@@ -107,3 +110,98 @@ class SentenceTransformer:
     def get_sentence_embedding_dimension(self) -> int:
         """Get the dimension of embeddings (compatibility method)."""
         return self.embedding_dimension
+
+
+class EmbeddingCache:
+    """Persistent SQLite cache for embeddings."""
+    
+    def __init__(self, cache_dir: str = "index/cache"):
+        self.db_path = Path(cache_dir) / "embeddings.db"
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+    
+    def _init_db(self):
+        """Initialize database schema."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    model_name TEXT,
+                    model_hash TEXT,
+                    query_text TEXT,
+                    embedding BLOB,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (model_hash, query_text)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_name ON embeddings(model_name)")
+    
+    def get(self, model_path: str, query: str) -> Optional[np.ndarray]:
+        """Retrieve cached embedding if it exists."""
+        model_hash = hashlib.md5(model_path.encode()).hexdigest()[:16]
+        
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT embedding FROM embeddings WHERE model_hash=? AND query_text=?",
+                (model_hash, query)
+            ).fetchone()
+            
+            if row:
+                return np.frombuffer(row[0], dtype=np.float32)
+        return None
+    
+    def set(self, model_path: str, query: str, embedding: np.ndarray):
+        """Store embedding in cache."""
+        model_name = Path(model_path).stem
+        model_hash = hashlib.md5(model_path.encode()).hexdigest()[:16]
+        blob = embedding.astype(np.float32).tobytes()
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO embeddings (model_name, model_hash, query_text, embedding) VALUES (?,?,?,?)",
+                (model_name, model_hash, query, blob)
+            )
+
+
+class CachedEmbedder:
+    """
+    Wrapper around SentenceTransformer that caches query embeddings.
+    Drop-in replacement for SentenceTransformer.
+    """
+    
+    def __init__(self, model_path: str, **kwargs):
+        self.embedder = SentenceTransformer(model_path, **kwargs)
+        self.cache = EmbeddingCache()
+        self.model_path = model_path
+    
+    def encode(self, texts, **kwargs):
+        """Encode texts with caching support."""
+        if isinstance(texts, str):
+            texts = [texts]
+        
+        results = []
+        to_compute = []
+        to_compute_indices = []
+        
+        # Check cache for each text
+        for i, text in enumerate(texts):
+            cached = self.cache.get(self.model_path, text)
+            if cached is not None:
+                results.append((i, cached))
+            else:
+                to_compute.append(text)
+                to_compute_indices.append(i)
+        
+        # Compute missing embeddings
+        if to_compute:
+            computed = self.embedder.encode(to_compute, **kwargs)
+            for idx, text, emb in zip(to_compute_indices, to_compute, computed):
+                self.cache.set(self.model_path, text, emb)
+                results.append((idx, emb))
+        
+        # Restore original order
+        results.sort(key=lambda x: x[0])
+        return np.array([emb for _, emb in results])
+    
+    def __getattr__(self, name):
+        """Delegate other methods to wrapped embedder."""
+        return getattr(self.embedder, name)
