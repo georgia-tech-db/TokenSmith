@@ -210,6 +210,9 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         use_indexed_chunks=config.get("use_indexed_chunks", False),
         extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
         page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
+        use_agent=config.get("use_agent", False),
+        agent_reasoning_limit=config.get("agent_reasoning_limit", 5),
+        agent_tool_limit=config.get("agent_tool_limit", 20),
     )
     
     # Print status
