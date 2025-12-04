@@ -31,3 +31,4 @@ dependencies:
     - fastapi
     - uvicorn
     - pydantic
+    - docling
