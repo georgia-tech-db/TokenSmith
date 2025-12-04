@@ -21,6 +21,9 @@ from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
 
+from src.agent.tools import AgentToolkit
+from src.agent.orchestrator import AgentOrchestrator, AgentConfig
+
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 def parse_args() -> argparse.Namespace:
@@ -276,6 +279,70 @@ def get_keywords(question: str) -> list:
     keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
     return keywords
 
+
+def run_agent_chat_session(args: argparse.Namespace, cfg: RAGConfig):
+    """Agent-based chat with dynamic context management."""
+    console = Console()
+
+    print("Welcome to Tokensmith (Agent Mode)! Initializing...")
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
+        artifacts_dir=artifacts_dir,
+        index_prefix=args.index_prefix
+    )
+
+    model_path = args.model_path or cfg.gen_model
+
+    toolkit = AgentToolkit(
+        faiss_index=faiss_index,
+        chunks=chunks,
+        sources=sources,
+        embed_model=cfg.embed_model,
+        markdown_path="data/book_with_pages.md",
+        sections_path="data/extracted_sections.json",
+    )
+
+    agent_config = AgentConfig(
+        reasoning_limit=cfg.agent_reasoning_limit,
+        tool_limit=cfg.agent_tool_limit,
+        max_generation_tokens=cfg.max_gen_tokens,
+    )
+
+    orchestrator = AgentOrchestrator(
+        toolkit=toolkit,
+        model_path=model_path,
+        config=agent_config,
+    )
+
+    print("Initialization complete. Agent mode active.")
+    print("Type 'exit' or 'quit' to end the session.")
+
+    while True:
+        try:
+            q = input("\nAsk > ").strip()
+            if not q:
+                continue
+            if q.lower() in {"exit", "quit"}:
+                print("Goodbye!")
+                break
+
+            console.print("\n[dim]Investigating...[/dim]")
+            for event in orchestrator.stream_run(q):
+                if event["type"] == "thought":
+                    console.print(f"[dim]Step {event['step']}: {event['thought']}[/dim]")
+                elif event["type"] == "tool":
+                    console.print(f"[cyan]  → {event['tool_name']}[/cyan]")
+                elif event["type"] == "answer":
+                    console.print("\n[bold cyan]==================== ANSWER ====================[/bold cyan]\n")
+                    console.print(Markdown(event["answer"]))
+                    console.print("\n[bold cyan]=================================================[/bold cyan]\n")
+                    console.print(f"[dim]Used observations: {event['kept_observations']}[/dim]")
+
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+
+
 def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     """
     Initializes artifacts and runs the main interactive chat loop.
@@ -373,7 +440,10 @@ def main():
     if args.mode == "index":
         run_index_mode(args, cfg)
     elif args.mode == "chat":
-        run_chat_session(args, cfg)
+        if cfg.use_agent:
+            run_agent_chat_session(args, cfg)
+        else:
+            run_chat_session(args, cfg)
 
 
 if __name__ == "__main__":

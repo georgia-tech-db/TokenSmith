@@ -13,3 +13,8 @@ use_hyde: false
 hyde_max_tokens: 300
 use_indexed_chunks: false
 rerank_mode: "cross_encoder"
+
+# Agent mode settings
+use_agent: false
+agent_reasoning_limit: 5
+agent_tool_limit: 20

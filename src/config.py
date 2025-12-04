@@ -48,6 +48,11 @@ class RAGConfig:
     extracted_index_path: os.PathLike = "data/extracted_index.json"
     page_to_chunk_map_path: os.PathLike = "index/sections/textbook_index_page_to_chunk_map.json"
 
+    # agent mode
+    use_agent: bool = False
+    agent_reasoning_limit: int = 5
+    agent_tool_limit: int = 20
+
     # ---------- factory + validation ----------
     @classmethod
     def from_yaml(cls, path: os.PathLike) -> RAGConfig:
