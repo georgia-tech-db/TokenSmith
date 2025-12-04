@@ -96,6 +96,18 @@ def _generate_html_template() -> str:
         .answer-content p {
             margin: 10px 0;
         }
+        .answer-content h1, .answer-content h2, .answer-content h3 {
+            margin: 15px 0 10px 0;
+        }
+        .answer-content code {
+            background: #e0e0e0;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .answer-content strong {
+            font-weight: bold;
+        }
         details {
             margin: 10px 0;
             padding: 10px;
@@ -114,6 +126,16 @@ def _generate_html_template() -> str:
             border-left: 3px solid #2196F3;
         }
     </style>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
     <h1>TokenSmith Benchmark Results</h1>
@@ -155,13 +177,12 @@ def _generate_summary_stats(results: List[Dict[Any, Any]], active_metrics: set) 
     return html
 
 def _convert_markdown_to_html(text: str) -> str:
-    """Convert markdown to HTML."""
-    try:
-        import markdown
-        return markdown.markdown(text)
-    except ImportError:
-        # Fallback to plain text if markdown not available
-        return f'<pre style="white-space: pre-wrap;">{text}</pre>'
+    """Convert markdown to HTML with LaTeX math support."""
+    import markdown
+    return markdown.markdown(
+        text,
+        extensions=['extra', 'nl2br', 'sane_lists']
+    )
 
 
 def _load_async_llm_results() -> Dict[str, Dict]:
@@ -239,11 +260,16 @@ def _generate_detailed_results(results: List[Dict[Any, Any]], active_metrics: se
                 """
             
             for chunk in chunks_info:
+                index_score = chunk.get('index_score', 0)
+                index_rank = chunk.get('index_rank', 0)
+                index_display = f"Index: rank #{index_rank} (score: {index_score:.4f})" if index_score > 0 else "Index: no match"
+                
                 html += f"""
                 <div class="chunk-item">
                     <strong>Rank {chunk['rank']}</strong> | Chunk ID: {chunk.get('chunk_id', '?')} | 
                     FAISS: rank #{chunk.get('faiss_rank', '?')} (score: {chunk['faiss_score']:.4f}) | 
-                    BM25: rank #{chunk.get('bm25_rank', '?')} (score: {chunk['bm25_score']:.4f})
+                    BM25: rank #{chunk.get('bm25_rank', '?')} (score: {chunk['bm25_score']:.4f}) | 
+                    {index_display}
                     <pre style="margin-top: 5px;">{chunk['content']}</pre>
                 </div>
                 """

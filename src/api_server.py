@@ -10,13 +10,14 @@ from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.config import QueryPlanConfig
 from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 
 
 # Constants
@@ -49,7 +50,7 @@ class ChatResponse(BaseModel):
 
 def _resolve_config_path() -> pathlib.Path:
     """Return the absolute path to the API config."""
-    return pathlib.Path(__file__).resolve().parent / "config" / "config.yaml"
+    return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
 
 
 def _ensure_initialized():
@@ -102,6 +103,12 @@ async def lifespan(app: FastAPI):
             FAISSRetriever(faiss_index, _config.embed_model),
             BM25Retriever(bm25_index),
         ]
+        
+        # Add index keyword retriever if weight > 0
+        if _config.ranker_weights.get("index_keywords", 0) > 0:
+            _retrievers.append(
+                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
+            )
 
         _ranker = EnsembleRanker(
             ensemble_method=_config.ensemble_method,
@@ -189,6 +196,46 @@ async def test_chat(request: ChatRequest):
         return {"error": str(e), "status": "error"}
 
 
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Streaming chat endpoint using Server-Sent Events."""
+    import json
+    _ensure_initialized()
+    if not request.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    chunks = _artifacts["chunks"]
+    sources = _artifacts["sources"]
+    
+    if _logger:
+        _logger.log_query_start(request.query)
+    
+    if _config.disable_chunks:
+        ranked_chunks, topk_idxs = [], []
+    else:
+        _, topk_idxs = _retrieve_and_rank(request.query)
+        ranked_chunks = [chunks[i] for i in topk_idxs]
+        if _logger:
+            _logger.log_chunks_used(topk_idxs, chunks, sources)
+    
+    if not _config.model_path:
+        raise HTTPException(status_code=500, detail="Model path not configured.")
+    
+    async def event_generator():
+        try:
+            for delta in answer(request.query, ranked_chunks, _config.model_path,
+                              _config.max_gen_tokens, system_prompt_mode=_config.system_prompt_mode):
+                if delta:
+                    yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            if _logger:
+                _logger.log_error(e, context="streaming")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Main chat endpoint."""
@@ -226,13 +273,13 @@ async def chat(request: ChatRequest):
             raise HTTPException(status_code=500, detail="Model path not configured.")
 
         try:
-            answer_text = answer(
+            answer_text = "".join(answer(
                 request.query,
                 ranked_chunks,
                 model_path,
                 max_tokens,
                 system_prompt_mode=_config.system_prompt_mode,
-            )
+            ))
         except Exception as gen_error:
             print(f"Generation failed: {str(gen_error)}")
             if _logger:

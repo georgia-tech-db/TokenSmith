@@ -42,6 +42,10 @@ class QueryPlanConfig:
     use_hyde: bool
     hyde_max_tokens: int
     use_indexed_chunks: bool
+    
+    # index keyword paths
+    extracted_index_path: os.PathLike
+    page_to_chunk_map_path: os.PathLike
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -91,6 +95,10 @@ class QueryPlanConfig:
             # Query Enhancement
             use_hyde       = pick("use_hyde", False),
             hyde_max_tokens= pick("hyde_max_tokens", 100),
+            
+            # Index keyword paths
+            extracted_index_path = pick("extracted_index_path", "data/extracted_index.json"),
+            page_to_chunk_map_path = pick("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
         )
         cfg._validate()
         return cfg
