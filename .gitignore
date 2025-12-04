@@ -27,6 +27,7 @@ chapters/
 data/
 *.faiss
 *.pkl
+index/cache/
 
 # --- Model files ---
 models/

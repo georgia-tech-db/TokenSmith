@@ -198,12 +198,15 @@ def get_answer(
             # Compute individual ranker ranks
             faiss_scores = raw_scores.get("faiss", {})
             bm25_scores = raw_scores.get("bm25", {})
+            index_scores = raw_scores.get("index_keywords", {})
             
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)  # Higher score = better
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)  # Higher score = better
+            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
+            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
+            index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
             
             faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
             bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+            index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
             
             chunks_info = []
             for rank, idx in enumerate(topk_idxs, 1):
@@ -215,6 +218,8 @@ def get_answer(
                     "faiss_rank": faiss_ranks.get(idx, 0),
                     "bm25_score": bm25_scores.get(idx, 0),
                     "bm25_rank": bm25_ranks.get(idx, 0),
+                    "index_score": index_scores.get(idx, 0),
+                    "index_rank": index_ranks.get(idx, 0),
                 })
         
         # Step 3: Final Re-ranking (if enabled)

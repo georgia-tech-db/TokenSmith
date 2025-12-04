@@ -12,10 +12,13 @@ import os
 import pickle
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Dict
+import nltk
+nltk.download('wordnet')
+from nltk.stem import WordNetLemmatizer
 
 import faiss
 import numpy as np
-from src.embedder import SentenceTransformer
+from src.embedder import CachedEmbedder
 
 from src.config import QueryPlanConfig
 from src.index_builder import preprocess_for_bm25
@@ -23,12 +26,12 @@ from src.index_builder import preprocess_for_bm25
 
 # -------------------------- Embedder cache ------------------------------
 
-_EMBED_CACHE: Dict[str, SentenceTransformer] = {}
+_EMBED_CACHE: Dict[str, CachedEmbedder] = {}
 
-def _get_embedder(model_name: str) -> SentenceTransformer:
+def _get_embedder(model_name: str) -> CachedEmbedder:
     if model_name not in _EMBED_CACHE:
         # Use the cached embedding model to avoid reloading it on every call
-        _EMBED_CACHE[model_name] = SentenceTransformer(model_name)
+        _EMBED_CACHE[model_name] = CachedEmbedder(model_name)
     return _EMBED_CACHE[model_name]
 
 
@@ -185,7 +188,6 @@ class IndexKeywordRetriever(Retriever):
         # Load and normalize index: lemmatize phrases as units
         # Build token->phrase mapping for fast lookup
         if os.path.exists(extracted_index_path):
-            from nltk.stem import WordNetLemmatizer
             lemmatizer = WordNetLemmatizer()
             
             with open(extracted_index_path, 'r') as f:
@@ -271,7 +273,6 @@ class IndexKeywordRetriever(Retriever):
     @staticmethod
     def _extract_keywords(query: str) -> List[str]:
         """Extract keywords from query by removing stopwords and lemmatizing."""
-        from nltk.stem import WordNetLemmatizer
         
         stopwords = {
             "the", "is", "at", "which", "on", "for", "a", "an", "and", "or", "in",
