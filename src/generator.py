@@ -113,7 +113,7 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
 
 _LLM_CACHE = {}
 
-def get_llama_model(model_path: str, n_ctx: int = 4096):
+def get_llama_model(model_path: str, n_ctx: int = 16384):
     if model_path not in _LLM_CACHE:
         _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
