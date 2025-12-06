@@ -13,7 +13,7 @@ import pickle
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Dict
 import nltk
-nltk.download('wordnet')
+# nltk.download('wordnet')
 from nltk.stem import WordNetLemmatizer
 
 import faiss
