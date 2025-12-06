@@ -194,8 +194,6 @@ def get_answer(
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        page_nums = get_page_numbers(topk_idxs, meta)
-        print(page_nums)
         
         # Capture chunk info if in test mode
         if is_test_mode:

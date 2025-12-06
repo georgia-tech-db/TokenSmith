@@ -55,27 +55,25 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
 
 # -------------------------- Helper to get page nums for chunks -------------------------------
 
-def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> list[int]:
+def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int, int]:
     """
-    Retrieves distinct, sorted page numbers for the provided chunk indices.
+    Retrieves page numbers for the provided chunk indices.
     """
     if not metadata or not chunk_indices:
-        return []
+        return {}
 
-    page_numbers = set()
+    page_numbers = {}
 
     for idx in chunk_indices:
         idx = int(idx)
         # Ensure index is within bounds
-        print(idx)
         if 0 <= idx < len(metadata):
             # Access the 'page_number' key we saved in index_builder.py
             p_num = metadata[idx].get("page_number")
-            print(metadata[idx])
             if p_num is not None:
-                page_numbers.add(p_num)
+                page_numbers[idx] = p_num
 
-    return sorted(list(page_numbers))
+    return page_numbers
 
 
 # -------------------------- Pretty previews -----------------------------
@@ -207,7 +205,7 @@ class IndexKeywordRetriever(Retriever):
             page_to_chunk_map_path: Path to page_to_chunk_map.json (page -> chunk IDs)
         """
         import json
-        nltk.download('wordnet')
+        nltk.download('wordnet', quiet=True)
         self.page_to_chunk_map = {}
         
         # Load and normalize index: lemmatize phrases as units

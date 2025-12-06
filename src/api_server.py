@@ -17,7 +17,7 @@ from src.config import QueryPlanConfig
 from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
 
 
 # Constants
@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
 
     try:
         artifacts_dir = _config.make_artifacts_directory()
-        faiss_index, bm25_index, chunks, sources = load_artifacts(
+        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
             index_prefix=INDEX_PREFIX
         )
@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI):
         _artifacts = {
             "chunks": chunks,
             "sources": sources,
+            "meta": metadata,
         }
 
         _retrievers = [
@@ -220,9 +221,20 @@ async def chat_stream(request: ChatRequest):
     
     if not _config.model_path:
         raise HTTPException(status_code=500, detail="Model path not configured.")
+
     
     async def event_generator():
         try:
+            # First send the references (page/text pairs)
+            page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
+            sources_used = []
+            for i, idx in enumerate(topk_idxs):
+                source_text = chunks[i]
+                page = page_nums[idx]
+                sources_used.append(SourceItem(page=page, text=source_text))
+
+            yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
+
             for delta in answer(request.query, ranked_chunks, _config.model_path,
                               _config.max_gen_tokens, system_prompt_mode=_config.system_prompt_mode):
                 if delta:
