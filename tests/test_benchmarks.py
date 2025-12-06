@@ -58,6 +58,10 @@ def print_test_config(config, scorer):
     print(f"  Chunks Enabled:     {not config['disable_chunks']}")
     print(f"  Golden Chunks:      {config['use_golden_chunks']}")
     print(f"  HyDE Enabled:       {config.get('use_hyde', False)}")
+    print(f"  Agent Mode:         {config.get('use_agent', False)}")
+    if config.get('use_agent', False):
+        print(f"    • Reasoning Limit: {config.get('agent_reasoning_limit', 5)}")
+        print(f"    • Tool Limit:      {config.get('agent_tool_limit', 20)}")
     print(f"  Output Mode:        {config['output_mode']}")
     print(f"  Metrics:            {', '.join(active_metrics)}")
     print(f"{'='*60}\n")
@@ -147,6 +151,9 @@ def run_benchmark(benchmark, config, results_dir, scorer):
             "system_prompt_mode": config["system_prompt_mode"],
             "disable_chunks": config["disable_chunks"],
             "use_golden_chunks": config["use_golden_chunks"],
+            "use_agent": config.get("use_agent", False),
+            "agent_reasoning_limit": config.get("agent_reasoning_limit", 5),
+            "agent_tool_limit": config.get("agent_tool_limit", 20),
         }
     }
     
@@ -173,7 +180,6 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     Returns:
         tuple: (Generated answer, chunks_info list, hyde_query)
     """
-    from src.main import get_answer
     from src.instrumentation.logging import init_logger, get_logger
     from src.config import RAGConfig
     from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
@@ -216,7 +222,9 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     )
     
     # Print status
-    if golden_chunks and config["use_golden_chunks"]:
+    if config.get("use_agent", False):
+        print(f"  🤖 Agent mode enabled")
+    elif golden_chunks and config["use_golden_chunks"]:
         print(f"  📌 Using {len(golden_chunks)} golden chunks")
     elif config["disable_chunks"]:
         print(f"  📭 No chunks (baseline mode)")
@@ -235,47 +243,84 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         index_prefix=config["index_prefix"]
     )
 
-    retrievers = [
-        FAISSRetriever(faiss_index, cfg.embed_model),
-        BM25Retriever(bm25_index)
-    ]
-    
-    # Add index keyword retriever if weight > 0
-    if cfg.ranker_weights.get("index_keywords", 0) > 0:
-        retrievers.append(
-            IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
+    # Check if agent mode is enabled
+    if config.get("use_agent", False):
+        # Use agent orchestrator path
+        from src.agent.tools import AgentToolkit
+        from src.agent.orchestrator import AgentOrchestrator, AgentConfig
+        
+        toolkit = AgentToolkit(
+            faiss_index=faiss_index,
+            chunks=chunks,
+            sources=sources,
+            embed_model=cfg.embed_model,
+            markdown_path="data/book_with_pages.md",
+            summaries_path="data/section_summaries.json",
         )
-    
-    ranker = EnsembleRanker(
-        ensemble_method=cfg.ensemble_method,
-        weights=cfg.ranker_weights,
-        rrf_k=int(cfg.rrf_k)
-    )
-    
-    # Package artifacts for reuse
-    artifacts = {
-        "chunks": chunks,
-        "sources": sources,
-        "retrievers": retrievers,
-        "ranker": ranker
-    }
-
-    result = get_answer(
-        question=question,
-        cfg=cfg,
-        args=args,
-        logger=logger,
-        artifacts=artifacts,
-        console=None,
-        golden_chunks=golden_chunks,
-        is_test_mode=True
-    )
-    
-    # Handle return value (answer, chunks_info, hyde_query) or just answer
-    if isinstance(result, tuple):
-        generated, chunks_info, hyde_query = result
+        
+        agent_config = AgentConfig(
+            reasoning_limit=cfg.agent_reasoning_limit,
+            tool_limit=cfg.agent_tool_limit,
+            max_generation_tokens=cfg.max_gen_tokens,
+        )
+        
+        orchestrator = AgentOrchestrator(
+            toolkit=toolkit,
+            model_path=args.model_path or cfg.model_path,
+            config=agent_config,
+        )
+        
+        # Run agent and get answer
+        result = orchestrator.run(question)
+        generated = result["answer"]
+        chunks_info = None  # Agent mode doesn't provide chunks_info in the same format
+        hyde_query = None
+        
     else:
-        generated, chunks_info, hyde_query = result, None, None
+        # Use standard get_answer path
+        from src.main import get_answer
+        
+        retrievers = [
+            FAISSRetriever(faiss_index, cfg.embed_model),
+            BM25Retriever(bm25_index)
+        ]
+        
+        # Add index keyword retriever if weight > 0
+        if cfg.ranker_weights.get("index_keywords", 0) > 0:
+            retrievers.append(
+                IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
+            )
+        
+        ranker = EnsembleRanker(
+            ensemble_method=cfg.ensemble_method,
+            weights=cfg.ranker_weights,
+            rrf_k=int(cfg.rrf_k)
+        )
+        
+        # Package artifacts for reuse
+        artifacts = {
+            "chunks": chunks,
+            "sources": sources,
+            "retrievers": retrievers,
+            "ranker": ranker
+        }
+
+        result = get_answer(
+            question=question,
+            cfg=cfg,
+            args=args,
+            logger=logger,
+            artifacts=artifacts,
+            console=None,
+            golden_chunks=golden_chunks,
+            is_test_mode=True
+        )
+        
+        # Handle return value (answer, chunks_info, hyde_query) or just answer
+        if isinstance(result, tuple):
+            generated, chunks_info, hyde_query = result
+        else:
+            generated, chunks_info, hyde_query = result, None, None
     
     # Clean answer - extract up to end token if present
     generated = clean_answer(generated)
