@@ -213,8 +213,6 @@ class IndexKeywordRetriever(Retriever):
             self.phrase_to_pages = {}
             self.token_to_phrases = {}
         
-        print(f"IndexKeywordRetriever initialized with {len(self.phrase_to_pages)} phrases and {len(self.token_to_phrases)} tokens")
-        
         if os.path.exists(page_to_chunk_map_path):
             with open(page_to_chunk_map_path, 'r') as f:
                 self.page_to_chunk_map = json.load(f)
@@ -235,7 +233,6 @@ class IndexKeywordRetriever(Retriever):
             
             # Get all phrases containing this keyword token
             matching_phrases = self.token_to_phrases[keyword]
-            print(f'Found {len(matching_phrases)} matching phrases for keyword: {keyword}')
             
             for phrase in matching_phrases:
                 page_numbers = self.phrase_to_pages[phrase]
