@@ -15,7 +15,8 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
+from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts, \
+    get_page_numbers
 from src.query_enhancement import generate_hypothetical_document
 from rich.console import Console
 from rich.markdown import Markdown
@@ -152,6 +153,7 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
+    meta = artifacts["meta"]
     
     logger.log_query_start(question)
     
@@ -296,7 +298,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
         artifacts_dir = cfg.make_artifacts_directory()
-        faiss_index, bm25_index, chunks, sources = load_artifacts(
+        faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
             artifacts_dir=artifacts_dir, 
             index_prefix=args.index_prefix
         )
@@ -323,7 +325,8 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
             "chunks": chunks,
             "sources": sources,
             "retrievers": retrievers,
-            "ranker": ranker
+            "ranker": ranker,
+            "meta": meta,
         }
     except Exception as e:
         print(f"ERROR: Failed to initialize chat artifacts: {e}")
