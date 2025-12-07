@@ -228,9 +228,9 @@ async def chat_stream(request: ChatRequest):
             # First send the references (page/text pairs)
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
             sources_used = []
-            for i, idx in enumerate(topk_idxs):
+            for i in topk_idxs:
                 source_text = chunks[i]
-                page = page_nums[idx]
+                page = page_nums[i] if i in page_nums else 1
                 sources_used.append(SourceItem(page=page, text=source_text))
 
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
