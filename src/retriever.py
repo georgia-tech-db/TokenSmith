@@ -11,9 +11,8 @@ import pathlib
 import os
 import pickle
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 import nltk
-nltk.download('wordnet')
 from nltk.stem import WordNetLemmatizer
 
 import faiss
@@ -37,7 +36,7 @@ def _get_embedder(model_name: str) -> CachedEmbedder:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str]]:
+def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str], Any]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
@@ -49,8 +48,32 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
     bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
     chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
     sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
+    metadata = pickle.load(open(artifacts_dir / f"{index_prefix}_meta.pkl", "rb"))
 
-    return faiss_index, bm25_index, chunks, sources
+    return faiss_index, bm25_index, chunks, sources, metadata
+
+
+# -------------------------- Helper to get page nums for chunks -------------------------------
+
+def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int, int]:
+    """
+    Retrieves page numbers for the provided chunk indices.
+    """
+    if not metadata or not chunk_indices:
+        return {}
+
+    page_numbers = {}
+
+    for idx in chunk_indices:
+        idx = int(idx)
+        # Ensure index is within bounds
+        if 0 <= idx < len(metadata):
+            # Access the 'page_number' key we saved in index_builder.py
+            p_num = metadata[idx].get("page_number")
+            if p_num is not None:
+                page_numbers[idx] = p_num
+
+    return page_numbers
 
 
 # -------------------------- Pretty previews -----------------------------
@@ -182,7 +205,7 @@ class IndexKeywordRetriever(Retriever):
             page_to_chunk_map_path: Path to page_to_chunk_map.json (page -> chunk IDs)
         """
         import json
-        
+        nltk.download('wordnet', quiet=True)
         self.page_to_chunk_map = {}
         
         # Load and normalize index: lemmatize phrases as units
