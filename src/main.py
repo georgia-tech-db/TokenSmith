@@ -4,9 +4,10 @@ from typing import Optional
 from src.config import QueryPlanConfig
 from src.instrumentation.logging import init_logger, get_logger
 from src.planning.heuristics import HeuristicQueryPlanner
+from src.planning.difficulty_planner import QueryDifficultyPlanner
 from src.preprocess import build_index
 from src.ranking.ensemble import EnsembleRanker
-from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker
+from src.ranking.rankers import FaissSimilarityRanker, BM25Ranker, TfIDFRanker, LocationRanker
 from src.retriever import get_candidates, apply_seg_filter
 from src.ranker import rerank
 from src.generator import answer
@@ -28,6 +29,8 @@ def parse_args():
     p.add_argument("--pdf_range", type=str, default=None, help="e.g., 27-33")
     p.add_argument("--keep_tables", action="store_true")
     p.add_argument("--visualize", action="store_true")
+    p.add_argument("--planner", choices=["heuristic", "difficulty"], default="heuristic", 
+                   help="Choose query planner: heuristic (default) or difficulty-based")
 
     return p.parse_args()
 
@@ -66,7 +69,14 @@ def main():
 
     init_logger(cfg)
     logger = get_logger()
-    planner = HeuristicQueryPlanner(cfg)
+    
+    # Choose planner based on argument
+    if args.planner == "difficulty":
+        planner = QueryDifficultyPlanner(cfg)
+        print("Using difficulty-based planner (easy/hard pipelines)")
+    else:
+        planner = HeuristicQueryPlanner(cfg)
+        print("Using heuristic-based planner")
 
     if args.mode == "index":
         # Optional range filtering
@@ -88,7 +98,6 @@ def main():
 
     elif args.mode == "chat":
         from src.retriever import load_artifacts
-        from src.retriever import boost_by_location
 
         print("📚 Ready. Type 'exit' to quit.")
         while True:
@@ -116,6 +125,8 @@ def main():
                 "faiss_distances": faiss_dists,  # for FaissSimilarityRanker
                 "vectorizer": vectorizer,  # for TfIDFRanker
                 "chunk_tags": chunk_tags,  # for TfIDFRanker
+                "metadata": metadata,  # for LocationRanker
+                "location_hint": cfg.location_hint,  # for LocationRanker
             }
 
             # 3) build rankers + ensemble (using weights from config)
@@ -123,6 +134,7 @@ def main():
                 FaissSimilarityRanker(),
                 BM25Ranker(),
                 TfIDFRanker(),
+                LocationRanker(),
             ]
             weights = cfg.ranker_weights
             method = cfg.ensemble_method
@@ -133,8 +145,7 @@ def main():
                 query=q, chunks=chunks, cand_idxs=cand_idxs, context=context
             )
 
-            # Location-aware boosting (optional, uses cfg.location_hint if present)
-            ordered = boost_by_location(ordered, metadata, cfg)
+            # Location-aware boosting is now handled by LocationRanker in the ensemble
 
             topk_idxs = apply_seg_filter(cfg, chunks, ordered)
             logger.log_chunks_used(topk_idxs, chunks, sources, chunk_tags, metadata)

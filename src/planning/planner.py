@@ -3,8 +3,14 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 from copy import deepcopy
 
-from src.config import QueryPlanConfig
-from src.instrumentation.logging import get_logger
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import QueryPlanConfig
+from instrumentation.logging import get_logger
 
 
 class QueryPlanner(ABC):

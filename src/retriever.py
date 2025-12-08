@@ -123,39 +123,14 @@ def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
 
 
 # --------------------- Location-aware boosting ---------------------------
-def _extract_numbering_from_heading(heading: str) -> Tuple[Optional[int], Optional[str]]:
-    """
-    Try to extract chapter and section numbering from a heading string like:
-      "## 19 Concurrency Control"
-      "## 19.3 ARIES Recovery"
-    Returns (chapter, section_str) where:
-      chapter: int or None
-      section_str: e.g., "19.3" or None
-    """
-    if not heading:
-        return None, None
-    m = re.search(r"(\d{1,3}(?:\.\d{1,3})*)", str(heading))
-    if not m:
-        return None, None
-    number = m.group(1)
-    if "." in number:
-        # section like 19.3 -> chapter 19
-        try:
-            ch = int(number.split(".")[0])
-        except Exception:
-            ch = None
-        return ch, number
-    try:
-        return int(number), None
-    except Exception:
-        return None, None
-
-
 def boost_by_location(ordered: List[int], metadata: List[Dict], cfg: QueryPlanConfig) -> List[int]:
     """
+    DEPRECATED: This function is being replaced by LocationRanker integration.
     Reorder indices in 'ordered' by boosting those whose metadata section matches
     cfg.location_hint (chapter or section). Stable within equal bonus.
     """
+    from src.ranking.rankers import _extract_numbering_from_heading
+    
     hint = getattr(cfg, "location_hint", None)
     if not hint:
         return ordered

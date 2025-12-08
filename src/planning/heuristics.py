@@ -1,9 +1,15 @@
-from src.config import QueryPlanConfig
-from src.chunking import CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, SectionChunkConfig
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import QueryPlanConfig
+from chunking import CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, SectionChunkConfig
 from copy import deepcopy
 import re
 
-from src.planning.planner import QueryPlanner
+from planning.planner import QueryPlanner
 
 """
 Heuristic Query Planner
@@ -60,17 +66,17 @@ class HeuristicQueryPlanner(QueryPlanner):
         if kind == "location":
             cfg.chunk_mode = "sections"
             cfg.chunk_config = SectionChunkConfig()
-            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.6, "bm25": 0.2, "tf-idf": 0.1, "location": 0.1}
 
         elif kind == "definition":
             cfg.chunk_mode = "tokens"
             cfg.chunk_config = TokenChunkConfig(max_tokens=200)
-            cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.6, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.3, "bm25": 0.6, "tf-idf": 0.1, "location": 0.0}
 
         elif kind == "explanatory":
             cfg.chunk_mode = "sections"
             cfg.chunk_config = SectionChunkConfig()
-            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1, "location": 0.0}
 
         elif kind == "procedural":
             cfg.chunk_mode = "sliding-tokens"
@@ -80,13 +86,24 @@ class HeuristicQueryPlanner(QueryPlanner):
                 tokenizer_name=cfg.embed_model,
             )
             cfg.pool_size = max(cfg.pool_size, cfg.top_k * 5)
-            cfg.ranker_weights = {"faiss": 0.5, "bm25": 0.2, "tf-idf": 0.3}
+            cfg.ranker_weights = {"faiss": 0.5, "bm25": 0.2, "tf-idf": 0.3, "location": 0.0}
 
         else:
             print("Unknown query type. Defaulting to explanatory.")
             cfg.chunk_mode = "sections"
             cfg.chunk_config = SectionChunkConfig()
-            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1}
+            cfg.ranker_weights = {"faiss": 0.7, "bm25": 0.2, "tf-idf": 0.1, "location": 0.0}
+
+        # If location hints are present, boost location ranker weight
+        if cfg.location_hint:
+            # Reduce other weights proportionally to make room for location
+            total_other = sum(v for k, v in cfg.ranker_weights.items() if k != "location")
+            if total_other > 0:
+                scale_factor = 0.9  # Reserve 10% for location (more conservative)
+                for k in cfg.ranker_weights:
+                    if k != "location":
+                        cfg.ranker_weights[k] *= scale_factor
+                cfg.ranker_weights["location"] = 0.1
 
         self._log_decision(cfg)
         return cfg

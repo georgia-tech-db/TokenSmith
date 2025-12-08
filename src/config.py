@@ -6,7 +6,13 @@ from typing import Dict, Callable, Any, Optional
 
 import yaml
 
-from src.chunking import ChunkStrategy, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from chunking import ChunkStrategy, make_chunk_strategy, CharChunkConfig, TokenChunkConfig, SlidingTokenConfig, \
     SectionChunkConfig, ChunkConfig
 
 

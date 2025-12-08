@@ -74,3 +74,73 @@ class TfIDFRanker(Ranker):
         return out
 
 
+class LocationRanker(Ranker):
+    name = "location"
+    
+    def prepare(self, *, query, chunks, cand_idxs, context):
+        """Extract location hints from query and prepare for scoring."""
+        # Location hints are passed via context from the query planner
+        context["_location_hint"] = context.get("location_hint", None)
+    
+    def score(self, *, query, chunks, cand_idxs, context):
+        """Score chunks based on location hints (chapter/section matching)."""
+        hint = context.get("_location_hint")
+        if not hint:
+            return {i: 0.0 for i in cand_idxs}
+        
+        want_ch = hint.get("chapter") if isinstance(hint, dict) else None
+        want_sec = hint.get("section") if isinstance(hint, dict) else None
+        metadata = context.get("metadata", [])
+        
+        out = {}
+        for i in cand_idxs:
+            score = 0.0
+            try:
+                section_heading = metadata[i].get("section") if i < len(metadata) else None
+            except Exception:
+                section_heading = None
+            
+            if section_heading:
+                ch, sec = _extract_numbering_from_heading(section_heading)
+                
+                # Section match gets higher score (more specific)
+                if want_sec and sec and str(sec).startswith(str(want_sec)):
+                    score += 1.0
+                
+                # Chapter match gets lower score (less specific)
+                if want_ch is not None and ch is not None and int(ch) == int(want_ch):
+                    score += 0.5
+            
+            out[i] = score
+        
+        return out
+
+
+def _extract_numbering_from_heading(heading: str) -> tuple[Optional[int], Optional[str]]:
+    """
+    Extract chapter and section numbers from a heading string.
+    Returns (chapter_num, section_str) or (None, None) if not found.
+    """
+    if not heading:
+        return None, None
+    
+    import re
+    
+    # Try to match section patterns like "19.3", "19.3.1", etc.
+    section_match = re.search(r'(\d+(?:\.\d+)+)', heading)
+    if section_match:
+        section_str = section_match.group(1)
+        # Extract chapter from section (first number)
+        chapter_match = re.search(r'^(\d+)', section_str)
+        chapter_num = int(chapter_match.group(1)) if chapter_match else None
+        return chapter_num, section_str
+    
+    # Try to match chapter patterns like "Chapter 19", "Ch. 19", etc.
+    chapter_match = re.search(r'(?:chapter|ch\.?)\s*(\d+)', heading, re.IGNORECASE)
+    if chapter_match:
+        chapter_num = int(chapter_match.group(1))
+        return chapter_num, None
+    
+    return None, None
+
+
