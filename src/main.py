@@ -55,6 +55,12 @@ def parse_args() -> argparse.Namespace:
         default="baseline",
         help="system prompt mode (choices: baseline, tutor, concise, detailed)"
     )
+    parser.add_argument(
+        "--planner",
+        choices=["heuristic", "difficulty"],
+        default="heuristic",
+        help="Choose query planner: heuristic (default) or difficulty-based"
+    )
     
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
@@ -290,13 +296,20 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     logger = get_logger()
     console = Console()
 
-    # planner = HeuristicQueryPlanner(cfg)
+    # Choose planner based on argument
+    from src.planning.heuristics import HeuristicQueryPlanner
+    from src.planning.difficulty_planner import QueryDifficultyPlanner
+    
+    if args.planner == "difficulty":
+        planner = QueryDifficultyPlanner(cfg)
+        print("Using difficulty-based planner (easy/hard pipelines)")
+    else:
+        planner = HeuristicQueryPlanner(cfg)
+        print("Using heuristic-based planner")
 
     # Load artifacts, initialize retrievers and rankers once before the loop.
     print("Welcome to Tokensmith! Initializing chat...")
     try:
-        # Disabled till we fix the core pipeline
-        # cfg = planner.plan(q)
         artifacts_dir = cfg.make_artifacts_directory()
         faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
             artifacts_dir=artifacts_dir, 
@@ -344,8 +357,11 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
                 print("Goodbye!")
                 break
 
+            # Plan the query to get optimized config
+            query_cfg = planner.plan(q)
+            
             # Use the single query function. get_answer also renders the streaming markdown.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
+            ans = get_answer(q, query_cfg, args, logger, console, artifacts=artifacts)
             logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
 
         except KeyboardInterrupt:
