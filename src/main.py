@@ -9,7 +9,7 @@ from typing import Dict, Optional
 
 from rich.live import Live
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
@@ -59,52 +59,40 @@ def parse_args() -> argparse.Namespace:
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
     indexing_group.add_argument(
-        "--pdf_range",
-        metavar="START-END",
-        help="specific range of PDFs to index (e.g., '27-33')"
-    )
-    indexing_group.add_argument(
         "--keep_tables",
         action="store_true",
         help="include tables in the index"
     )
     indexing_group.add_argument(
-        "--visualize",
+        "--multiproc_indexing",
         action="store_true",
-        help="generate visualizations during indexing"
+        help="use multiprocessing for index building"
+    )
+    indexing_group.add_argument(
+        "--embed_with_headings",
+        action="store_true",
+        help="embed sections with headings"
     )
 
     return parser.parse_args()
 
 
-def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
+def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     """Handles the logic for building the index."""
 
-    # Robust range filtering
-    try:
-        if args.pdf_range:
-            start, end = map(int, args.pdf_range.split("-"))
-            pdf_paths = [f"{i}.pdf" for i in range(start, end + 1)] # Inclusive range
-            print(f"Indexing PDFs in range: {start}-{end}")
-        else:
-            pdf_paths = None
-    except ValueError:
-        print(f"ERROR: Invalid format for --pdf_range. Expected 'start-end', but got '{args.pdf_range}'.")
-        sys.exit(1)
-    
-    strategy = cfg.make_strategy()
+    strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    
-    artifacts_dir = cfg.make_artifacts_directory()
+    artifacts_dir = cfg.get_artifacts_directory()
 
     build_index(
-        markdown_file="data/book_with_pages.md",
+        markdown_file="data/silberschatz.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
-        do_visualize=args.visualize,
+        use_multiprocessing=args.multiproc_indexing,
+        use_headings=args.embed_with_headings,
     )
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
@@ -138,7 +126,7 @@ def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list
 
 def get_answer(
     question: str,
-    cfg: QueryPlanConfig,
+    cfg: RAGConfig,
     args: argparse.Namespace,
     logger: "RunLogger",
     console: Optional["Console"],
@@ -153,7 +141,6 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    meta = artifacts["meta"]
     
     logger.log_query_start(question)
     
@@ -283,7 +270,7 @@ def get_keywords(question: str) -> list:
     keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
     return keywords
 
-def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
+def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     """
     Initializes artifacts and runs the main interactive chat loop.
     """
@@ -368,11 +355,11 @@ def main():
     config_path = pathlib.Path("config/config.yaml")
     cfg = None
     if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path)
+        cfg = RAGConfig.from_yaml(config_path)
 
     if cfg is None:
         raise FileNotFoundError(
-            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+            "No config file provided at config/config.yaml."
         )
 
     init_logger(cfg)
