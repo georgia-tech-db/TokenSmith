@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 
 INSTANCE: Optional["RunLogger"]= None
 
@@ -18,7 +18,7 @@ class RunLogger:
     Comprehensive logging for RAG pipeline runs.
     Creates one log file per session, capturing query analysis, retrieval, ranking, and generation.
     """
-    def __init__(self, config: QueryPlanConfig):
+    def __init__(self, config: RAGConfig):
         self.config = config
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -42,7 +42,7 @@ class RunLogger:
             "config": {
                 "chunk_config": self.config.chunk_config.to_string(),
                 "top_k": self.config.top_k,
-                "pool_size": self.config.pool_size,
+                "pool_size": self.config.num_candidates,
                 "embed_model": self.config.embed_model,
                 "ensemble_method": self.config.ensemble_method,
                 "ranker_weights": self.config.ranker_weights,
@@ -250,7 +250,7 @@ class RunLogger:
 
 
 
-def init_logger(cfg: QueryPlanConfig):
+def init_logger(cfg: RAGConfig):
     global INSTANCE
     INSTANCE = RunLogger(cfg)
 
