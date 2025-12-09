@@ -3,7 +3,9 @@ import re
 import json
 from typing import List, Dict
 import sys
-from docling.document_converter import DocumentConverter
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
+from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 
 def extract_sections_from_markdown(
     file_path: str,
@@ -35,17 +37,17 @@ def extract_sections_from_markdown(
     # We use a positive lookahead (?=...) to keep the delimiter (the heading)
     # in the resulting chunks.
     heading_pattern = r'(?=^## \d+(\.\d+)* .*)'
+    numbering_pattern = re.compile(r"(\d+(?:\.\d+)*)")
     chunks = re.split(heading_pattern, content, flags=re.MULTILINE)
 
     sections = []
     
     # The first chunk might be content before the first heading.
-    # For now, we will skip it to reduce noise.
-    #if chunks[0].strip():
-    #    sections.append({
-    #        'heading': 'Introduction',
-    #        'content': chunks[0].strip()
-    #    })
+    if chunks[0].strip():
+        sections.append({
+            'heading': 'Introduction',
+            'content': chunks[0].strip()
+        })
 
     # Process the rest of the chunks
     for chunk in chunks[1:]:
@@ -55,6 +57,8 @@ def extract_sections_from_markdown(
             # Split the chunk into the heading and the rest of the content
             parts = chunk.split('\n', 1)
             heading = parts[0].strip()
+            heading = heading.lstrip('#').strip()
+            heading = f"Section {heading}"
 
             # Exclude sections based on keywords if provided
             if exclusion_keywords is not None:
@@ -68,10 +72,26 @@ def extract_sections_from_markdown(
             else:
                 # Clean the section content
                 section_content = preprocess_extracted_section(section_content)
+            
+            # Determine the section level based on numbering
+            match = numbering_pattern.search(heading)
+            if match:
+                section_number = match.group(1)
+                # Logic: "1.8.1" (2 dots) -> Level 3
+                current_level = section_number.count('.') + 1
+                try:
+                    chapter_num = int(section_number.split('.')[0])
+                except ValueError:
+                    chapter_num = 0
+            else:
+                current_level = 1
+                chapter_num = 0
 
             sections.append({
                 'heading': heading,
-                'content': section_content
+                'content': section_content,
+                'level': current_level,
+                'chapter': chapter_num
             })
 
     return sections
@@ -138,24 +158,6 @@ def extract_index_with_range_expansion(text_content):
     # Convert the dictionary to a nicely formatted JSON string
     return json.dumps(index_data, indent=2)
 
-def extract_page_from_file(file_path, op_file):
-
-    """
-    Extracts the content of a specific page from a text file.
-
-    Args:
-
-    file_path (str): The path to the text file.
-
-    """
-
-    source = Path(file_path)
-    converter = DocumentConverter()
-    result = converter.convert(source)
-    # Print Markdown to stdout.
-
-    result.document.save_as_markdown(filename= op_file, page_break_placeholder="--- PAGE END ---")
-
 def convert_and_save_with_page_numbers(input_file_path, output_file_path):
     """
     Converts a document to Markdown, iterating page by page
@@ -172,7 +174,16 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         print(f"Error: Input file not found at {input_file_path}", file=sys.stderr)
         return
 
-    converter = DocumentConverter()
+    # Disable OCR and table structure extraction for faster processing
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = False
+    pipeline_options.do_table_structure = False
+
+    converter = DocumentConverter(
+    format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options, backend=DoclingParseV2DocumentBackend)
+        }
+    )
     
     try:
         # Convert the entire document once
@@ -241,8 +252,9 @@ def preprocess_extracted_section(text: str) -> str:
     Returns:
         str: The cleaned text.
     """
-    # Replaces all newline occurences with single spaces
+    # Replaces all newline and image tag occurences with single spaces
     text = text.replace('\n', ' ')
+    text = text.replace('<!-- image -->', ' ')
 
     # Removes bold formatting markers (**)
     text = text.replace('**', '')
@@ -254,29 +266,17 @@ def preprocess_extracted_section(text: str) -> str:
 
 
 if __name__ == '__main__':
-    # The user uploaded 'book_without_image.md'
-    markdown_file = 'data/book_without_image.md'
-    
-    extracted_sections = extract_sections_from_markdown(markdown_file)
+    input_pdf = "../data/chapters/silberschatz.pdf"
+    output_md = '../data/silberschatz.md'
+
+    print(f"Converting '{input_pdf}' to '{output_md}'...")
+    #convert_and_save_with_page_numbers(input_pdf, output_md)
+
+    extracted_sections = extract_sections_from_markdown(output_md)
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-
-    #     # To save the output to a structured file like JSON:
-        output_filename = 'data/extracted_sections.json'
+        output_filename = '../data/extracted_sections.json'
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")
-
-    input_pdf = "data/Database-System-Concepts-McGraw-Hill-Education-2019-only-chapters.pdf"
-    output_md = "data/book_with_pages.md"
-
-    extract_page_from_file(input_pdf,output_md)
-
-    # # Check if the input file exists before running
-    if Path(input_pdf).exists():
-        print(f"Converting '{input_pdf}' to '{output_md}'...")
-        convert_and_save_with_page_numbers(input_pdf, output_md)
-    # else:
-        print(f"Input file '{input_pdf}' not found.")
-        print("Please update the 'input_pdf' variable in the script to a real file path.")

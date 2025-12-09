@@ -1,13 +1,58 @@
 import sqlite3
 import hashlib
+import multiprocessing
+import multiprocessing.pool
 import numpy as np
 from pathlib import Path
 from typing import List, Union, Optional
 from llama_cpp import Llama
 from tqdm import tqdm
 
+# Global variables for worker processes
+_worker_model: Optional[Llama] = None
+_worker_embedding_dim: int = 0
+
+def _init_worker(model_path: str, n_ctx: int, n_threads: int):
+    """
+    Initializes the model inside a worker process.
+    """
+    global _worker_model, _worker_embedding_dim
+
+    _worker_model = Llama(
+        model_path=model_path,
+        n_ctx=n_ctx,
+        n_threads=n_threads,
+        embedding=True,
+        verbose=False,
+        use_mmap=True # Allows OS to share model weights across processes
+    )
+    
+    # Cache dimension
+    test_emb = _worker_model.create_embedding("test")['data'][0]['embedding']
+    _worker_embedding_dim = len(test_emb)
+
+def _encode_batch_worker(texts: List[str]) -> List[List[float]]:
+    """
+    Encodes a batch of text using the worker's local model instance.
+    """
+    global _worker_model, _worker_embedding_dim
+    if _worker_model is None:
+        return []
+        
+    embeddings = []
+    for text in texts:
+        try:
+            # Create embedding
+            emb = _worker_model.create_embedding(text)['data'][0]['embedding']
+            embeddings.append(emb)
+        except Exception:
+            # Return zero vector on failure
+            embeddings.append([0.0] * _worker_embedding_dim)
+            
+    return embeddings
+
 class SentenceTransformer:
-    def __init__(self, model_path: str, n_ctx: int = 40960, n_threads: int = None):
+    def __init__(self, model_path: str, n_ctx: int = 4096, n_threads: int = None):
         """
         Initialize with a local GGUF model file path.
         
@@ -16,6 +61,9 @@ class SentenceTransformer:
             n_ctx: Context window size (increased to match Qwen3 training context)
             n_threads: Number of threads to use (None = auto-detect)
         """
+        self.model_path = model_path
+        self.n_ctx = n_ctx
+
         print(f"Loading model with n_ctx={n_ctx}, n_threads={n_threads}")
         
         self.model = Llama(
@@ -24,9 +72,7 @@ class SentenceTransformer:
             n_threads=n_threads,
             embedding=True,
             verbose=False,
-            n_batch=512,
-            use_mmap=True,
-            logits_all=True
+            use_mmap=True
         )
         self._embedding_dimension = None
         
@@ -103,13 +149,66 @@ class SentenceTransformer:
             
         return vecs
 
-    def embed_one(self, text: str, normalize: bool = False) -> List[float]:
-        """Encode single text and return as list."""
-        return self.encode([text], normalize=normalize)[0].tolist()
-
     def get_sentence_embedding_dimension(self) -> int:
         """Get the dimension of embeddings (compatibility method)."""
         return self.embedding_dimension
+
+    def start_multi_process_pool(self, num_workers: int = None) -> multiprocessing.pool.Pool:
+        """
+        Starts a pool of worker processes.
+        """
+        if num_workers:
+            workers = num_workers
+        else:
+            # Default to CPU count - 2 (leave room for OS/Main process)
+            workers = max(1, multiprocessing.cpu_count() - 2)
+
+        print(f"Creating {workers} worker processes...")
+        
+        # Use 1 thread per worker to avoid CPU thrashing
+        worker_threads = 1
+        
+        pool = multiprocessing.Pool(
+            processes=workers,
+            initializer=_init_worker,
+            initargs=(self.model_path, self.n_ctx, worker_threads)
+        )
+        return pool
+
+    def encode_multi_process(self, texts: List[str], pool: multiprocessing.pool.Pool, batch_size: int = 32) -> np.ndarray:
+        """
+        Distributes work across the pool.
+        """
+        # Sort by length to minimize padding/processing waste
+        indices = np.argsort([len(t) for t in texts])[::-1]
+        sorted_texts = [texts[i] for i in indices]
+
+        # Create batches
+        chunks = [sorted_texts[i : i + batch_size] for i in range(0, len(sorted_texts), batch_size)]
+
+        # Process with progress bar
+        results = []
+        print(f"Dispatching {len(chunks)} batches to pool...")
+        for batch_result in tqdm(
+            pool.imap(_encode_batch_worker, chunks), 
+            total=len(chunks), 
+            desc="Parallel Encoding"
+        ):
+            results.append(batch_result)
+
+        flat_embeddings = [emb for batch in results for emb in batch]
+
+        # Restore original order
+        inverse_indices = np.empty_like(indices)
+        inverse_indices[indices] = np.arange(len(indices))
+        ordered_embeddings = [flat_embeddings[i] for i in inverse_indices]
+        
+        return np.array(ordered_embeddings, dtype=np.float32)
+
+    @staticmethod
+    def stop_multi_process_pool(pool: multiprocessing.pool.Pool):
+        pool.close()
+        pool.join()
 
 
 class EmbeddingCache:
