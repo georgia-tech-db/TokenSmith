@@ -15,11 +15,13 @@ from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts, \
-    get_page_numbers
+from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
+from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
+
+ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
@@ -160,7 +162,7 @@ def get_answer(
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
         if cfg.use_hyde:
-            model_path = args.model_path or cfg.model_path
+            model_path = cfg.gen_model
             hypothetical_doc = generate_hypothetical_document(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
@@ -169,7 +171,7 @@ def get_answer(
             # print(f"🔍 HyDE query: {hypothetical_doc}")
         
         # Step 1: Retrieval
-        pool_n = max(cfg.pool_size, cfg.top_k + 10)
+        pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
@@ -177,7 +179,7 @@ def get_answer(
         
         # Step 2: Ranking
         ordered = ranker.rank(raw_scores=raw_scores)
-        topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
@@ -211,12 +213,16 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
         
-        # Step 3: Final Re-ranking (if enabled)
-        # Disabled till we fix the core pipeline
-        # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
-    
+        # Step 3: Final re-ranking
+        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+
+    # If no chunks found, return answer not found message
+    if ranked_chunks == []:
+        console.print("\n"+ANSWER_NOT_FOUND+"\n")
+        return ANSWER_NOT_FOUND
+
     # Step 4: Generation
-    model_path = args.model_path or cfg.model_path
+    model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
     stream_iter = answer(
@@ -284,7 +290,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        artifacts_dir = cfg.make_artifacts_directory()
+        artifacts_dir = cfg.get_artifacts_directory()
         faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
             artifacts_dir=artifacts_dir, 
             index_prefix=args.index_prefix
@@ -333,7 +339,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
 
             # Use the single query function. get_answer also renders the streaming markdown.
             ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
 
         except KeyboardInterrupt:
             print("\nGoodbye!")

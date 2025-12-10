@@ -63,8 +63,6 @@ class SentenceTransformer:
         """
         self.model_path = model_path
         self.n_ctx = n_ctx
-
-        print(f"Loading model with n_ctx={n_ctx}, n_threads={n_threads}")
         
         self.model = Llama(
             model_path=model_path,
@@ -77,7 +75,6 @@ class SentenceTransformer:
         self._embedding_dimension = None
         
         _ = self.embedding_dimension
-        print(f"Model loaded successfully. Embedding dimension: {self._embedding_dimension}")
 
     @property
     def embedding_dimension(self) -> int:

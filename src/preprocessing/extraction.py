@@ -270,7 +270,7 @@ if __name__ == '__main__':
     output_md = '../data/silberschatz.md'
 
     print(f"Converting '{input_pdf}' to '{output_md}'...")
-    #convert_and_save_with_page_numbers(input_pdf, output_md)
+    convert_and_save_with_page_numbers(input_pdf, output_md)
 
     extracted_sections = extract_sections_from_markdown(output_md)
 

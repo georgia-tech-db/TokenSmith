@@ -77,16 +77,9 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 
 # -------------------------- Filtering logic -----------------------------
 
-def apply_seg_filter(cfg: RAGConfig, chunks, ordered):
-    seg_filter = cfg.seg_filter
-    if seg_filter:
-        keep = [i for i in ordered if seg_filter(chunks[i])]
-        back = [i for i in ordered if i not in keep]
-        topk_idxs = (keep + back)[:cfg.top_k]
-    else:
-        topk_idxs = ordered[:cfg.top_k]
+def filter_retrieved_chunks(cfg: RAGConfig, chunks, ordered):
+    topk_idxs = ordered[:cfg.top_k]
     return topk_idxs
-
 
 # -------------------------- Retrieval core ------------------------------
 
