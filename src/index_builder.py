@@ -20,8 +20,6 @@ from src.embedder import SentenceTransformer
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
-from src.config import QueryPlanConfig
-
 
 # ----- runtime parallelism knobs (avoid oversubscription) -----
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -30,8 +28,6 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
-TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL | re.IGNORECASE)
 
 # Default keywords to exclude sections
 DEFAULT_EXCLUSION_KEYWORDS = ['questions', 'exercises', 'summary', 'references']
@@ -45,8 +41,9 @@ def build_index(
     chunk_config: ChunkConfig,
     embedding_model_path: str,
     artifacts_dir: os.PathLike,
-    index_prefix: str, 
-    do_visualize: bool = False,
+    index_prefix: str,
+    use_multiprocessing: bool = False,
+    use_headings: bool = False
 ) -> None:
     """
     Extract sections, chunk, embed, and build both FAISS and BM25 indexes.
@@ -62,8 +59,7 @@ def build_index(
     sources: List[str] = []
     metadata: List[Dict] = []
 
-    # Extract sections from markdown. Exclude some with certain
-    # keywords if required.
+    # Extract sections from markdown. Exclude some with certain keywords.
     sections = extract_sections_from_markdown(
         markdown_file,
         exclusion_keywords=DEFAULT_EXCLUSION_KEYWORDS
@@ -72,87 +68,131 @@ def build_index(
     page_to_chunk_ids = {}
     current_page = 1
     total_chunks = 0
+    heading_stack = []
 
     # Step 1: Chunk using DocumentChunker
     for i, c in enumerate(sections):
-        has_table = bool(TABLE_RE.search(c['content']))
-        meta = {
-            "filename": markdown_file,
-            "chunk_id": i,
-            "mode": chunk_config.to_string(),
-            "keep_tables": chunker.keep_tables,
-            "char_len": len(c['content']),
-            "word_len": len(c['content'].split()),
-            "has_table": has_table,
-            "section": c['heading'], 
-            "text_preview": c['content'][:100],
-            "page_number": None
-        }
+        # Determine current section level
+        current_level = c.get('level', 1)
+
+        # Determine current chapter number
+        chapter_num = c.get('chapter', 0)
+
+        # Pop sections that are deeper or siblings
+        while heading_stack and heading_stack[-1][0] >= current_level:
+            heading_stack.pop()
         
+        # Push pair of (level, heading)
+        if c['heading'] != "Introduction":
+            heading_stack.append((current_level, c['heading']))
+
+        # Construct section path
+        path_list = [h[1] for h in heading_stack]
+        full_section_path = " ".join(path_list)
+        full_section_path = f"Chapter {chapter_num} " + full_section_path
+
         # Use DocumentChunker to recursively split this section
         sub_chunks = chunker.chunk(c['content'])
 
         # Regex to find page markers like "--- Page 3 ---"
         page_pattern = re.compile(r'--- Page (\d+) ---')
 
-        # Iterate through each chunk with its index (chunk_id)
+        # Iterate through each chunk produced from this section
         for sub_chunk_id, sub_chunk in enumerate(sub_chunks):
-            
-            # 1. This sub_chunk starts on the 'current_page'.
-            #    Add this sub_chunk_id to the set for the current page.
-            page_to_chunk_ids.setdefault(current_page, set()).add(total_chunks+sub_chunk_id)
-
-            # 2. Split the sub_chunk by page markers to see if it
-            #    spans multiple pages.
+            # Split the sub_chunk by page markers to see if it
+            # spans multiple pages.
             fragments = page_pattern.split(sub_chunk)
-            
-            # 3. Process the new pages found within this sub_chunk
-            #    We step by 2: (index 1, 2), (index 3, 4), ...
+
+            # If there is content before the first page marker,
+            # it belongs to the current_page.
+            if fragments[0].strip():
+                page_to_chunk_ids.setdefault(current_page, set()).add(total_chunks+sub_chunk_id)
+
+            # Process the new pages found within this sub_chunk. Step by 2
+            # where each pair represents (page number, text after it)
             for i in range(1, len(fragments), 2):
                 try:
-                    # The first item in the pair is the page number string
-                    page_num_str = fragments[i]
+                    # Get the new page number from the marker
+                    new_page = int(fragments[i]) + 1
+
+                    # If there is text after this marker, it belongs to the new_page.
+                    if fragments[i+1].strip():
+                        page_to_chunk_ids.setdefault(new_page, set()).add(total_chunks + sub_chunk_id)
                     
-                    # Update our "current page" state
-                    current_page = int(page_num_str)
-                    
-                    # The text *after* this marker (at fragments[i+1])
-                    # also belongs to this sub_chunk_id. So, add this
-                    # sub_chunk_id to the set for the *new* current page.
-                    page_to_chunk_ids.setdefault(current_page, set()).add(total_chunks+sub_chunk_id)
+                    current_page = new_page
 
                 except (IndexError, ValueError):
                     continue
 
             # Clean sub_chunk by removing page markers
-            sub_chunk = re.sub(page_pattern, '', sub_chunk).strip()
+            clean_chunk = re.sub(page_pattern, '', sub_chunk).strip()
+            
+            # Skip introduction chunks for embedding
+            if c["heading"] == "Introduction":
+                continue
+            
+            # Prepare metadata
+            meta = {
+                "filename": markdown_file,
+                "mode": chunk_config.to_string(),
+                "char_len": len(clean_chunk),
+                "word_len": len(clean_chunk.split()),
+                "section": c['heading'],
+                "section_path": full_section_path,
+                "text_preview": clean_chunk[:100],
+                "page_number": current_page,
+                "chunk_id": total_chunks + sub_chunk_id
+            }
 
-            all_chunks.append(sub_chunk)
+            # Prepare chunk with prefix
+            if use_headings:
+                chunk_prefix = (
+                    f"Description: {full_section_path} "
+                    f"Content: "
+                )
+            else:
+                chunk_prefix = ""
+
+            all_chunks.append(chunk_prefix+clean_chunk)
             sources.append(markdown_file)
-            meta["page_number"] = current_page
             metadata.append(meta)
 
-        current_page = next(reversed(page_to_chunk_ids))
         total_chunks += len(sub_chunks)
 
     # Convert the sets to sorted lists for a clean, predictable output
     final_map = {}
     for page, id_set in page_to_chunk_ids.items():
         final_map[page] = sorted(list(id_set))
-    
 
     output_file = artifacts_dir / f"{index_prefix}_page_to_chunk_map.json"
     with open(output_file, "w") as f:
         json.dump(final_map, f, indent=2)
     print(f"Saved page to chunk ID map: {output_file}")
 
-        
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
     embedder = SentenceTransformer(embedding_model_path)
-    embeddings = embedder.encode(
-        all_chunks, batch_size=4, show_progress_bar=True
-    )
+    if use_multiprocessing:
+        print("Starting multi-process pool for embeddings...")
+        # Start the pool. Adjust number of workers as needed.
+        pool = embedder.start_multi_process_pool(workers=4)
+        try:
+            # Compute embeddings in parallel
+            embeddings = embedder.encode_multi_process(
+                all_chunks, 
+                pool, 
+                batch_size=32
+            )
+        finally:
+            # Stop the pool to prevent hanging processes
+            embedder.stop_multi_process_pool(pool)
+    else:
+        # Standard single-process embedding
+        embeddings = embedder.encode(
+            all_chunks, 
+            batch_size=4, 
+            show_progress_bar=True
+        )
 
     # Step 3: Build FAISS index
     print(f"Building FAISS index for {len(all_chunks):,} chunks...")
@@ -179,11 +219,6 @@ def build_index(
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
 
-    # # Step 6: Optional visualization
-    if do_visualize:
-        visualize(embeddings, sources)
-
-
 # ------------------------ Helper functions ------------------------------
 
 def preprocess_for_bm25(text: str) -> list[str]:
@@ -201,28 +236,3 @@ def preprocess_for_bm25(text: str) -> list[str]:
     tokens = text.split()
 
     return tokens
-
-
-def visualize(embeddings, sources):
-    try:
-        from sklearn.decomposition import PCA
-        import matplotlib.pyplot as plt
-
-        red = PCA(n_components=2).fit_transform(embeddings)
-        uniq = sorted(set(sources))
-        cmap = {s: i for i, s in enumerate(uniq)}
-        colors = [cmap[s] for s in sources]
-
-        plt.figure(figsize=(10, 7))
-        sc = plt.scatter(red[:, 0], red[:, 1], c=colors, cmap="tab10", alpha=0.55)
-        plt.title("Vector index (PCA)")
-        plt.legend(
-            handles=sc.legend_elements()[0],
-            labels=uniq,
-            bbox_to_anchor=(1.02, 1),
-            loc="upper left",
-        )
-        plt.tight_layout()
-        plt.show()
-    except Exception as e:
-        print(f"[visualize] skipped ({e})")

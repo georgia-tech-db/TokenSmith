@@ -9,17 +9,19 @@ from typing import Dict, Optional
 
 from rich.live import Live
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts, \
-    get_page_numbers
+from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
+from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
+
+ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
@@ -59,52 +61,40 @@ def parse_args() -> argparse.Namespace:
     # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
     indexing_group.add_argument(
-        "--pdf_range",
-        metavar="START-END",
-        help="specific range of PDFs to index (e.g., '27-33')"
-    )
-    indexing_group.add_argument(
         "--keep_tables",
         action="store_true",
         help="include tables in the index"
     )
     indexing_group.add_argument(
-        "--visualize",
+        "--multiproc_indexing",
         action="store_true",
-        help="generate visualizations during indexing"
+        help="use multiprocessing for index building"
+    )
+    indexing_group.add_argument(
+        "--embed_with_headings",
+        action="store_true",
+        help="embed sections with headings"
     )
 
     return parser.parse_args()
 
 
-def run_index_mode(args: argparse.Namespace, cfg: QueryPlanConfig):
+def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     """Handles the logic for building the index."""
 
-    # Robust range filtering
-    try:
-        if args.pdf_range:
-            start, end = map(int, args.pdf_range.split("-"))
-            pdf_paths = [f"{i}.pdf" for i in range(start, end + 1)] # Inclusive range
-            print(f"Indexing PDFs in range: {start}-{end}")
-        else:
-            pdf_paths = None
-    except ValueError:
-        print(f"ERROR: Invalid format for --pdf_range. Expected 'start-end', but got '{args.pdf_range}'.")
-        sys.exit(1)
-    
-    strategy = cfg.make_strategy()
+    strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    
-    artifacts_dir = cfg.make_artifacts_directory()
+    artifacts_dir = cfg.get_artifacts_directory()
 
     build_index(
-        markdown_file="data/book_with_pages.md",
+        markdown_file="data/silberschatz.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
-        do_visualize=args.visualize,
+        use_multiprocessing=args.multiproc_indexing,
+        use_headings=args.embed_with_headings,
     )
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
@@ -138,7 +128,7 @@ def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list
 
 def get_answer(
     question: str,
-    cfg: QueryPlanConfig,
+    cfg: RAGConfig,
     args: argparse.Namespace,
     logger: "RunLogger",
     console: Optional["Console"],
@@ -153,7 +143,6 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    meta = artifacts["meta"]
     
     logger.log_query_start(question)
     
@@ -173,7 +162,7 @@ def get_answer(
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
         if cfg.use_hyde:
-            model_path = args.model_path or cfg.model_path
+            model_path = cfg.gen_model
             hypothetical_doc = generate_hypothetical_document(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
@@ -182,7 +171,7 @@ def get_answer(
             # print(f"🔍 HyDE query: {hypothetical_doc}")
         
         # Step 1: Retrieval
-        pool_n = max(cfg.pool_size, cfg.top_k + 10)
+        pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
@@ -190,7 +179,7 @@ def get_answer(
         
         # Step 2: Ranking
         ordered = ranker.rank(raw_scores=raw_scores)
-        topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
@@ -224,12 +213,16 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
         
-        # Step 3: Final Re-ranking (if enabled)
-        # Disabled till we fix the core pipeline
-        # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
-    
+        # Step 3: Final re-ranking
+        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+
+    # If no chunks found, return answer not found message
+    if ranked_chunks == []:
+        console.print("\n"+ANSWER_NOT_FOUND+"\n")
+        return ANSWER_NOT_FOUND
+
     # Step 4: Generation
-    model_path = args.model_path or cfg.model_path
+    model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
     stream_iter = answer(
@@ -283,7 +276,7 @@ def get_keywords(question: str) -> list:
     keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
     return keywords
 
-def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
+def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     """
     Initializes artifacts and runs the main interactive chat loop.
     """
@@ -297,7 +290,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        artifacts_dir = cfg.make_artifacts_directory()
+        artifacts_dir = cfg.get_artifacts_directory()
         faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
             artifacts_dir=artifacts_dir, 
             index_prefix=args.index_prefix
@@ -346,7 +339,7 @@ def run_chat_session(args: argparse.Namespace, cfg: QueryPlanConfig):
 
             # Use the single query function. get_answer also renders the streaming markdown.
             ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": args.model_path or cfg.model_path})
+            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
@@ -368,11 +361,11 @@ def main():
     config_path = pathlib.Path("config/config.yaml")
     cfg = None
     if config_path.exists():
-        cfg = QueryPlanConfig.from_yaml(config_path)
+        cfg = RAGConfig.from_yaml(config_path)
 
     if cfg is None:
         raise FileNotFoundError(
-            "No config file provided and no fallback found at config/ or ~/.config/tokensmith/"
+            "No config file provided at config/config.yaml."
         )
 
     init_logger(cfg)

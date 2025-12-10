@@ -5,22 +5,8 @@ from typing import List, Tuple, Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-
-# ------------------------ Section Guessing (metadata) -------------------
-
-# SECTION_RE = re.compile(
-#     r"^\s*(Chapter\s+\d+|Section\s+\d+(?:\.\d+)*|[A-Z][A-Za-z0-9\s\-]{3,})",
-#     re.MULTILINE,
-# )
-
-# def guess_section_headers(text: str, max_headers: int = 50) -> List[str]:
-#     """Heuristic section headers for Segment/Filter hints."""
-#     hits = SECTION_RE.findall(text)
-#     headers = [h[0].strip() if isinstance(h, tuple) else str(h).strip() for h in hits]
-#     return headers[:max_headers] if headers else []
-
-
 # -------------------------- Chunking Configs --------------------------
+
 class ChunkConfig(ABC):
     @abstractmethod
     def validate(self):
@@ -33,8 +19,8 @@ class ChunkConfig(ABC):
 @dataclass
 class SectionRecursiveConfig(ChunkConfig):
     """Configuration for section-based chunking with recursive splitting."""
-    recursive_chunk_size: int = 1000
-    recursive_overlap: int = 0
+    recursive_chunk_size: int
+    recursive_overlap: int
     
     def to_string(self) -> str:
         return f"chunk_mode=sections+recursive, chunk_size={self.recursive_chunk_size}, overlap={self.recursive_overlap}"
@@ -42,7 +28,6 @@ class SectionRecursiveConfig(ChunkConfig):
     def validate(self):
         assert self.recursive_chunk_size > 0, "recursive_chunk_size must be > 0"
         assert self.recursive_overlap >= 0, "recursive_overlap must be >= 0"
-
 
 # -------------------------- Chunking Strategies --------------------------
 
@@ -88,15 +73,6 @@ class SectionRecursiveStrategy(ChunkStrategy):
             separators=[". "]
         )
         return splitter.split_text(text)
-
-
-# -------------------------- Strategy Factory -----------------------------
-
-def make_chunk_strategy(config: ChunkConfig) -> ChunkStrategy:
-    if isinstance(config, SectionRecursiveConfig):
-        return SectionRecursiveStrategy(config)
-    raise ValueError(f"Unknown chunk config type: {config.__class__.__name__}")
-
 
 # ----------------------------- Document Chunker ---------------------------------
 
