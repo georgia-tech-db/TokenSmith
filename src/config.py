@@ -47,6 +47,11 @@ class QueryPlanConfig:
     extracted_index_path: os.PathLike
     page_to_chunk_map_path: os.PathLike
 
+    # agent mode
+    use_agent: bool
+    agent_reasoning_limit: int
+    agent_tool_limit: int
+
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
         return make_chunk_strategy(config=self.chunk_config)
@@ -95,6 +100,11 @@ class QueryPlanConfig:
             # Query Enhancement
             use_hyde       = pick("use_hyde", False),
             hyde_max_tokens= pick("hyde_max_tokens", 100),
+
+            # Agent Mode
+            use_agent      = pick("use_agent", False),
+            agent_reasoning_limit = pick("agent_reasoning_limit", 5),
+            agent_tool_limit = pick("agent_tool_limit", 20),
             
             # Index keyword paths
             extracted_index_path = pick("extracted_index_path", "data/extracted_index.json"),
@@ -145,4 +155,7 @@ class QueryPlanConfig:
             "use_indexed_chunks": self.use_indexed_chunks,
             "use_hyde": self.use_hyde,
             "hyde_max_tokens": self.hyde_max_tokens,
+            "use_agent": self.use_agent,
+            "agent_reasoning_limit": self.agent_reasoning_limit,
+            "agent_tool_limit": self.agent_tool_limit,
         }
