@@ -28,6 +28,7 @@ class QueryPlanConfig:
 
     # generation
     max_gen_tokens: int
+    temperature: float
     
     model_path: os.PathLike
     
@@ -80,6 +81,7 @@ class QueryPlanConfig:
             rrf_k          = pick("rrf_k", 60),
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
+            temperature    = pick("temperature", 0.7),
             rerank_mode    = pick("rerank_mode", "none"),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
@@ -136,6 +138,7 @@ class QueryPlanConfig:
             "ranker_weights": self.ranker_weights,
             "rerank_mode": self.rerank_mode,
             "max_gen_tokens": self.max_gen_tokens,
+            "temperature": self.temperature,
             "model_path": self.model_path,
             "system_prompt_mode": self.system_prompt_mode,
             "disable_chunks": self.disable_chunks,
