@@ -109,15 +109,16 @@ Evaluate the answer on the following dimensions:
 - Provide specific, actionable feedback
 - Be fair but rigorous in your assessment"""
     
-    def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
+    def calculate(self, answer: str, question: Optional[str] = None, expected: str = "", **kwargs) -> float:
         """
         Calculate LLM Judge score for the given answer.
         
         Args:
             answer: The generated answer to evaluate
-            expected: The expected answer (used as the question context if available)
-            keywords: Optional keywords (not used in this metric)
-            
+            question: The original question (preferred)
+            expected: Fallback if question not provided
+            **kwargs: Ignored (keywords, chunks not used)
+
         Returns:
             float: Normalized score between 0.0 and 1.0
         """
@@ -134,12 +135,12 @@ Evaluate the answer on the following dimensions:
         
         if not answer.strip():
             return 0.0
-        
-        # Use expected as question context if it looks like a question
-        question = expected if expected.strip() else "Evaluate this answer"
-        
+
+        # Use question if provided, otherwise fallback to expected
+        question_text = question if question and question.strip() else expected if expected.strip() else "Evaluate this answer"
+
         try:
-            prompt = self._build_grading_prompt(question, answer)
+            prompt = self._build_grading_prompt(question_text, answer)
             
             if self.use_structured_output:
                 # Use structured output with Pydantic model

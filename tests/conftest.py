@@ -110,7 +110,7 @@ def pytest_addoption(parser):
         "--metrics",
         action="append",
         dest="metrics_list",
-        help="Metrics to use for evaluation (optionsRegistered metric:: text, semantic, keyword, bleu, all)"
+        help="Metrics to use for evaluation (optionsRegistered metric:: text, semantic, keyword, async_llm_judge, all)"
     )
     group.addoption(
         "--threshold",

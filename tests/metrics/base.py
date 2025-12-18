@@ -16,8 +16,20 @@ class MetricBase(ABC):
         return 1.0
     
     @abstractmethod
-    def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
-        """Calculate similarity score between answer and expected."""
+    def calculate(self, **kwargs) -> float:
+        """
+        Calculate similarity score between answer and expected.
+
+        Metrics should accept the following common parameters via **kwargs:
+            answer: Generated answer to evaluate
+            expected: Expected answer or question (context-dependent)
+            keywords: Optional list of keywords for keyword-based metrics
+            chunks: Optional list of retrieved chunks for faithfulness/grounding metrics
+            question: Original question (for LLM judge)
+
+        Returns:
+            float: Score between 0.0 and 1.0
+        """
         pass
     
     def is_available(self) -> bool:
