@@ -19,7 +19,7 @@ import faiss
 import numpy as np
 from src.embedder import CachedEmbedder
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from src.index_builder import preprocess_for_bm25
 
 
@@ -75,40 +75,11 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 
     return page_numbers
 
-
-# -------------------------- Pretty previews -----------------------------
-
-def _print_preview(chunks: List[str], n_preview: int = 100) -> None:
-    for i, c in enumerate(chunks, 1):
-        snippet = (c or "")[:n_preview].replace("\n", " ")
-        print(f"[retriever] top{i:02d} → {len(c)} chars | {snippet!r}")
-
-
-def _print_preview_idxs(
-    chunks: List[str],
-    srcs: List[str],
-    tags: Optional[List[List[str]]],
-    idxs: List[int],
-    n_preview: int = 100,
-) -> None:
-    for rank, i in enumerate(idxs, 1):
-        snippet = (chunks[i] or "")[:n_preview].replace("\n", " ")
-        show_tags = (tags[i][:5] if tags else [])
-        print(f"[retriever] top{rank:02d} | src={srcs[i]} | tags={show_tags} | {len(chunks[i])} chars | {snippet!r}")
-
-
 # -------------------------- Filtering logic -----------------------------
 
-def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
-    seg_filter = cfg.seg_filter
-    if seg_filter:
-        keep = [i for i in ordered if seg_filter(chunks[i])]
-        back = [i for i in ordered if i not in keep]
-        topk_idxs = (keep + back)[:cfg.top_k]
-    else:
-        topk_idxs = ordered[:cfg.top_k]
+def filter_retrieved_chunks(cfg: RAGConfig, chunks, ordered):
+    topk_idxs = ordered[:cfg.top_k]
     return topk_idxs
-
 
 # -------------------------- Retrieval core ------------------------------
 

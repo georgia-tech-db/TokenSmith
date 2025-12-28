@@ -1,15 +1,15 @@
 embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
 top_k: 5
-pool_size: 50
+num_candidates: 50
 ensemble_method: "rrf"
 ranker_weights: {"faiss":0.6,"bm25":0.2,"index_keywords":0.2}
 rrf_k: 60
 max_gen_tokens: 400
-seg_filter: null
-chunk_mode : "sections"
-model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
-recursive_chunk_size: 2000
-recursive_overlap: 200
+chunk_mode : "recursive_sections"
+gen_model: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+chunk_size: 2000
+chunk_overlap: 200
 use_hyde: false
 hyde_max_tokens: 300
 use_indexed_chunks: false
+rerank_mode: "cross_encoder"
