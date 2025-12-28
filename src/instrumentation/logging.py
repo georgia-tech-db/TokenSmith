@@ -42,7 +42,7 @@ class RunLogger:
             "config": {
                 "chunk_config": self.config.chunk_config.to_string(),
                 "top_k": self.config.top_k,
-                "pool_size": self.config.num_candidates,
+                "num_candidates": self.config.num_candidates,
                 "embed_model": self.config.embed_model,
                 "ensemble_method": self.config.ensemble_method,
                 "ranker_weights": self.config.ranker_weights,
