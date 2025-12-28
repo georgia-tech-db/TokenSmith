@@ -1,5 +1,9 @@
 # RajShah-1 gitignore
 code-dump.txt
+nohup.out
+out.log
+ideas.md
+index/
 
 # --- Python ---
 __pycache__/
