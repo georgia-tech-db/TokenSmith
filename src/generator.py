@@ -146,9 +146,9 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: fl
         stop=[ANSWER_END]
     )
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_prompt_mode: str = "tutor"):
+def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_prompt_mode: str = "tutor", temperature: float = 0.2):
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
-    return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=0.2)
+    return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=temperature)
 
 def dedupe_generated_text(text: str) -> str:
     """

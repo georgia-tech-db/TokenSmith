@@ -5,6 +5,7 @@ Provides REST API endpoints for the React frontend.
 
 import pathlib
 import re
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -39,6 +40,11 @@ class SourceItem(BaseModel):
 
 class ChatRequest(BaseModel):
     query: str
+    enable_chunks: Optional[bool] = None
+    prompt_type: Optional[str] = None  # Maps to system_prompt_mode
+    max_chunks: Optional[int] = None  # Maps to top_k for retrieval
+    temperature: Optional[float] = None
+    top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
 
 
 class ChatResponse(BaseModel):
@@ -61,16 +67,22 @@ def _ensure_initialized():
         )
 
 
-def _retrieve_and_rank(query: str):
+def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
-    pool_n = max(_config.pool_size, _config.top_k + 10)
+    effective_top_k = top_k if top_k is not None else _config.top_k
+    pool_n = max(_config.pool_size, effective_top_k + 10)
     raw_scores: Dict[str, Dict[int, float]] = {}
 
     for retriever in _retrievers:
         raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
 
     ordered = _ranker.rank(raw_scores=raw_scores)
-    topk_idxs = apply_seg_filter(_config, chunks, ordered)
+    # Create a temporary config with the effective top_k for filtering
+    temp_config = _config
+    if top_k is not None:
+        temp_config = deepcopy(_config)
+        temp_config.top_k = effective_top_k
+    topk_idxs = apply_seg_filter(temp_config, chunks, ordered)
     return raw_scores, topk_idxs
 
 
@@ -173,14 +185,19 @@ async def test_chat(request: ChatRequest):
     if not request.query.strip():
         return {"error": "Query cannot be empty", "status": "error"}
     
-    if _config.disable_chunks:
+    # Get request parameters with config defaults as fallback
+    enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
+    disable_chunks = not enable_chunks
+    max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
+    
+    if disable_chunks:
         return {
-            "error": "Chunk retrieval disabled in configuration; enable chunks to test retrieval.",
+            "error": "Chunk retrieval disabled; enable chunks to test retrieval.",
             "status": "error",
         }
 
     try:
-        raw_scores, topk_idxs = _retrieve_and_rank(request.query)
+        raw_scores, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
         ranked_chunks = [_artifacts["chunks"][i] for i in topk_idxs]
         
         return {
@@ -205,17 +222,24 @@ async def chat_stream(request: ChatRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
+    # Get request parameters with config defaults as fallback
+    enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
+    disable_chunks = not enable_chunks
+    prompt_type = request.prompt_type if request.prompt_type is not None else _config.system_prompt_mode
+    max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
+    temperature = request.temperature if request.temperature is not None else _config.temperature
+    
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
     
     if _logger:
         _logger.log_query_start(request.query)
     
-    if _config.disable_chunks:
+    if disable_chunks:
         ranked_chunks, topk_idxs = [], []
     else:
-        _, topk_idxs = _retrieve_and_rank(request.query)
-        ranked_chunks = [chunks[i] for i in topk_idxs]
+        _, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
         if _logger:
             _logger.log_chunks_used(topk_idxs, chunks, sources)
     
@@ -227,19 +251,22 @@ async def chat_stream(request: ChatRequest):
         try:
             # First send the references (page/text pairs)
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
-            sources_used = []
-            for i in topk_idxs:
-                source_text = chunks[i]
+            sources_used = set()
+            for i in topk_idxs[:max_chunks]:
+                source_text = sources[i]
                 page = page_nums[i] if i in page_nums else 1
-                sources_used.append(SourceItem(page=page, text=source_text))
-
+                sources_used.add(SourceItem(page=page, text=source_text))
+            
+            # Remove duplicates by converting to set of tuples, then back to SourceItem
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
 
             for delta in answer(request.query, ranked_chunks, _config.model_path,
-                              _config.max_gen_tokens, system_prompt_mode=_config.system_prompt_mode):
+                              _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            
+            # Include sources in the final done message for completeness
+            yield f"data: {json.dumps({'type': 'done', 'sources': [s.dict() for s in sources_used]})}\n\n"
         except Exception as e:
             if _logger:
                 _logger.log_error(e, context="streaming")
@@ -259,6 +286,13 @@ async def chat(request: ChatRequest):
         print("Empty query received")
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
+    # Get request parameters with config defaults as fallback
+    enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
+    disable_chunks = not enable_chunks
+    prompt_type = request.prompt_type if request.prompt_type is not None else _config.system_prompt_mode
+    max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
+    temperature = request.temperature if request.temperature is not None else _config.temperature
+    
     try:
         chunks = _artifacts["chunks"]
         sources = _artifacts["sources"]
@@ -268,13 +302,13 @@ async def chat(request: ChatRequest):
         else:
             print("Logger not available, skipping query logging")
         
-        if _config.disable_chunks:
-            print("Chunk usage disabled in configuration; skipping retrieval.")
+        if disable_chunks:
+            print("Chunk usage disabled; skipping retrieval.")
             ranked_chunks: List[str] = []
             topk_idxs: List[int] = []
         else:
-            _, topk_idxs = _retrieve_and_rank(request.query)
-            ranked_chunks = [chunks[i] for i in topk_idxs]
+            _, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+            ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
             if _logger:
                 _logger.log_chunks_used(topk_idxs, chunks, sources)
 
@@ -290,19 +324,20 @@ async def chat(request: ChatRequest):
                 ranked_chunks,
                 model_path,
                 max_tokens,
-                system_prompt_mode=_config.system_prompt_mode,
+                system_prompt_mode=prompt_type,
+                temperature=temperature,
             ))
         except Exception as gen_error:
             print(f"Generation failed: {str(gen_error)}")
             if _logger:
                 _logger.log_error(gen_error, context="generation")
             answer_text = (
-                "I’m sorry, but I couldn’t generate a response due to an internal error. "
+                "I'm sorry, but I couldn't generate a response due to an internal error. "
                 "Please try again or check the server logs for more details."
             )
 
-        sources_used = []
-        for i in topk_idxs:
+        sources_used = set()
+        for i in topk_idxs[:max_chunks]:
             source_text = sources[i]
             # Extract page number from source text if available, otherwise use 1
             page = 1
@@ -315,7 +350,7 @@ async def chat(request: ChatRequest):
                 except (ValueError, AttributeError):
                     page = 1
             
-            sources_used.append(SourceItem(page=page, text=source_text))
+            sources_used.add(SourceItem(page=page, text=source_text))
         
         if _logger:
             _logger.log_generation(
