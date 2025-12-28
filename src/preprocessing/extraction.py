@@ -76,7 +76,16 @@ def extract_sections_from_markdown(
             # Determine the section level based on numbering
             match = numbering_pattern.search(heading)
             if match:
+                assert match.lastindex >= 1, f"No capturing group for section number in heading: {heading}"
+
                 section_number = match.group(1)
+
+                assert isinstance(section_number, str) and section_number.strip(), \
+                    f"Invalid section number extracted from heading: {heading}"
+
+                assert all(part.isdigit() for part in section_number.split('.')), \
+                    f"Malformed section numbering '{section_number}' in heading: {heading}"
+
                 # Logic: "1.8.1" (2 dots) -> Level 3
                 current_level = section_number.count('.') + 1
                 try:
@@ -266,8 +275,8 @@ def preprocess_extracted_section(text: str) -> str:
 
 
 if __name__ == '__main__':
-    input_pdf = "../data/chapters/silberschatz.pdf"
-    output_md = '../data/silberschatz.md'
+    input_pdf = "data/chapters/silberschatz.pdf"
+    output_md = 'data/silberschatz.md'
 
     print(f"Converting '{input_pdf}' to '{output_md}'...")
     convert_and_save_with_page_numbers(input_pdf, output_md)
@@ -276,7 +285,7 @@ if __name__ == '__main__':
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-        output_filename = '../data/extracted_sections.json'
+        output_filename = 'data/extracted_sections.json'
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")
