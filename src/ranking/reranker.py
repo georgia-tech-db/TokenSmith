@@ -10,12 +10,11 @@ from sentence_transformers import CrossEncoder
 # -------------------------- Cross-Encoder Cache --------------------------
 _CROSS_ENCODER_CACHE: Dict[str, CrossEncoder] = {}
 
-def get_cross_encoder(model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+def get_cross_encoder(model_name: str = "cross-encoder/ms-marco-MiniLM-L6-v2"):
     """
     Fetch the cached cross-encoder model to prevent reloading on every query.
     """
     if model_name not in _CROSS_ENCODER_CACHE:
-        print(f"Loading cross-encoder model: {model_name}...")
         _CROSS_ENCODER_CACHE[model_name] = CrossEncoder(model_name)
     return _CROSS_ENCODER_CACHE[model_name]
 
@@ -40,8 +39,15 @@ def rerank_with_cross_encoder(query: str, chunks: List[str], top_n: int) -> List
     chunk_with_scores = list(zip(chunks, scores))
     chunk_with_scores.sort(key=lambda x: x[1], reverse=True)
 
-    # Return just the re-ordered chunks
-    return [chunk for chunk, score in chunk_with_scores][0:top_n]
+    reordered_chunks = []
+
+    for chunk, score in chunk_with_scores:
+        # Only include chunks with positive scores
+        if score > 0:
+            reordered_chunks.append(chunk)
+
+    # Return top N chunks
+    return reordered_chunks[0:top_n]
 
 
 # -------------------------- Reranking Router -----------------------------
@@ -52,7 +58,5 @@ def rerank(query: str, chunks: List[str], mode: str, top_n: int) -> List[str]:
     if mode == "cross_encoder":
         return rerank_with_cross_encoder(query, chunks, top_n)
 
-    # We can add other re-ranking strategies in the future to switch between them.
-
-    # Default is to do nothing (no-op).
+    # We can add other re-ranking strategies to switch between them.
     return chunks

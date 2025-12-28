@@ -48,3 +48,117 @@ def generate_hypothetical_document(
     )
     
     return hypothetical.strip()
+
+def correct_query_grammar(
+    query: str,
+    model_path: str,
+    **llm_kwargs
+) -> str:
+    """
+    Corrects spelling and grammatical errors in the query to improve keyword matching.
+    """
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are a helpful assistant that corrects search queries.
+        Your task is to correct any spelling or grammatical errors in the user's query.
+        Do not answer the question. Output ONLY the corrected query.
+        <|im_end|>
+        <|im_start|>user
+        Original Query: {query}
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+
+    prompt = text_cleaning(prompt)
+    corrected_query = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=len(query.split()) * 2,
+        temperature=0,
+        **llm_kwargs
+    )
+
+    # If model returns empty or hallucinated long text, return original
+    cleaned = corrected_query["choices"][0]["text"].strip()
+    if not cleaned or len(cleaned) > len(query) * 2:
+        return query
+
+    return cleaned
+
+def expand_query_with_keywords(
+    query: str,
+    model_path: str,
+    max_tokens: int = 64,
+    **llm_kwargs
+) -> str:
+    """
+    Query Expansion: Generates related keywords and synonyms.
+    This helps retrieval when the user uses different vocabulary than the documents.
+    """
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are a search optimization expert.
+        Generate 3 alternative versions of the user's query using synonyms and related technical terms.
+        Output the alternative queries separated by newlines. Do not provide explanations.
+        <|im_end|>
+        <|im_start|>user
+        Query: {query}
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+
+    prompt = text_cleaning(prompt)
+    expansion = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=max_tokens,
+        temperature=0.5,
+        **llm_kwargs
+    )
+
+    # Combine original query with expansion
+    query_lines = [query]
+    query_lines.extend([line.strip() for line in expansion["choices"][0]["text"].split('\n') if line.strip()])
+
+    # Remove numbering if present
+    query_lines = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in query_lines]
+
+    return query_lines
+
+
+def decompose_complex_query(
+    query: str,
+    model_path: str,
+    **llm_kwargs
+) -> list[str]:
+    """
+    Breaks a complex multi-part question into sub-questions.
+    Useful for tasks where a single retrieval might miss some parts of the answer.
+    """
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        Break the following complex question into simple, single-step sub-questions.
+        If the question is already simple, just output the original question.
+        Output each sub-question on a new line. Do not provide explanations.
+        <|im_end|>
+        <|im_start|>user
+        Complex Question: {query}
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+
+    prompt = text_cleaning(prompt)
+    output = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=128,
+        temperature=0.0,
+        **llm_kwargs
+    )
+
+    sub_questions = [line.strip() for line in output["choices"][0]["text"].split('\n') if line.strip()]
+
+    # Remove numbering if present
+    sub_questions = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in sub_questions]
+
+    return sub_questions
