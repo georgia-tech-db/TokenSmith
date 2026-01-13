@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 from copy import deepcopy
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from src.instrumentation.logging import get_logger
 
 
@@ -12,7 +12,7 @@ class QueryPlanner(ABC):
     Abstract base for query planners.
     """
 
-    def __init__(self, base_cfg: QueryPlanConfig):
+    def __init__(self, base_cfg: RAGConfig):
         self.base_cfg = deepcopy(base_cfg)
 
     @property
@@ -21,13 +21,13 @@ class QueryPlanner(ABC):
         """Unique name of the planner (for logging)."""
 
     @abstractmethod
-    def plan(self, query: str) -> QueryPlanConfig:
+    def plan(self, query: str) -> RAGConfig:
         """
-        Subclasses must override this to return an updated QueryPlanConfig.
+        Subclasses must override this to return an updated RAGConfig.
         """
 
     # ---- helper for subclasses ----
-    def _log_decision(self, new_cfg: QueryPlanConfig) -> None:
+    def _log_decision(self, new_cfg: RAGConfig) -> None:
         base_dict = self.base_cfg.to_dict()
         new_dict = new_cfg.to_dict()
         get_logger().log_planner(self.name, base_dict, new_dict)
