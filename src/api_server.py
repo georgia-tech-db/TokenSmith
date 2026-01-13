@@ -3,11 +3,17 @@ FastAPI server for TokenSmith chat functionality.
 Provides REST API endpoints for the React frontend.
 """
 
+import sys
 import pathlib
 import re
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+
+# Add project root to Python path to allow imports when run directly
+_project_root = pathlib.Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +24,7 @@ from src.config import RAGConfig
 from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
+from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
 
 
 # Constants
@@ -36,6 +42,9 @@ _logger = None
 class SourceItem(BaseModel):
     page: int
     text: str
+    
+    class Config:
+        frozen = True  # Makes the model hashable so it can be used in sets
 
 
 class ChatRequest(BaseModel):
@@ -70,7 +79,7 @@ def _ensure_initialized():
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
-    pool_n = max(_config.pool_size, effective_top_k + 10)
+    pool_n = max(_config.num_candidates, effective_top_k + 10)
     raw_scores: Dict[str, Dict[int, float]] = {}
 
     for retriever in _retrievers:
@@ -82,7 +91,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     if top_k is not None:
         temp_config = deepcopy(_config)
         temp_config.top_k = effective_top_k
-    topk_idxs = apply_seg_filter(temp_config, chunks, ordered)
+    topk_idxs = filter_retrieved_chunks(temp_config, chunks, ordered)
     return raw_scores, topk_idxs
 
 
@@ -100,7 +109,7 @@ async def lifespan(app: FastAPI):
     _logger = get_logger()
 
     try:
-        artifacts_dir = _config.make_artifacts_directory()
+        artifacts_dir = _config.get_artifacts_directory()
         faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
             index_prefix=INDEX_PREFIX
@@ -243,7 +252,7 @@ async def chat_stream(request: ChatRequest):
         if _logger:
             _logger.log_chunks_used(topk_idxs, chunks, sources)
     
-    if not _config.model_path:
+    if not _config.gen_model:
         raise HTTPException(status_code=500, detail="Model path not configured.")
 
     
@@ -260,7 +269,7 @@ async def chat_stream(request: ChatRequest):
             # Remove duplicates by converting to set of tuples, then back to SourceItem
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
 
-            for delta in answer(request.query, ranked_chunks, _config.model_path,
+            for delta in answer(request.query, ranked_chunks, _config.gen_model,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
@@ -313,7 +322,7 @@ async def chat(request: ChatRequest):
                 _logger.log_chunks_used(topk_idxs, chunks, sources)
 
         max_tokens = _config.max_gen_tokens
-        model_path = _config.model_path
+        model_path = _config.gen_model
 
         if not model_path:
             raise HTTPException(status_code=500, detail="Model path not configured.")
