@@ -1,4 +1,4 @@
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from copy import deepcopy
 
 from src.planning.planner import QueryPlanner
@@ -20,7 +20,7 @@ class HeuristicQueryPlanner(QueryPlanner):
     def name(self) -> str:
         return "HeuristicBasedPlanner"
 
-    def __init__(self, base_cfg: QueryPlanConfig):
+    def __init__(self, base_cfg: RAGConfig):
         super().__init__(base_cfg)
         self.base_cfg = deepcopy(base_cfg)
 
@@ -34,7 +34,7 @@ class HeuristicQueryPlanner(QueryPlanner):
             return "procedural"
         return "other"
 
-    def plan(self, query: str) -> QueryPlanConfig:
+    def plan(self, query: str) -> RAGConfig:
         kind = self.classify(query)
         cfg = deepcopy(self.base_cfg)
 

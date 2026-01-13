@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from src.config import QueryPlanConfig
+from src.config import RAGConfig
 from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
@@ -29,7 +29,7 @@ INDEX_PREFIX = "textbook_index"
 _artifacts: Optional[Dict[str, List[str]]] = None
 _retrievers: Optional[List] = None
 _ranker: Optional[EnsembleRanker] = None
-_config: Optional[QueryPlanConfig] = None
+_config: Optional[RAGConfig] = None
 _logger = None
 
 
@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
     if not config_path.exists():
         raise FileNotFoundError(f"No config file found at {config_path}")
 
-    _config = QueryPlanConfig.from_yaml(config_path)
+    _config = RAGConfig.from_yaml(config_path)
     init_logger(_config)
     _logger = get_logger()
 
