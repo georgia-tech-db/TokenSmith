@@ -175,7 +175,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     """
     from src.main import get_answer
     from src.instrumentation.logging import init_logger, get_logger
-    from src.config import QueryPlanConfig
+    from src.config import RAGConfig
     from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
     from src.ranking.ranker import EnsembleRanker
     import argparse
@@ -186,10 +186,10 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         model_path=config.get("model_path"),
         system_prompt_mode=config.get("system_prompt_mode"),
     )
-    
-    # Create QueryPlanConfig from our test config
-    cfg = QueryPlanConfig(
-        chunk_config=QueryPlanConfig.get_chunk_config(config),
+
+    # Create RAGConfig from our test config
+    cfg = RAGConfig(
+        chunk_config=RAGConfig.get_chunk_config(config),
         top_k=config.get("top_k", 5),
         pool_size=config.get("pool_size", 60),
         embed_model=config.get("embed_model"),
