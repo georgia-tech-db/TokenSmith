@@ -15,6 +15,6 @@ use_indexed_chunks: false
 rerank_mode: "cross_encoder"
 
 # Agent mode settings
-use_agent: false
+use_agent: true
 agent_reasoning_limit: 5
 agent_tool_limit: 20

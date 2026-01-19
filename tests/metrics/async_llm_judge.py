@@ -2,6 +2,7 @@ from typing import Optional, List, Dict
 from pathlib import Path
 from datetime import datetime
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,12 @@ from google.genai import types
 import httpx
 from tests.metrics.base import MetricBase
 from tests.metrics.llm_judge import GradingResult
+
+
+def _has_api_key() -> bool:
+    """Check if Google API key is available."""
+    return bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_GENAI_API_KEY"))
+
 
 # Shared state for async grading
 _results_lock = threading.Lock()
@@ -39,10 +46,14 @@ class AsyncLLMJudgeMetric(MetricBase):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results_file = self.log_dir / "async_llm_results.json"
+        self._available = _has_api_key()
         
-        # Initialize client once
-        if not _initialized:
-            _lazy_init()
+        # Initialize client once only if API key is available
+        if self._available and not _initialized:
+            try:
+                _lazy_init()
+            except Exception:
+                self._available = False
     
     @property
     def name(self) -> str:
@@ -53,7 +64,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         return 0.0
     
     def is_available(self) -> bool:
-        return True
+        return self._available
     
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
         """

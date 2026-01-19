@@ -16,6 +16,10 @@ class ChunkRetrievalMetric(MetricBase):
     def calculate(self, 
         ideal_retrieved_chunks: List[int], 
         retrieved_chunks) -> float:
+        # Handle None/empty inputs (e.g. agent mode doesn't provide chunk info)
+        if not retrieved_chunks or not ideal_retrieved_chunks:
+            return 0.0
+        
         print("ideal_retrieved_chunks: ", ideal_retrieved_chunks)
         print("retrieved_chunks: ", [chunk["chunk_id"] for chunk in retrieved_chunks])
         found_chunks = [chunk["chunk_id"] for chunk in retrieved_chunks if chunk["chunk_id"] in ideal_retrieved_chunks]

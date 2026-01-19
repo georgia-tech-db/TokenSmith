@@ -194,19 +194,21 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     )
 
     # Create RAGConfig from our test config
+    # Note: chunk_config is computed in __post_init__ from chunk_mode/chunk_size/chunk_overlap
     cfg = RAGConfig(
-        chunk_config=RAGConfig.get_chunk_config(config),
+        chunk_mode=config.get("chunk_mode", "recursive_sections"),
+        chunk_size=config.get("recursive_chunk_size", 2000),
+        chunk_overlap=config.get("recursive_overlap", 200),
         top_k=config.get("top_k", 5),
-        pool_size=config.get("pool_size", 60),
+        num_candidates=config.get("pool_size", 60),
         embed_model=config.get("embed_model"),
-        ensemble_method=config.get("retrieval_method", "rrf"),
-        rrf_k=60,
+        ensemble_method=config.get("ensemble_method", "rrf"),
+        rrf_k=config.get("rrf_k", 60),
         ranker_weights=config.get("ranker_weights", {"faiss": 0.6, "bm25": 0.4}),
-        rerank_mode=config.get("rerank_mode", "none"),
-        seg_filter=config.get("seg_filter", None),
+        rerank_mode=config.get("rerank_mode", ""),
+        gen_model=config.get("model_path"),
         system_prompt_mode=config.get("system_prompt_mode", "baseline"),
         max_gen_tokens=config.get("max_gen_tokens", 400),
-        model_path=config.get("model_path"),
         disable_chunks=config.get("disable_chunks", False),
         use_golden_chunks=config.get("use_golden_chunks", False),
         output_mode=config.get("output_mode", "html"),
@@ -237,8 +239,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     logger = get_logger()
 
     # Run the query through the main pipeline
-    artifacts_dir = cfg.make_artifacts_directory()
-    faiss_index, bm25_index, chunks, sources = load_artifacts(
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
         artifacts_dir=artifacts_dir, 
         index_prefix=config["index_prefix"]
     )
