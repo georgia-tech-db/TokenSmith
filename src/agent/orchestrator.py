@@ -77,10 +77,9 @@ class AgentOrchestrator:
             content = self.registry.get(ref_id)
             if content:
                 active_ctx.append(f"[{ref_id}]\n{content}")
-                if "Content from chunks" in content or "Chunk " in content:
-                     # Simple heuristic to track seen chunks
-                     matches = re.findall(r"Chunk (\d+)", content)
-                     read_chunk_ids.update(int(c) for c in matches)
+                # Track seen chunks (matches "Chunk 123" or "chunk_id=123")
+                matches = re.findall(r"(?:Chunk|chunk_id=)\s*(\d+)", content)
+                read_chunk_ids.update(int(c) for c in matches)
 
         full_context = "\n\n".join(active_ctx) if active_ctx else "No observations yet."
         
@@ -181,6 +180,12 @@ class AgentOrchestrator:
                 self.registry.add(f"Tool {step.tool_name} result:\n{res}", step=steps)
             except ContextBudgetExceeded:
                 history.append("System: Context full. Discard irrelevant observations.")
+
+            # Force Read check
+            if step.tool_name == "search_index":
+                 search_count = sum(1 for h in history if "Tool: search_index" in h)
+                 if search_count >= 2:
+                     history.append("System: You have enough search results. You MUST now use `read_content` to read a chunk. Do not search again.")
 
         if not keep_ids:
             keep_ids = self.registry.list_ids()
