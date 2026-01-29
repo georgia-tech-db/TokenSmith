@@ -248,7 +248,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     # Check if agent mode is enabled
     if config.get("use_agent", False):
         # Use agent orchestrator path
-        from src.agent.tools import AgentToolkit
+        from src.agent import AgentToolkit
         from src.agent.orchestrator import AgentOrchestrator, AgentConfig
         
         toolkit = AgentToolkit(

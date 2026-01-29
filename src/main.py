@@ -21,8 +21,9 @@ from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
 
-from src.agent.tools import AgentToolkit
+from src.agent import AgentToolkit
 from src.agent.orchestrator import AgentOrchestrator, AgentConfig
+from src.agent.logger import AgentLogger
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -37,6 +38,13 @@ def parse_args() -> argparse.Namespace:
         "mode",
         choices=["index", "chat"],
         help="operation mode: 'index' to build index, 'chat' to query"
+    )
+    
+    # Optional query for chat mode (runs query and exits)
+    parser.add_argument(
+        "query",
+        nargs="?",
+        help="optional query string for chat mode (runs query and exits)"
     )
 
     # Common arguments
@@ -298,8 +306,8 @@ def run_agent_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         chunks=chunks,
         sources=sources,
         embed_model=cfg.embed_model,
-        markdown_path="data/book_with_pages.md",
-        summaries_path="data/section_summaries.json",
+        markdown_path="data/silberschatz.md",
+        summaries_path="data/section_summaries.json",  # Optional: will be disabled if missing
     )
 
     agent_config = AgentConfig(
@@ -308,13 +316,33 @@ def run_agent_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         max_generation_tokens=cfg.max_gen_tokens,
     )
 
+    logger = AgentLogger()
+
     orchestrator = AgentOrchestrator(
         toolkit=toolkit,
         model_path=model_path,
         config=agent_config,
+        logger=logger,
     )
 
+    # If query provided, run it once and exit
+    if args.query:
+        console.print(f"\n[bold]Available tools:[/bold] {', '.join(toolkit.available_tools)}")
+        console.print("\n[dim]Investigating...[/dim]")
+        for event in orchestrator.stream_run(args.query):
+            if event["type"] == "thought":
+                console.print(f"[dim]Step {event['step']}: {event['thought']}[/dim]")
+            elif event["type"] == "tool":
+                console.print(f"[cyan]  → {event['tool_name']}[/cyan]")
+            elif event["type"] == "answer":
+                console.print("\n[bold cyan]==================== ANSWER ====================[/bold cyan]\n")
+                console.print(Markdown(event["answer"]))
+                console.print("\n[bold cyan]=================================================[/bold cyan]\n")
+                console.print(f"[dim]Used observations: {event['kept_observations']}[/dim]")
+        return
+
     print("Initialization complete. Agent mode active.")
+    print(f"Available tools: {', '.join(toolkit.available_tools)}")
     print("Type 'exit' or 'quit' to end the session.")
 
     while True:
@@ -392,6 +420,12 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         print(f"ERROR: Failed to initialize chat artifacts: {e}")
         print("Please ensure you have run 'index' mode first.")
         sys.exit(1)
+
+    # If query provided, run it once and exit
+    if args.query:
+        ans = get_answer(args.query, cfg, args, logger, console, artifacts=artifacts)
+        logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
+        return
 
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")

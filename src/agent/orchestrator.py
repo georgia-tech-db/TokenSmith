@@ -1,347 +1,218 @@
-"""
-Agent orchestrator for the dynamic context budgeted agent.
-
-Manages the investigation loop:
-1. Investigation phase: SLM queries tools and manages context registry
-2. Synthesis phase: Generate final answer from curated context
-"""
-
 import json
 import re
-from dataclasses import dataclass
-from typing import Optional, Dict, List, Any
+from typing import Optional, List, Any, Generator, Dict
 
-from src.agent.context_manager import ContextRegistry
-from src.agent.tools import AgentToolkit
-from src.agent.logger import AgentLogger
-from src.generator import get_llama_model, ANSWER_END
-
-
-@dataclass
-class AgentConfig:
-    reasoning_limit: int = 5
-    tool_limit: int = 20
-    max_reasoning_tokens: int = 500
-    max_generation_tokens: int = 400
-
-
-@dataclass
-class AgentStep:
-    thought: str
-    tool_name: Optional[str]
-    tool_args: Dict[str, Any]
-    context_action: Dict[str, Any]
-    signal: str
-
-
-AGENT_SYSTEM_PROMPT = """You are an investigative agent that retrieves information to answer questions.
-
-You work in a loop: think → use a tool → observe → repeat until ready.
-
-{tool_descriptions}
-
-## Output Format (strict JSON)
-```json
-{{
-  "thought": "Your reasoning about current state and next steps",
-  "tool_name": "name_of_tool or null if done",
-  "tool_args": {{"arg1": "value1"}},
-  "context_action": {{
-    "keep": ["obs_1", "obs_3"],
-    "discard": ["obs_2"],
-    "notes": "Why keeping these"
-  }},
-  "signal": "continue or finish"
-}}
-```
-
-## Rules
-- Use search_index first to find relevant chunks
-- Use read_content to get full text of promising chunks
-- Use grep_text for exact matches (code, variables, specific terms)
-- Signal "finish" when you have enough information
-- Keep only observations needed for the final answer
-- Discard observations that are irrelevant or redundant
-
-Current observations in registry: {observation_ids}
-"""
-
-SYNTHESIS_PROMPT = """Based on the following curated context, answer the question concisely.
-
-Context:
-{context}
-
-Question: {question}
-
-Answer:"""
-
-
-def parse_agent_response(text: str) -> Optional[AgentStep]:
-    """Extract JSON from agent response."""
-    text = text.strip()
-    
-    # Try to find JSON in markdown code block
-    json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(1).strip()
-    else:
-        # Try to extract raw JSON object
-        json_match = re.search(r"\{.*\}", text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-        else:
-            return None
-
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError:
-        return None
-
-    return AgentStep(
-        thought=data.get("thought", ""),
-        tool_name=data.get("tool_name"),
-        tool_args=data.get("tool_args", {}),
-        context_action=data.get("context_action", {}),
-        signal=data.get("signal", "continue"),
-    )
-
+from src.agent.types import AgentConfig, AgentStep
+from src.agent.context import ContextRegistry, ContextBudgetExceeded
+from src.agent.toolkit import AgentToolkit
+from src.agent.llm import AgentLLM
+from src.agent.prompts import INVESTIGATION_PROMPT_TEMPLATE, SYNTHESIS_PROMPT, AGENT_SYSTEM_PROMPT
 
 class AgentOrchestrator:
-    """Main agent loop coordinating tools, context, and LLM calls."""
-
-    def __init__(
-        self,
-        toolkit: AgentToolkit,
-        model_path: str,
-        config: Optional[AgentConfig] = None,
-    ):
+    def __init__(self, toolkit: AgentToolkit, model_path: str, config: Optional[AgentConfig] = None, logger: Optional[Any] = None):
         self.toolkit = toolkit
-        self.model_path = model_path
-        self.config = config or AgentConfig()
-        self.registry = ContextRegistry()
-        self.logger = AgentLogger()
-        self.logger.log_session_start({
-            "model_path": model_path,
-            "reasoning_limit": self.config.reasoning_limit,
-            "tool_limit": self.config.tool_limit,
-        })
+        self.config = config or AgentConfig(model_path=model_path)
+        self.llm = AgentLLM(model_path)
+        self.registry = ContextRegistry(max_tokens=self.config.max_context_tokens)
+        self.logger = logger
 
-    def _build_investigation_prompt(self, question: str, history: List[str]) -> str:
-        """Build prompt for investigation step."""
+    def _parse_step(self, text: str) -> Optional[AgentStep]:
+        text = text.strip()
+        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL) or re.search(r"\{.*\}", text, re.DOTALL)
+        if not match: return None
+        
+        try:
+            data = json.loads(match.group(1 if match.lastindex else 0))
+            
+            # Handle hallucinated "next_step": "tool(args)" format
+            if "next_step" in data and not data.get("tool_name"):
+                call_str = data["next_step"]
+                # Parse tool(arg=val)
+                m_call = re.match(r"(\w+)\((.*)\)", call_str)
+                if m_call:
+                    tool_name = m_call.group(1)
+                    args_str = m_call.group(2)
+                    args = {}
+                    # Simple arg parser for key=value or key="value"
+                    # This is brittle but handles the example seen
+                    for arg_pair in args_str.split(","):
+                        if "=" in arg_pair:
+                            k, v = arg_pair.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'").strip('"')
+                            # Try to convert to int/float
+                            try:
+                                if "." in v: v = float(v)
+                                else: v = int(v)
+                            except ValueError:
+                                pass
+                            args[k] = v
+                    
+                    return AgentStep(
+                        thought=data.get("thought", f"Decided to call {tool_name}"),
+                        tool_name=tool_name,
+                        tool_args=args,
+                        context_action={},
+                        signal="continue"
+                    )
+
+            return AgentStep(
+                thought=data.get("thought", "Recovering from simplified output..."),
+                tool_name=data.get("tool_name"),
+                tool_args=data.get("tool_args", {}),
+                context_action=data.get("context_action", {}),
+                signal=data.get("signal", "continue"),
+            )
+        except Exception as e:
+            print(f"JSON Parse Error: {e}")
+            return None
+
+    def _build_prompt(self, question: str, history: List[str]) -> str:
         obs_ids = self.registry.list_ids()
-        current_obs = self.registry.get_context(obs_ids) if obs_ids else "None yet."
+        
+        # Format active context
+        active_ctx = []
+        read_chunk_ids = set()
+        for ref_id in obs_ids:
+            content = self.registry.get(ref_id)
+            if content:
+                active_ctx.append(f"[{ref_id}]\n{content}")
+                if "Content from chunks" in content or "Chunk " in content:
+                     # Simple heuristic to track seen chunks
+                     matches = re.findall(r"Chunk (\d+)", content)
+                     read_chunk_ids.update(int(c) for c in matches)
 
-        system = AGENT_SYSTEM_PROMPT.format(
-            tool_descriptions=AgentToolkit.get_tool_descriptions(),
-            observation_ids=obs_ids or "[]",
+        full_context = "\n\n".join(active_ctx) if active_ctx else "No observations yet."
+        
+        # Lifecycle metadata
+        meta = self.registry.get_all_metadata()
+        lifecycle = [f"{k}: {v['lifecycle']}" for k, v in meta.items() if v['lifecycle'] != "no-events"]
+        
+        status = self.registry.status
+        system_text = AGENT_SYSTEM_PROMPT.format(
+            tool_descriptions=self.toolkit.get_tool_descriptions(),
+            observation_ids=str(obs_ids),
+            budget_status=f"{status['used']}/{status['total']} tokens"
+        )
+        
+        return INVESTIGATION_PROMPT_TEMPLATE.format(
+            system=system_text,
+            question=question,
+            full_context=full_context,
+            read_chunks_str=str(sorted(list(read_chunk_ids))),
+            lifecycle_str="\n".join(lifecycle) if lifecycle else "None",
+            history_text="\n".join(history[-10:]) or "None"
         )
 
-        history_text = "\n".join(history) if history else "No history yet."
-
-        return f"""<|im_start|>system
-{system}
-
-Current observations:
-{current_obs}
-<|im_end|>
-<|im_start|>user
-Question: {question}
-
-Investigation history:
-{history_text}
-
-What's your next step?
-<|im_end|>
-<|im_start|>assistant
-```json
-"""
-
-    def _run_reasoning_step(self, prompt: str) -> str:
-        """Run a single LLM call for reasoning."""
-        model = get_llama_model(self.model_path)
-        result = model.create_completion(
-            prompt,
-            max_tokens=self.config.max_reasoning_tokens,
-            temperature=0.1,
-            stop=["```\n", "<|im_end|>"],
-        )
-        return result["choices"][0]["text"]
-
-    def _apply_context_action(self, action: Dict[str, Any]) -> None:
-        """Apply keep/discard actions to the registry."""
-        discard_ids = action.get("discard", [])
-        if discard_ids:
-            self.registry.prune(discard_ids)
-
-    def investigate(self, question: str) -> List[str]:
+    def stream_run(self, question: str) -> Generator[Dict[str, Any], None, None]:
         """
-        Run investigation phase.
-        Returns list of observation IDs to use for synthesis.
-        """
-        history: List[str] = []
-        reasoning_count = 0
-        tool_count = 0
-
-        while reasoning_count < self.config.reasoning_limit:
-            reasoning_count += 1
-
-            prompt = self._build_investigation_prompt(question, history)
-            response = self._run_reasoning_step(prompt)
-
-            step = parse_agent_response(response)
-            if step is None:
-                history.append(f"Step {reasoning_count}: [Parse error] {response[:200]}")
-                continue
-
-            history.append(f"Step {reasoning_count}: {step.thought}")
-
-            if step.signal == "finish" or step.tool_name is None:
-                keep_ids = step.context_action.get("keep", self.registry.list_ids())
-                return keep_ids
-
-            if tool_count >= self.config.tool_limit:
-                history.append(f"Tool limit ({self.config.tool_limit}) reached.")
-                return step.context_action.get("keep", self.registry.list_ids())
-
-            tool_count += 1
-            observation = self.toolkit.execute(step.tool_name, step.tool_args)
-            ref_id = self.registry.add_observation(observation)
-            history.append(f"  Tool: {step.tool_name}({step.tool_args}) → {ref_id}")
-
-            self._apply_context_action(step.context_action)
-
-        return self.registry.list_ids()
-
-    def _build_synthesis_prompt(self, question: str, keep_ids: List[str]) -> str:
-        """Build prompt for synthesis step."""
-        context = self.registry.get_context(keep_ids)
-        return f"""<|im_start|>system
-You are a helpful assistant. Answer questions based on the provided context.
-<|im_end|>
-<|im_start|>user
-{SYNTHESIS_PROMPT.format(context=context, question=question)}
-<|im_end|>
-<|im_start|>assistant
-"""
-
-    def synthesize(self, question: str, keep_ids: List[str]) -> str:
-        """Generate final answer from curated context."""
-        prompt = self._build_synthesis_prompt(question, keep_ids)
-        model = get_llama_model(self.model_path)
-        result = model.create_completion(
-            prompt,
-            max_tokens=self.config.max_generation_tokens,
-            temperature=0.2,
-            stop=[ANSWER_END, "<|im_end|>"],
-        )
-        return result["choices"][0]["text"].strip()
-
-    def _synthesize_with_logging(self, question: str, keep_ids: List[str]) -> str:
-        """Synthesize with logging."""
-        prompt = self._build_synthesis_prompt(question, keep_ids)
-        model = get_llama_model(self.model_path)
-        result = model.create_completion(
-            prompt,
-            max_tokens=self.config.max_generation_tokens,
-            temperature=0.2,
-            stop=[ANSWER_END, "<|im_end|>"],
-        )
-        response = result["choices"][0]["text"].strip()
-        self.logger.log_synthesis(prompt, response, keep_ids)
-        return response
-
-    def run(self, question: str) -> Dict[str, Any]:
-        """
-        Full agent run: investigate → synthesize.
-        Returns dict with answer, observations, and metadata.
+        Run investigation and synthesis, yielding events.
+        Events:
+          - {"type": "thought", "step": int, "thought": str}
+          - {"type": "tool", "tool_name": str, "tool_args": dict}
+          - {"type": "answer", "answer": str, "kept_observations": List[str]}
         """
         self.registry.clear()
+        
+        # Seed initial search
+        res, _ = self.toolkit.get_initial_context(question)
+        self.registry.add(f"Initial search: {res}", step=0)
 
-        keep_ids = self.investigate(question)
-        answer = self.synthesize(question, keep_ids)
-
-        return {
-            "answer": answer,
-            "kept_observations": keep_ids,
-            "total_observations": len(self.registry),
-            "context_used": self.registry.get_context(keep_ids),
-        }
-
-    def stream_run(self, question: str):
-        """
-        Generator version of run for streaming output.
-        Yields status updates during investigation, then final answer.
-        """
-        self.registry.clear()
-
-        yield {"type": "status", "message": "Starting investigation..."}
-
-        history: List[str] = []
-        reasoning_count = 0
-        tool_count = 0
+        history = []
+        steps = 0
         keep_ids = []
+        
+        # --- Investigation Phase ---
+        while steps < self.config.reasoning_limit:
+            steps += 1
+            # print(f"--- Step {steps} ---")
+            prompt = self._build_prompt(question, history)
+            
+            response = self.llm.completion(prompt, max_tokens=self.config.max_reasoning_tokens)
+            print(f"\n[DEBUG RAW RESPONSE]\n{response}\n[END DEBUG]\n")
+            step = self._parse_step(response)
+            
+            if not step:
+                # print("Failed to parse response")
+                history.append(f"Step {steps}: [Use stricter JSON format]")
+                continue
+            
+            # Yield thought event
+            yield {
+                "type": "thought",
+                "step": steps,
+                "thought": step.thought
+            }
+            
+            # print(f"Thought: {step.thought}")
+            # print(f"Tool: {step.tool_name}")
+            
+            history.append(f"Step {steps}: {step.thought} (Tool: {step.tool_name})")
+            if self.logger:
+                self.logger.log_step(steps, step.thought, step.tool_name, step.tool_args, None, True)
 
-        while reasoning_count < self.config.reasoning_limit:
-            reasoning_count += 1
+            # Handle context actions
+            if step.context_action:
+                for ref_id in step.context_action.get("discard", []):
+                    self.registry.remove(ref_id, step=steps)
 
-            prompt = self._build_investigation_prompt(question, history)
-            response = self._run_reasoning_step(prompt)
-
-            step = parse_agent_response(response)
-            parsed_dict = {
-                "thought": step.thought,
-                "tool_name": step.tool_name,
-                "tool_args": step.tool_args,
-                "context_action": step.context_action,
-                "signal": step.signal,
-            } if step else None
-            self.logger.log_reasoning_step(prompt, response, parsed_dict)
-
-            if step is None:
-                history.append(f"Step {reasoning_count}: [Parse error] {response[:100]}")
-                yield {"type": "status", "message": f"Parse error at step {reasoning_count}, retrying..."}
+            # Finish logic
+            if step.signal == "finish" or not step.tool_name:
+                # Basic check: do we have any content?
+                has_content = any("Chunk" in (self.registry.get(oid) or "") for oid in self.registry.list_ids())
+                if has_content or steps >= self.config.reasoning_limit:
+                    keep_ids = step.context_action.get("keep", self.registry.list_ids())
+                    break
+                
+                # If trying to finish without content, force one more step
+                history.append("System: You have search results but no full content. Read chunks before finishing.")
                 continue
 
-            yield {"type": "thought", "step": reasoning_count, "thought": step.thought}
-            history.append(f"Step {reasoning_count}: {step.thought}")
-
-            if step.signal == "finish" or step.tool_name is None:
-                keep_ids = step.context_action.get("keep", self.registry.list_ids())
-                break
-
-            if tool_count >= self.config.tool_limit:
-                keep_ids = step.context_action.get("keep", self.registry.list_ids())
-                break
-
-            tool_count += 1
+            # Yield tool event
             yield {
                 "type": "tool",
                 "tool_name": step.tool_name,
-                "tool_args": step.tool_args,
+                "tool_args": step.tool_args
             }
 
-            observation = self.toolkit.execute(step.tool_name, step.tool_args)
-            ref_id = self.registry.add_observation(observation)
-            self.logger.log_tool_execution(step.tool_name, step.tool_args, observation, ref_id)
-            history.append(f"  Tool: {step.tool_name} → {ref_id}")
-
-            self._apply_context_action(step.context_action)
+            # Execute tool
+            res, success = self.toolkit.execute(step.tool_name, step.tool_args)
+            try:
+                self.registry.add(f"Tool {step.tool_name} result:\n{res}", step=steps)
+            except ContextBudgetExceeded:
+                history.append("System: Context full. Discard irrelevant observations.")
 
         if not keep_ids:
             keep_ids = self.registry.list_ids()
 
-        yield {"type": "status", "message": "Generating answer..."}
-
-        answer = self._synthesize_with_logging(question, keep_ids)
-
-        self.logger.log_query_complete(answer, {
-            "kept_observations": keep_ids,
-            "total_observations": len(self.registry),
-        })
-
+        # --- Synthesis Phase ---
+        parts = []
+        for ref_id in keep_ids:
+            c = self.registry.get(ref_id)
+            if c: parts.append(f"[{ref_id}]\n{c}")
+        final_context = "\n\n".join(parts)
+        
+        prompt = SYNTHESIS_PROMPT.format(context=final_context, question=question)
+        answer_text = self.llm.completion(prompt, max_tokens=self.config.max_generation_tokens)
+        
         yield {
             "type": "answer",
-            "answer": answer,
-            "kept_observations": keep_ids,
+            "answer": answer_text,
+            "kept_observations": keep_ids
         }
 
+    def investigate(self, question: str) -> List[str]:
+        # Legacy/Support method wrapping stream_run
+        last_ids = []
+        for event in self.stream_run(question):
+            if event["type"] == "answer":
+                last_ids = event["kept_observations"]
+        return last_ids
+
+    def answer(self, question: str) -> str:
+        # Legacy/Support method wrapping stream_run
+        ans = ""
+        for event in self.stream_run(question):
+            if event["type"] == "answer":
+                ans = event["answer"]
+        return ans
