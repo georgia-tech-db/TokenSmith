@@ -60,6 +60,7 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceItem]
     chunks_used: List[int]
+    chunks_by_page: Dict[int, List[str]]
     query: str
 
 
@@ -258,16 +259,19 @@ async def chat_stream(request: ChatRequest):
     
     async def event_generator():
         try:
-            # First send the references (page/text pairs)
+            # First send the references (page/text pairs) and chunks by page
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
             sources_used = set()
+            chunks_by_page: Dict[int, List[str]] = {}
             for i in topk_idxs[:max_chunks]:
                 source_text = sources[i]
                 page = page_nums[i] if i in page_nums else 1
                 sources_used.add(SourceItem(page=page, text=source_text))
+                chunks_by_page.setdefault(page, []).append(chunks[i])
             
             # Remove duplicates by converting to set of tuples, then back to SourceItem
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
             for delta in answer(request.query, ranked_chunks, _config.gen_model,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
@@ -346,6 +350,7 @@ async def chat(request: ChatRequest):
             )
 
         sources_used = set()
+        chunks_by_page: Dict[int, List[str]] = {}
         for i in topk_idxs[:max_chunks]:
             source_text = sources[i]
             # Extract page number from source text if available, otherwise use 1
@@ -360,6 +365,7 @@ async def chat(request: ChatRequest):
                     page = 1
             
             sources_used.add(SourceItem(page=page, text=source_text))
+            chunks_by_page.setdefault(page, []).append(chunks[i])
         
         if _logger:
             _logger.log_generation(
@@ -371,6 +377,7 @@ async def chat(request: ChatRequest):
             answer=answer_text.strip() if answer_text and answer_text.strip() else "No response generated",
             sources=sources_used,
             chunks_used=topk_idxs,
+            chunks_by_page=chunks_by_page,
             query=request.query
         )
         
