@@ -203,11 +203,11 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         
     doc = result.document
 
-    # 1. Define a unique placeholder that won't appear in the text.
+    # Define a unique placeholder that won't appear in the text.
     # Using "\n" ensures it's on its own line.
     UNIQUE_PLACEHOLDER = "\n%%%__DOCLING_PAGE_BREAK__%%%\n"
 
-    # 2. Export the *entire* document at once, using our placeholder.
+    # Export the entire document at once, using our placeholder.
     # This avoids the fragile doc.filter() method.
     try:
         full_markdown = doc.export_to_markdown(page_break_placeholder=UNIQUE_PLACEHOLDER)
@@ -223,24 +223,24 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
             print(f"Error writing fallback file: {e_io}", file=sys.stderr)
         return
 
-    # 3. Split the full markdown by our unique placeholder.
+    # Split the full markdown by our unique placeholder.
     # This gives us a list where each item is one page's content.
     markdown_pages = full_markdown.split(UNIQUE_PLACEHOLDER)
     
     final_output_chunks = []
     
-    # 4. Iterate through the pages, adding our custom footer.
+    # Iterate through the pages, adding our custom footer.
     # We use enumerate to get a 1-based page number.
     num_pages = len(markdown_pages)
     for i, page_content in enumerate(markdown_pages, 1):
         # Add the content for the current page
         final_output_chunks.append(page_content)
         
-        # Add our custom footer, but *not* after the very last page
+        # Add our custom footer, but not after the very last page
         if i < num_pages:
             final_output_chunks.append(f"\n\n--- Page {i} ---\n\n")
 
-    # 5. Write the combined markdown string to the output file
+    # Write the combined markdown string to the output file
     try:
         with open(output_file_path, "w", encoding="utf-8") as f:
             f.write("".join(final_output_chunks))
@@ -275,8 +275,9 @@ def preprocess_extracted_section(text: str) -> str:
 
 
 if __name__ == '__main__':
-    input_pdf = "data/chapters/silberschatz.pdf"
-    output_md = 'data/silberschatz.md'
+    project_root = Path(__file__).resolve().parent.parent.parent
+    input_pdf = project_root / "data/chapters/textbook.pdf"
+    output_md = project_root / "data/testing.md"
 
     print(f"Converting '{input_pdf}' to '{output_md}'...")
     convert_and_save_with_page_numbers(input_pdf, output_md)
@@ -285,7 +286,7 @@ if __name__ == '__main__':
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-        output_filename = 'data/extracted_sections.json'
+        output_filename = project_root / "data/extracted_sections.json"
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")

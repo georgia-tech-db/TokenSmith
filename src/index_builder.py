@@ -99,6 +99,9 @@ def build_index(
 
         # Iterate through each chunk produced from this section
         for sub_chunk_id, sub_chunk in enumerate(sub_chunks):
+            # Track all pages this specific chunk touches
+            chunk_pages = set()
+
             # Split the sub_chunk by page markers to see if it
             # spans multiple pages.
             fragments = page_pattern.split(sub_chunk)
@@ -107,6 +110,7 @@ def build_index(
             # it belongs to the current_page.
             if fragments[0].strip():
                 page_to_chunk_ids.setdefault(current_page, set()).add(total_chunks+sub_chunk_id)
+                chunk_pages.add(current_page)
 
             # Process the new pages found within this sub_chunk. Step by 2
             # where each pair represents (page number, text after it)
@@ -118,6 +122,7 @@ def build_index(
                     # If there is text after this marker, it belongs to the new_page.
                     if fragments[i+1].strip():
                         page_to_chunk_ids.setdefault(new_page, set()).add(total_chunks + sub_chunk_id)
+                        chunk_pages.add(new_page)
                     
                     current_page = new_page
 
@@ -140,7 +145,7 @@ def build_index(
                 "section": c['heading'],
                 "section_path": full_section_path,
                 "text_preview": clean_chunk[:100],
-                "page_number": current_page,
+                "page_numbers": sorted(list(chunk_pages)),
                 "chunk_id": total_chunks + sub_chunk_id
             }
 
