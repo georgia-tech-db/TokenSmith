@@ -87,7 +87,7 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     artifacts_dir = cfg.get_artifacts_directory()
 
     build_index(
-        markdown_file="data/silberschatz.md",
+        markdown_file="data/book_with_pages.md",
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,

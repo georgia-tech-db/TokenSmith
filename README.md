@@ -84,7 +84,14 @@ mkdir -p data/chapters
 cp your-documents.pdf data/chapters/
 ```
 
-### 5) Index documents
+### 5) Extract PDF to markdown
+
+```shell
+make run-extract
+```
+This generates a `book_with_pages.md` under `TOKENSMITH/data/`
+
+### 6) Index documents
 
 ```shell
 make run-index
@@ -96,7 +103,7 @@ With custom parameters:
 make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
 ```
 
-### 6) Chat
+### 7) Chat
 
 ```shell
 python -m src.main chat
@@ -104,7 +111,7 @@ python -m src.main chat
 
 > If you see a missing-model error, download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into `llama.cpp/models`.
 
-### 7) Deactivate
+### 8) Deactivate
 
 ```shell
 conda deactivate

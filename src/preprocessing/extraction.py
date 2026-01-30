@@ -275,8 +275,22 @@ def preprocess_extracted_section(text: str) -> str:
 
 
 if __name__ == '__main__':
-    input_pdf = "data/chapters/silberschatz.pdf"
-    output_md = 'data/silberschatz.md'
+    # Returns all pdf files under data/chapters/
+    chapters_dir = Path("data/chapters")
+    pdfs = sorted(chapters_dir.glob("*.pdf"))
+
+    # Ensure exactly one PDF is found
+    if len(pdfs) == 0:
+        print("ERROR: No PDFs found in data/chapters/. Please copy a PDF there first.", file=sys.stderr)
+        sys.exit(1)
+    if len(pdfs) > 1:
+        print("ERROR: Multiple PDFs found in data/chapters/. Keep only one for now:", file=sys.stderr)
+        for p in pdfs:
+            print(f"  - {p}", file=sys.stderr)
+        sys.exit(1)
+
+    input_pdf = str(pdfs[0])
+    output_md = "data/book_with_pages.md"
 
     print(f"Converting '{input_pdf}' to '{output_md}'...")
     convert_and_save_with_page_numbers(input_pdf, output_md)
