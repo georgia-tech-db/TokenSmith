@@ -72,12 +72,14 @@ class TestPydanticModels:
             answer="This is the answer",
             sources=sources,
             chunks_used=[0, 1, 2],
+            chunks_by_page={1: ["source1"]},
             query="What is a database?"
         )
 
         assert response.answer == "This is the answer"
         assert len(response.sources) == 1
         assert response.chunks_used == [0, 1, 2]
+        assert response.chunks_by_page == {1: ["source1"]}
         assert response.query == "What is a database?"
 
 
