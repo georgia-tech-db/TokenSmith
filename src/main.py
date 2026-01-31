@@ -85,7 +85,7 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
     artifacts_dir = cfg.get_artifacts_directory()
-
+    print("JUSTTSTTTTT SHOWING: ", args)
     build_index(
         markdown_file="data/silberschatz.md",
         chunker=chunker,
