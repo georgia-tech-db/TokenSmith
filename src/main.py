@@ -75,6 +75,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="embed sections with headings"
     )
+    indexing_group.add_argument(
+        "--chapters",
+        nargs='+',
+        type=int,
+        help="a list of chapter numbers to index (e.g., --chapters 3 4 5)"
+    )
 
     return parser.parse_args()
 
@@ -95,6 +101,7 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
+        chapters_to_index=args.chapters,
     )
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
