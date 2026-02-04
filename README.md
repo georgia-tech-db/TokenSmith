@@ -89,7 +89,7 @@ cp your-documents.pdf data/chapters/
 ```shell
 make run-extract
 ```
-This generates a `book_with_pages.md` under `TOKENSMITH/data/`
+This generates markdown file(s) under `TOKENSMITH/data/`
 
 ### 6) Index documents
 

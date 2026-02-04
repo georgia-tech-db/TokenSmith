@@ -60,7 +60,7 @@ clean:
 
 # PDF to Markdown extraction
 run-extract:
-	@echo "Extracting PDF to markdown (data/chapters/*.pdf -> data/book_with_pages.md)"
+	@echo "Extracting PDF to markdown (data/chapters/*.pdf -> data/*.md)"
 	conda run --no-capture-output -n tokensmith python -m src.preprocessing.extraction
 	
 # Run modes
