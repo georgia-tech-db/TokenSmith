@@ -5,7 +5,7 @@ Provides REST API endpoints for the React frontend.
 
 import sys
 import pathlib
-import re
+import re, json
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -86,14 +86,16 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     for retriever in _retrievers:
         raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
 
-    ordered = _ranker.rank(raw_scores=raw_scores)
-    # Create a temporary config with the effective top_k for filtering
-    temp_config = _config
+    ordered_ids, ordered_scores = _ranker.rank(raw_scores=raw_scores)
+
     if top_k is not None:
-        temp_config = deepcopy(_config)
-        temp_config.top_k = effective_top_k
-    topk_idxs = filter_retrieved_chunks(temp_config, chunks, ordered)
-    return raw_scores, topk_idxs
+        ordered_ids = ordered_ids[:top_k]
+        ordered_scores = ordered_scores[:top_k]
+    else:
+        ordered_ids = ordered_ids[:_config.top_k]
+        ordered_scores = ordered_scores[:_config.top_k]
+
+    return ordered_scores, ordered_ids
 
 
 @asynccontextmanager
@@ -232,34 +234,32 @@ async def chat_stream(request: ChatRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
-    # Get request parameters with config defaults as fallback
     enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
     disable_chunks = not enable_chunks
     prompt_type = request.prompt_type if request.prompt_type is not None else _config.system_prompt_mode
     max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
-    temperature = request.temperature if request.temperature is not None else _config.temperature
+    temperature = request.temperature if request.temperature is not None else 0.7
     
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
     
-    if _logger:
-        _logger.log_query_start(request.query)
-    
+    # We keep your original retrieval logic exactly as is
     if disable_chunks:
         ranked_chunks, topk_idxs = [], []
     else:
-        _, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        ordered_scores, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        topk_idxs = [int(i) for i in topk_idxs]
         ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-        if _logger:
-            _logger.log_chunks_used(topk_idxs, chunks, sources)
     
     if not _config.gen_model:
         raise HTTPException(status_code=500, detail="Model path not configured.")
 
-    
     async def event_generator():
+        # New: List to capture response for logging
+        full_response_accumulator = []
+        
         try:
-            # First send the references (page/text pairs) and chunks by page
+            # --- Your original references logic START ---
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
             sources_used = set()
             chunks_by_page: Dict[int, List[str]] = {}
@@ -269,20 +269,60 @@ async def chat_stream(request: ChatRequest):
                 sources_used.add(SourceItem(page=page, text=source_text))
                 chunks_by_page.setdefault(page, []).append(chunks[i])
             
-            # Remove duplicates by converting to set of tuples, then back to SourceItem
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
+            # --- Your original references logic END ---
 
+            # Your original token loop
             for delta in answer(request.query, ranked_chunks, _config.gen_model,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
+                    full_response_accumulator.append(delta) # Capture for log
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
             
-            # Include sources in the final done message for completeness
+            # --- NEW LOGGING CALL ---
+            if _logger:
+                try:
+                    # Capture the actual strings used for the log file
+                    log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
+                    log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
+                    
+                    _logger.save_chat_log(
+                        query=request.query,
+                        config_state=_config.get_config_state(),
+                        ordered_scores=ordered_scores,
+                        chat_request_params={
+                            "enable_chunks": {
+                                "provided": request.enable_chunks,
+                                "used": enable_chunks
+                            },
+                            "prompt_type": {
+                                "provided": request.prompt_type,
+                                "used": prompt_type
+                            },
+                            "max_chunks": {
+                                "provided": request.max_chunks,
+                                "used": max_chunks
+                            },
+                            "temperature": {
+                                "provided": request.temperature,
+                                "used": temperature
+                            }
+                        },
+                        top_idxs=topk_idxs[:max_chunks],
+                        chunks=log_chunks,
+                        sources=log_sources,
+                        page_map=page_nums,
+                        full_response="".join(full_response_accumulator),
+                        top_k=max_chunks
+                    )
+                except Exception as log_exc:
+                    print(f"Logging Error: {log_exc}")
+
             yield f"data: {json.dumps({'type': 'done', 'sources': [s.dict() for s in sources_used]})}\n\n"
         except Exception as e:
-            if _logger:
-                _logger.log_error(e, context="streaming")
+            # Using print here so you can see crashes in the terminal while debugging
+            print(f"Logging Error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")
