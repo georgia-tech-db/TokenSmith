@@ -76,7 +76,6 @@ def _ensure_initialized():
             detail="Artifacts not loaded. Please run indexing first."
         )
 
-
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
@@ -96,7 +95,6 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
         ordered_scores = ordered_scores[:_config.top_k]
 
     return ordered_scores, ordered_ids
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -177,12 +175,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "message": "TokenSmith API is running"}
-
 
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
@@ -243,7 +239,6 @@ async def chat_stream(request: ChatRequest):
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
     
-    # We keep your original retrieval logic exactly as is
     if disable_chunks:
         ranked_chunks, topk_idxs = [], []
     else:
@@ -254,12 +249,10 @@ async def chat_stream(request: ChatRequest):
     if not _config.gen_model:
         raise HTTPException(status_code=500, detail="Model path not configured.")
 
+    # Streaming generator function
     async def event_generator():
-        # New: List to capture response for logging
         full_response_accumulator = []
-        
         try:
-            # --- Your original references logic START ---
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
             sources_used = set()
             chunks_by_page: Dict[int, List[str]] = {}
@@ -271,22 +264,21 @@ async def chat_stream(request: ChatRequest):
             
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
-            # --- Your original references logic END ---
 
-            # Your original token loop
+            # Stream generation token by token
             for delta in answer(request.query, ranked_chunks, _config.gen_model,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
                     full_response_accumulator.append(delta) # Capture for log
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
             
-            # --- NEW LOGGING CALL ---
             if _logger:
                 try:
                     # Capture the actual strings used for the log file
                     log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
                     log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
                     
+                    # Just Logging
                     _logger.save_chat_log(
                         query=request.query,
                         config_state=_config.get_config_state(),
@@ -316,6 +308,8 @@ async def chat_stream(request: ChatRequest):
                         full_response="".join(full_response_accumulator),
                         top_k=max_chunks
                     )
+
+    
                 except Exception as log_exc:
                     print(f"Logging Error: {log_exc}")
 
@@ -330,92 +324,89 @@ async def chat_stream(request: ChatRequest):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Main chat endpoint."""
-    print(f"🔍 Received chat request: {request.query}")  # Debug logging
-    
+    """Main chat endpoint (Non-streaming)."""
     _ensure_initialized()
     
     if not request.query.strip():
-        print("Empty query received")
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
-    # Get request parameters with config defaults as fallback
+    # 1. Parameter setup (Syncing with your stream logic)
     enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
     disable_chunks = not enable_chunks
     prompt_type = request.prompt_type if request.prompt_type is not None else _config.system_prompt_mode
     max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
-    temperature = request.temperature if request.temperature is not None else _config.temperature
+    temperature = request.temperature if request.temperature is not None else 0.7
     
+    chunks = _artifacts["chunks"]
+    sources = _artifacts["sources"]
+
     try:
-        chunks = _artifacts["chunks"]
-        sources = _artifacts["sources"]
-
-        if _logger:
-            _logger.log_query_start(request.query)
-        else:
-            print("Logger not available, skipping query logging")
-        
+        # 2. Retrieval & Ranking
         if disable_chunks:
-            print("Chunk usage disabled; skipping retrieval.")
-            ranked_chunks: List[str] = []
-            topk_idxs: List[int] = []
+            ranked_chunks, topk_idxs, ordered_scores = [], [], {}
         else:
-            _, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+            ordered_scores, raw_topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+            # Standardize ID types for JSON logging
+            topk_idxs = [int(i) for i in raw_topk_idxs]
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-            if _logger:
-                _logger.log_chunks_used(topk_idxs, chunks, sources)
 
-        max_tokens = _config.max_gen_tokens
-        model_path = _config.gen_model
-
-        if not model_path:
+        if not _config.gen_model:
             raise HTTPException(status_code=500, detail="Model path not configured.")
 
+        # 3. Full Generation
         try:
             answer_text = "".join(answer(
                 request.query,
                 ranked_chunks,
-                model_path,
-                max_tokens,
+                _config.gen_model,
+                _config.max_gen_tokens,
                 system_prompt_mode=prompt_type,
                 temperature=temperature,
             ))
         except Exception as gen_error:
             print(f"Generation failed: {str(gen_error)}")
-            if _logger:
-                _logger.log_error(gen_error, context="generation")
-            answer_text = (
-                "I'm sorry, but I couldn't generate a response due to an internal error. "
-                "Please try again or check the server logs for more details."
-            )
+            answer_text = "I'm sorry, but I couldn't generate a response due to an internal error."
 
+        # 4. Post-processing (Metadata & Pages)
+        page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
         sources_used = set()
         chunks_by_page: Dict[int, List[str]] = {}
+        
         for i in topk_idxs[:max_chunks]:
             source_text = sources[i]
-            # Extract page number from source text if available, otherwise use 1
-            page = 1
-            if "page" in source_text.lower():
-                try:
-                    # Try to extract page number from source text
-                    page_match = re.search(r'page\s*(\d+)', source_text.lower())
-                    if page_match:
-                        page = int(page_match.group(1))
-                except (ValueError, AttributeError):
-                    page = 1
-            
+            page = page_nums[i] if i in page_nums else 1
             sources_used.add(SourceItem(page=page, text=source_text))
             chunks_by_page.setdefault(page, []).append(chunks[i])
-        
+
+        # 5. NEW LOGGING LOGIC
         if _logger:
-            _logger.log_generation(
-                answer_text, 
-                {"max_tokens": max_tokens, "model_path": model_path}
-            )
-        
+            try:
+                log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
+                log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
+
+                _logger.save_chat_log(
+                    query=request.query,
+                    config_state=_config.get_config_state(),
+                    ordered_scores=ordered_scores,
+                    chat_request_params={
+                        "enable_chunks": {"provided": request.enable_chunks, "used": enable_chunks},
+                        "prompt_type": {"provided": request.prompt_type, "used": prompt_type},
+                        "max_chunks": {"provided": request.max_chunks, "used": max_chunks},
+                        "temperature": {"provided": request.temperature, "used": temperature}
+                    },
+                    top_idxs=topk_idxs[:max_chunks],
+                    chunks=log_chunks,
+                    sources=log_sources,
+                    page_map=page_nums,
+                    full_response=answer_text,
+                    top_k=max_chunks
+                )
+            except Exception as log_exc:
+                print(f"Logging Error in blocking chat: {log_exc}")
+
         return ChatResponse(
-            answer=answer_text.strip() if answer_text and answer_text.strip() else "No response generated",
-            sources=sources_used,
+            answer=answer_text.strip() if answer_text.strip() else "No response generated",
+            sources=list(sources_used),
             chunks_used=topk_idxs,
             chunks_by_page=chunks_by_page,
             query=request.query
@@ -423,10 +414,7 @@ async def chat(request: ChatRequest):
         
     except Exception as e:
         print(f"Error processing query: {str(e)}")
-        if _logger:
-            _logger.log_error(e)
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
-
 
 if __name__ == "__main__":
     import uvicorn
