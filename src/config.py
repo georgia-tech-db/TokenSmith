@@ -31,6 +31,7 @@ class RAGConfig:
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+    temperature: float = 0.7
     
     # testing
     system_prompt_mode: str = "baseline"
@@ -47,6 +48,11 @@ class RAGConfig:
     use_indexed_chunks: bool = False
     extracted_index_path: os.PathLike = "data/extracted_index.json"
     page_to_chunk_map_path: os.PathLike = "index/sections/textbook_index_page_to_chunk_map.json"
+
+    # agent mode
+    use_agent: bool = False
+    agent_reasoning_limit: int = 5
+    agent_tool_limit: int = 20
 
     # ---------- factory + validation ----------
     @classmethod

@@ -89,6 +89,18 @@ def pytest_addoption(parser):
         default=None,
         help="System prompt mode (overrides config)"
     )
+    group.addoption(
+        "--use-agent",
+        action="store_true",
+        default=None,
+        help="Enable agent mode (overrides config)"
+    )
+    group.addoption(
+        "--no-agent",
+        action="store_true",
+        default=None,
+        help="Disable agent mode (overrides config)"
+    )
     
     # === Testing Options ===
     group.addoption(
@@ -176,7 +188,22 @@ def config(pytestconfig):
         # Query Enhancement (HyDE)
         "use_hyde": cfg.get("use_hyde", False),
         "hyde_max_tokens": cfg.get("hyde_max_tokens", 100),
+
+        # Agent Mode
+        "agent_reasoning_limit": cfg.get("agent_reasoning_limit", 5),
+        "agent_tool_limit": cfg.get("agent_tool_limit", 20),
     }
+
+    # Handle agent mode
+    use_agent_cli = pytestconfig.getoption("--use-agent")
+    no_agent_cli = pytestconfig.getoption("--no-agent")
+    
+    if use_agent_cli:
+        merged_config["use_agent"] = True
+    elif no_agent_cli:
+        merged_config["use_agent"] = False
+    else:
+        merged_config["use_agent"] = cfg.get("use_agent", False)
 
     # Handle enable/disable chunks
     disable_chunks_cli = pytestconfig.getoption("--disable-chunks")
