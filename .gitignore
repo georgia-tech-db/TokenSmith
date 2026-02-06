@@ -28,6 +28,7 @@ data/
 *.faiss
 *.pkl
 index/cache/
+index/sections/textbook_index_info.json
 
 # --- Model files ---
 models/

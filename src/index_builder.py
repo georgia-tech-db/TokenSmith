@@ -223,6 +223,16 @@ def build_index(
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
 
+    output_file = artifacts_dir / f"{index_prefix}_info.json"
+    index_info = {
+        "status": "indexed",
+        "documents": [markdown_file],
+        "chapters": chapters_to_index if chapters_to_index else ["all"]
+    }
+    with open(output_file, "w") as f:
+        json.dump(index_info, f, indent=2)
+    print(f"Saved index information: {output_file}")
+
 # ------------------------ Helper functions ------------------------------
 
 def preprocess_for_bm25(text: str) -> list[str]:

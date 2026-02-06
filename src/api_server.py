@@ -6,6 +6,7 @@ Provides REST API endpoints for the React frontend.
 import sys
 import pathlib
 import re
+import json
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -37,6 +38,7 @@ _retrievers: Optional[List] = None
 _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
+INDEX_METADATA: Optional[Dict] = None
 
 
 class SourceItem(BaseModel):
@@ -99,7 +101,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger
+    global _artifacts, _retrievers, _ranker, _config, _logger, INDEX_METADATA
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -111,6 +113,15 @@ async def lifespan(app: FastAPI):
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
+        
+        # Load index metadata manifest
+        meta_path = artifacts_dir / f"{INDEX_PREFIX}_index_info.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                INDEX_METADATA = json.load(f)
+        else:
+            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
+
         faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
             index_prefix=INDEX_PREFIX
@@ -180,6 +191,15 @@ app.add_middleware(
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "message": "TokenSmith API is running"}
+
+
+@app.get("/api/index/status")
+def get_index_status():
+    """
+    Returns metadata about the currently loaded index, 
+    including which chapters are indexed.
+    """
+    return INDEX_METADATA
 
 
 @app.post("/api/test-chat")
