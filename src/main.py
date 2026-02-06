@@ -226,7 +226,8 @@ def get_answer(
 
     # If no chunks found, return answer not found message
     if ranked_chunks == []:
-        console.print("\n"+ANSWER_NOT_FOUND+"\n")
+        if console:
+            console.print("\n"+ANSWER_NOT_FOUND+"\n")
         return ANSWER_NOT_FOUND
 
     # Step 4: Generation
