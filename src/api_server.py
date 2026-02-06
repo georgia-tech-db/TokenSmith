@@ -94,7 +94,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
         ordered_ids = ordered_ids[:_config.top_k]
         ordered_scores = ordered_scores[:_config.top_k]
 
-    return ordered_scores, ordered_ids
+    return ordered_ids, ordered_scores
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -183,7 +183,7 @@ async def health_check():
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
     """Test chat endpoint that bypasses generation to isolate issues."""
-    print(f"🔍 Test chat request: {request.query}")
+    print(f"Test chat request: {request.query}")
     
     try:
         _ensure_initialized()
@@ -205,7 +205,11 @@ async def test_chat(request: ChatRequest):
         }
 
     try:
-        raw_scores, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        # FIX: Ensure order matches return (raw_scores, topk_idxs) 
+        # Also ensure topk_idxs are cast to int for JSON safety
+        raw_scores, raw_topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        
+        topk_idxs = [int(i) for i in raw_topk_idxs]
         ranked_chunks = [_artifacts["chunks"][i] for i in topk_idxs]
         
         return {
@@ -213,12 +217,16 @@ async def test_chat(request: ChatRequest):
             "query": request.query,
             "chunks_found": len(ranked_chunks),
             "top_chunks": ranked_chunks[:3],  # First 3 chunks
-            "raw_scores": raw_scores,
+            "raw_scores": raw_scores, # This now correctly matches the first return value
+            "top_idxs": topk_idxs,
             "message": "Retrieval and ranking successful, generation skipped"
         }
         
     except Exception as e:
+        # This will now catch and print specific unpacking or indexing errors
         print(f"Test chat error: {str(e)}")
+        import traceback
+        traceback.print_exc() # Useful for debugging while you're in the "rewrite" phase
         return {"error": str(e), "status": "error"}
 
 
@@ -242,7 +250,7 @@ async def chat_stream(request: ChatRequest):
     if disable_chunks:
         ranked_chunks, topk_idxs = [], []
     else:
-        ordered_scores, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+        topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
         ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
     
@@ -282,7 +290,7 @@ async def chat_stream(request: ChatRequest):
                     _logger.save_chat_log(
                         query=request.query,
                         config_state=_config.get_config_state(),
-                        ordered_scores=ordered_scores,
+                        ordered_scores=ordered_ranked_scores,
                         chat_request_params={
                             "enable_chunks": {
                                 "provided": request.enable_chunks,
@@ -343,11 +351,11 @@ async def chat(request: ChatRequest):
     try:
         # 2. Retrieval & Ranking
         if disable_chunks:
-            ranked_chunks, topk_idxs, ordered_scores = [], [], {}
+            ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], {}
         else:
-            ordered_scores, raw_topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+            topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
             # Standardize ID types for JSON logging
-            topk_idxs = [int(i) for i in raw_topk_idxs]
+            topk_idxs = [int(i) for i in ordered_ranked_scores]
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
 
         if not _config.gen_model:
@@ -387,7 +395,7 @@ async def chat(request: ChatRequest):
                 _logger.save_chat_log(
                     query=request.query,
                     config_state=_config.get_config_state(),
-                    ordered_scores=ordered_scores,
+                    ordered_scores=ordered_ranked_scores,
                     chat_request_params={
                         "enable_chunks": {"provided": request.enable_chunks, "used": enable_chunks},
                         "prompt_type": {"provided": request.prompt_type, "used": prompt_type},

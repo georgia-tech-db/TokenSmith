@@ -189,7 +189,7 @@ class TestChatEndpoint:
 
         # Create mock ranker
         mock_ranker = Mock()
-        mock_ranker.rank = Mock(return_value=[0, 1, 2, 3, 4])
+        mock_ranker.rank = Mock(return_value=([0, 1, 2, 3, 4], [0.1, 0.09, 0.08, 0.07, 0.06]))
 
         # Create mock logger
         mock_logger = Mock()
@@ -257,6 +257,8 @@ class TestChatEndpoint:
             client = TestClient(app, raise_server_exceptions=False)
             response = client.post("/api/chat", json={"query": "What is a database?"})
 
+        print("Response JSON:")
+        print(response.json())
         assert response.status_code == 200
         data = response.json()
         assert "answer" in data
@@ -356,7 +358,7 @@ class TestTestChatEndpoint:
         mock_bm25.get_scores = Mock(return_value={0: 0.7, 1: 0.9, 2: 0.6})
 
         mock_ranker = Mock()
-        mock_ranker.rank = Mock(return_value=[0, 1, 2])
+        mock_ranker.rank = Mock(return_value=([0, 1, 2], [0.1, 0.09, 0.08]))
 
         originals = {
             "_config": api_module._config,
@@ -455,7 +457,8 @@ class TestStreamingEndpoint:
         mock_bm25.get_scores = Mock(return_value={0: 0.7, 1: 0.9, 2: 0.6})
 
         mock_ranker = Mock()
-        mock_ranker.rank = Mock(return_value=[0, 1, 2])
+        mock_ranker.rank = Mock(return_value=([0, 1, 2], [0.1, 0.09, 0.08]))
+        
 
         originals = {
             "_config": api_module._config,
@@ -536,7 +539,7 @@ class TestRetrieveAndRank:
         mock_bm25.get_scores = Mock(return_value={0: 0.5, 1: 0.6, 2: 0.9, 3: 0.7, 4: 0.8})
 
         mock_ranker = Mock()
-        mock_ranker.rank = Mock(return_value=[2, 0, 1, 4, 3])
+        mock_ranker.rank = Mock(return_value=([2, 0, 1, 4, 3], [0.95, 0.9, 0.85, 0.8, 0.75]))
 
         originals = {
             "_config": api_module._config,
@@ -559,11 +562,9 @@ class TestRetrieveAndRank:
         """_retrieve_and_rank returns raw_scores and topk_idxs."""
         from src.api_server import _retrieve_and_rank
 
-        raw_scores, topk_idxs = _retrieve_and_rank("test query")
+        topk_idxs, ordered_scores = _retrieve_and_rank("test query")
 
-        assert isinstance(raw_scores, dict)
-        assert "faiss" in raw_scores
-        assert "bm25" in raw_scores
+        assert isinstance(ordered_scores, list)
         assert isinstance(topk_idxs, list)
 
     def test_retrieve_and_rank_custom_top_k(self, mock_server_state):
@@ -571,7 +572,7 @@ class TestRetrieveAndRank:
         from src.api_server import _retrieve_and_rank
         import src.api_server as api_module
 
-        raw_scores, topk_idxs = _retrieve_and_rank("test query", top_k=3)
+        topk_idxs, ordered_scores = _retrieve_and_rank("test query", top_k=3)
 
         # Should have called filter with top_k=3
         assert len(topk_idxs) <= 3
@@ -611,7 +612,7 @@ class TestAPIIntegration:
         mock_bm25.get_scores = Mock(return_value={i: 0.5 + i * 0.1 for i in range(5)})
 
         mock_ranker = Mock()
-        mock_ranker.rank = Mock(return_value=[0, 1, 2, 3, 4])
+        mock_ranker.rank = Mock(return_value=([0, 1, 2, 3, 4], [0.9, 0.8, 0.7, 0.6, 0.5]))
 
         originals = {
             "_config": api_module._config,
