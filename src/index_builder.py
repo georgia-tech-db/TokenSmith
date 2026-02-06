@@ -172,7 +172,6 @@ def build_index(
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
     embedder = SentenceTransformer(embedding_model_path)
-    # embedder.to("mps")
 
     if use_multiprocessing:
         print("Starting multi-process pool for embeddings...")
@@ -194,7 +193,6 @@ def build_index(
             all_chunks, 
             batch_size=8, 
             show_progress_bar=True,
-            # device="mps",
             convert_to_numpy=True 
         )
 
