@@ -148,7 +148,7 @@ async def lifespan(app: FastAPI):
         raise FileNotFoundError(f"No config file found at {config_path}")
 
     _config = RAGConfig.from_yaml(config_path)    
-    _logger = get_logger(_config)
+    _logger = get_logger()
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
