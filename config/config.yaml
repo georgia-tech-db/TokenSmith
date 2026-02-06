@@ -13,3 +13,8 @@ use_hyde: false
 hyde_max_tokens: 300
 use_indexed_chunks: false
 rerank_mode: "cross_encoder"
+
+# the following is for confidence Scoring
+enable_confidence_scoring: true
+confidence_threshold: 0.5
+confidence_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"

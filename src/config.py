@@ -27,6 +27,7 @@ class RAGConfig:
         default_factory=lambda: {"faiss": 1.0, "bm25": 0.0, "index_keywords": 0.0}
     )
     rerank_mode: str = ""
+    faiss_metric: str = "ip"  # "l2" (Euclidean) or "ip" (Inner Product / cosine)
 
     # generation
     max_gen_tokens: int = 400
@@ -42,6 +43,11 @@ class RAGConfig:
     # query enhancement
     use_hyde: bool = False
     hyde_max_tokens: int = 100
+    
+    # confidence scoring
+    enable_confidence_scoring: bool = True
+    confidence_threshold: float = 0.5  # Below this = "I don't know"
+    confidence_model: str = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     
     # index parameters
     use_indexed_chunks: bool = False
@@ -60,6 +66,8 @@ class RAGConfig:
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
         assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
+        assert self.faiss_metric.lower() in {"l2", "ip"}, \
+            f"faiss_metric must be 'l2' or 'ip', got '{self.faiss_metric}'"
         if self.ensemble_method.lower() in {"linear","weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
             self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
