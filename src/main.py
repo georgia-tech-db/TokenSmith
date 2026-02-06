@@ -18,6 +18,7 @@ from src.preprocessing.chunking import DocumentChunker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
 from src.ranking.reranker import rerank
+from src.cache import _SEMANTIC_CACHE, _semantic_cache_store, _compute_question_embedding, _normalize_question, _make_cache_config_key, _semantic_cache_lookup
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -145,7 +146,32 @@ def get_answer(
     ranker = artifacts["ranker"]
     
     logger.log_query_start(question)
-    
+
+    normalized_question = _normalize_question(question)
+    config_cache_key = _make_cache_config_key(cfg, args, golden_chunks)
+    question_embedding: Optional[np.ndarray] = None
+
+    semantic_hit = None
+    if _SEMANTIC_CACHE.get(config_cache_key):
+        question_embedding = _compute_question_embedding(
+            normalized_question, retrievers, cfg
+        )
+        semantic_hit = _semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
+
+    if semantic_hit:
+        console.print(f"Semantic cache hit")
+        # console.print(f"{_SEMANTIC_CACHE}")
+        chunk_indices = semantic_hit.get("chunk_indices", [])
+        if chunk_indices and not cfg.disable_chunks and not cfg.use_indexed_chunks:
+            logger.log_chunks_used(chunk_indices, chunks, sources)
+        ans = semantic_hit.get("answer", "")
+        if is_test_mode:
+            return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+        from rich.markdown import Markdown
+        console.print(Markdown(ans))
+        return ans
+
+    console.print(f"Semantic cache miss")
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -239,10 +265,46 @@ def get_answer(
         for delta in stream_iter:
             ans += delta
         ans = dedupe_generated_text(ans)
+
+        cache_payload = {
+            "answer": ans,
+            "chunks_info": chunks_info,
+            "hyde_query": hyde_query,
+            "chunk_indices": topk_idxs,
+        }
+        if question_embedding is None:
+            question_embedding = _compute_question_embedding(
+                normalized_question, retrievers, cfg
+            )
+        _semantic_cache_store(
+            config_cache_key,
+            normalized_question,
+            question_embedding,
+            cache_payload,
+        )
+        console.print(f"{_SEMANTIC_CACHE}")
         return ans, chunks_info, hyde_query
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
+
+        cache_payload = {
+            "answer": ans,
+            "chunks_info": chunks_info,
+            "hyde_query": hyde_query,
+            "chunk_indices": topk_idxs,
+        }
+        if question_embedding is None:
+            question_embedding = _compute_question_embedding(
+                normalized_question, retrievers, cfg
+            )
+        _semantic_cache_store(
+            config_cache_key,
+            normalized_question,
+            question_embedding,
+            cache_payload,
+        )
+        # console.print(f"{_SEMANTIC_CACHE}")
     return ans
 
 
