@@ -85,8 +85,17 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
     artifacts_dir = cfg.get_artifacts_directory()
+
+    # TODO: Add logic to chooes which markdown files to index. For now, we are simply indexing the first one.
+    data_dir = pathlib.Path("data")
+    md_files = sorted(data_dir.glob("*.md"))
+
+    if len(md_files) == 0:
+        print("ERROR: No markdown files found in data/. Run extraction first.", file=sys.stderr)
+        sys.exit(1)
+
     build_index(
-        markdown_file="data/silberschatz.md",
+        markdown_file=str(md_files[0]),
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
