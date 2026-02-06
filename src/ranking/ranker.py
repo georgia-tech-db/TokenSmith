@@ -83,6 +83,12 @@ class EnsembleRanker:
     def _weighted_linear_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> Tuple[List[int], List[float]]:
         """Performs Weighted Linear Fusion."""
         fused_scores = defaultdict(float)
+
+        # normalize vals per retriever 
+        for name, scores in per_retriever_scores.items():
+            normalized = self.normalize(scores)
+            per_retriever_scores[name] = normalized
+
         all_candidates = {cand for scores in per_retriever_scores.values() for cand in scores}
 
         for cand in all_candidates:
@@ -90,7 +96,6 @@ class EnsembleRanker:
             for name, scores in per_retriever_scores.items():
                 if cand in scores:
                     weight = self.weights.get(name, 0)
-                    # Linear fusion adds the raw (usually normalized) scores together
                     current_score += weight * scores[cand]
             fused_scores[cand] = current_score
 
