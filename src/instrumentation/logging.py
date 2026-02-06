@@ -94,11 +94,6 @@ def get_logger():
         _INSTANCE = RunLogger()
     return _INSTANCE
 
-def init_logger(cfg=None):
-    """
-    Dummy function to prevent ImportErrors in api_server.py.
-    The new logger handles its own initialization.
-    """
-    return get_logger()
+
 
 

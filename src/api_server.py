@@ -22,10 +22,9 @@ from pydantic import BaseModel
 
 from src.config import RAGConfig
 from src.generator import answer
-from src.instrumentation.logging import init_logger, get_logger
+from src.instrumentation.logging import init_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
-
 
 # Constants
 INDEX_PREFIX = "textbook_index"
@@ -76,6 +75,49 @@ def _ensure_initialized():
             detail="Artifacts not loaded. Please run indexing first."
         )
 
+def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
+                 enable_chunks, prompt_type, max_chunks, temperature):
+    try:
+        # Capture the actual strings used for the log file
+        log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
+        log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
+        
+        # Just Logging
+        _logger.save_chat_log(
+            query=request.query,
+            config_state=_config.get_config_state(),
+            ordered_scores=ordered_ranked_scores,
+            chat_request_params={
+                "enable_chunks": {
+                    "provided": request.enable_chunks,
+                    "used": enable_chunks
+                },
+                "prompt_type": {
+                    "provided": request.prompt_type,
+                    "used": prompt_type
+                },
+                "max_chunks": {
+                    "provided": request.max_chunks,
+                    "used": max_chunks
+                },
+                "temperature": {
+                    "provided": request.temperature,
+                    "used": temperature
+                }
+            },
+            top_idxs=topk_idxs[:max_chunks],
+            chunks=log_chunks,
+            sources=log_sources,
+            page_map=page_nums,
+            full_response="".join(full_response_accumulator),
+            top_k=max_chunks
+        )
+
+        return True
+
+    except Exception as log_exc:
+        return False
+
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
@@ -105,9 +147,8 @@ async def lifespan(app: FastAPI):
     if not config_path.exists():
         raise FileNotFoundError(f"No config file found at {config_path}")
 
-    _config = RAGConfig.from_yaml(config_path)
-    init_logger(_config)
-    _logger = get_logger()
+    _config = RAGConfig.from_yaml(config_path)    
+    _logger = init_logger(_config)
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
@@ -281,45 +322,10 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
             
             if _logger:
-                try:
-                    # Capture the actual strings used for the log file
-                    log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-                    log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
-                    
-                    # Just Logging
-                    _logger.save_chat_log(
-                        query=request.query,
-                        config_state=_config.get_config_state(),
-                        ordered_scores=ordered_ranked_scores,
-                        chat_request_params={
-                            "enable_chunks": {
-                                "provided": request.enable_chunks,
-                                "used": enable_chunks
-                            },
-                            "prompt_type": {
-                                "provided": request.prompt_type,
-                                "used": prompt_type
-                            },
-                            "max_chunks": {
-                                "provided": request.max_chunks,
-                                "used": max_chunks
-                            },
-                            "temperature": {
-                                "provided": request.temperature,
-                                "used": temperature
-                            }
-                        },
-                        top_idxs=topk_idxs[:max_chunks],
-                        chunks=log_chunks,
-                        sources=log_sources,
-                        page_map=page_nums,
-                        full_response="".join(full_response_accumulator),
-                        top_k=max_chunks
-                    )
-
-    
-                except Exception as log_exc:
-                    print(f"Logging Error: {log_exc}")
+                success_log = _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
+                            enable_chunks, prompt_type, max_chunks, temperature)
+                if not success_log:
+                    print("Logging failed for this request.")
 
             yield f"data: {json.dumps({'type': 'done', 'sources': [s.dict() for s in sources_used]})}\n\n"
         except Exception as e:
@@ -388,29 +394,10 @@ async def chat(request: ChatRequest):
 
         # 5. NEW LOGGING LOGIC
         if _logger:
-            try:
-                log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-                log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
-
-                _logger.save_chat_log(
-                    query=request.query,
-                    config_state=_config.get_config_state(),
-                    ordered_scores=ordered_ranked_scores,
-                    chat_request_params={
-                        "enable_chunks": {"provided": request.enable_chunks, "used": enable_chunks},
-                        "prompt_type": {"provided": request.prompt_type, "used": prompt_type},
-                        "max_chunks": {"provided": request.max_chunks, "used": max_chunks},
-                        "temperature": {"provided": request.temperature, "used": temperature}
-                    },
-                    top_idxs=topk_idxs[:max_chunks],
-                    chunks=log_chunks,
-                    sources=log_sources,
-                    page_map=page_nums,
-                    full_response=answer_text,
-                    top_k=max_chunks
-                )
-            except Exception as log_exc:
-                print(f"Logging Error in blocking chat: {log_exc}")
+            success_log = _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, [answer_text], request,
+                        enable_chunks, prompt_type, max_chunks, temperature)
+            if not success_log:
+                print("Logging failed for this request.")
 
         return ChatResponse(
             answer=answer_text.strip() if answer_text.strip() else "No response generated",
