@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from src.config import RAGConfig
 from src.generator import answer
-from src.instrumentation.logging import init_logger
+from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
 
@@ -148,7 +148,7 @@ async def lifespan(app: FastAPI):
         raise FileNotFoundError(f"No config file found at {config_path}")
 
     _config = RAGConfig.from_yaml(config_path)    
-    _logger = init_logger(_config)
+    _logger = get_logger(_config)
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
