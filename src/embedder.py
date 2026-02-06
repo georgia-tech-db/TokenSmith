@@ -71,7 +71,7 @@ class SentenceTransformer:
             embedding=True,
             verbose=True,
             use_mmap=True,
-            n_gpu_layers=-1
+            n_gpu_layers=-1 # use GPU if available
         )
         self._embedding_dimension = None
         
@@ -89,10 +89,20 @@ class SentenceTransformer:
            texts: Union[str, List[str]], 
            batch_size: int = 16,  # Adjusted for 4B model
            normalize: bool = False,
-           device: str = None,
            show_progress_bar: bool = False,
            **kwargs) -> np.ndarray:
-    
+
+        """
+        Encode texts to embeddings with batch processing.
+        
+        Args:
+            texts: Single text or list of texts to encode
+            batch_size: Number of texts to process at once
+            normalize: Whether to normalize embeddings
+            show_progress_bar: Whether to show progress bar
+            Returns:
+            numpy.ndarray: Float32 embeddings array
+        """
         if isinstance(texts, str):
             texts = [texts]
             
@@ -109,7 +119,7 @@ class SentenceTransformer:
             batch_texts = texts[start_idx:end_idx]
             
             try:
-                # VITAL CHANGE: Pass the entire LIST to the model at once.
+                # IMPORTANT CHANGE: Pass the entire LIST to the model at once.
                 # This triggers the native C++/Metal batch processing logic.
                 response = self.model.create_embedding(batch_texts)
                 
@@ -125,73 +135,11 @@ class SentenceTransformer:
                 
         vecs = np.array(embeddings, dtype=np.float32)
         
-        if normalize:
+        if normalize: # do L2 normalization
             norms = np.linalg.norm(vecs, axis=1, keepdims=True)
             vecs = vecs / np.where(norms == 0, 1e-12, norms)
             
         return vecs
-    
-    # def encode(self, 
-    #            texts: Union[str, List[str]], 
-    #            batch_size: int = 32,
-    #            normalize: bool = False,
-    #            device: str = None,
-    #            show_progress_bar: bool = False,
-    #            **kwargs) -> np.ndarray:
-    #     """
-    #     Encode texts to embeddings with batch processing.
-        
-    #     Args:
-    #         texts: Single text or list of texts to encode
-    #         batch_size: Number of texts to process at once
-    #         normalize: Whether to normalize embeddings
-    #         device: Compatibility param (ignored, CPU only)
-    #         show_progress_bar: Whether to show progress bar
-            
-    #     Returns:
-    #         numpy.ndarray: Float32 embeddings array
-    #     """
-    #     if isinstance(texts, str):
-    #         texts = [texts]
-            
-    #     if not texts:
-    #         return np.array([], dtype=np.float32).reshape(0, -1)
-        
-    #     print(f"Encoding {len(texts)} texts with batch_size={batch_size}")
-        
-    #     embeddings = []
-        
-    #     # Process in batches
-    #     num_batches = (len(texts) + batch_size - 1) // batch_size
-
-    #     for i in tqdm(range(num_batches), desc="Encoding", disable=not show_progress_bar):
-    #         start_idx = i * batch_size
-    #         end_idx = min((i + 1) * batch_size, len(texts))
-    #         batch_texts = texts[start_idx:end_idx]
-            
-    #         batch_embeddings = []
-    #         for text in batch_texts:
-    #             try:
-    #                 embedding = self.model.create_embedding(text)['data'][0]['embedding']
-    #                 batch_embeddings.append(embedding)
-    #             except Exception as e:
-    #                 print(f"Error encoding text: {e}")
-    #                 batch_embeddings.append([0.0] * self.embedding_dimension)
-			
-    #         if len(batch_embeddings) != len(batch_texts):
-    #             batch_embeddings.extend([[0.0] * self.embedding_dimension] * (len(batch_texts) - len(batch_embeddings)))
-			
-    #         embeddings.extend(batch_embeddings)
-                
-    #     vecs = np.array(embeddings, dtype=np.float32)
-        
-    #     # Normalize if requested
-    #     if normalize:
-    #         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    #         norms = np.where(norms == 0, 1e-12, norms)
-    #         vecs = vecs / norms
-            
-    #     return vecs
 
     def get_sentence_embedding_dimension(self) -> int:
         """Get the dimension of embeddings (compatibility method)."""
