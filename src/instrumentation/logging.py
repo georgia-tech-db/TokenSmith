@@ -2,10 +2,21 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-
+import numpy as np
 from src.config import RAGConfig
 
 INSTANCE: Optional["RunLogger"]= None
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
 
 def get_logger() -> "RunLogger":
     global INSTANCE
@@ -162,6 +173,15 @@ class RunLogger:
 
         self.current_query_data["chunks_used"] = chunks_data
 
+    def log_query_stats(self, query_stats: Dict[str, float]):
+        """Log query statistics."""
+        if not self.current_query_data or not query_stats:
+            return
+
+        self.current_query_data.setdefault("query_latency_stats", {})
+        for metric, latency in query_stats.items():
+            self.current_query_data["query_latency_stats"][metric] = round(latency, 6)
+
     def log_generation(self, response: str, generation_params: Dict[str, Any],
                        prompt_length_estimate: Optional[int] = None):
         """Log generation parameters and results."""
@@ -177,6 +197,7 @@ class RunLogger:
             "response_full": response  # Store full response for analysis
         }
         self.current_query_data["generation"] = generation_data
+        self._write_log(self.current_query_data)
 
     def log_query_complete(self, total_time_seconds: Optional[float] = None):
         """Finalize and write the current query log."""
@@ -206,7 +227,7 @@ class RunLogger:
     def _write_log(self, data: Dict[str, Any]):
         """Write a log entry to the JSONL file."""
         with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+            f.write(json.dumps(data, ensure_ascii=False, cls=NpEncoder) + "\n")
 
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary statistics for the current session."""
