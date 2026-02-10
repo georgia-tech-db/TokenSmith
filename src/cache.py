@@ -8,29 +8,29 @@ from src.config import RAGConfig
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from sentence_transformers import CrossEncoder
 
-_SEMANTIC_CACHE: Dict[str, List[Dict[str, Any]]] = {}
-_SEMANTIC_CACHE_THRESHOLD = 0.85
-_SEMANTIC_CACHE_MAX_ENTRIES = 50
-_QUESTION_EMBEDDERS: Dict[str, SentenceTransformer] = {}
+SEMANTIC_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+SEMANTIC_CACHE_THRESHOLD = 0.85
+SEMANTIC_CACHE_MAX_ENTRIES = 50
+QUESTION_EMBEDDERS: Dict[str, SentenceTransformer] = {}
 
 
 
 # Add to your global variables
-_CROSS_ENCODER_MODEL: Optional[CrossEncoder] = None
+CROSS_ENCODER_MODEL: Optional[CrossEncoder] = None
 
-def _get_cross_encoder():
-    global _CROSS_ENCODER_MODEL
-    if _CROSS_ENCODER_MODEL is None:
+def get_cross_encoder():
+    global CROSS_ENCODER_MODEL
+    if CROSS_ENCODER_MODEL is None:
         # A small, fast model ideal for caching verification
-        _CROSS_ENCODER_MODEL = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-    return _CROSS_ENCODER_MODEL
+        CROSS_ENCODER_MODEL = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    return CROSS_ENCODER_MODEL
 
 
-def _normalize_question(q: str) -> str:
+def normalize_question(q: str) -> str:
     return " ".join((q or "").strip().lower().split())
 
 
-def _make_cache_config_key(
+def make_cache_config_key(
     cfg: RAGConfig,
     args: argparse.Namespace,
     golden_chunks: Optional[list],
@@ -54,30 +54,12 @@ def _make_cache_config_key(
     return json.dumps(payload, sort_keys=True)
 
 
-# def _semantic_cache_lookup(config_key: str, query_embedding: np.ndarray):
-#     entries = _SEMANTIC_CACHE.get(config_key) or []
-#     if not entries or query_embedding is None:
-#         return None
-#     best_entry = None
-#     best_score = -1.0
-#     for entry in entries:
-#         cached_vec = entry.get("embedding")
-#         if cached_vec is None:
-#             continue
-#         sim = float(np.dot(cached_vec, query_embedding))
-#         if sim > best_score:
-#             best_score = sim
-#             best_entry = entry
-#     if best_entry and best_score >= _SEMANTIC_CACHE_THRESHOLD:
-#         return best_entry["payload"]
-#     return None
-
-def _semantic_cache_lookup(
+def semantic_cache_lookup(
     config_key: str, 
     query_embedding: np.ndarray, 
     current_question: str  # New parameter
 ):
-    entries = _SEMANTIC_CACHE.get(config_key) or []
+    entries = SEMANTIC_CACHE.get(config_key) or []
     if not entries or query_embedding is None:
         return None
     
@@ -98,7 +80,7 @@ def _semantic_cache_lookup(
         return None
 
     # Verification Step: Cross-Encoder
-    ce_model = _get_cross_encoder()
+    ce_model = get_cross_encoder()
     
     # Pair the current user question with every candidate's original question
     pairs = [[current_question, c["question"]] for c in candidates]
@@ -114,7 +96,7 @@ def _semantic_cache_lookup(
         
     return None
 
-def _semantic_cache_store(
+def semantic_cache_store(
     config_key: str,
     normalized_question: str,
     question_embedding: Optional[np.ndarray],
@@ -122,7 +104,7 @@ def _semantic_cache_store(
 ) -> None:
     if question_embedding is None:
         return
-    entries = _SEMANTIC_CACHE.setdefault(config_key, [])
+    entries = SEMANTIC_CACHE.setdefault(config_key, [])
     entries.append(
         {
             "question": normalized_question,
@@ -130,11 +112,11 @@ def _semantic_cache_store(
             "payload": payload,
         }
     )
-    if len(entries) > _SEMANTIC_CACHE_MAX_ENTRIES:
+    if len(entries) > SEMANTIC_CACHE_MAX_ENTRIES:
         entries.pop(0)
 
 
-def _get_question_embedder(
+def get_question_embedder(
     retrievers: List[Any], cfg: RAGConfig
 ) -> Optional[SentenceTransformer]:
     for retriever in retrievers or []:
@@ -143,19 +125,19 @@ def _get_question_embedder(
     model_path = cfg.embed_model
     if not model_path:
         return None
-    embedder = _QUESTION_EMBEDDERS.get(model_path)
+    embedder = QUESTION_EMBEDDERS.get(model_path)
     if embedder is None:
         embedder = SentenceTransformer(model_path)
-        _QUESTION_EMBEDDERS[model_path] = embedder
+        QUESTION_EMBEDDERS[model_path] = embedder
     return embedder
 
 
-def _compute_question_embedding(
+def compute_question_embedding(
     question: str,
     retrievers: List[Any],
     cfg: RAGConfig,
 ) -> Optional[np.ndarray]:
-    embedder = _get_question_embedder(retrievers, cfg)
+    embedder = get_question_embedder(retrievers, cfg)
     if not embedder:
         return None
     vec = embedder.encode(
