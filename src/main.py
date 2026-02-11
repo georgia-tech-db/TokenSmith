@@ -165,6 +165,7 @@ def get_answer(
         ans = semantic_hit.get("answer", "")
         if is_test_mode:
             return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+        render_final_answer(console, ans)
         return ans
 
     # Step 1: Get chunks (golden, retrieved, or none)
@@ -318,6 +319,18 @@ def render_streaming_ans(console, stream_iter):
     live.update(Markdown(ans))
     console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
     return ans
+
+# Fully generated answer without streaming (Usage: cache hits)
+def render_final_answer(console, ans):
+    if not console:
+        raise ValueError("Console must be non null for rendering.")
+    console.print(
+        "\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n"
+    )
+    console.print(Markdown(ans))
+    console.print(
+        "\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n"
+    )
 
 def get_keywords(question: str) -> list:
     """

@@ -1,3 +1,4 @@
+from enum import show_flag_values
 import argparse
 import json
 import hashlib  
@@ -86,7 +87,7 @@ def semantic_cache_lookup(
     pairs = [[current_question, c["question"]] for c in candidates]
     
     # Get scores (higher is more similar)
-    ce_scores = ce_model.predict(pairs)
+    ce_scores = ce_model.predict(pairs, show_progress_bar=False)
     
     best_idx = np.argmax(ce_scores)
     
