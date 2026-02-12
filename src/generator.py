@@ -150,6 +150,60 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_pr
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
     return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=temperature)
 
+def answer_with_confidence(query: str, chunks, model_path: str, max_tokens: int = 300, 
+                          system_prompt_mode: str = "tutor", temperature: float = 0.2,
+                          confidence_scorer=None, confidence_threshold: float = 0.5):
+    """
+    Generate answer with confidence checking.
+    
+    Args:
+        query: User question
+        chunks: List of retrieved chunk texts
+        model_path: Path to generation model
+        max_tokens: Maximum tokens to generate
+        system_prompt_mode: System prompt mode
+        temperature: Generation temperature
+        confidence_scorer: BERTConfidenceScorer instance (optional)
+        confidence_threshold: Minimum confidence to return answer (default 0.5)
+    
+    Returns:
+        Generator yielding answer text, or "I don't know" message if confidence is low
+    """
+    # Generate answer normally
+    answer_stream = answer(query, chunks, model_path, max_tokens, system_prompt_mode, temperature)
+    
+    # If no confidence scorer provided, return answer as-is
+    if confidence_scorer is None:
+        return answer_stream
+    
+    # Collect full answer text for confidence calculation
+    answer_text = ""
+    answer_parts = []
+    
+    # First pass: collect answer
+    for delta in answer_stream:
+        answer_text += delta
+        answer_parts.append(delta)
+    
+    # Calculate confidence
+    if answer_text.strip():
+        confidence_res = confidence_scorer.calculate_confidence(answer_text, chunks)
+        
+        # Handle dict or float return
+        confidence = confidence_res["confidence"]
+        
+        # If confidence is below threshold, return "I don't know" message
+        if confidence < confidence_threshold:
+            def low_confidence_generator():
+                yield "I don't have enough information in the textbook to answer this question confidently."
+            return low_confidence_generator()
+    
+    # Return answer as generator
+    def answer_generator():
+        for part in answer_parts:
+            yield part
+    return answer_generator()
+
 def dedupe_generated_text(text: str) -> str:
     """
     Removes immediate consecutive duplicate sentences or lines from LLM output.
