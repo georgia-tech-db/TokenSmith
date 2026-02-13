@@ -274,15 +274,31 @@ def preprocess_extracted_section(text: str) -> str:
     return cleaned_text
 
 
-if __name__ == '__main__':
-    project_root = Path(__file__).resolve().parent.parent.parent
-    input_pdf = project_root / "data/chapters/textbook.pdf"
-    output_md = project_root / "data/testing.md"
+def main():
+    # Returns all pdf files under data/chapters/
+    project_root = Path(__file__).resolve().parent.parent.parent 
+    chapters_dir = project_root / "data/chapters"
+    pdfs = sorted(chapters_dir.glob("*.pdf"))
 
-    print(f"Converting '{input_pdf}' to '{output_md}'...")
-    convert_and_save_with_page_numbers(input_pdf, output_md)
+    # Ensure at least one PDF is found
+    if len(pdfs) == 0:
+        print("ERROR: No PDFs found in data/chapters/. Please copy a PDF there first.", file=sys.stderr)
+        sys.exit(1)
 
-    extracted_sections = extract_sections_from_markdown(output_md)
+    # Convert each PDF to Markdown
+    markdown_files = []
+    for pdf_path in pdfs:
+        pdf_name = pdf_path.stem
+        output_md = Path("data") / f"{pdf_name}--extracted_markdown.md"
+
+        print(f"Converting '{pdf_path}' to '{output_md}'...")
+        convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
+
+        markdown_files.append(output_md)
+
+    # TODO: Add logic to select which markdown file to process
+    extracted_sections = extract_sections_from_markdown(markdown_files[0])
+    # print(f"Processing markdown file: {markdown_files[0]}")
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
@@ -290,3 +306,7 @@ if __name__ == '__main__':
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")
+
+
+if __name__ == '__main__':
+    main()
