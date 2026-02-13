@@ -5,7 +5,7 @@ This module supports ranking strategies applied after chunk retrieval.
 """
 
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # typedef Candidate as base, we might change this into a class later
 # Each candidate is identified by its global index into `chunks`
@@ -38,20 +38,19 @@ class EnsembleRanker:
             weight = self.weights.get(name, 0)
             if weight > 0:
                 per_retriever_scores[name] = raw_scores[name]
-                # TODO: Fix ranker logging.
 
         # Fuse scores using the specified method
+        # Shahmeer: if there is only one retriever with weight > 0, just return its ordering, why call this function???
         if self.ensemble_method == "rrf":
-            ordered = self._weighted_rrf_fuse(per_retriever_scores)
+            ordered_ids, ordered_scores = self._weighted_rrf_fuse(per_retriever_scores)
         elif self.ensemble_method == "linear":
-            ordered = self._weighted_linear_fuse(per_retriever_scores)
+            ordered_ids, ordered_scores = self._weighted_linear_fuse(per_retriever_scores)
         else:
             raise NotImplementedError(f"Ranking method '{self.ensemble_method}' is not implemented.")
 
-        # TODO: Fix ensemble logging.
-        return ordered
-
-    def _weighted_rrf_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> List[int]:
+        return ordered_ids, ordered_scores
+    
+    def _weighted_rrf_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> Tuple[List[int], List[float]]:
         """Performs Weighted Reciprocal Rank Fusion."""
         fused_scores = defaultdict(float)
         all_candidates = {cand for scores in per_retriever_scores.values() for cand in scores}
@@ -70,20 +69,44 @@ class EnsembleRanker:
                     current_score += weight * (1.0 / (self.rrf_k + ranks[cand]))
             fused_scores[cand] = current_score
 
-        return sorted(fused_scores, key=fused_scores.get, reverse=True)
+        # 1. Sort the items by score (value) in descending order
+        # item[1] is the score, item[0] is the candidate ID
+        sorted_items = sorted(fused_scores.items(), key=lambda item: item[1], reverse=True)
 
-    def _weighted_linear_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> List[int]:
-        """Performs weighted linear fusion of normalized scores."""
-        combined_scores = defaultdict(float)
+        # 2. Unzip into two lists
+        # We use int(cand) to ensure NumPy int64s don't crash the JSON logger
+        sorted_ids = [int(cand) for cand, score in sorted_items]
+        sorted_scores = [float(score) for cand, score in sorted_items]
 
+        return sorted_ids, sorted_scores
+
+    def _weighted_linear_fuse(self, per_retriever_scores: Dict[str, Dict[Candidate, float]]) -> Tuple[List[int], List[float]]:
+        """Performs Weighted Linear Fusion."""
+        fused_scores = defaultdict(float)
+
+        # normalize vals per retriever 
         for name, scores in per_retriever_scores.items():
-            weight = self.weights.get(name, 0)
-            if weight > 0:
-                normalized_scores = self._normalize(scores)
-                for cand, norm_score in normalized_scores.items():
-                    combined_scores[cand] += weight * norm_score
+            normalized = self.normalize(scores)
+            per_retriever_scores[name] = normalized
 
-        return sorted(combined_scores, key=combined_scores.get, reverse=True)
+        all_candidates = {cand for scores in per_retriever_scores.values() for cand in scores}
+
+        for cand in all_candidates:
+            current_score = 0.0
+            for name, scores in per_retriever_scores.items():
+                if cand in scores:
+                    weight = self.weights.get(name, 0)
+                    current_score += weight * scores[cand]
+            fused_scores[cand] = current_score
+
+        # 1. Sort the items by score (value) in descending order
+        sorted_items = sorted(fused_scores.items(), key=lambda item: item[1], reverse=True)
+
+        # 2. Unzip into two lists with clean types for the JSON logger
+        sorted_ids = [int(cand) for cand, score in sorted_items]
+        sorted_scores = [float(score) for cand, score in sorted_items]
+
+        return sorted_ids, sorted_scores
 
     @staticmethod
     def scores_to_ranks(scores: Dict[Candidate, float]) -> Dict[Candidate, int]:
