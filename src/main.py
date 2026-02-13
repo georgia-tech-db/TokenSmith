@@ -18,6 +18,7 @@ from src.preprocessing.chunking import DocumentChunker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
 from src.ranking.reranker import rerank
+from src.cache import SEMANTIC_CACHE, semantic_cache_store, compute_question_embedding, normalize_question, make_cache_config_key, semantic_cache_lookup
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -153,7 +154,31 @@ def get_answer(
     ranker = artifacts["ranker"]
     
     logger.log_query_start(question)
-    
+
+    normalized_question = normalize_question(question)
+    config_cache_key = make_cache_config_key(cfg, args, golden_chunks)
+    question_embedding: Optional[np.ndarray] = None
+    semantic_hit: Optional[Dict[str, Any]] = None
+
+    # Check semantic cache
+    if config_cache_key in SEMANTIC_CACHE:
+        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg)
+        semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
+
+    # Return cached answer if found
+    if semantic_hit:
+        chunk_indices = semantic_hit.get("chunk_indices", [])
+        if chunk_indices and not (cfg.disable_chunks or cfg.use_indexed_chunks):
+            logger.log_chunks_used(chunk_indices, chunks, sources)
+
+        ans = semantic_hit.get("answer", "")
+
+        if is_test_mode:
+            return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+
+        render_final_answer(console, ans)
+        return ans
+
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -241,16 +266,33 @@ def get_answer(
         system_prompt_mode=system_prompt,
     )
 
+    # Accumulate the answer
+    ans = "".join(stream_iter) if is_test_mode else render_streaming_ans(console, stream_iter)
+
+    # Deduplicate in test mode
     if is_test_mode:
-        # We do not render MD in the test mode
-        ans = ""
-        for delta in stream_iter:
-            ans += delta
         ans = dedupe_generated_text(ans)
+
+    # Store in semantic cache
+    cache_payload = {
+        "answer": ans,
+        "chunks_info": chunks_info,
+        "hyde_query": hyde_query,
+        "chunk_indices": topk_idxs,
+    }
+    if question_embedding is None:
+        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg)
+    semantic_cache_store(
+        config_cache_key,
+        normalized_question,
+        question_embedding,
+        cache_payload
+    )
+
+    # Return for test mode
+    if is_test_mode:
         return ans, chunks_info, hyde_query
-    else:
-        # Accumulate the full text while rendering incremental Markdown chunks
-        ans = render_streaming_ans(console, stream_iter)
+
     return ans
 
 
@@ -271,6 +313,18 @@ def render_streaming_ans(console, stream_iter):
     live.update(Markdown(ans))
     console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
     return ans
+
+# Fully generated answer without streaming (Usage: cache hits)
+def render_final_answer(console, ans):
+    if not console:
+        raise ValueError("Console must be non null for rendering.")
+    console.print(
+        "\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n"
+    )
+    console.print(Markdown(ans))
+    console.print(
+        "\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n"
+    )
 
 def get_keywords(question: str) -> list:
     """
