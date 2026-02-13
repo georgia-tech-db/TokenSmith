@@ -189,18 +189,15 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
 
     # Create RAGConfig from our test config
     cfg = RAGConfig(
-        chunk_config=RAGConfig.get_chunk_config(config),
+        chunk_mode=config.get("chunk_mode", "recursive_sections"),
         top_k=config.get("top_k", 5),
-        pool_size=config.get("pool_size", 60),
         embed_model=config.get("embed_model"),
         ensemble_method=config.get("retrieval_method", "rrf"),
         rrf_k=60,
         ranker_weights=config.get("ranker_weights", {"faiss": 0.6, "bm25": 0.4}),
         rerank_mode=config.get("rerank_mode", "none"),
-        seg_filter=config.get("seg_filter", None),
         system_prompt_mode=config.get("system_prompt_mode", "baseline"),
         max_gen_tokens=config.get("max_gen_tokens", 400),
-        model_path=config.get("model_path"),
         disable_chunks=config.get("disable_chunks", False),
         use_golden_chunks=config.get("use_golden_chunks", False),
         output_mode=config.get("output_mode", "html"),
@@ -225,8 +222,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     logger = get_logger()
 
     # Run the query through the main pipeline
-    artifacts_dir = cfg.make_artifacts_directory()
-    faiss_index, bm25_index, chunks, sources = load_artifacts(
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
         artifacts_dir=artifacts_dir, 
         index_prefix=config["index_prefix"]
     )
@@ -253,7 +250,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         "chunks": chunks,
         "sources": sources,
         "retrievers": retrievers,
-        "ranker": ranker
+        "ranker": ranker,
+        "metadata": metadata,
     }
 
     result = get_answer(
