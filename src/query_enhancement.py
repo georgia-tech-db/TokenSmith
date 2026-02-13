@@ -162,3 +162,60 @@ def decompose_complex_query(
     sub_questions = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in sub_questions]
 
     return sub_questions
+
+
+def contextualize_query(
+    query: str,
+    history: list[dict],
+    model_path: str,
+    max_tokens: int = 128,
+    **llm_kwargs
+) -> str:
+    """
+    Rewrites a query to be standalone based on chat history.
+    """
+    if not history:
+        return query
+
+    # Format history into a compact string
+    # We expect history to be list of dicts: [{"role": "user", "content": "..."}, ...]
+    conversation_text = ""
+    for turn in history[-4:]: # Only look at last 2 turns
+        role = "User" if turn["role"] == "user" else "Assistant"
+        content = turn["content"]
+        conversation_text += f"{role}: {content}\n"
+
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are a query rewriting assistant. Your task is to rewrite the user's latest question to be a standalone sentence that can be understood without the chat history.
+        - Replace pronouns (it, they, this) with the specific nouns they refer to from the history.
+        - If the query is already standalone, return it exactly as is.
+        - DO NOT answer the question.
+        <|im_end|>
+        <|im_start|>user
+        Chat History:
+        {conversation_text}
+        
+        Latest Question: {query}
+        
+        Rewrite the Latest Question to be standalone:
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+
+    prompt = text_cleaning(prompt)
+    output = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=max_tokens,
+        temperature=0.1,
+        **llm_kwargs
+    )
+
+    rewritten = output["choices"][0]["text"].strip()
+    # If model hallucinates or errors, fall back to original query
+    if not rewritten or len(rewritten) > len(query) * 2:
+        return query
+        
+    print(f"Contextualized Query: '{query}' -> '{rewritten}'")
+    return rewritten

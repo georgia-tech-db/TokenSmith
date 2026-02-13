@@ -9,6 +9,7 @@ import re
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+from src.query_enhancement import contextualize_query
 
 # Add project root to Python path to allow imports when run directly
 _project_root = pathlib.Path(__file__).resolve().parent.parent
@@ -54,6 +55,7 @@ class ChatRequest(BaseModel):
     max_chunks: Optional[int] = None  # Maps to top_k for retrieval
     temperature: Optional[float] = None
     top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
+    history: Optional[List[Dict[str, str]]] = None  # For contextualization, e.g. [{"role": "user", "content": "..."}]
 
 
 class ChatResponse(BaseModel):
@@ -315,12 +317,25 @@ async def chat(request: ChatRequest):
         else:
             print("Logger not available, skipping query logging")
         
+        effective_query = request.query
+        if _config.enable_history and request.history:
+            try:
+                effective_query = contextualize_query(
+                    request.query,
+                    request.history,
+                    _config.gen_model
+                )
+            except Exception as e:
+                print(f"Query contextualization failed: {str(e)}")
+                if _logger:
+                    _logger.log_error(e, context="contextualization")
+        
         if disable_chunks:
             print("Chunk usage disabled; skipping retrieval.")
             ranked_chunks: List[str] = []
             topk_idxs: List[int] = []
         else:
-            _, topk_idxs = _retrieve_and_rank(request.query, top_k=max_chunks)
+            _, topk_idxs = _retrieve_and_rank(effective_query, top_k=max_chunks)
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
             if _logger:
                 _logger.log_chunks_used(topk_idxs, chunks, sources)
@@ -333,7 +348,7 @@ async def chat(request: ChatRequest):
 
         try:
             answer_text = "".join(answer(
-                request.query,
+                effective_query,
                 ranked_chunks,
                 model_path,
                 max_tokens,

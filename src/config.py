@@ -42,6 +42,10 @@ class RAGConfig:
     # query enhancement
     use_hyde: bool = False
     hyde_max_tokens: int = 100
+
+    # conversational memory
+    enable_history: bool = True
+    max_history_turns: int = 3
     
     # index parameters
     use_indexed_chunks: bool = False

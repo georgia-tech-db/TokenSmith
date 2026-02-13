@@ -16,7 +16,7 @@ from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
-from src.query_enhancement import generate_hypothetical_document
+from src.query_enhancement import generate_hypothetical_document, contextualize_query
 from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
@@ -334,6 +334,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         print("Please ensure you have run 'index' mode first.")
         sys.exit(1)
 
+    chat_history = []
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
@@ -344,9 +345,23 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if q.lower() in {"exit", "quit"}:
                 print("Goodbye!")
                 break
+            
+            # Contextualize the query based on chat history
+            effective_q = q
+            if cfg.enable_history and chat_history:
+                effective_q = contextualize_query(q, chat_history, cfg.gen_model)
 
             # Use the single query function. get_answer also renders the streaming markdown.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
+            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts)
+
+            # Update chat history
+            chat_history.append({"role": "user", "content": q})
+            chat_history.append({"role": "assistant", "content": ans})
+
+            # Trim chat history to avoid exceeding context window
+            if len(chat_history) > cfg.max_history_turns * 2:
+                chat_history = chat_history[-cfg.max_history_turns * 2:]
+
             logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
 
         except KeyboardInterrupt:
