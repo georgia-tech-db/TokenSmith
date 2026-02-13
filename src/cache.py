@@ -113,7 +113,7 @@ def semantic_cache_store(config_key: str, normalized_question: str, question_emb
 # -----------------------------
 # Question embedding
 # -----------------------------
-def get_question_embedder(retrievers: List[Any], cfg: RAGConfig) -> Optional[SentenceTransformer]:
+def get_question_embedder(retrievers: List[Any], embed_model: str) -> Optional[SentenceTransformer]:
     """
     Get or initialize a SentenceTransformer for encoding questions.
     Prefers the embedder from any FAISSRetriever in the retrievers list.
@@ -122,7 +122,7 @@ def get_question_embedder(retrievers: List[Any], cfg: RAGConfig) -> Optional[Sen
         if isinstance(retriever, FAISSRetriever):
             return retriever.embedder
 
-    model_path = cfg.embed_model
+    model_path = embed_model
     if not model_path:
         return None
 
@@ -134,11 +134,11 @@ def get_question_embedder(retrievers: List[Any], cfg: RAGConfig) -> Optional[Sen
     return embedder
 
 
-def compute_question_embedding(question: str, retrievers: List[Any], cfg: RAGConfig) -> Optional[np.ndarray]:
+def compute_question_embedding(question: str, retrievers: List[Any], embed_model: str) -> Optional[np.ndarray]:
     """
     Compute a normalized embedding vector for a question using the configured embedder.
     """
-    embedder = get_question_embedder(retrievers, cfg)
+    embedder = get_question_embedder(retrievers, embed_model)
     if not embedder:
         return None
 

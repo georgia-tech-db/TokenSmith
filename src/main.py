@@ -154,7 +154,7 @@ def get_answer(
 
     # Check semantic cache
     if config_cache_key in SEMANTIC_CACHE:
-        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg)
+        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
         semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
 
     # Return cached answer if found
@@ -273,7 +273,7 @@ def get_answer(
         "chunk_indices": topk_idxs,
     }
     if question_embedding is None:
-        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg)
+        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
     semantic_cache_store(
         config_cache_key,
         normalized_question,
