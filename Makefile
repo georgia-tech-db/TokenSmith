@@ -11,6 +11,8 @@ help:
 	@echo "  clean       - Clean build artifacts"
 	@echo "  show-deps   - Show installed conda packages"
 	@echo "  export-env  - Export current environment"
+	@echo "  run-partial-index - Build a new index with specific chapters (e.g., make run-partial-index ARGS='--chapters 1 2')"
+	@echo "  run-add-chapters - Add chapters to an existing index (e.g., make run-add-chapters ARGS='--chapters 3 4')"
 
 # Environment setup - installs all dependencies via conda
 env:
@@ -67,6 +69,14 @@ run-extract:
 run-index:
 	@echo "Running TokenSmith index mode with additional CLI args: $(ARGS)"
 	conda run --no-capture-output -n tokensmith python -m src.main index $(ARGS)
+
+run-partial-index:                                                                                                                     │
+	@echo "Building a new index with specific chapters with additional CLI args: $(ARGS)"                                              │
+	conda run --no-capture-output -n tokensmith python -m src.main index $(ARGS)
+
+run-add-chapters:                                                                                                                      │
+	@echo "Adding chapters to an existing index with additional CLI args: $(ARGS)"                                                     │
+	conda run --no-capture-output -n tokensmith python -m src.main add-chapters $(ARGS)
 
 run-chat:
 	@echo "Running TokenSmith chat mode with additional CLI args: $(ARGS)"

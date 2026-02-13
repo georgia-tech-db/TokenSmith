@@ -12,6 +12,7 @@ from rich.live import Live
 from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
+from src.index_updater import add_to_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
@@ -32,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     # Required arguments
     parser.add_argument(
         "mode",
-        choices=["index", "chat"],
-        help="operation mode: 'index' to build index, 'chat' to query"
+        choices=["index", "chat", "add-chapters"],
+        help="operation mode: 'index' to build index, 'chat' to query, 'add-chapters' to add chapters to an existing index"
     )
 
     # Common arguments
@@ -75,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="embed sections with headings"
     )
+    indexing_group.add_argument(
+        "--chapters",
+        nargs='+',
+        type=int,
+        help="a list of chapter numbers to index (e.g., --chapters 3 4 5)"
+    )
 
     return parser.parse_args()
 
@@ -103,7 +110,29 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
+        chapters_to_index=args.chapters,
     )
+
+def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
+    """Handles the logic for adding chapters to an existing index."""
+    if not args.chapters:
+        print("Please provide a list of chapters to add using the --chapters argument.")
+        return
+
+    strategy = cfg.get_chunk_strategy()
+    chunker = DocumentChunker(strategy=strategy)
+    artifacts_dir = cfg.get_artifacts_directory()
+
+    add_to_index(
+        markdown_file="data/silberschatz.md",
+        chunker=chunker,
+        chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        artifacts_dir=artifacts_dir,
+        index_prefix=args.index_prefix,
+        chapters_to_add=args.chapters,
+    )
+    print("Successfully added chapters to the index.")
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
     """
@@ -382,6 +411,8 @@ def main():
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "add-chapters":
+        run_add_chapters_mode(args, cfg)
 
 
 if __name__ == "__main__":

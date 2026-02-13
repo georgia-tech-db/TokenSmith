@@ -12,7 +12,7 @@ import pickle
 import pathlib
 import re
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import faiss
 from rank_bm25 import BM25Okapi
@@ -43,7 +43,8 @@ def build_index(
     artifacts_dir: os.PathLike,
     index_prefix: str,
     use_multiprocessing: bool = False,
-    use_headings: bool = False
+    use_headings: bool = False,
+    chapters_to_index: Optional[List[int]] = None
 ) -> None:
     """
     Extract sections, chunk, embed, and build both FAISS and BM25 indexes.
@@ -64,6 +65,9 @@ def build_index(
         markdown_file,
         exclusion_keywords=DEFAULT_EXCLUSION_KEYWORDS
     )
+
+    if chapters_to_index:
+        sections = [s for s in sections if s.get('chapter') in chapters_to_index]
 
     page_to_chunk_ids = {}
     current_page = 1
@@ -218,6 +222,16 @@ def build_index(
     with open(artifacts_dir / f"{index_prefix}_meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
+
+    output_file = artifacts_dir / f"{index_prefix}_info.json"
+    index_info = {
+        "status": "indexed",
+        "documents": [markdown_file],
+        "chapters": chapters_to_index if chapters_to_index else ["all"]
+    }
+    with open(output_file, "w") as f:
+        json.dump(index_info, f, indent=2)
+    print(f"Saved index information: {output_file}")
 
 # ------------------------ Helper functions ------------------------------
 

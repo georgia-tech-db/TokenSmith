@@ -6,6 +6,7 @@ Provides REST API endpoints for the React frontend.
 import sys
 import pathlib
 import re
+import json
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -25,6 +26,9 @@ from src.generator import answer
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
+from src.preprocessing.chunking import DocumentChunker
+from src.index_builder import build_index
+from src.index_updater import add_to_index
 
 
 # Constants
@@ -37,6 +41,7 @@ _retrievers: Optional[List] = None
 _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
+INDEX_METADATA: Optional[Dict] = None
 
 
 class SourceItem(BaseModel):
@@ -55,6 +60,8 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = None
     top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
 
+class IndexBuilderRequest(BaseModel):
+    chapters: Optional[List[int]] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -68,14 +75,12 @@ def _resolve_config_path() -> pathlib.Path:
     """Return the absolute path to the API config."""
     return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
 
-
 def _ensure_initialized():
     if not all([_config, _artifacts, _retrievers, _ranker]):
         raise HTTPException(
             status_code=503,
             detail="Artifacts not loaded. Please run indexing first."
         )
-
 
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
@@ -99,7 +104,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger
+    global _artifacts, _retrievers, _ranker, _config, _logger, INDEX_METADATA
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -111,6 +116,15 @@ async def lifespan(app: FastAPI):
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
+        
+        # Load index metadata manifest
+        meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                INDEX_METADATA = json.load(f)
+        else:
+            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
+
         faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
             index_prefix=INDEX_PREFIX
@@ -182,6 +196,15 @@ async def health_check():
     return {"status": "ok", "message": "TokenSmith API is running"}
 
 
+@app.get("/api/index/status")
+def get_index_status():
+    """
+    Returns metadata about the currently loaded index, 
+    including which chapters are indexed.
+    """
+    return INDEX_METADATA
+
+
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
     """Test chat endpoint that bypasses generation to isolate issues."""
@@ -227,7 +250,6 @@ async def test_chat(request: ChatRequest):
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Streaming chat endpoint using Server-Sent Events."""
-    import json
     _ensure_initialized()
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -292,7 +314,7 @@ async def chat_stream(request: ChatRequest):
 async def chat(request: ChatRequest):
     """Main chat endpoint."""
     print(f"🔍 Received chat request: {request.query}")  # Debug logging
-    
+
     _ensure_initialized()
     
     if not request.query.strip():
@@ -391,3 +413,150 @@ async def chat(request: ChatRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/api/index/build")
+async def build_index_endpoint(request: IndexBuilderRequest):
+    global _artifacts, _retrievers, _ranker, INDEX_METADATA
+
+    if _config is None or _logger is None:
+        raise HTTPException(status_code=500, detail="Server not initialized correctly.")
+
+
+    try:
+        # Parameters from config
+        artifacts_dir = _config.get_artifacts_directory()
+        embedding_model_path = _config.embed_model
+        chunk_config = _config.chunk_config # This is already a ChunkConfig object from config.__post_init__
+        
+        # Markdown file is hardcoded in main.py, so we use that path
+        markdown_file = "data/silberschatz.md"
+        
+        # Index prefix is a constant in api_server.py
+        index_prefix = INDEX_PREFIX
+
+        # Instantiate chunker
+        chunker = DocumentChunker(strategy=_config.get_chunk_strategy())
+
+        # Call build_index
+        build_index(
+            markdown_file=markdown_file,
+            chunker=chunker,
+            chunk_config=chunk_config,
+            embedding_model_path=embedding_model_path,
+            artifacts_dir=artifacts_dir,
+            index_prefix=index_prefix,
+            use_multiprocessing=False, # Assuming single process for API for now, can be configured later
+            use_headings=False, # Can be configured later if needed
+            chapters_to_index=request.chapters,
+        )
+
+        # Reload INDEX_METADATA
+        meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                INDEX_METADATA = json.load(f)
+        else:
+            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
+
+
+        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
+            artifacts_dir=artifacts_dir,
+            index_prefix=index_prefix
+        )
+
+        _artifacts = {
+            "chunks": chunks,
+            "sources": sources,
+            "meta": metadata,
+        }
+
+        _retrievers = [
+            FAISSRetriever(faiss_index, _config.embed_model),
+            BM25Retriever(bm25_index),
+        ]
+        
+        if _config.ranker_weights.get("index_keywords", 0) > 0:
+            _retrievers.append(
+                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
+            )
+
+        _ranker = EnsembleRanker(
+            ensemble_method=_config.ensemble_method,
+            weights=_config.ranker_weights,
+            rrf_k=int(_config.rrf_k),
+        )
+
+        return {"status": "success", "message": "Index rebuilt successfully."}
+
+    except Exception as e:
+        _logger.log_error(e, context="index_build")
+        raise HTTPException(status_code=500, detail=f"Failed to build index: {str(e)}")
+
+@app.post("/api/index/add")
+async def add_to_index_endpoint(request: IndexBuilderRequest):
+    global _artifacts, _retrievers, _ranker, INDEX_METADATA
+
+    if _config is None or _logger is None:
+        raise HTTPException(status_code=500, detail="Server not initialized correctly.")
+
+    if not request.chapters:
+        raise HTTPException(status_code=400, detail="No chapters provided to add to the index.")
+
+    try:
+        artifacts_dir = _config.get_artifacts_directory()
+        embedding_model_path = _config.embed_model
+        chunk_config = _config.chunk_config
+        markdown_file = "data/silberschatz.md"
+        index_prefix = INDEX_PREFIX
+        chunker = DocumentChunker(strategy=_config.get_chunk_strategy())
+
+        add_to_index(
+            markdown_file=markdown_file,
+            chunker=chunker,
+            chunk_config=chunk_config,
+            embedding_model_path=embedding_model_path,
+            artifacts_dir=artifacts_dir,
+            index_prefix=index_prefix,
+            chapters_to_add=request.chapters,
+        )
+
+        # Reload artifacts
+        meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                INDEX_METADATA = json.load(f)
+        else:
+            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
+
+        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
+            artifacts_dir=artifacts_dir,
+            index_prefix=index_prefix
+        )
+
+        _artifacts = {
+            "chunks": chunks,
+            "sources": sources,
+            "meta": metadata,
+        }
+
+        _retrievers = [
+            FAISSRetriever(faiss_index, _config.embed_model),
+            BM25Retriever(bm25_index),
+        ]
+        
+        if _config.ranker_weights.get("index_keywords", 0) > 0:
+            _retrievers.append(
+                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
+            )
+
+        _ranker = EnsembleRanker(
+            ensemble_method=_config.ensemble_method,
+            weights=_config.ranker_weights,
+            rrf_k=int(_config.rrf_k),
+        )
+
+        return {"status": "success", "message": "Chapters added to index successfully."}
+
+    except Exception as e:
+        _logger.log_error(e, context="add_to_index")
+        raise HTTPException(status_code=500, detail=f"Failed to add to index: {str(e)}")

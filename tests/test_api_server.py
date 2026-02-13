@@ -85,8 +85,8 @@ class TestPydanticModels:
 
 # ====================== Helper Function Tests ======================
 
-class TestHelperFunctions:
-    """Tests for API server helper functions."""
+class TestServerState:
+    """Tests for API server internal state and helpers."""
 
     def test_resolve_config_path(self):
         """_resolve_config_path returns valid path."""
@@ -98,30 +98,43 @@ class TestHelperFunctions:
         assert path.name == "config.yaml"
         assert "config" in str(path)
 
-    def test_ensure_initialized_raises_when_not_ready(self):
-        """_ensure_initialized raises HTTPException when artifacts not loaded."""
-        from src.api_server import _ensure_initialized
-        from fastapi import HTTPException
+    def test_chat_fails_when_not_initialized(self):
+        """Chat endpoint returns 503 error when artifacts are not loaded."""
+        from fastapi.testclient import TestClient
+        from src.api_server import app
         import src.api_server as api_module
+        from unittest.mock import Mock, patch
 
         # Save original state
-        orig_config = api_module._config
         orig_artifacts = api_module._artifacts
+        orig_config = api_module._config
 
         try:
-            # Set to None to simulate uninitialized state
-            api_module._config = None
+            # Simulate uninitialized state where artifacts failed to load
             api_module._artifacts = None
+            
+            # A config object must exist and have necessary attributes for the endpoint to proceed to the point of failure
+            mock_config = Mock()
+            mock_config.disable_chunks = False
+            mock_config.system_prompt_mode = "baseline"
+            mock_config.top_k = 5
+            mock_config.num_candidates = 60
+            mock_config.temperature = 0.2
+            mock_config.max_gen_tokens = 300
+            mock_config.gen_model = "mock_model.gguf"
 
-            with pytest.raises(HTTPException) as exc_info:
-                _ensure_initialized()
+            api_module._config = mock_config
 
-            assert exc_info.value.status_code == 503
-            assert "Artifacts not loaded" in exc_info.value.detail
+            with patch('src.api_server.lifespan'):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post("/api/chat", json={"query": "test"})
+
+            assert response.status_code == 503
+            
         finally:
             # Restore original state
-            api_module._config = orig_config
             api_module._artifacts = orig_artifacts
+            api_module._config = orig_config
 
 
 # ====================== FastAPI Endpoint Tests ======================
