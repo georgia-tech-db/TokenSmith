@@ -180,9 +180,9 @@ async def lifespan(app: FastAPI):
             rrf_k=int(_config.rrf_k),
         )
 
-        print("✅ TokenSmith API initialized successfully")
+        print("TokenSmith API initialized successfully")
     except Exception as exc:
-        print(f"⚠️  Warning: Could not load artifacts: {exc}")
+        print(f"Warning: Could not load artifacts: {exc}")
         print("   Run indexing first or check your configuration")
 
     yield
@@ -224,6 +224,7 @@ async def health_check():
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
     """Test chat endpoint that bypasses generation to isolate issues."""
+    print(f"Test chat request: {request.query}")
     print(f"Test chat request: {request.query}")
     
     try:
@@ -307,9 +308,10 @@ async def chat_stream(request: ChatRequest):
             chunks_by_page: Dict[int, List[str]] = {}
             for i in topk_idxs[:max_chunks]:
                 source_text = sources[i]
-                page = page_nums[i] if i in page_nums else 1
-                sources_used.add(SourceItem(page=page, text=source_text))
-                chunks_by_page.setdefault(page, []).append(chunks[i])
+                pages = page_nums.get(i, [1])
+                for page in pages:
+                    chunks_by_page.setdefault(page, []).append(chunks[i])
+                    sources_used.add(SourceItem(page=page, text=source_text))
             
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
