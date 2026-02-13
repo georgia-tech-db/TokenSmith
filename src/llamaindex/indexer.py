@@ -4,8 +4,8 @@ Document ingestion, parsing, and index management.
 Pipeline:
   1. Load markdown docs from data/
   2. Parse with MarkdownNodeParser (header-aware splitting)
-  3. Apply SentenceSplitter for size-consistent chunks
-  4. Build VectorStoreIndex with HuggingFace embeddings
+  3. Apply SentenceSplitter for size-consistent chunks (2000 chars / 200 overlap)
+  4. Build VectorStoreIndex with GGUF embeddings
   5. Persist to disk for fast reload
 """
 
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
 
 from llama_index.core import (
     Document,
@@ -21,12 +20,8 @@ from llama_index.core import (
     StorageContext,
     VectorStoreIndex,
     load_index_from_storage,
-    Settings,
 )
-from llama_index.core.node_parser import (
-    MarkdownNodeParser,
-    SentenceSplitter,
-)
+from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline
 
 from .config import LlamaIndexConfig
@@ -47,11 +42,7 @@ def load_markdown_documents(data_dir: str) -> list[Document]:
 
 
 def build_ingestion_pipeline(cfg: LlamaIndexConfig) -> IngestionPipeline:
-    """
-    Build a two-stage parsing pipeline:
-      1. MarkdownNodeParser — splits on markdown headers, preserving structure
-      2. SentenceSplitter  — enforces max chunk size with overlap
-    """
+    """MarkdownNodeParser → SentenceSplitter (matches original recursive_sections chunking)."""
     return IngestionPipeline(
         transformations=[
             MarkdownNodeParser(),
@@ -64,39 +55,28 @@ def build_ingestion_pipeline(cfg: LlamaIndexConfig) -> IngestionPipeline:
 
 
 def build_index(cfg: LlamaIndexConfig) -> VectorStoreIndex:
-    """
-    Build a fresh VectorStoreIndex from documents and persist it.
-
-    Returns the ready-to-query index.
-    """
+    """Build a fresh VectorStoreIndex from documents and persist it."""
     print("=" * 60)
     print("Building LlamaIndex VectorStoreIndex ...")
     print(f"  Data dir    : {cfg.data_dir}")
     print(f"  Persist dir : {cfg.persist_dir}")
-    print(f"  Embed model : {cfg.embed_model_name}")
+    print(f"  Embed model : {cfg.embed_model}")
     print(f"  Chunk size  : {cfg.chunk_size}  overlap: {cfg.chunk_overlap}")
     print("=" * 60)
 
     t0 = time.time()
 
-    # Step 1: Load documents
     documents = load_markdown_documents(cfg.data_dir)
     print(f"Loaded {len(documents)} document(s) in {time.time() - t0:.1f}s")
 
-    # Step 2: Ingest (parse + chunk)
     pipeline = build_ingestion_pipeline(cfg)
     nodes = pipeline.run(documents=documents, show_progress=True)
     print(f"Created {len(nodes)} nodes after parsing + chunking")
 
-    # Step 3: Build vector index
     t1 = time.time()
-    index = VectorStoreIndex(
-        nodes,
-        show_progress=True,
-    )
+    index = VectorStoreIndex(nodes, show_progress=True)
     print(f"Index built in {time.time() - t1:.1f}s")
 
-    # Step 4: Persist
     index.storage_context.persist(persist_dir=cfg.persist_dir)
     print(f"Index persisted to {cfg.persist_dir}")
     print(f"Total indexing time: {time.time() - t0:.1f}s")

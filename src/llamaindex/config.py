@@ -1,51 +1,46 @@
-"""
-Configuration for the LlamaIndex RAG pipeline.
+"""Configuration for the LlamaIndex RAG pipeline.
 
-Mirrors the structure of the original TokenSmith RAGConfig but adapted
-for LlamaIndex components.
+Defaults match the original TokenSmith config/config.yaml.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
 
 @dataclass
 class LlamaIndexConfig:
-    """All knobs for the LlamaIndex pipeline in one place."""
 
     # ── Paths ────────────────────────────────────────────────────────────
     data_dir: str = "data"
     persist_dir: str = "index/llamaindex"
+    log_dir: str = "logs/llamaindex"
 
-    # ── Embedding model (HuggingFace, <5B params) ───────────────────────
-    embed_model_name: str = "BAAI/bge-base-en-v1.5"  # 110M params
-    embed_batch_size: int = 64
-    embed_device: str = "cuda"  # "cpu", "cuda", "mps"
+    # ── Embedding (same GGUF model as original pipeline) ───────────────
+    embed_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+    embed_n_ctx: int = 4096
 
-    # ── Generation model (local GGUF via llama-cpp) ─────────────────────
-    gen_model_path: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+    # ── Generation (same GGUF model as original pipeline) ────────────────
+    gen_model: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
     gen_context_window: int = 4096
-    gen_max_tokens: int = 400
+    max_gen_tokens: int = 400
     gen_temperature: float = 0.2
-    n_gpu_layers: int = -1  # -1 = offload all to GPU, 0 = CPU only
+    n_gpu_layers: int = -1  # -1 = offload all to GPU
 
-    # ── Chunking ─────────────────────────────────────────────────────────
-    chunk_size: int = 1024
-    chunk_overlap: int = 128
+    # ── Chunking (matches original: 2000 / 200) ─────────────────────────
+    chunk_size: int = 2000
+    chunk_overlap: int = 200
 
-    # ── Retrieval ────────────────────────────────────────────────────────
-    similarity_top_k: int = 10        # candidates from vector search
-    keyword_top_k: int = 10           # candidates from keyword search
-    final_top_k: int = 5              # after reranking
+    # ── Retrieval (matches original: RRF fusion) ─────────────────────────
+    num_candidates: int = 50  # per-retriever pool size
+    top_k: int = 5            # final chunks after reranking
 
-    # ── Reranking ────────────────────────────────────────────────────────
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-2-v2"
+    # ── Reranking (same cross-encoder as original) ───────────────────────
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
     use_reranker: bool = True
 
     # ── System prompt ────────────────────────────────────────────────────
@@ -60,9 +55,9 @@ class LlamaIndexConfig:
     def from_yaml(cls, path: os.PathLike) -> "LlamaIndexConfig":
         with open(path, "r") as f:
             data = yaml.safe_load(f)
-        # Only keep keys that match our fields
         valid = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         return cls(**valid)
 
     def __post_init__(self) -> None:
         Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.log_dir).mkdir(parents=True, exist_ok=True)
