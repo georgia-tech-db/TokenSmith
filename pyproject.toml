@@ -20,6 +20,12 @@ tokensmith = "src.main:main"
 where = ["."]
 include = ["src*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "unit: Unit tests for API compatibility (run with: pytest -m unit)",
+]
+testpaths = ["tests"]
+
 [tool.black]
 line-length = 88
 target-version = ['py39']
