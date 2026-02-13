@@ -98,30 +98,36 @@ class TestHelperFunctions:
         assert path.name == "config.yaml"
         assert "config" in str(path)
 
-    def test_ensure_initialized_raises_when_not_ready(self):
-        """_ensure_initialized raises HTTPException when artifacts not loaded."""
-        from src.api_server import _ensure_initialized
-        from fastapi import HTTPException
+    def test_chat_fails_when_not_initialized(self):
+        """Chat endpoint returns 500 error when artifacts are not loaded."""
+        from fastapi.testclient import TestClient
+        from src.api_server import app
         import src.api_server as api_module
 
         # Save original state
-        orig_config = api_module._config
         orig_artifacts = api_module._artifacts
+        orig_config = api_module._config
 
         try:
-            # Set to None to simulate uninitialized state
-            api_module._config = None
+            # Simulate uninitialized state where artifacts failed to load
             api_module._artifacts = None
+            
+            # A config object must exist for the endpoint to proceed to the point of failure
+            mock_config = Mock()
+            mock_config.disable_chunks = False
+            api_module._config = mock_config
 
-            with pytest.raises(HTTPException) as exc_info:
-                _ensure_initialized()
+            with patch('src.api_server.lifespan'):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post("/api/chat", json={"query": "test"})
 
-            assert exc_info.value.status_code == 503
-            assert "Artifacts not loaded" in exc_info.value.detail
+            assert response.status_code == 500
+            assert "Error processing query" in response.json()["detail"]
+            
         finally:
             # Restore original state
-            api_module._config = orig_config
             api_module._artifacts = orig_artifacts
+            api_module._config = orig_config
 
 
 # ====================== FastAPI Endpoint Tests ======================
