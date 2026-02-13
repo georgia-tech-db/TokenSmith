@@ -6,13 +6,13 @@ import json
 import pathlib
 import sys
 from typing import Dict, Optional
-import urllib.request
 
 from rich.live import Live
 
 from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
+from src.index_updater import add_to_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
@@ -111,23 +111,20 @@ def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
         print("Please provide a list of chapters to add using the --chapters argument.")
         return
 
-    data = json.dumps({"chapters": args.chapters}).encode("utf-8")
-    req = urllib.request.Request(
-        "http://localhost:8000/api/index/add",
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
+    strategy = cfg.get_chunk_strategy()
+    chunker = DocumentChunker(strategy=strategy)
+    artifacts_dir = cfg.get_artifacts_directory()
+
+    add_to_index(
+        markdown_file="data/silberschatz.md",
+        chunker=chunker,
+        chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        artifacts_dir=artifacts_dir,
+        index_prefix=args.index_prefix,
+        chapters_to_add=args.chapters,
     )
-    try:
-        with urllib.request.urlopen(req) as response:
-            if response.status == 200:
-                print("Successfully added chapters to the index.")
-            else:
-                print(f"Error: Received status code {response.status}")
-                print(response.read().decode("utf-8"))
-    except urllib.error.URLError as e:
-        print(f"Error connecting to the API server: {e.reason}")
-        print("Please make sure the API server is running.")
+    print("Successfully added chapters to the index.")
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
     """
