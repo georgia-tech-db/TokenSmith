@@ -98,6 +98,32 @@ class TestHelperFunctions:
         assert path.name == "config.yaml"
         assert "config" in str(path)
 
+    def test_ensure_initialized_raises_when_not_ready(self):
+        """_ensure_initialized raises HTTPException when artifacts not loaded."""
+        from src.api_server import _ensure_initialized
+        from fastapi import HTTPException
+        import src.api_server as api_module
+
+        # Save original state
+        orig_config = api_module._config
+        orig_artifacts = api_module._artifacts
+
+        try:
+            # Set to None to simulate uninitialized state
+            api_module._config = None
+            api_module._artifacts = None
+
+            with pytest.raises(HTTPException) as exc_info:
+                _ensure_initialized()
+
+            assert exc_info.value.status_code == 503
+            assert "Artifacts not loaded" in exc_info.value.detail
+        finally:
+            # Restore original state
+            api_module._config = orig_config
+            api_module._artifacts = orig_artifacts
+
+
     def test_chat_fails_when_not_initialized(self):
         """Chat endpoint returns 500 error when artifacts are not loaded."""
         from fastapi.testclient import TestClient

@@ -75,6 +75,12 @@ def _resolve_config_path() -> pathlib.Path:
     """Return the absolute path to the API config."""
     return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
 
+def _ensure_initialized():
+    if not all([_config, _artifacts, _retrievers, _ranker]):
+        raise HTTPException(
+            status_code=503,
+            detail="Artifacts not loaded. Please run indexing first."
+        )
 
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
@@ -204,6 +210,10 @@ async def test_chat(request: ChatRequest):
     """Test chat endpoint that bypasses generation to isolate issues."""
     print(f"🔍 Test chat request: {request.query}")
     
+    try:
+        _ensure_initialized()
+    except HTTPException as exc:
+        return {"error": exc.detail, "status": "error"}
     
     if not request.query.strip():
         return {"error": "Query cannot be empty", "status": "error"}
@@ -240,6 +250,7 @@ async def test_chat(request: ChatRequest):
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Streaming chat endpoint using Server-Sent Events."""
+    _ensure_initialized()
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
@@ -303,6 +314,8 @@ async def chat_stream(request: ChatRequest):
 async def chat(request: ChatRequest):
     """Main chat endpoint."""
     print(f"🔍 Received chat request: {request.query}")  # Debug logging
+
+    _ensure_initialized()
     
     if not request.query.strip():
         print("Empty query received")
