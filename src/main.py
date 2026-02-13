@@ -12,7 +12,7 @@ from rich.live import Live
 from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
-from src.instrumentation.logging import init_logger, get_logger, RunLogger
+from src.instrumentation.logging import get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
@@ -375,8 +375,6 @@ def main():
         raise FileNotFoundError(
             "No config file provided at config/config.yaml."
         )
-
-    init_logger(cfg)
 
     if args.mode == "index":
         run_index_mode(args, cfg)

@@ -153,11 +153,14 @@ class TestEnsembleRanker:
             "bm25": {0: 0.7, 1: 0.9, 2: 0.8}
         }
         
-        ordered = ranker.rank(raw_scores)
+        ordered_idxs, ordered_score = ranker.rank(raw_scores)
         
-        assert isinstance(ordered, list)
-        assert len(ordered) == 3
-        assert all(isinstance(idx, int) for idx in ordered)
+        assert isinstance(ordered_idxs, list)
+        assert len(ordered_idxs) == 3
+        assert all(isinstance(idx, int) for idx in ordered_idxs)
+        assert isinstance(ordered_score, list)
+        assert len(ordered_score) == 3
+        assert all(isinstance(score, float) for score in ordered_score)
     
     def test_linear_ranking(self):
         """Linear fusion produces correct ordering."""
@@ -177,10 +180,17 @@ class TestEnsembleRanker:
         # Patch _normalize to use normalize (the actual static method)
         ranker._normalize = EnsembleRanker.normalize
         
-        ordered = ranker.rank(raw_scores)
+        ordered_idxs, ordered_score = ranker.rank(raw_scores)
+
+        assert isinstance(ordered_idxs, list)
+        assert len(ordered_idxs) == 3
+        assert all(isinstance(idx, int) for idx in ordered_idxs)
+        assert isinstance(ordered_score, list)
+        assert len(ordered_score) == 3
+        assert all(isinstance(score, float) for score in ordered_score)
+
         
-        assert isinstance(ordered, list)
-        assert len(ordered) == 3
+        
     
     def test_scores_to_ranks(self):
         """scores_to_ranks converts scores to 1-based ranks correctly."""
@@ -202,9 +212,10 @@ class TestEnsembleRanker:
             weights={"faiss": 1.0}
         )
         
-        ordered = ranker.rank({"faiss": {}})
+        ordered_idxs, ordered_score = ranker.rank({"faiss": {}})
         
-        assert ordered == []
+        assert ordered_idxs == []
+        assert ordered_score == []
     
     def test_single_retriever(self):
         """Ranker works with single retriever."""
@@ -216,9 +227,10 @@ class TestEnsembleRanker:
         )
         
         raw_scores = {"faiss": {0: 0.9, 1: 0.8}}
-        ordered = ranker.rank(raw_scores)
+        ordered_idxs, ordered_score = ranker.rank(raw_scores)
         
-        assert ordered == [0, 1]
+        assert ordered_idxs == [0, 1]
+        assert ordered_score[0] >= ordered_score[1]
 
 
 # ====================== Retriever Tests ======================
@@ -664,14 +676,14 @@ class TestGetPageNumbers:
         from src.retriever import get_page_numbers
         
         metadata = [
-            {"page_number": 10},
-            {"page_number": 20},
-            {"page_number": 30}
+            {"page_numbers": [10]},
+            {"page_numbers": [20, 21]},
+            {"page_numbers": [30, 31, 32]}
         ]
         
         result = get_page_numbers([0, 2], metadata)
         
-        assert result == {0: 10, 2: 30}
+        assert result == {0: [10], 2: [30, 31, 32]}
     
     def test_get_page_numbers_empty(self):
         """get_page_numbers handles empty inputs."""
@@ -679,16 +691,16 @@ class TestGetPageNumbers:
         
         assert get_page_numbers([], []) == {}
         assert get_page_numbers([0], []) == {}
-        assert get_page_numbers([], [{"page_number": 1}]) == {}
+        assert get_page_numbers([], [{"page_numbers": [1]}]) == {}
     
     def test_get_page_numbers_out_of_bounds(self):
         """get_page_numbers handles out-of-bounds indices."""
         from src.retriever import get_page_numbers
         
-        metadata = [{"page_number": 10}]
+        metadata = [{"page_numbers": [10, 11]}]
         result = get_page_numbers([0, 5, 10], metadata)
         
-        assert result == {0: 10}
+        assert result == {0: [10, 11]}
 
 
 # ====================== Main Entry Point Tests ======================
@@ -751,9 +763,11 @@ class TestEndToEndAPIContracts:
             rrf_k=60
         )
         
-        ordered = ranker.rank(raw_scores)
+        ordered_idxs, ordered_scores = ranker.rank(raw_scores)
         
         # Should have all candidates
-        assert set(ordered) == {0, 1, 2, 3}
+        assert set(ordered_idxs) == {0, 1, 2, 3}
         # Should be a valid ordering
-        assert len(ordered) == 4
+        assert len(ordered_idxs) == 4
+        assert all(isinstance(idx, int) for idx in ordered_idxs)
+        assert all(isinstance(score, float) for score in ordered_scores)
