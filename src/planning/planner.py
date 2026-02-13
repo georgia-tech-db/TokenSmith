@@ -30,4 +30,5 @@ class QueryPlanner(ABC):
     def _log_decision(self, new_cfg: RAGConfig) -> None:
         base_dict = self.base_cfg.to_dict()
         new_dict = new_cfg.to_dict()
-        get_logger().log_planner(self.name, base_dict, new_dict)
+        # TO DO - fix this
+        # get_logger().log_planner(self.name, base_dict, new_dict)

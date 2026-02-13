@@ -174,7 +174,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         tuple: (Generated answer, chunks_info list, hyde_query)
     """
     from src.main import get_answer
-    from src.instrumentation.logging import init_logger, get_logger
+    from src.instrumentation.logging import get_logger
     from src.config import RAGConfig
     from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
     from src.ranking.ranker import EnsembleRanker
@@ -222,7 +222,6 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
             print(f"  🔬 HyDE enabled - generating hypothetical document...")
         print(f"  🔍 Retrieving chunks...")
     
-    init_logger(cfg)
     logger = get_logger()
 
     # Run the query through the main pipeline

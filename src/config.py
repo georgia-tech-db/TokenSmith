@@ -89,3 +89,14 @@ class RAGConfig:
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
+    
+    def get_config_state(self) -> None:
+        """Returns dict of all config parameters except chunk_config """
+        state = self.__dict__.copy()
+        state.pop("chunk_config", None) # remove chunk_config to avoid serialization issues
+        # also pop any non-serializable fields if needed
+        for key in list(state.keys()):
+            if not isinstance(state[key], (int, float, str, bool, list, dict, type(None))):
+                state.pop(key)
+        return state
+        
