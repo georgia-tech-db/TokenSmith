@@ -48,6 +48,7 @@ class RunLogger:
                 "ranker_weights": self.config.ranker_weights,
                 "rrf_k": self.config.rrf_k,
                 "rerank_mode": self.config.rerank_mode,
+                "rerank_top_k": self.config.rerank_top_k,
                 "max_gen_tokens": self.config.max_gen_tokens
             }
         }
