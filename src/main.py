@@ -220,9 +220,9 @@ def get_answer(
                     "index_score": index_scores.get(idx, 0),
                     "index_rank": index_ranks.get(idx, 0),
                 })
-        
+
         # Step 3: Final re-ranking
-        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
 
     # If no chunks found, return answer not found message
     if ranked_chunks == []:
