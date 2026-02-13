@@ -5,6 +5,7 @@ import argparse
 import json
 import pathlib
 import sys
+import time
 from typing import Dict, Optional
 
 from rich.live import Live
@@ -151,9 +152,10 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
+    query_stats: Dict[str, float] = {}
     
     logger.log_query_start(question)
-    
+    total_start_time = time.perf_counter()
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -165,15 +167,19 @@ def get_answer(
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         # Use chunks from the textbook index
+        indexed_chunk_lookup_start_time = time.perf_counter()
         ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        query_stats["indexed_chunks_lookup_time"] = time.perf_counter() - indexed_chunk_lookup_start_time
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
         if cfg.use_hyde:
+            hyde_generation_start_time = time.perf_counter()
             model_path = cfg.gen_model
             hypothetical_doc = generate_hypothetical_document(
                 question, model_path, max_tokens=cfg.hyde_max_tokens
             )
+            query_stats["hyde_generation_time"] = time.perf_counter() - hyde_generation_start_time
             retrieval_query = hypothetical_doc
             hyde_query = hypothetical_doc
             # print(f"🔍 HyDE query: {hypothetical_doc}")
@@ -181,12 +187,16 @@ def get_answer(
         # Step 1: Retrieval
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
+        retrieval_start_time = time.perf_counter()
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+        query_stats["retrieval_time"] = time.perf_counter() - retrieval_start_time
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
+        ranking_start_time = time.perf_counter()
         ordered = ranker.rank(raw_scores=raw_scores)
+        query_stats["ranking_time"] = time.perf_counter() - ranking_start_time
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
@@ -222,7 +232,9 @@ def get_answer(
                 })
         
         # Step 3: Final re-ranking
+        reranking_start_time = time.perf_counter()
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+        query_stats["reranking_time"] = time.perf_counter() - reranking_start_time
 
     # If no chunks found, return answer not found message
     if ranked_chunks == []:
@@ -233,6 +245,7 @@ def get_answer(
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
+    generation_start_time = time.perf_counter()
     stream_iter = answer(
         question,
         ranked_chunks,
@@ -243,14 +256,22 @@ def get_answer(
 
     if is_test_mode:
         # We do not render MD in the test mode
-        ans = ""
+        ans_parts = []
         for delta in stream_iter:
-            ans += delta
+            ans_parts.append(delta)
+        ans = "".join(ans_parts)
+        # Capture generation end BEFORE post-processing
+        query_stats["generation_time"] = time.perf_counter() - generation_start_time
         ans = dedupe_generated_text(ans)
-        return ans, chunks_info, hyde_query
-    else:
+    else: 
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
+        query_stats["generation_time"] = time.perf_counter() - generation_start_time
+
+    query_stats["total_time"] = time.perf_counter() - total_start_time
+    logger.log_query_stats(query_stats)
+    if is_test_mode:
+        return ans, chunks_info, hyde_query
     return ans
 
 
@@ -358,7 +379,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             break
 
     # TODO: Fix completion logging.
-    # logger.log_query_complete()
+    logger.log_query_complete()
 
 
 def main():
