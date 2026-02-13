@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 from typing import Dict, Optional
 
 from .config import LlamaIndexConfig
@@ -32,7 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="LlamaIndex RAG Pipeline")
     parser.add_argument("mode", choices=["index", "chat", "query"])
     parser.add_argument("question", nargs="?", default=None)
-    parser.add_argument("--config", default=None)
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--gen-model", default=None)
@@ -42,8 +42,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+_CONFIG_PATH = "config/config.yaml"
+
+
 def build_config(args: argparse.Namespace) -> LlamaIndexConfig:
-    cfg = LlamaIndexConfig.from_yaml(args.config) if args.config else LlamaIndexConfig()
+    cfg = LlamaIndexConfig.from_yaml(_CONFIG_PATH)
     if args.data_dir:
         cfg.data_dir = args.data_dir
     if args.gen_model:

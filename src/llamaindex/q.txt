@@ -1,3 +1,4 @@
+In ARIES, what is PageLSN?
 In ARIES, what is recLSN and how does ARIES use it in redo?
 Why does redo start from the smallest recLSN? Couldn’t we just start from the checkpoint?
 If a page’s pageLSN is greater than the smallest recLSN, does ARIES still have to start redo from that smallest recLSN?
