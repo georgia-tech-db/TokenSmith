@@ -6,6 +6,7 @@ import json
 import pathlib
 import sys
 from typing import Dict, Optional
+import urllib.request
 
 from rich.live import Live
 
@@ -32,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     # Required arguments
     parser.add_argument(
         "mode",
-        choices=["index", "chat"],
-        help="operation mode: 'index' to build index, 'chat' to query"
+        choices=["index", "chat", "add-chapters"],
+        help="operation mode: 'index' to build index, 'chat' to query, 'add-chapters' to add chapters to an existing index"
     )
 
     # Common arguments
@@ -103,6 +104,30 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         use_headings=args.embed_with_headings,
         chapters_to_index=args.chapters,
     )
+
+def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
+    """Handles the logic for adding chapters to an existing index."""
+    if not args.chapters:
+        print("Please provide a list of chapters to add using the --chapters argument.")
+        return
+
+    data = json.dumps({"chapters": args.chapters}).encode("utf-8")
+    req = urllib.request.Request(
+        "http://localhost:8000/api/index/add",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                print("Successfully added chapters to the index.")
+            else:
+                print(f"Error: Received status code {response.status}")
+                print(response.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        print(f"Error connecting to the API server: {e.reason}")
+        print("Please make sure the API server is running.")
 
 def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
     """
@@ -381,6 +406,8 @@ def main():
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "add-chapters":
+        run_add_chapters_mode(args, cfg)
 
 
 if __name__ == "__main__":
