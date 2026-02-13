@@ -276,7 +276,7 @@ def preprocess_extracted_section(text: str) -> str:
 
 def main():
     # Returns all pdf files under data/chapters/
-    project_root = Path(__file__).resolve().parent.parent.parent 
+    project_root = Path(__file__).resolve().parent.parent.parent
     chapters_dir = project_root / "data/chapters"
     pdfs = sorted(chapters_dir.glob("*.pdf"))
 
