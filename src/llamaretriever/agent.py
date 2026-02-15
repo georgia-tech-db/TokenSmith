@@ -1,15 +1,16 @@
 """
-Iterative evidence-curation agent with keyword pre-filtering and GREP tool.
+Iterative evidence-curation agent with keyword enrichment and GREP tool.
 
 Flow:
   1. Retrieve + rerank chunks, split into passages with section headers
-  2. Extract keywords from question, score passages by keyword overlap
-  3. Show only keyword-matching passages to LLM (needle pre-located)
-  4. Agent curates: SELECT / GREP / DROP / RETRIEVE / DONE
+  2. Extract keywords from question (automated, stopword-filtered)
+  3. Keyword enrichment (1 LLM call) — expand terms with related concepts
+  4. Agent curates (1-3 LLM calls): SELECT / GREP / DROP / RETRIEVE / DONE
      - GREP searches ALL passages (including hidden non-matches) for a term
-  5. Synthesize cited answer from curated evidence
+  5. Hard cap: trim to ≤15 references by keyword score
+  6. Synthesize cited answer (1 LLM call)
 
-Total LLM calls: ≤ max_curate_steps + 1 (synthesize) ≤ 5
+Total LLM calls: 1 (enrich) + 1-3 (curate) + 1 (synthesize) = 3-5
 """
 
 from __future__ import annotations
@@ -28,12 +29,44 @@ from llama_index.core.schema import NodeWithScore
 
 
 @dataclass
-class Reference:
-    """An evidence passage with section provenance."""
+class Passage:
+    """A single passage in the evidence pool (before selection)."""
     id: int
     passage: str
     section: str
     source: str
+
+
+@dataclass
+class Reference:
+    """An evidence passage with section provenance (after selection)."""
+    id: int
+    passage: str
+    section: str
+    source: str
+
+
+@dataclass
+class CurateResponse:
+    """Parsed output from one curator LLM turn."""
+    add_ids: list[int]
+    drop_ids: list[int]
+    grep_terms: list[str]
+    retrieve_query: str | None
+    done: bool
+    add_keywords: list[str]
+    remove_keywords: list[str]
+
+
+@dataclass
+class ScoredPassage:
+    """A passage with keyword-match score and matched terms."""
+    id: int
+    passage: str
+    section: str
+    source: str
+    score: int
+    matched_keywords: list[str]
 
 
 @dataclass
@@ -69,11 +102,7 @@ _STOPWORDS = frozenset({
 
 
 def _extract_keywords(question: str) -> list[str]:
-    """Extract meaningful terms from the question.
-
-    Prioritizes proper nouns and technical terms (contain uppercase or digits)
-    over generic words.
-    """
+    """Extract meaningful terms from the question (stopwords and length filtered)."""
     words = re.findall(r"[A-Za-z][A-Za-z0-9_]*", question)
     keywords: list[str] = []
     seen: set[str] = set()
@@ -83,7 +112,6 @@ def _extract_keywords(question: str) -> list[str]:
             continue
         seen.add(low)
         keywords.append(w)
-
     return keywords
 
 
@@ -99,10 +127,10 @@ def _score_passage(text: str, keywords: list[str]) -> tuple[int, list[str]]:
     return score, matched
 
 
-def _grep_pool(pool: list[tuple[int, str, str, str]], term: str) -> list[int]:
+def _grep_pool(pool: list[Passage], term: str) -> list[int]:
     """Search ALL passages for a term, return matching IDs."""
     term_lower = term.lower()
-    return [gid for gid, text, _, _ in pool if term_lower in text.lower()]
+    return [p.id for p in pool if term_lower in p.passage.lower()]
 
 
 # ── Passage preparation ─────────────────────────────────────────────────
@@ -163,41 +191,36 @@ def _split_passages(text: str, min_len: int = 30, max_len: int = 500) -> list[st
     return passages
 
 
-def _prepare_pool(
-    nodes: list[NodeWithScore],
-) -> list[tuple[int, str, str, str]]:
-    """Convert nodes into (global_id, passage, section, source)."""
-    pool: list[tuple[int, str, str, str]] = []
+def _prepare_pool(nodes: list[NodeWithScore]) -> list[Passage]:
+    """Convert nodes into a list of Passage entries."""
+    pool: list[Passage] = []
     seen: set[str] = set()
     gid = 1
     for node in nodes:
         source = node.metadata.get("file_name", "chunk")
         section = _extract_section(node.text)
-        for passage in _split_passages(node.text):
-            key = passage[:100]
+        for text in _split_passages(node.text):
+            key = text[:100]
             if key not in seen:
                 seen.add(key)
-                pool.append((gid, passage, section, source))
+                pool.append(Passage(id=gid, passage=text, section=section, source=source))
                 gid += 1
     return pool
 
 
-def _add_to_pool(
-    pool: list[tuple[int, str, str, str]],
-    nodes: list[NodeWithScore],
-) -> None:
+def _add_to_pool(pool: list[Passage], nodes: list[NodeWithScore]) -> None:
     """Append new unique passages from nodes into the pool."""
-    existing = {p[:100] for _, p, _, _ in pool}
-    max_id = max(gid for gid, _, _, _ in pool) if pool else 0
+    existing = {p.passage[:100] for p in pool}
+    max_id = max(p.id for p in pool) if pool else 0
     for node in nodes:
         source = node.metadata.get("file_name", "chunk")
         section = _extract_section(node.text)
-        for passage in _split_passages(node.text):
-            key = passage[:100]
+        for text in _split_passages(node.text):
+            key = text[:100]
             if key not in existing:
                 existing.add(key)
                 max_id += 1
-                pool.append((max_id, passage, section, source))
+                pool.append(Passage(id=max_id, passage=text, section=section, source=source))
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────
@@ -213,7 +236,9 @@ Available tools (one per line):
   GREP: "<term>" — search ALL passages for a specific term (finds hidden ones)
   DROP: <comma-separated IDs> — remove from selection
   RETRIEVE: "<new search query>" — fetch new chunks from the index
-  DONE — finish selection
+  ADD_KEYWORDS: <comma-separated terms> — add terms used to score/filter passages
+  REMOVE_KEYWORDS: <comma-separated terms> — remove terms from scoring
+  DONE — finish selection (only say DONE when you are done)
 
 Rules:
 - A passage must specifically discuss the topic asked about — not merely share a keyword
@@ -221,7 +246,39 @@ Rules:
 - Do NOT select passages about clearly different topics
 - Include passages that define, explain, or illustrate the topic and its context
 - Use GREP to find passages about related concepts not yet shown
-- Do a thorough and complete coverage of the topic"""
+- Use ADD_KEYWORDS/REMOVE_KEYWORDS to refine which passages are shown by relevance
+- Aim for 3-10 selected passages (good coverage without noise)
+- NEVER select more than 15 passages — if you have more, DROP the weakest ones
+- You can have more than one tool call in each response.
+
+When to use tools (use at least one when it helps before SELECT/DONE):
+- REMOVE_KEYWORDS: If a key term is too broad and adds noise, remove it. Example: REMOVE_KEYWORDS: use, order
+- GREP: To find passages that mention a concept not in Key terms, search all passages. Example: GREP "serializability"
+- ADD_KEYWORDS: If an important term is missing from Key terms, add it. Example: ADD_KEYWORDS: normalization, B-tree
+- RETRIEVE: If you need different coverage, fetch more. Example: RETRIEVE "transaction commit and rollback"
+
+Worked example (question about database checkpointing; "use" adds noise):
+  REMOVE_KEYWORDS: use
+  GREP "checkpoint"
+  SELECT: 2, 5, 8, 11
+
+Then on the next turn you will see updated Key terms and any GREP results; SELECT the relevant IDs and DONE when satisfied."""
+
+_ENRICH_SYSTEM = """\
+You are a keyword refiner for a textbook Q&A system. You will be given a \
+question, its initial key terms, and the section headings from retrieved \
+passages so you know the domain.
+
+Do TWO things:
+1. REMOVE only vague filler words that add noise (e.g. "just", "could", \
+"does", "way", "thing"). Do NOT remove domain-specific terms. Keep at least \
+one initial term.
+2. ADD 3-8 technical terms from the SAME domain as the sections shown that \
+would help find passages answering this question.
+
+Reply in EXACTLY this format (both lines required, even if empty):
+REMOVE: term1, term2
+ADD: term3, term4, term5"""
 
 _SYNTH_SYSTEM = """\
 Write a concise, accurate answer using ONLY the numbered references below. \
@@ -231,7 +288,7 @@ If the references don't fully answer the question, say what is missing."""
 
 def _curate_user(
     question: str,
-    pool: list[tuple[int, str, str, str]],
+    pool: list[Passage],
     keywords: list[str],
     selected: list[int],
     grep_results: list[tuple[str, list[int]]],
@@ -241,35 +298,41 @@ def _curate_user(
     lines.append(f"Key terms: {', '.join(keywords)}\n")
 
     # Score all passages
-    scored: list[tuple[int, str, str, str, int, list[str]]] = []
-    for gid, text, section, source in pool:
-        score, matched = _score_passage(text, keywords)
-        scored.append((gid, text, section, source, score, matched))
+    scored: list[ScoredPassage] = []
+    for p in pool:
+        score, matched = _score_passage(p.passage, keywords)
+        scored.append(ScoredPassage(
+            id=p.id,
+            passage=p.passage,
+            section=p.section,
+            source=p.source,
+            score=score,
+            matched_keywords=matched,
+        ))
 
     # Keyword-matching passages (sorted by score descending)
-    matching = sorted([s for s in scored if s[4] > 0], key=lambda x: -x[4])
-    # matching = sorted([s for s in scored if s], key=lambda x: -x[4])
+    matching = sorted([s for s in scored if s.score > 0], key=lambda x: -x.score)
     shown_ids: set[int] = set()
 
     if matching:
         lines.append(f"Passages matching key terms ({len(matching)}):\n")
-        for gid, text, section, _, _, matched in matching:
-            tag = " [SELECTED]" if gid in selected else ""
-            lines.append(f"[{gid}] (§ {section}) [matches: {', '.join(matched)}]{tag}")
-            lines.append(f"  {text}\n")
-            shown_ids.add(gid)
+        for s in matching:
+            tag = " [SELECTED]" if s.id in selected else ""
+            lines.append(f"[{s.id}] (§ {s.section}) [matches: {', '.join(s.matched_keywords)}]{tag}")
+            lines.append(f"  {s.passage}\n")
+            shown_ids.add(s.id)
 
     # Show GREP results for passages not already visible
     for term, ids in grep_results:
         new_ids = [i for i in ids if i not in shown_ids]
         if new_ids:
             lines.append(f'GREP "{term}" found {len(ids)} passage(s):')
-            for gid, text, section, source in pool:
-                if gid in new_ids:
-                    tag = " [SELECTED]" if gid in selected else ""
-                    lines.append(f"[{gid}] (§ {section}){tag}")
-                    lines.append(f"  {text}\n")
-                    shown_ids.add(gid)
+            for p in pool:
+                if p.id in new_ids:
+                    tag = " [SELECTED]" if p.id in selected else ""
+                    lines.append(f"[{p.id}] (§ {p.section}){tag}")
+                    lines.append(f"  {p.passage}\n")
+                    shown_ids.add(p.id)
         elif ids:
             lines.append(f'GREP "{term}": passages {ids} (already shown)')
 
@@ -283,6 +346,45 @@ def _curate_user(
     return "\n".join(lines)
 
 
+def _enrich_user(question: str, keywords: list[str], sections: list[str]) -> str:
+    lines = [
+        f"Question: {question}",
+        f"Initial key terms: {', '.join(keywords)}",
+    ]
+    if sections:
+        lines.append(f"Sections from retrieved passages: {', '.join(sections)}")
+    return "\n".join(lines)
+
+
+def _parse_enrich(response: str, existing: list[str]) -> tuple[list[str], list[str]]:
+    """Parse enrichment response into (terms_to_remove, terms_to_add)."""
+    existing_lower = {k.lower() for k in existing}
+    remove_terms: list[str] = []
+    add_terms: list[str] = []
+
+    for line in response.split("\n"):
+        stripped = line.strip()
+        upper = stripped.upper()
+        if upper.startswith("REMOVE"):
+            rest = stripped[6:].strip().lstrip(":").strip()
+            for t in rest.split(","):
+                t = t.strip().strip("-").strip("•").strip("*").strip()
+                if t and t.lower() in existing_lower:
+                    remove_terms.append(t)
+        elif upper.startswith("ADD"):
+            rest = stripped[3:].strip().lstrip(":").strip()
+            for t in rest.split(","):
+                t = t.strip().strip("-").strip("•").strip("*").strip()
+                if t and len(t) > 2 and t.lower() not in existing_lower and t.lower() not in _STOPWORDS:
+                    existing_lower.add(t.lower())
+                    add_terms.append(t)
+
+    if not remove_terms and not add_terms:
+        raise ValueError('Invalid response from Keyword Refiner Agent')
+
+    return remove_terms, add_terms
+
+
 def _synth_user(question: str, refs: list[Reference]) -> str:
     lines = [f"Question: {question}\n", "References:"]
     for r in refs:
@@ -294,15 +396,18 @@ def _synth_user(question: str, refs: list[Reference]) -> str:
 # ── Parsing ──────────────────────────────────────────────────────────────
 
 
-def _parse_curate(
-    response: str,
-) -> tuple[list[int], list[int], list[str], str | None, bool]:
-    """Parse curation response -> (add_ids, drop_ids, grep_terms, retrieve_query, done)."""
+def _parse_curate(response: str) -> CurateResponse:
+    """Parse curation response into a CurateResponse."""
     add_ids: list[int] = []
     drop_ids: list[int] = []
     grep_terms: list[str] = []
     retrieve_query: str | None = None
     done = False
+    add_keywords: list[str] = []
+    remove_keywords: list[str] = []
+
+    def _parse_comma_terms(s: str) -> list[str]:
+        return [t.strip() for t in s.split(",") if t.strip()]
 
     for line in response.split("\n"):
         stripped = line.strip()
@@ -326,10 +431,24 @@ def _parse_curate(
             m = re.search(r'["\']([^"\']+)["\']', stripped)
             if m:
                 retrieve_query = m.group(1)
+        elif upper.startswith("ADD_KEYWORDS"):
+            rest = stripped[12:].strip().strip(":").strip()
+            add_keywords.extend(_parse_comma_terms(rest))
+        elif upper.startswith("REMOVE_KEYWORDS"):
+            rest = stripped[15:].strip().strip(":").strip()
+            remove_keywords.extend(_parse_comma_terms(rest))
         elif "DONE" in upper:
             done = True
 
-    return add_ids, drop_ids, grep_terms, retrieve_query, done
+    return CurateResponse(
+        add_ids=add_ids,
+        drop_ids=drop_ids,
+        grep_terms=grep_terms,
+        retrieve_query=retrieve_query,
+        done=done,
+        add_keywords=add_keywords,
+        remove_keywords=remove_keywords,
+    )
 
 
 # ── LLM helper ───────────────────────────────────────────────────────────
@@ -360,16 +479,17 @@ def run_agent(
     retriever,
     reranker,
     llm: LLM,
-    max_curate_steps: int = 4,
+    max_curate_steps: int = 3,
 ) -> AgentResult:
     """
-    Evidence-curation agent with keyword pre-filtering and GREP tool.
+    Evidence-curation agent with keyword enrichment and GREP tool.
 
-    1. Retrieve + rerank
-    2. Split into passages, extract section headers
-    3. Extract keywords, score passages — show only matches to LLM
-    4. Agent curates (SELECT / GREP / DROP / RETRIEVE / DONE)
-    5. Synthesize cited answer
+    1. Retrieve + rerank, split into passages with section headers
+    2. Extract keywords from question (automated)
+    3. Keyword enrichment (1 LLM call) — expand terms
+    4. Agent curates (1-3 LLM calls) — SELECT / GREP / DROP / RETRIEVE / DONE
+    5. Hard cap: trim to ≤15 references
+    6. Synthesize cited answer (1 LLM call)
 
     Returns AgentResult with references, answer, iteration log, call count.
     """
@@ -386,84 +506,124 @@ def run_agent(
         result.answer = "No relevant information found in the documents."
         return result
 
-    # ── 2. Keyword scoring ───────────────────────────────────────────────
+    # ── 2. Keyword extraction ────────────────────────────────────────────
     keywords = _extract_keywords(question)
-    result.keywords = keywords
+
+    # ── 3. Keyword enrichment (1 LLM call) ───────────────────────────────
+    sections = list(dict.fromkeys(p.section for p in pool if p.section != "Unknown"))[:10]
+    enrich_prompt = _enrich_user(question, keywords, sections)
+    enrich_response = _chat(llm, _ENRICH_SYSTEM, enrich_prompt)
+    result.total_llm_calls += 1
+
+    removed_terms, added_terms = _parse_enrich(enrich_response, keywords)
+    remove_lower = {t.lower() for t in removed_terms}
+    keywords = [k for k in keywords if k.lower() not in remove_lower] + added_terms
+    result.keywords = list(keywords)
+
+    result.iterations.append({
+        "step": 1,
+        "type": "enrich",
+        "system_prompt": _ENRICH_SYSTEM,
+        "user_prompt": enrich_prompt,
+        "response": enrich_response,
+        "initial_keywords": _extract_keywords(question),
+        "removed_terms": removed_terms,
+        "added_terms": added_terms,
+        "keywords_after": list(keywords),
+    })
 
     selected: list[int] = []
-    valid_ids = {gid for gid, _, _, _ in pool}
+    valid_ids = {p.id for p in pool}
     grep_results: list[tuple[str, list[int]]] = []
 
-    # ── 3. Curate loop ───────────────────────────────────────────────────
+    # ── 4. Curate loop (1-3 LLM calls) ──────────────────────────────────
     for step in range(max_curate_steps):
         prompt = _curate_user(question, pool, keywords, selected, grep_results)
         response = _chat(llm, _CURATE_SYSTEM, prompt)
         result.total_llm_calls += 1
 
-        add_ids, drop_ids, grep_terms, retrieve_query, done = _parse_curate(response)
+        cur = _parse_curate(response)
 
-        for sid in add_ids:
+        for sid in cur.add_ids:
             if sid in valid_ids and sid not in selected:
                 selected.append(sid)
-        for sid in drop_ids:
+        for sid in cur.drop_ids:
             if sid in selected:
                 selected.remove(sid)
 
+        # Apply keyword add/remove
+        remove_lower = {t.lower() for t in cur.remove_keywords}
+        keywords = [k for k in keywords if k.lower() not in remove_lower]
+        for term in cur.add_keywords:
+            term = term.strip()
+            if term and term.lower() not in {k.lower() for k in keywords}:
+                keywords.append(term)
+
         result.iterations.append({
-            "step": step + 1,
+            "step": step + 2,  # step 1 is enrichment
             "type": "curate",
             "system_prompt": _CURATE_SYSTEM,
             "user_prompt": prompt,
             "response": response,
             "selected_after": list(selected),
-            "grep_terms": grep_terms,
-            "retrieve_query": retrieve_query,
+            "grep_terms": cur.grep_terms,
+            "retrieve_query": cur.retrieve_query,
+            "add_keywords": cur.add_keywords,
+            "remove_keywords": cur.remove_keywords,
+            "keywords_after": list(keywords),
         })
 
         # Execute tools
-        tool_used = False
-
-        for term in grep_terms:
+        for term in cur.grep_terms:
             ids = _grep_pool(pool, term)
             grep_results.append((term, ids))
-            tool_used = True
 
-        if retrieve_query:
-            new_bundle = QueryBundle(query_str=retrieve_query)
+        if cur.retrieve_query:
+            new_bundle = QueryBundle(query_str=cur.retrieve_query)
             new_nodes = retriever.retrieve(new_bundle)
             if reranker:
                 new_nodes = reranker.postprocess_nodes(new_nodes, new_bundle)
             _add_to_pool(pool, new_nodes)
-            valid_ids = {gid for gid, _, _, _ in pool}
-            tool_used = True
+            valid_ids = {p.id for p in pool}
 
-        # Stop if done with no pending tools, or no actions at all
-        if not tool_used:
+        # Stop only when agent says DONE (or we hit max steps)
+        if cur.done:
             break
 
-    # ── 4. Fallback if nothing selected ──────────────────────────────────
+    result.keywords = keywords  # final set after any ADD/REMOVE_KEYWORDS
+
+    # ── 5. Fallback if nothing selected ──────────────────────────────────
     if not selected:
         scored = [
-            (gid, _score_passage(text, keywords)[0])
-            for gid, text, _, _ in pool
+            (p.id, _score_passage(p.passage, keywords)[0])
+            for p in pool
         ]
         scored.sort(key=lambda x: -x[1])
-        selected = [gid for gid, sc in scored[:5] if sc > 0]
+        selected = [pid for pid, sc in scored[:5] if sc > 0]
         if not selected:
-            selected = [gid for gid, _, _, _ in pool[:3]]
+            selected = [p.id for p in pool[:3]]
 
-    # ── 5. Build references ──────────────────────────────────────────────
+    # ── Hard cap: never exceed 15 references ─────────────────────────────
+    if len(selected) > 15:
+        print(f"  Hard cap hit: {len(selected)} selected → trimming to 15 by keyword score")
+        id_to_score: dict[int, int] = {}
+        for p in pool:
+            if p.id in selected:
+                id_to_score[p.id] = _score_passage(p.passage, keywords)[0]
+        selected = sorted(selected, key=lambda sid: -id_to_score.get(sid, 0))[:15]
+
+    # ── 6. Build references ──────────────────────────────────────────────
     refs: list[Reference] = []
-    for gid, text, section, source in pool:
-        if gid in selected:
+    for p in pool:
+        if p.id in selected:
             refs.append(Reference(
                 id=len(refs) + 1,
-                passage=text,
-                section=section,
-                source=source,
+                passage=p.passage,
+                section=p.section,
+                source=p.source,
             ))
 
-    # ── 6. Synthesize ────────────────────────────────────────────────────
+    # ── 7. Synthesize (1 LLM call) ─────────────────────────────────────
     synth_prompt = _synth_user(question, refs)
     answer = _chat(llm, _SYNTH_SYSTEM, synth_prompt)
     result.total_llm_calls += 1
