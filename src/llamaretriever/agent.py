@@ -43,6 +43,7 @@ class AgentResult:
     answer: str
     iterations: list[dict] = field(default_factory=list)
     total_llm_calls: int = 0
+    keywords: list[str] = field(default_factory=list)  # terms used for passage scoring
 
 
 # ── Keyword extraction & scoring ─────────────────────────────────────────
@@ -83,10 +84,6 @@ def _extract_keywords(question: str) -> list[str]:
         seen.add(low)
         keywords.append(w)
 
-    # If we have technical terms (mixed case / contain digits), prioritize them
-    technical = [k for k in keywords if k != k.lower() or any(c.isdigit() for c in k)]
-    if technical:
-        return technical
     return keywords
 
 
@@ -251,6 +248,7 @@ def _curate_user(
 
     # Keyword-matching passages (sorted by score descending)
     matching = sorted([s for s in scored if s[4] > 0], key=lambda x: -x[4])
+    # matching = sorted([s for s in scored if s], key=lambda x: -x[4])
     shown_ids: set[int] = set()
 
     if matching:
@@ -390,6 +388,7 @@ def run_agent(
 
     # ── 2. Keyword scoring ───────────────────────────────────────────────
     keywords = _extract_keywords(question)
+    result.keywords = keywords
 
     selected: list[int] = []
     valid_ids = {gid for gid, _, _, _ in pool}
@@ -413,6 +412,8 @@ def run_agent(
         result.iterations.append({
             "step": step + 1,
             "type": "curate",
+            "system_prompt": _CURATE_SYSTEM,
+            "user_prompt": prompt,
             "response": response,
             "selected_after": list(selected),
             "grep_terms": grep_terms,
@@ -472,8 +473,10 @@ def run_agent(
     result.iterations.append({
         "step": len(result.iterations) + 1,
         "type": "synthesize",
+        "system_prompt": _SYNTH_SYSTEM,
+        "user_prompt": synth_prompt,
         "num_references": len(refs),
-        "answer": answer,
+        "response": answer,
     })
 
     return result

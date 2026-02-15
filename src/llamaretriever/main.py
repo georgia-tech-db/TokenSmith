@@ -108,6 +108,8 @@ def get_answer(
     print("  EVIDENCE  ({} references, {} LLM calls, {:.1f}s)".format(
         len(result.references), result.total_llm_calls, total_time,
     ))
+    if result.keywords:
+        print("  Keywords (scoring): {}".format(", ".join(result.keywords)))
     print("=" * 60)
     for ref in result.references:
         print(f"\n  [{ref.id}] § {ref.section}")
@@ -132,6 +134,7 @@ def get_answer(
             iterations=result.iterations,
             total_llm_calls=result.total_llm_calls,
             total_time_s=total_time,
+            keywords=result.keywords,
         )
 
     return result.answer
