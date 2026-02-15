@@ -119,6 +119,14 @@ def pytest_addoption(parser):
         help="Override similarity threshold for all tests"
     )
     
+    # === Backend Selection ===
+    group.addoption(
+        "--backend",
+        choices=["tokensmith", "llamaretriever"],
+        default="tokensmith",
+        help="Backend to benchmark: 'tokensmith' (src.main) or 'llamaretriever' (src.llamaretriever)"
+    )
+
     # === Utility Options ===
     group.addoption(
         "--list-metrics",
@@ -176,6 +184,9 @@ def config(pytestconfig):
         # Query Enhancement (HyDE)
         "use_hyde": cfg.get("use_hyde", False),
         "hyde_max_tokens": cfg.get("hyde_max_tokens", 100),
+
+        # Backend selection
+        "backend": pytestconfig.getoption("--backend"),
     }
 
     # Handle enable/disable chunks
@@ -260,7 +271,7 @@ def pytest_sessionfinish(session, exitstatus):
     if not output_mode and config_path.exists():
         with open(config_path) as f:
             cfg = yaml.safe_load(f) or {}
-        output_mode = cfg.get("testing", {}).get("output_mode", "html")
+        output_mode = cfg.get("testing", {}).get("output_mode", "terminal")
     
     # Wait for async LLM grading to complete
     _wait_for_async_grading()

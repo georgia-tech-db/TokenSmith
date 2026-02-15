@@ -265,18 +265,46 @@ Worked example (question about database checkpointing; "use" adds noise):
 Then on the next turn you will see updated Key terms and any GREP results; SELECT the relevant IDs and DONE when satisfied."""
 
 _ENRICH_SYSTEM = """\
-You are a keyword refiner for a textbook Q&A system. You will be given a \
-question, its initial key terms, and the section headings from retrieved \
-passages so you know the domain.
+You are a keyword refiner for a textbook Q&A system. The textbook is \
+"Database System Concepts" (Silberschatz, Korth, Sudarshan, 7th ed.) \
+with these chapters:
 
-Do TWO things:
-1. REMOVE only vague filler words that add noise (e.g. "just", "could", \
-"does", "way", "thing"). Do NOT remove domain-specific terms. Keep at least \
-one initial term.
-2. ADD 3-8 technical terms from the SAME domain as the sections shown that \
-would help find passages answering this question.
+Ch 1: Introduction — DBMS, data abstraction, schemas
+Ch 2: Relational Model — relations, keys, relational algebra
+Ch 3: Intro to SQL — SELECT, joins, aggregates, GROUP BY, HAVING
+Ch 4: Intermediate SQL — outer joins, views, integrity constraints, authorization
+Ch 5: Advanced SQL — functions, procedures, triggers, recursive queries, OLAP (rollup, cube)
+Ch 6: E-R Model — entities, relationships, cardinality, weak entities, specialization
+Ch 7: Relational DB Design — functional dependencies, normalization (BCNF, 3NF), decomposition
+Ch 8: Complex Data Types — JSON, XML, spatial data, textual data
+Ch 9: Application Development — web apps, servlets, security, encryption
+Ch 10: Big Data — distributed storage, MapReduce, Spark, streaming, graph databases
+Ch 11: Data Analytics — data warehousing, OLAP, star schema, data mining
+Ch 12: Physical Storage — disks, flash, RAID, storage interfaces
+Ch 13: Data Storage Structures — file organization, buffer management, column stores
+Ch 14: Indexing — B+-trees, hash indices, bitmap indices, spatial indexing
+Ch 15: Query Processing — selection, sorting, join algorithms (nested-loop, hash, merge)
+Ch 16: Query Optimization — equivalence rules, cost estimation, dynamic programming, materialized views
+Ch 17: Transactions — ACID, serializability, isolation levels, schedules
+Ch 18: Concurrency Control — locking (2PL), deadlocks, timestamps, MVCC, snapshot isolation
+Ch 19: Recovery — WAL, log records, checkpoints, ARIES (LSN, PageLSN, RecLSN, DirtyPageTable)
+Ch 20: DB Architectures — centralized, client-server, parallel, distributed, cloud
+Ch 21: Parallel/Distributed Storage — partitioning, replication, distributed file systems
+Ch 22: Parallel/Distributed Query Processing — parallel sort, parallel join, distributed queries
+Ch 23: Parallel/Distributed Transactions — 2PC, 3PC, Paxos, Raft, distributed concurrency
+Ch 24: Advanced Indexing — Bloom filters, LSM trees, R-trees, extendable/linear hashing
+Ch 25: Advanced Application Dev — performance tuning, benchmarks (TPC), LDAP
+Ch 26: Blockchain — hash chains, consensus, smart contracts, permissioned blockchains
 
-Reply in EXACTLY this format (both lines required, even if empty):
+Given a question and its initial key terms, refine the keyword list.
+
+You may:
+1. REMOVE terms that are vague fillers or would cause noise (e.g. "just", \
+"could", "way"). Do NOT remove terms that name the core topic of the question.
+2. ADD 3-8 additional technical terms from the chapters above that would \
+appear in textbook passages answering this question.
+
+Reply in EXACTLY this format (both lines required, leave empty if nothing):
 REMOVE: term1, term2
 ADD: term3, term4, term5"""
 
@@ -346,14 +374,11 @@ def _curate_user(
     return "\n".join(lines)
 
 
-def _enrich_user(question: str, keywords: list[str], sections: list[str]) -> str:
-    lines = [
-        f"Question: {question}",
-        f"Initial key terms: {', '.join(keywords)}",
-    ]
-    if sections:
-        lines.append(f"Sections from retrieved passages: {', '.join(sections)}")
-    return "\n".join(lines)
+def _enrich_user(question: str, keywords: list[str]) -> str:
+    return (
+        f"Question: {question}\n"
+        f"Initial key terms: {', '.join(keywords)}"
+    )
 
 
 def _parse_enrich(response: str, existing: list[str]) -> tuple[list[str], list[str]]:
@@ -510,8 +535,7 @@ def run_agent(
     keywords = _extract_keywords(question)
 
     # ── 3. Keyword enrichment (1 LLM call) ───────────────────────────────
-    sections = list(dict.fromkeys(p.section for p in pool if p.section != "Unknown"))[:10]
-    enrich_prompt = _enrich_user(question, keywords, sections)
+    enrich_prompt = _enrich_user(question, keywords)
     enrich_response = _chat(llm, _ENRICH_SYSTEM, enrich_prompt)
     result.total_llm_calls += 1
 
@@ -586,8 +610,9 @@ def run_agent(
             _add_to_pool(pool, new_nodes)
             valid_ids = {p.id for p in pool}
 
-        # Stop only when agent says DONE (or we hit max steps)
-        if cur.done:
+        # Stop if agent says DONE, or if it only selected (no tool calls needed)
+        has_tools = cur.grep_terms or cur.retrieve_query or cur.add_keywords or cur.remove_keywords
+        if cur.done or (cur.add_ids and not has_tools):
             break
 
     result.keywords = keywords  # final set after any ADD/REMOVE_KEYWORDS
