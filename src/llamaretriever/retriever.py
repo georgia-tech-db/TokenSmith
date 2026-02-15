@@ -13,6 +13,7 @@ from __future__ import annotations
 from llama_index.core import VectorStoreIndex
 from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.retrievers.bm25 import BM25Retriever
 
 from .config import LlamaIndexConfig
@@ -38,8 +39,8 @@ def build_retriever(
     return QueryFusionRetriever(
         retrievers=[vector_retriever, bm25_retriever],
         similarity_top_k=cfg.num_candidates,
-        num_queries=1,                  # no query generation, just fuse
-        mode="reciprocal_rerank",       # RRF
+        num_queries=1,                           # no query generation, just fuse
+        mode=FUSION_MODES.RECIPROCAL_RANK,       # RRF
         use_async=False,
     )
 
