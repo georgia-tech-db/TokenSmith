@@ -18,6 +18,7 @@ _executor: Optional[ThreadPoolExecutor] = None
 _client = None
 _doc_data = None
 _initialized = False
+_init_failed = False  # True when init was attempted but failed (e.g. missing key)
 
 # Rate limiting
 _rate_limit_lock = threading.Lock()
@@ -40,8 +41,8 @@ class AsyncLLMJudgeMetric(MetricBase):
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results_file = self.log_dir / "async_llm_results.json"
         
-        # Initialize client once
-        if not _initialized:
+        # Initialize client once (tolerates missing API key)
+        if not _initialized and not _init_failed:
             _lazy_init()
     
     @property
@@ -53,7 +54,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         return 0.0
     
     def is_available(self) -> bool:
-        return True
+        return _initialized and not _init_failed
     
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
         """
@@ -88,17 +89,32 @@ class AsyncLLMJudgeMetric(MetricBase):
 
 
 def _lazy_init():
-    """Initialize client, executor, and load document once."""
-    global _client, _doc_data, _initialized, _executor
+    """Initialize client, executor, and load document once.
+
+    Silently disables the metric when the API key is missing or any other
+    initialisation step fails, so the rest of the benchmark suite can run.
+    """
+    global _client, _doc_data, _initialized, _executor, _init_failed
     
-    if _initialized:
+    if _initialized or _init_failed:
         return
     
-    _client = genai.Client()
-    doc_url = "https://my.uopeople.edu/pluginfile.php/57436/mod_book/chapter/37620/Database%20System%20Concepts%204th%20Edition%20By%20Silberschatz-Korth-Sudarshan.pdf"
-    _doc_data = httpx.get(doc_url).content
-    _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="llm_judge")
-    _initialized = True
+    import os
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("⚠️  async_llm_judge disabled: GOOGLE_API_KEY / GEMINI_API_KEY not set")
+        _init_failed = True
+        return
+
+    try:
+        _client = genai.Client()
+        doc_url = "https://my.uopeople.edu/pluginfile.php/57436/mod_book/chapter/37620/Database%20System%20Concepts%204th%20Edition%20By%20Silberschatz-Korth-Sudarshan.pdf"
+        _doc_data = httpx.get(doc_url).content
+        _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="llm_judge")
+        _initialized = True
+    except Exception as e:
+        print(f"⚠️  async_llm_judge disabled: initialization failed — {e}")
+        _init_failed = True
 
 
 def _perform_attempt(question: str, answer: str) -> Dict:

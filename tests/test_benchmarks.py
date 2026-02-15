@@ -1,4 +1,5 @@
 import json
+import time
 import pytest
 from pathlib import Path
 from datetime import datetime
@@ -42,9 +43,11 @@ def print_test_config(config, scorer):
     """Print the test configuration in a readable format."""
     active_metrics = list(scorer._get_active_metrics().keys())
     
+    backend = config.get("backend", "tokensmith")
     print(f"\n{'='*60}")
     print("  TokenSmith Benchmark Configuration")
     print(f"{'='*60}")
+    print(f"  Backend:            {backend}")
     print(f"  Generator Model:    {Path(config['model_path']).name}")
     print(f"  Embedding Model:    {Path(config['embed_model']).name if '/' in config['embed_model'] else config['embed_model']}")
     # print(f"  Retrieval Method:   {config['retrieval_method']}")
@@ -85,13 +88,23 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     print(f"  Threshold: {threshold}")
     print(f"{'─'*60}")
     
-    # Get answer from TokenSmith
+    # Get answer from the selected backend
     try:
-        retrieved_answer, chunks_info, hyde_query = get_tokensmith_answer(
-            question=question,
-            config=config,
-            golden_chunks=golden_chunks if config["use_golden_chunks"] else None
-        )
+        backend = config.get("backend", "tokensmith")
+        t0 = time.time()
+        if backend == "llamaretriever":
+            retrieved_answer, chunks_info, hyde_query = get_llamaretriever_answer(
+                question=question,
+                config=config,
+            )
+        else:
+            retrieved_answer, chunks_info, hyde_query = get_tokensmith_answer(
+                question=question,
+                config=config,
+                golden_chunks=golden_chunks if config["use_golden_chunks"] else None
+            )
+        answer_time_s = time.time() - t0
+        print(f"  ⏱  Answer generated in {answer_time_s:.1f}s")
     except Exception as e:
         import logging, traceback
         error_msg = f"Error running TokenSmith: {e}"
@@ -135,12 +148,14 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         "threshold": threshold,
         "scores": scores,
         "passed": passed,
+        "answer_time_s": round(answer_time_s, 2),
         "active_metrics": scores.get("active_metrics", []),
         "metric_weights": get_metric_weights(scorer, scores.get("active_metrics", [])),
         "chunks_info": chunks_info if chunks_info else [],
         "hyde_query": hyde_query if hyde_query else None,
         "timestamp": datetime.now().isoformat(),
         "config": {
+            "backend": config.get("backend", "tokensmith"),
             "model_path": config["model_path"],
             "embed_model": config["embed_model"],
             # "retrieval_method": config["retrieval_method"],
@@ -159,6 +174,23 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         ))
     
     return result_data
+
+
+def get_llamaretriever_answer(question, config):
+    """
+    Get answer from the LlamaRetriever backend.
+
+    Returns:
+        tuple: (Generated answer, chunks_info list with dummy IDs, None)
+    """
+    from src.llamaretriever.main_test import get_llamaretriever_answer as _get_answer
+
+    result = _get_answer(question=question, config=config)
+    generated, chunks_info, hyde_query = result
+
+    # Clean answer
+    generated = clean_answer(generated)
+    return generated, chunks_info, hyde_query
 
 
 def get_tokensmith_answer(question, config, golden_chunks=None):
