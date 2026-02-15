@@ -1,7 +1,7 @@
 """Configuration for the LlamaRetriever pipeline.
 
-Same retrieval stack as llamaindex, but replaces single-shot generation
-with an iterative evidence-curation agent.
+Uses the same retrieval stack (vector + BM25 + RRF + reranker) with an
+iterative evidence-curation agent instead of single-shot generation.
 """
 
 from __future__ import annotations
