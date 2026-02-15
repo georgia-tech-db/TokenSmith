@@ -43,9 +43,10 @@ class QueryLogger:
         iterations: list[dict[str, Any]],
         total_llm_calls: int,
         total_time_s: float,
+        keywords: list[str] | None = None,
     ) -> None:
         """Log a single agent query with references, iterations, and timings."""
-        self._data["queries"].append({
+        entry: dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "question": question,
             "answer": answer,
@@ -54,7 +55,10 @@ class QueryLogger:
             "total_llm_calls": total_llm_calls,
             "total_time_s": round(total_time_s, 3),
             "iterations": iterations,
-        })
+        }
+        if keywords is not None:
+            entry["keywords"] = keywords
+        self._data["queries"].append(entry)
         self._flush()
 
     def _flush(self) -> None:
