@@ -221,7 +221,7 @@ Available tools (one per line):
 Rules:
 - A passage must specifically discuss the topic asked about — not merely share a keyword
 - Do NOT select exercise questions, index entries, practice problems, or figure captions
-- Do NOT select passages about clearly different topics (e.g., R-trees for an ARIES question)
+- Do NOT select passages about clearly different topics
 - Include passages that define, explain, or illustrate the topic and its context
 - Use GREP to find passages about related concepts not yet shown
 - Do a thorough and complete coverage of the topic"""
