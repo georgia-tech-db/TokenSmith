@@ -24,7 +24,7 @@ class NLIEntailmentMetric(MetricBase):
         """Initialize the NLI pipeline with the best available model."""
         try:
             # Suppress CUDA warnings if running on CPU
-            os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+            # os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
             warnings.filterwarnings("ignore", message=".*CUDA capability.*")
             
             model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
