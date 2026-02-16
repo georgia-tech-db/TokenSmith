@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.config import RAGConfig
-from src.generator import answer
+from src.generator import answer, answer_with_confidence
 from src.instrumentation.logging import init_logger, get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
@@ -37,6 +37,7 @@ _retrievers: Optional[List] = None
 _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
+_confidence_scorer = None
 
 
 class SourceItem(BaseModel):
@@ -62,6 +63,7 @@ class ChatResponse(BaseModel):
     chunks_used: List[int]
     chunks_by_page: Dict[int, List[str]]
     query: str
+    confidence: Optional[float] = None
 
 
 def _resolve_config_path() -> pathlib.Path:
@@ -99,7 +101,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger
+    global _artifacts, _retrievers, _ranker, _config, _logger, _confidence_scorer
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -139,7 +141,19 @@ async def lifespan(app: FastAPI):
             rrf_k=int(_config.rrf_k),
         )
 
-        print("✅ TokenSmith API initialized successfully")
+        # init confidence scorer if it was enabled in config
+        if _config.enable_confidence_scoring:
+            try:
+                from src.confidence.bert_confidence import BERTConfidenceScorer
+                _confidence_scorer = BERTConfidenceScorer(
+                    model_name=_config.confidence_model,
+                    embed_model=_config.embed_model
+                )
+            except Exception as e:
+                _confidence_scorer = None
+        else:
+            _confidence_scorer = None # null if not enabled
+
     except Exception as exc:
         print(f"⚠️  Warning: Could not load artifacts: {exc}")
         print("   Run indexing first or check your configuration")
@@ -273,8 +287,21 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
-            for delta in answer(request.query, ranked_chunks, _config.gen_model,
-                              _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
+            # check for confidence scorer loaded (was very helpful for debugging)
+            if _confidence_scorer and not disable_chunks:
+                answer_stream = answer_with_confidence(
+                    request.query, ranked_chunks, _config.gen_model,
+                    _config.max_gen_tokens, system_prompt_mode=prompt_type,
+                    temperature=temperature,
+                    confidence_scorer=_confidence_scorer,
+                    confidence_threshold=_config.confidence_threshold,
+                )
+            else:
+                answer_stream = answer(request.query, ranked_chunks, _config.gen_model,
+                                      _config.max_gen_tokens, system_prompt_mode=prompt_type,
+                                      temperature=temperature)
+            
+            for delta in answer_stream:
                 if delta:
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
             
@@ -331,15 +358,37 @@ async def chat(request: ChatRequest):
         if not model_path:
             raise HTTPException(status_code=500, detail="Model path not configured.")
 
+        confidence_val = None
         try:
-            answer_text = "".join(answer(
-                request.query,
-                ranked_chunks,
-                model_path,
-                max_tokens,
-                system_prompt_mode=prompt_type,
-                temperature=temperature,
-            ))
+            # check for confidence scorer loaded
+            if _confidence_scorer and not disable_chunks:
+                answer_stream = answer_with_confidence(
+                    request.query,
+                    ranked_chunks,
+                    model_path,
+                    max_tokens,
+                    system_prompt_mode=prompt_type,
+                    temperature=temperature,
+                    confidence_scorer=_confidence_scorer,
+                    confidence_threshold=_config.confidence_threshold,
+                )
+                answer_text = "".join(answer_stream)
+                
+                # calculate the confidence of generated response
+                try:
+                    confidence_res = _confidence_scorer.calculate_confidence(answer_text, ranked_chunks)
+                    confidence_val = confidence_res["confidence"]
+                except Exception:
+                    pass
+            else:
+                answer_text = "".join(answer(
+                    request.query,
+                    ranked_chunks,
+                    model_path,
+                    max_tokens,
+                    system_prompt_mode=prompt_type,
+                    temperature=temperature,
+                ))
         except Exception as gen_error:
             print(f"Generation failed: {str(gen_error)}")
             if _logger:
@@ -378,7 +427,8 @@ async def chat(request: ChatRequest):
             sources=sources_used,
             chunks_used=topk_idxs,
             chunks_by_page=chunks_by_page,
-            query=request.query
+            query=request.query,
+            confidence=confidence_val
         )
         
     except Exception as e:
