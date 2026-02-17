@@ -174,7 +174,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         tuple: (Generated answer, chunks_info list, hyde_query)
     """
     from src.main import get_answer
-    from src.instrumentation.logging import init_logger, get_logger
+    from src.instrumentation.logging import get_logger
     from src.config import RAGConfig
     from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
     from src.ranking.ranker import EnsembleRanker
@@ -190,12 +190,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     # Create RAGConfig from our test config
     cfg = RAGConfig(
         chunk_mode=config.get("chunk_mode", "recursive_sections"),
-        top_k=config.get("top_k", 5),
+        top_k=config.get("top_k", 10),
         embed_model=config.get("embed_model"),
         ensemble_method=config.get("retrieval_method", "rrf"),
         rrf_k=60,
-        ranker_weights=config.get("ranker_weights", {"faiss": 0.6, "bm25": 0.4}),
+        ranker_weights=config.get("ranker_weights", {"faiss": 1, "bm25": 0}),
         rerank_mode=config.get("rerank_mode", "none"),
+        rerank_top_k=config.get("rerank_top_k", 5),
         system_prompt_mode=config.get("system_prompt_mode", "baseline"),
         max_gen_tokens=config.get("max_gen_tokens", 400),
         disable_chunks=config.get("disable_chunks", False),
@@ -203,7 +204,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         output_mode=config.get("output_mode", "html"),
         metrics=config.get("metrics", ["all"]),
         use_hyde=config.get("use_hyde", False),
-        hyde_max_tokens=config.get("hyde_max_tokens", 100),
+        hyde_max_tokens=config.get("hyde_max_tokens", 300),
         use_indexed_chunks=config.get("use_indexed_chunks", False),
         extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
         page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
@@ -219,7 +220,6 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
             print(f"  🔬 HyDE enabled - generating hypothetical document...")
         print(f"  🔍 Retrieving chunks...")
     
-    init_logger(cfg)
     logger = get_logger()
 
     # Run the query through the main pipeline

@@ -18,7 +18,7 @@ class RAGConfig:
     chunk_overlap: int = 200
 
     # retrieval + ranking
-    top_k: int = 5
+    top_k: int = 10
     num_candidates: int = 60
     embed_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
     ensemble_method: str = "rrf"
@@ -27,10 +27,11 @@ class RAGConfig:
         default_factory=lambda: {"faiss": 1.0, "bm25": 0.0, "index_keywords": 0.0}
     )
     rerank_mode: str = ""
+    rerank_top_k: int = 5
 
     # generation
     max_gen_tokens: int = 400
-    gen_model: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+    gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
     
     # testing
     system_prompt_mode: str = "baseline"
@@ -41,7 +42,7 @@ class RAGConfig:
 
     # query enhancement
     use_hyde: bool = False
-    hyde_max_tokens: int = 100
+    hyde_max_tokens: int = 300
     
     # index parameters
     use_indexed_chunks: bool = False
@@ -89,3 +90,14 @@ class RAGConfig:
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
+    
+    def get_config_state(self) -> None:
+        """Returns dict of all config parameters except chunk_config """
+        state = self.__dict__.copy()
+        state.pop("chunk_config", None) # remove chunk_config to avoid serialization issues
+        # also pop any non-serializable fields if needed
+        for key in list(state.keys()):
+            if not isinstance(state[key], (int, float, str, bool, list, dict, type(None))):
+                state.pop(key)
+        return state
+        
