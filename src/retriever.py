@@ -55,7 +55,7 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
 
 # -------------------------- Helper to get page nums for chunks -------------------------------
 
-def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int, int]:
+def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int, List[int]]:
     """
     Retrieves page numbers for the provided chunk indices.
     """
@@ -68,10 +68,8 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
         idx = int(idx)
         # Ensure index is within bounds
         if 0 <= idx < len(metadata):
-            # Access the 'page_number' key we saved in index_builder.py
-            p_num = metadata[idx].get("page_number")
-            if p_num is not None:
-                page_numbers[idx] = p_num
+            # Access the 'page_numbers' key we saved in index_builder.py
+            page_numbers[idx] = metadata[idx].get("page_numbers")
 
     return page_numbers
 
