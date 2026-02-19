@@ -10,7 +10,7 @@ from typing import Dict, Optional
 from rich.live import Live
 
 from src.config import RAGConfig
-from src.generator import answer, dedupe_generated_text
+from src.generator import answer, answer_with_confidence, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import init_logger, get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
@@ -225,13 +225,40 @@ def get_answer(
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
-    stream_iter = answer(
-        question,
-        ranked_chunks,
-        model_path,
-        max_tokens=cfg.max_gen_tokens,
-        system_prompt_mode=system_prompt,
-    )
+    # Initialize confidence scorer if enabled
+    confidence_scorer = None
+    if cfg.enable_confidence_scoring:
+        if not hasattr(get_answer, '_confidence_scorer'):
+            try:
+                from src.confidence.bert_confidence import BERTConfidenceScorer
+                get_answer._confidence_scorer = BERTConfidenceScorer(
+                    model_name=cfg.confidence_model,
+                    embed_model=cfg.embed_model
+                )
+            except Exception as e:
+                print(f"Warning: Could not initialize confidence scorer: {e}")
+                get_answer._confidence_scorer = None
+        confidence_scorer = get_answer._confidence_scorer
+
+    # Use answer_with_confidence if scorer is available
+    if confidence_scorer:
+        stream_iter = answer_with_confidence(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+            confidence_scorer=confidence_scorer,
+            confidence_threshold=cfg.confidence_threshold,
+        )
+    else:
+        stream_iter = answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+        )
 
     if is_test_mode:
         # We do not render MD in the test mode
