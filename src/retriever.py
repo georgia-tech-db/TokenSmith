@@ -69,7 +69,7 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
         # Ensure index is within bounds
         if 0 <= idx < len(metadata):
             # Access the 'page_numbers' key we saved in index_builder.py
-            page_numbers[idx] = metadata[idx].get("page_numbers")
+            page_numbers[idx] = metadata[idx].get("page_number")
 
     return page_numbers
 

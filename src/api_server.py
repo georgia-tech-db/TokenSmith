@@ -6,6 +6,7 @@ Provides REST API endpoints for the React frontend.
 import sys
 import pathlib
 import re, json
+import traceback
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -322,10 +323,16 @@ async def chat_stream(request: ChatRequest):
             for i in topk_idxs[:max_chunks]:
                 source_text = sources[i]
                 pages = page_nums.get(i, [1])
-                for page in pages:
-                    chunks_by_page.setdefault(page, []).append(chunks[i])
-                    sources_used.add(SourceItem(page=page, text=source_text))
-            
+                if isinstance(pages, list):
+                    for page in pages:
+                        chunks_by_page.setdefault(page, []).append(chunks[i])
+                        sources_used.add(SourceItem(page=page, text=source_text))
+                elif isinstance(pages, int):
+                    chunks_by_page.setdefault(pages, []).append(chunks[i])
+                    sources_used.add(SourceItem(page=pages, text=source_text))
+                else:
+                    print(f"Unexpected page number format for chunk index {i}: {pages}")
+    
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
@@ -346,6 +353,7 @@ async def chat_stream(request: ChatRequest):
         except Exception as e:
             # Using print here so you can see crashes in the terminal while debugging
             print(f"Logging Error: {e}")
+            traceback.print_exc()
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -438,11 +446,18 @@ async def chat(request: ChatRequest):
 
         for i in topk_idxs[:max_chunks]:
             source_text = sources[i]
-            pages = page_nums.get(i, [1]) or [1]
+            pages = page_nums.get(i, [1])
 
-            for page in pages:
-                sources_used.add(SourceItem(page=int(page), text=source_text))
-                chunks_by_page.setdefault(int(page), []).append(chunks[i])
+            if isinstance(pages, list):
+                for page in pages:
+                    sources_used.add(SourceItem(page=int(page), text=source_text))
+                    chunks_by_page.setdefault(int(page), []).append(chunks[i])
+            elif isinstance(pages, int):
+                sources_used.add(SourceItem(page=int(pages), text=source_text))
+                chunks_by_page.setdefault(int(pages), []).append(chunks[i])
+            else: # Error case
+                print(f"Unexpected page number format for chunk index {i}: {pages}")
+
 
         # 5. Logging
         if _logger:
