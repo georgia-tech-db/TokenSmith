@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import yaml
@@ -243,10 +244,10 @@ def results_dir():
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_results_file(results_dir):
-    """Initialize results file (clean previous results)."""
+    """Initialize results file as empty JSON array (clean previous results)."""
     results_file = results_dir / "benchmark_results.json"
-    if results_file.exists():
-        results_file.unlink()
+    with open(results_file, "w") as f:
+        json.dump([], f, indent=2)
     return results_file
 
 

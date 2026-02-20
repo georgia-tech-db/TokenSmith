@@ -9,12 +9,9 @@ def generate_summary_report(results_dir: Path):
     if not results_file.exists():
         return
     
-    # Read all results
-    results = []
-    with open(results_file, 'r') as f:
-        for line in f:
-            if line.strip():
-                results.append(json.loads(line))
+    # Read all results (JSON array)
+    with open(results_file, "r") as f:
+        results = json.load(f)
     
     if not results:
         return
