@@ -4,12 +4,12 @@ Iterative evidence-curation agent with keyword enrichment.
 Flow:
   1. Retrieve + rerank chunks, split into passages with section headers
   2. Extract keywords from question (automated, stopword-filtered)
-  3. Keyword enrichment (1 LLM call) — expand terms with related concepts
-  4. Agent curates (1-3 LLM calls): COUNT+SELECT / DROP / RETRIEVE / DONE
-  5. Hard cap: trim to ≤15 references by keyword score
+  3. Keyword enrichment (1 LLM call) — commented out
+  4. Curator ranks each passage (1-3 LLM calls): RANK id=score (0=irrelevant), optional RETRIEVE, DONE
+  5. Take top 15 by curator rank (or fewer if fewer have score > 0)
   6. Synthesize cited answer (1 LLM call)
 
-Total LLM calls: 1 (enrich) + 1-3 (curate) + 1 (synthesize) = 3-5
+Total LLM calls: 1-3 (curate) + 1 (synthesize) = 2-4
 """
 
 from __future__ import annotations
@@ -54,6 +54,8 @@ class CurateResponse:
     done: bool
     add_keywords: list[str]
     remove_keywords: list[str]
+    # id -> relevance score (0 = irrelevant); x.y one decimal for sorting
+    rank_scores: dict[int, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -219,34 +221,22 @@ def _add_to_pool(pool: list[Passage], nodes: list[NodeWithScore]) -> None:
 
 
 _CURATE_SYSTEM = """\
-You are an evidence selector for a textbook Q&A system. Given a question and \
-passages, select the passages that DIRECTLY help answer the question.
+You are an evidence ranker for a textbook Q&A system. Given a question and \
+passages, rank each passage by relevance to the question.
 
-Available actions (one per line):
-  RETRIEVE: "<new search query>" — fetch new chunks from the index
-  ADD_KEYWORDS: <comma-separated terms> — add terms used to score/filter passages
-  REMOVE_KEYWORDS: <comma-separated terms> — remove terms from scoring
-  DROP: <comma-separated IDs> — remove passages from selection
+Output format (use exactly these lines):
+  RANK: id1=score1, id2=score2, ...
+  RETRIEVE: "<new search query>"  (optional — only if you need more passages)
+  DONE
 
-To select passages, write two lines together:
-  COUNT: <number>
-  SELECT: <comma-separated passage IDs>
-COUNT must equal the number of IDs in SELECT. End with DONE.
+Ranking rules:
+- Assign each passage ID a relevance score. Use one decimal only (e.g. 0, 1.5, 2.3, 3.0). Higher = more relevant.
+- Use 0 or 0.0 for irrelevant passages (off-topic, exercises, index entries, figure captions).
+- Typical scores: 0 irrelevant, 1.0 tangentially related, 2.0 relevant, 3.0 highly relevant. You may use 0–5 with one decimal (x.y).
+- At most 15 passages will be kept (top 15 by score). Include every passage ID in the RANK line.
 
-Rules:
-- A passage must specifically discuss the topic asked about — not merely share a keyword
-- Do NOT select exercise questions, index entries, practice problems, or figure captions
-- Do NOT select passages about clearly different topics
-- Prefer passages that define, explain, or illustrate the topic and its context
-- Aim for 10-15 selected passages (good coverage without noise)
-- Maximum number of passages is capped at 15, rest of the passages are skipped
-- You can use RETRIEVE, ADD_KEYWORDS, REMOVE_KEYWORDS before SELECT.
-
-Worked example (question about database checkpointing; "use" adds noise):
-  REMOVE_KEYWORDS: use
-  COUNT: 13
-  SELECT: 2, 5, 8, 11, 12, 13, 4, 6, 21, 89, 10, 3, 28
-  DONE"""
+Optional: RETRIEVE to fetch more passages; then you will be called again to rank the full pool.
+End with DONE."""
 
 _ENRICH_SYSTEM = """\
 You are a keyword refiner for a textbook Q&A system. The textbook is \
@@ -304,40 +294,13 @@ def _curate_user(
     keywords: list[str],
     selected: list[int],
 ) -> str:
-    """Build the curation prompt showing keyword-matching passages."""
+    """Build the curation prompt listing all passages for ranking."""
     lines = [f"Question: {question}"]
     lines.append(f"Key terms: {', '.join(keywords)}\n")
-
-    # Score all passages
-    scored: list[ScoredPassage] = []
+    lines.append("Passages to rank (assign each ID a score 0–5 with one decimal only, e.g. 2.3; 0=irrelevant):\n")
     for p in pool:
-        score, matched = _score_passage(p.passage, keywords)
-        scored.append(ScoredPassage(
-            id=p.id,
-            passage=p.passage,
-            section=p.section,
-            source=p.source,
-            score=score,
-            matched_keywords=matched,
-        ))
-
-    # Keyword-matching passages (sorted by score descending)
-    matching = sorted([s for s in scored if s.score > 0], key=lambda x: -x.score)
-
-    if matching:
-        lines.append(f"Passages matching key terms ({len(matching)}):\n")
-        for s in matching:
-            tag = " [SELECTED]" if s.id in selected else ""
-            lines.append(f"[{s.id}] (§ {s.section}) [matches: {', '.join(s.matched_keywords)}]{tag}")
-            lines.append(f"  {s.passage}\n")
-
-    non_matching = len(pool) - len(matching)
-    if non_matching > 0:
-        lines.append(f"({non_matching} other passages did not match key terms)")
-
-    if selected:
-        lines.append(f"\nCurrently selected: {selected}")
-
+        lines.append(f"[{p.id}] (§ {p.section})")
+        lines.append(f"  {p.passage}\n")
     return "\n".join(lines)
 
 
@@ -389,71 +352,40 @@ def _synth_user(question: str, refs: list[Reference]) -> str:
 
 
 _HARD_MAX_SELECT = 15
+# id=score with score int or one decimal (x.y)
+_RANK_RE = re.compile(r"(\d+)\s*=\s*(\d+(?:\.\d)?)")
 
 
 def _parse_curate(response: str) -> CurateResponse:
-    """Parse curation response into a CurateResponse.
-
-    Enforces the COUNT/SELECT contract:
-    - If COUNT is provided, only the first `count` SELECT IDs are kept.
-    - If COUNT is missing, all SELECT IDs are kept (up to _HARD_MAX_SELECT).
-    - _HARD_MAX_SELECT is always enforced as an absolute ceiling.
-    """
-    add_ids: list[int] = []
-    drop_ids: list[int] = []
+    """Parse curation response. Expects RANK: id=score, ... (score x.y, 0=irrelevant); optional RETRIEVE, DONE."""
     retrieve_query: str | None = None
     done = False
-    add_keywords: list[str] = []
-    remove_keywords: list[str] = []
-    declared_count: int | None = None
-
-    def _parse_comma_terms(s: str) -> list[str]:
-        return [t.strip() for t in s.split(",") if t.strip()]
+    rank_scores: dict[int, float] = {}
 
     for line in response.split("\n"):
         stripped = line.strip()
         upper = stripped.upper()
-
-        if upper.startswith("COUNT"):
-            nums = re.findall(r"\d+", stripped[5:])
-            if nums:
-                declared_count = int(nums[0])
-        elif upper.startswith("SELECT"):
-            nums = re.findall(r"\d+", stripped[6:])
-            add_ids.extend(int(n) for n in nums)
-        elif upper.startswith("DROP"):
-            nums = re.findall(r"\d+", stripped[4:])
-            drop_ids.extend(int(n) for n in nums)
+        if upper.startswith("RANK"):
+            rest = stripped[4:].strip().lstrip(":").strip()
+            for m in _RANK_RE.finditer(rest):
+                pid = int(m.group(1))
+                score = float(m.group(2))
+                rank_scores[pid] = round(max(0.0, min(5.0, score)), 1)
         elif upper.startswith("RETRIEVE"):
             m = re.search(r'["\']([^"\']+)["\']', stripped)
             if m:
                 retrieve_query = m.group(1)
-        elif upper.startswith("ADD_KEYWORDS"):
-            rest = stripped[12:].strip().strip(":").strip()
-            add_keywords.extend(_parse_comma_terms(rest))
-        elif upper.startswith("REMOVE_KEYWORDS"):
-            rest = stripped[15:].strip().strip(":").strip()
-            remove_keywords.extend(_parse_comma_terms(rest))
         elif "DONE" in upper:
             done = True
 
-    # Enforce COUNT contract: keep only first `declared_count` IDs
-    if declared_count is not None and len(add_ids) > declared_count:
-        print(f"  !! SELECT has {len(add_ids)} IDs but COUNT was {declared_count} → trimming")
-        add_ids = add_ids[:declared_count]
-
-    # Absolute ceiling
-    if len(add_ids) > _HARD_MAX_SELECT:
-        print(f"  !! SELECT has {len(add_ids)} IDs → hard-capping to {_HARD_MAX_SELECT}")
-        add_ids = add_ids[:_HARD_MAX_SELECT]
-
     return CurateResponse(
-        add_ids=add_ids,
-        drop_ids=drop_ids,
+        add_ids=[],
+        drop_ids=[],
         retrieve_query=retrieve_query,
         done=done,
-        add_keywords=add_keywords,
-        remove_keywords=remove_keywords,
+        add_keywords=[],
+        remove_keywords=[],
+        rank_scores=rank_scores,
     )
 
 
@@ -488,13 +420,13 @@ def run_agent(
     max_curate_steps: int = 3,
 ) -> AgentResult:
     """
-    Evidence-curation agent with keyword enrichment.
+    Evidence-curation agent: curator ranks each passage, we take top 15 by rank.
 
-    1. Retrieve + rerank, split into passages with section headers
+    1. Retrieve + rerank, split into passages
     2. Extract keywords from question (automated)
-    3. Keyword enrichment (1 LLM call) — expand terms
-    4. Agent curates (1-3 LLM calls) — COUNT+SELECT / DROP / RETRIEVE / DONE
-    5. Hard cap: trim to ≤15 references
+    3. Keyword enrichment (commented out)
+    4. Curator ranks passages (1-3 LLM calls): RANK id=score (0=irrelevant), optional RETRIEVE, DONE
+    5. Select top 15 by rank (or fewer if fewer have score > 0)
     6. Synthesize cited answer (1 LLM call)
 
     Returns AgentResult with references, answer, iteration log, call count.
@@ -540,7 +472,7 @@ def run_agent(
     selected: list[int] = []
     valid_ids = {p.id for p in pool}
 
-    # ── 4. Curate loop (1-3 LLM calls) ──────────────────────────────────
+    # ── 4. Curate loop (1-3 LLM calls): curator ranks passages ───────────
     for step in range(max_curate_steps):
         prompt = _curate_user(question, pool, keywords, selected)
         response = _chat(llm, _CURATE_SYSTEM, prompt)
@@ -548,35 +480,28 @@ def run_agent(
 
         cur = _parse_curate(response)
 
-        for sid in cur.add_ids:
-            if sid in valid_ids and sid not in selected:
-                selected.append(sid)
-        for sid in cur.drop_ids:
-            if sid in selected:
-                selected.remove(sid)
-
-        # Apply keyword add/remove
-        remove_lower = {t.lower() for t in cur.remove_keywords}
-        keywords = [k for k in keywords if k.lower() not in remove_lower]
-        for term in cur.add_keywords:
-            term = term.strip()
-            if term and term.lower() not in {k.lower() for k in keywords}:
-                keywords.append(term)
+        # Selection = top 15 by curator rank (score > 0); 0 = irrelevant
+        if cur.rank_scores:
+            ranked = [
+                (pid, cur.rank_scores[pid])
+                for pid in cur.rank_scores
+                if pid in valid_ids and cur.rank_scores[pid] > 0
+            ]
+            ranked.sort(key=lambda x: -x[1])
+            selected = [pid for pid, _ in ranked[:_HARD_MAX_SELECT]]
 
         result.iterations.append({
-            "step": step + 2,  # step 1 is enrichment
+            "step": step + 2,
             "type": "curate",
             "system_prompt": _CURATE_SYSTEM,
             "user_prompt": prompt,
             "response": response,
+            "rank_scores": cur.rank_scores,
             "selected_after": list(selected),
             "retrieve_query": cur.retrieve_query,
-            "add_keywords": cur.add_keywords,
-            "remove_keywords": cur.remove_keywords,
             "keywords_after": list(keywords),
         })
 
-        # Execute tools
         if cur.retrieve_query:
             new_bundle = QueryBundle(query_str=cur.retrieve_query)
             new_nodes = retriever.retrieve(new_bundle)
@@ -585,12 +510,10 @@ def run_agent(
             _add_to_pool(pool, new_nodes)
             valid_ids = {p.id for p in pool}
 
-        # Stop if agent says DONE, or if it only selected (no tool calls needed)
-        has_tools = cur.retrieve_query or cur.add_keywords or cur.remove_keywords
-        if cur.done or (cur.add_ids and not has_tools):
+        if cur.done or not cur.retrieve_query:
             break
 
-    result.keywords = keywords  # final set after any ADD/REMOVE_KEYWORDS
+    result.keywords = keywords
 
     # ── 5. Fallback if nothing selected ──────────────────────────────────
     if not selected:
@@ -602,15 +525,6 @@ def run_agent(
         selected = [pid for pid, sc in scored[:5] if sc > 0]
         if not selected:
             selected = [p.id for p in pool[:3]]
-
-    # ── Hard cap: never exceed 15 references ─────────────────────────────
-    if len(selected) > 15:
-        print(f"  Hard cap hit: {len(selected)} selected → trimming to 15 by keyword score")
-        id_to_score: dict[int, int] = {}
-        for p in pool:
-            if p.id in selected:
-                id_to_score[p.id] = _score_passage(p.passage, keywords)[0]
-        selected = sorted(selected, key=lambda sid: -id_to_score.get(sid, 0))[:15]
 
     # ── 6. Build references ──────────────────────────────────────────────
     refs: list[Reference] = []
