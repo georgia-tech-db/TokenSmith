@@ -85,11 +85,14 @@ def get_answer(
     cfg: LlamaIndexConfig,
     artifacts: Dict,
     logger: Optional["QueryLogger"] = None,
-) -> str:
+    return_references: bool = False,
+):
     """
     Run a single query through the evidence-curation agent.
 
     Flow: retrieve -> sentence split -> LLM curates evidence -> LLM synthesizes cited answer.
+
+    If return_references is True, returns (answer, references); otherwise returns answer only.
     """
     from .agent import run_agent
 
@@ -137,6 +140,8 @@ def get_answer(
             keywords=result.keywords,
         )
 
+    if return_references:
+        return result.answer, result.references
     return result.answer
 
 

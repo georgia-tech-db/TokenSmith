@@ -516,26 +516,26 @@ def run_agent(
     keywords = _extract_keywords(question)
 
     # ── 3. Keyword enrichment (1 LLM call) ───────────────────────────────
-    enrich_prompt = _enrich_user(question, keywords)
-    enrich_response = _chat(llm, _ENRICH_SYSTEM, enrich_prompt)
-    result.total_llm_calls += 1
+    # enrich_prompt = _enrich_user(question, keywords)
+    # enrich_response = _chat(llm, _ENRICH_SYSTEM, enrich_prompt)
+    # result.total_llm_calls += 1
 
-    removed_terms, added_terms = _parse_enrich(enrich_response, keywords)
-    remove_lower = {t.lower() for t in removed_terms}
-    keywords = [k for k in keywords if k.lower() not in remove_lower] + added_terms
-    result.keywords = list(keywords)
+    # removed_terms, added_terms = _parse_enrich(enrich_response, keywords)
+    # remove_lower = {t.lower() for t in removed_terms}
+    # keywords = [k for k in keywords if k.lower() not in remove_lower] + added_terms
+    # result.keywords = list(keywords)
 
-    result.iterations.append({
-        "step": 1,
-        "type": "enrich",
-        "system_prompt": _ENRICH_SYSTEM,
-        "user_prompt": enrich_prompt,
-        "response": enrich_response,
-        "initial_keywords": _extract_keywords(question),
-        "removed_terms": removed_terms,
-        "added_terms": added_terms,
-        "keywords_after": list(keywords),
-    })
+    # result.iterations.append({
+    #     "step": 1,
+    #     "type": "enrich",
+    #     "system_prompt": _ENRICH_SYSTEM,
+    #     "user_prompt": enrich_prompt,
+    #     "response": enrich_response,
+    #     "initial_keywords": _extract_keywords(question),
+    #     "removed_terms": removed_terms,
+    #     "added_terms": added_terms,
+    #     "keywords_after": list(keywords),
+    # })
 
     selected: list[int] = []
     valid_ids = {p.id for p in pool}
