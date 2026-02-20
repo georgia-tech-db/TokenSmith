@@ -19,6 +19,9 @@ class MockRetriever:
 
 
 @pytest.mark.unit
+@pytest.mark.filterwarnings("ignore:.*SwigPyPacked.*")
+@pytest.mark.filterwarnings("ignore:.*SwigPyObject.*")
+@pytest.mark.filterwarnings("ignore:.*swigvarlink.*")
 def test_end_to_end_pipeline_stubbed():
     """
     Test the full RAG pipeline with stubbed LLM and Vector DB.
