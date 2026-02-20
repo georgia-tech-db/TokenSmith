@@ -18,52 +18,6 @@ class RunLogger:
     def __init__(self):
         self.logs_dir = Path("logs")
         self.logs_dir.mkdir(exist_ok=True)
-        self.current_query = None
-        self.retrieved_chunks = []
-        self.error_message = None
-
-    def log_query_start(self, query: str):
-        self.current_query = query
-        self.retrieved_chunks = []
-        self.error_message = None
-
-    def log_chunks_used(self, topk_idxs: List[int], all_chunks: List[str], sources: List[str]):
-        self.retrieved_chunks = []
-        for rank, idx in enumerate(topk_idxs):
-            self.retrieved_chunks.append({
-                "rank": rank + 1,
-                "idx": idx,
-                "chunk": all_chunks[idx] if idx < len(all_chunks) else "INDEX_ERROR",
-                "source": sources[idx] if idx < len(sources) else "UNKNOWN"
-            })
-
-    def log_generation(self, ans: str, metadata: Dict[str, Any]):
-        log_data = {
-            "timestamp": datetime.now().isoformat(),
-            "query": self.current_query,
-            "generation_metadata": metadata,
-            "retrieved_chunks": self.retrieved_chunks,
-            "response": ans
-        }
-        self._write_log(log_data)
-
-    def log_error(self, error: str):
-        self.error_message = error
-        log_data = {
-            "timestamp": datetime.now().isoformat(),
-            "query": self.current_query,
-            "error": error,
-            "retrieved_chunks": self.retrieved_chunks
-        }
-        self._write_log(log_data)
-
-    def _write_log(self, data: Dict[str, Any]):
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_id = f"chat_{timestamp_str}"
-        log_file = self.logs_dir / f"{log_id}.json"
-        
-        with open(log_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4, cls=NpEncoder)
 
     def save_chat_log(self, 
                       query: str, 
