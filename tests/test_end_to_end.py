@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 
 from src.config import RAGConfig
 from src.ranking.ranker import EnsembleRanker
+from src.instrumentation.logging import RunLogger
 
 class MockRetriever:
     def __init__(self, name: str, scores: Dict[int, float]):
@@ -21,12 +22,6 @@ class MockRetriever:
         return self.scores
 
 
-class MockLogger:
-    def log_query_start(self, query): pass
-    def log_chunks_used(self, topk_idxs, chunks, sources): pass
-    def log_generation(self, ans, metadata): pass
-    def log_error(self, error): pass
-
 def test_end_to_end_pipeline_stubbed():
     """
     Test the full RAG pipeline with stubbed LLM and Vector DB.
@@ -38,6 +33,7 @@ def test_end_to_end_pipeline_stubbed():
     from src.main import get_answer
     
     # 1. Setup Configuration
+
     # We must patch RAGConfig if it does validation we can't satisfy easily, 
     # but based on previous context, we can just instantiate it.
     cfg = RAGConfig(
@@ -103,7 +99,12 @@ def test_end_to_end_pipeline_stubbed():
     # Note: we patch where it is USED, so in src.main
     with patch("src.main.answer", return_value=mock_stream_generator()) as mock_answer_func:
         
-        logger = MockLogger()
+        # Use real logger instead of mock to test logging logic coverage
+        # We can patch the actual file writing method if we want to avoid disk I/O, 
+        # but for max coverage we'll let it run (or just mock the save method if stricly needed)
+        logger = RunLogger()
+        
+        # We still mock console print to avoid cluttering test output, but passed as object
         console = MagicMock()
         
         question = "What is Python?"
