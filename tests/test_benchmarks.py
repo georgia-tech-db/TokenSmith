@@ -388,11 +388,13 @@ def get_metric_weights(scorer, active_metric_names):
 
 
 def save_result(results_dir, result_data):
-    """Save benchmark result to JSON file (one result per line)."""
+    """Append benchmark result to JSON file (array of objects, pretty-printed)."""
     results_file = results_dir / "benchmark_results.json"
-    with open(results_file, "a") as f:
-        json.dump(result_data, f, indent=None, ensure_ascii=False, default=str)
-        f.write("\n")
+    with open(results_file, "r") as f:
+        results = json.load(f)
+    results.append(result_data)
+    with open(results_file, "w") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False, default=str)
 
 
 def log_failure(results_dir, benchmark_id, message):
