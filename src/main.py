@@ -186,7 +186,7 @@ def get_answer(
         # TODO: Fix retrieval logging.
         
         # Step 2: Ranking
-        ordered = ranker.rank(raw_scores=raw_scores)
+        ordered, scores = ranker.rank(raw_scores=raw_scores)
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
