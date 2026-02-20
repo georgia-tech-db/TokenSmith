@@ -22,6 +22,7 @@ class MockRetriever:
         return self.scores
 
 
+@pytest.mark.unit
 def test_end_to_end_pipeline_stubbed():
     """
     Test the full RAG pipeline with stubbed LLM and Vector DB.
