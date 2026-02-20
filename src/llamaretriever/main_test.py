@@ -82,12 +82,20 @@ def get_llamaretriever_answer(
 
     print(f"  🔍 [llamaretriever] Retrieving + curating evidence …")
 
-    answer = get_answer(
+    answer, references = get_answer(
         question=question,
         cfg=cfg,
         artifacts=artifacts,
         logger=logger,
+        return_references=True,
     )
+
+    # Append references to the answer string so the reported answer includes evidence.
+    if references:
+        evidence_lines = ["\n\nEvidence:"]
+        for r in references:
+            evidence_lines.append(f"\n[{r.id}] § {r.section}\n{r.passage}")
+        answer = answer + "".join(evidence_lines)
 
     # ── Build dummy chunks_info ───────────────────────────────────────────
     # The benchmark scorer expects a list[dict] where each dict has at
