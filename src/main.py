@@ -5,7 +5,7 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
 
@@ -15,7 +15,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger, RunLogger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
+from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts, get_page_numbers
 from src.query_enhancement import generate_hypothetical_document
 from src.ranking.reranker import rerank
 from rich.console import Console
@@ -143,7 +143,7 @@ def get_answer(
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False
-) -> str:
+) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
     """
     Run a single query through the pipeline.
     """    
@@ -151,8 +151,10 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    
-    logger.log_query_start(question)
+    # Ensure these locals exist for all control flows to avoid UnboundLocalError
+    ranked_chunks: List[str] = []
+    topk_idxs: List[int] = []
+    scores = []
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
@@ -188,9 +190,8 @@ def get_answer(
         # Step 2: Ranking
         ordered, scores = ranker.rank(raw_scores=raw_scores)
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
-        logger.log_chunks_used(topk_idxs, chunks, sources)
-        
         ranked_chunks = [chunks[i] for i in topk_idxs]
+        
         
         # Capture chunk info if in test mode
         if is_test_mode:
@@ -251,8 +252,26 @@ def get_answer(
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
-    return ans
 
+        # Logging
+        meta = artifacts.get("meta", [])
+        page_nums = get_page_numbers(topk_idxs, meta, chunks)
+        logger.save_chat_log(
+            query=question,
+            config_state=cfg.get_config_state(),
+            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+            chat_request_params={
+                "system_prompt": system_prompt,
+                "max_tokens": cfg.max_gen_tokens
+            },
+            top_idxs=topk_idxs,
+            chunks=chunks,
+            sources=sources,
+            page_map=page_nums,
+            full_response=ans,
+            top_k=len(topk_idxs)
+        )
+        return ans
 
 def render_streaming_ans(console, stream_iter):
     if not console:
@@ -333,7 +352,6 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         print(f"ERROR: Failed to initialize chat artifacts: {e}")
         print("Please ensure you have run 'index' mode first.")
         sys.exit(1)
-
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
@@ -345,20 +363,18 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                 print("Goodbye!")
                 break
 
-            # Use the single query function. get_answer also renders the streaming markdown.
+            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
         except Exception as e:
             print(f"\nAn unexpected error occurred: {e}")
-            logger.log_error(str(e))
+            import traceback
+            traceback.print_exc()
             break
 
-    # TODO: Fix completion logging.
-    # logger.log_query_complete()
 
 
 def main():
