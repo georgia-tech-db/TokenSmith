@@ -3,10 +3,6 @@ from unittest.mock import MagicMock, patch
 import argparse
 from typing import List, Dict, Any
 
-# We need to mock 'src.main' imports if they try to import heavy libraries at top level
-# But reading src/main.py, the imports look fine (faiss is imported, but we can't avoid that easily unless we patch sys.modules).
-# Assuming environment has dependencies installed or mocks them.
-
 from src.config import RAGConfig
 from src.ranking.ranker import EnsembleRanker
 from src.instrumentation.logging import RunLogger
@@ -26,26 +22,20 @@ class MockRetriever:
 def test_end_to_end_pipeline_stubbed():
     """
     Test the full RAG pipeline with stubbed LLM and Vector DB.
-    This ensures that the pipeline logic (retrieval aggregation, ranking, 
-    prompt formatting, generation call) works efficiently without
+    This ensures that the pipeline logic works efficiently without
     requiring model files or incurring inference costs.
     """
-    # Import inside test to avoid import errors if environment is missing deps during collection
     from src.main import get_answer
     
-    # 1. Setup Configuration
-
-    # We must patch RAGConfig if it does validation we can't satisfy easily, 
-    # but based on previous context, we can just instantiate it.
     cfg = RAGConfig(
         top_k=2,
         num_candidates=5,
         ensemble_method="linear",
         ranker_weights={"faiss": 0.5, "bm25": 0.5},
-        chunk_mode="recursive_sections", # satisfy get_chunk_strategy check if any
-        use_hyde=False,         # Disable HyDE to avoid extra LLM call logic complexity for this test
+        chunk_mode="recursive_sections",
+        use_hyde=False,
         disable_chunks=False,
-        rerank_mode="none"      # Disable re-ranker to avoid creating another mock
+        rerank_mode="none"
     )
     
     args = argparse.Namespace(
@@ -53,7 +43,7 @@ def test_end_to_end_pipeline_stubbed():
         index_prefix="test_index"
     )
     
-    # 2. Setup Dummy Data
+    # Setup Dummy Data
     chunks = [
         "Chunk 0: Python is a programming language.",
         "Chunk 1: The sky is blue.",
@@ -63,9 +53,7 @@ def test_end_to_end_pipeline_stubbed():
     ]
     sources = ["doc1", "doc1", "doc2", "doc3", "doc4"]
     
-    # 3. Setup Mock Retrievers
-    # We simulate that chunk 0 and chunk 2 are relevant
-    # Note: get_scores expects a dict of {doc_id: score}
+    # Setup Mock Retrievers
     faiss_scores = {0: 0.9, 2: 0.8, 1: 0.1, 3: 0.05, 4: 0.05}
     bm25_scores = {0: 0.8, 2: 0.9, 3: 0.2, 1: 0.05, 4: 0.05}
     
@@ -74,7 +62,7 @@ def test_end_to_end_pipeline_stubbed():
         MockRetriever("bm25", bm25_scores)
     ]
     
-    # 4. Setup Ranker (using real EnsembleRanker)
+    # Setup Ranker (using real EnsembleRanker)
     ranker = EnsembleRanker(
         ensemble_method="linear",
         weights={"faiss": 0.5, "bm25": 0.5}
@@ -88,31 +76,17 @@ def test_end_to_end_pipeline_stubbed():
         "meta": [{"page_numbers": [1]} for _ in chunks]
     }
     
-    # 5. Mock the Generator
-    # We mock src.generator.answer directly as it's the external call from main.py
-    
-    # Define a generator function for the return value
+    # Mock the Generator
     def mock_stream_generator():
         yield "This is a dummy response "
         yield "from the stubbed LLM."
 
     # Using patch as a context manager to mock 'src.main.answer'
-    # Note: we patch where it is USED, so in src.main
     with patch("src.main.answer", return_value=mock_stream_generator()) as mock_answer_func:
         
-        # Use real logger instead of mock to test logging logic coverage
-        # We can patch the actual file writing method if we want to avoid disk I/O, 
-        # but for max coverage we'll let it run (or just mock the save method if stricly needed)
         logger = RunLogger()
-        
-        # We still mock console print to avoid cluttering test output, but passed as object
         console = MagicMock()
-        
         question = "What is Python?"
-        
-        # We use is_test_mode=True to get structured output and avoid rendering artifacts
-        # This function signature matches src/main.py:get_answer
-        # get_answer(question, cfg, args, logger, console, artifacts=None, golden_chunks=None, is_test_mode=False)
         
         result = get_answer(
             question=question,
@@ -124,9 +98,8 @@ def test_end_to_end_pipeline_stubbed():
             is_test_mode=True
         )
         
-        # Unpack result (ans, chunks_info, hyde_query)
-        # Assuming get_answer returns (ans, chunks_info, hyde_query) in test mode based on reading src/main.py
         ans, chunks_info, hyde_query = result
+
         
         # 7. Assertions
         
