@@ -11,11 +11,12 @@ def init_feedback_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     try:
-        conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS answers (
                 answer_id TEXT PRIMARY KEY,
+                answer_seq INTEGER,
+                session_id TEXT,
                 question TEXT NOT NULL,
                 answer TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -25,6 +26,14 @@ def init_feedback_db() -> None:
             );
             """
         )
+        try:
+            conn.execute("ALTER TABLE answers ADD COLUMN session_id TEXT;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE answers ADD COLUMN answer_seq INTEGER;")
+        except sqlite3.OperationalError:
+            pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS feedback (
@@ -68,6 +77,7 @@ def init_feedback_db() -> None:
 
 def save_answer(
     answer_id: str,
+    session_id: Optional[str],
     question: str,
     answer: str,
     retrieval_info: Optional[Dict[str, Any]] = None,
@@ -77,13 +87,14 @@ def save_answer(
     payload = json.dumps(retrieval_info or {}, ensure_ascii=False)
     conn = sqlite3.connect(DB_PATH)
     try:
-        conn.execute(
+        cursor = conn.execute(
             """
-            INSERT INTO answers (answer_id, question, answer, created_at, retrieval_json, model, prompt_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO answers (answer_id, session_id, question, answer, created_at, retrieval_json, model, prompt_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 answer_id,
+                session_id,
                 question,
                 answer,
                 datetime.utcnow().isoformat(),
@@ -92,6 +103,13 @@ def save_answer(
                 prompt_mode,
             ),
         )
+        try:
+            conn.execute(
+                "UPDATE answers SET answer_seq=? WHERE answer_id=?",
+                (cursor.lastrowid, answer_id),
+            )
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
     finally:
         conn.close()
