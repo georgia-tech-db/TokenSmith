@@ -356,6 +356,7 @@ async def chat_stream(request: ChatRequest):
             }
             save_answer(
                 answer_id=answer_id,
+                session_id=session_id,
                 question=request.query,
                 answer=final_answer,
                 retrieval_info=retrieval_info,
@@ -483,6 +484,7 @@ async def chat(request: ChatRequest):
         }
         save_answer(
             answer_id=answer_id,
+            session_id=session_id,
             question=request.query,
             answer=answer_text,
             retrieval_info=retrieval_info,
