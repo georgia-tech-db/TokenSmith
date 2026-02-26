@@ -1,89 +1,15 @@
-from dataclasses import dataclass
 import json
 import networkx as nx
 from itertools import combinations
 import argparse
-from enum import Enum
-
-HOP_LIMIT = 4
-
-
-@dataclass
-class QueryFeatures:
-    E_q: int = 0
-    C: int = 0
-    L_max: int = 0
-    L_avg: float = 0.0
-    D_avg: float = 0.0
-    D_max: int = 0
-    N_sub: int = 0
-    M_sub: int = 0
-    Doc_count: int = 0
-
-    def to_dict(self) -> dict:
-        return {
-            "E_q": self.E_q,
-            "C": self.C,
-            "L_max": self.L_max,
-            "L_avg": self.L_avg,
-            "D_avg": self.D_avg,
-            "D_max": self.D_max,
-            "N_sub": self.N_sub,
-            "M_sub": self.M_sub,
-            "Doc_count": self.Doc_count,
-        }
-
-
-class DifficultyCategory(Enum):
-    EASY = "easy"
-    MEDIUM = "medium"
-    HARD = "hard"
-
-
-@dataclass
-class DifficultyComponents:
-    s1_multihop: int
-    s2_fragmentation: int
-    s3_subgraph_size: int
-    s4_branching: int
-    s5_dispersion: int
-
-    def to_dict(self) -> dict:
-        return {
-            "s1_multihop": self.s1_multihop,
-            "s2_fragmentation": self.s2_fragmentation,
-            "s3_subgraph_size": self.s3_subgraph_size,
-            "s4_branching": self.s4_branching,
-            "s5_dispersion": self.s5_dispersion,
-        }
-
-
-@dataclass
-class DifficultyScore:
-    score: int
-    category: DifficultyCategory
-    components: DifficultyComponents
-
-    def to_dict(self) -> dict:
-        return {
-            "score": self.score,
-            "category": self.category.value,
-            "components": self.components.__dict__,
-        }
-
-
-@dataclass
-class QueryAnalysisResult:
-    query: str
-    features: QueryFeatures
-    difficulty: DifficultyScore
-
-    def to_dict(self) -> dict:
-        return {
-            "query": self.query,
-            "features": self.features.to_dict(),
-            "difficulty": self.difficulty.to_dict(),
-        }
+from nltk.util import ngrams
+from models import (
+    QueryFeatures,
+    DifficultyCategory,
+    DifficultyScore,
+    QueryAnalysisResult,
+    DifficultyComponents,
+)
 
 
 def load_graph(filepath: str) -> nx.Graph:
@@ -93,26 +19,30 @@ def load_graph(filepath: str) -> nx.Graph:
 
 
 def extract_query_nodes(query: str, graph: nx.Graph) -> list[str]:
-    query = query.lower()
-    matched_nodes: list[str] = []
-    for node in graph.nodes():
-        if isinstance(node, str) and node.lower() in query:
-            matched_nodes.append(node)
-    # Filter out substrings to avoid overly generic matches if wanted, but simple is fine.
-    return matched_nodes
+    split_query = query.lower().removesuffix("?").removesuffix(".").split()
+    bigrams = list(ngrams(split_query, 2))
+    matched_nodes: set[str] = set()
+
+    for bigram in bigrams:
+        composite = " ".join(bigram)
+        if graph.has_node(composite):
+            matched_nodes.add(composite)
+
+    for word in split_query:
+        if graph.has_node(word):
+            matched_nodes.add(word)
+    return list(matched_nodes)
 
 
-def extract_query_subgraph(
-    query_nodes: list[str], graph: nx.Graph, max_path_len=HOP_LIMIT
-) -> nx.Graph:
+def extract_query_subgraph(query_nodes: list[str], graph: nx.Graph) -> nx.Graph:
     subgraph_nodes = set(query_nodes)
     for u, v in combinations(query_nodes, 2):
         if nx.has_path(graph, u, v):
             try:
                 # Get the shortest path
                 path = nx.shortest_path(graph, u, v)
-                if len(path) - 1 <= max_path_len:
-                    subgraph_nodes.update(path)
+                # Add all nodes in the path to the subgraph (todo: we can limit the path length)
+                subgraph_nodes.update(path)
             except nx.NetworkXNoPath:
                 pass
     return graph.subgraph(subgraph_nodes).copy()
@@ -137,9 +67,7 @@ def compute_difficulty_features(query: str, graph: nx.Graph):
         if nx.has_path(graph, u, v):
             try:
                 length = nx.shortest_path_length(graph, u, v)
-                # Only consider paths of length up to HOP_LIMIT
-                if length <= HOP_LIMIT:
-                    path_lengths.append(length)
+                path_lengths.append(length)
             except nx.NetworkXNoPath:
                 pass
     # Max path length between query nodes

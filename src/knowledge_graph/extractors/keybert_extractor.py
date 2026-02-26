@@ -1,5 +1,6 @@
 """Keyword/topic extraction via KeyBERT."""
 
+import time
 from typing import List, Optional, Tuple
 
 from keybert import KeyBERT
@@ -34,8 +35,9 @@ class KeyBERTExtractor(BaseExtractor):
 
     def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
         results: List[ExtractionResult] = []
-
-        for chunk in chunks:
+        total_chunks = len(chunks)
+        for idx, chunk in enumerate(chunks):
+            start_time = time.time()
             keywords = self.kw_model.extract_keywords(
                 chunk.text,
                 keyphrase_ngram_range=self.keyphrase_ngram_range,
@@ -44,5 +46,10 @@ class KeyBERTExtractor(BaseExtractor):
             raw_nodes = [kw for kw, _score in keywords]
             normalized = self.normalizer.normalize(raw_nodes)
             results.append(ExtractionResult(chunk_id=chunk.id, nodes=normalized))
-
+            elapsed = time.time() - start_time
+            speed = elapsed / total_chunks if total_chunks > 0 else 0
+            if idx % 10 == 0:
+                print(
+                    f"  -> Finished {chunk.id} in {elapsed:.2f}s ({speed:.4f}s / chunk)"
+                )
         return results
