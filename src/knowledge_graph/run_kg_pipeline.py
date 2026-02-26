@@ -13,7 +13,6 @@ from src.knowledge_graph.linkers.cooccurrence_linker import CooccurrenceLinker
 from src.knowledge_graph.persisters.networkx_json_persister import NetworkxJsonPersister
 
 from src.knowledge_graph.pipeline import Pipeline
-# ── Configuration ────────────────────────────────────────────────────────
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,17 +46,6 @@ def load_chunks(chunks_path: str, meta_path: str) -> list[Chunk]:
         chunk_id = meta.get("chunk_id", i)
         chunks.append(Chunk(id=chunk_id, text=text, metadata=meta))
 
-    # DEBUG: ad-hoc filter — remove when done
-    # print(
-    #    "DEBUG: Filtering for section 'Chapter 1 Section 1.1 Database-System Applications'"
-    # )
-    # chunks = [c for c in chunks if "Section 12.1" in c.metadata.get("section_path")]
-    # for chunk in chunks:
-    #    print(chunk.text)
-
-    # print(chunks[0])
-    # print(len(chunks))
-    # raise ValueError("Test")
     return chunks
 
 

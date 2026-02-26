@@ -1,21 +1,19 @@
-from typing import List, Optional
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import NMF
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
 
-class NmfExtractor(BaseExtractor):
+class NMFExtractor(BaseExtractor):
     """Scikit-Learn implementation of NMF as a knowledge graph Extractor."""
 
-    def __init__(self, n_components: int = 10, normalizer: Optional[Normalizer] = None):
+    def __init__(self, n_components: int = 10, normalizer: Normalizer | None = None):
         self.n_components = n_components
         self.normalizer = normalizer or Normalizer()
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         texts = [c.text for c in chunks]
         if not texts:
             return []
@@ -53,7 +51,7 @@ class NmfExtractor(BaseExtractor):
         W = nmf.transform(tfidf)
         assignments = W.argmax(axis=1).tolist()
 
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for i, chunk in enumerate(chunks):
             topic_idx = assignments[i]
             if topic_idx != -1 and topic_idx < len(extracted_topics):

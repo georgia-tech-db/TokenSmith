@@ -1,11 +1,8 @@
-"""Co-occurrence linker — edges between nodes sharing a chunk."""
-
 from itertools import combinations
-from typing import List
 
 import networkx as nx
 
-from src.knowledge_graph.base.linker import BaseLinker
+from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.models import ExtractionResult
 
 
@@ -25,7 +22,7 @@ class CooccurrenceLinker(BaseLinker):
     def __init__(self, min_cooccurrence: int = 1):
         self.min_cooccurrence = min_cooccurrence
 
-    def link(self, extractions: List[ExtractionResult]) -> nx.Graph:
+    def link(self, extractions: list[ExtractionResult]) -> nx.Graph:
         graph = nx.Graph()
 
         for extraction in extractions:

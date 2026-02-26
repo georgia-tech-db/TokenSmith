@@ -1,5 +1,3 @@
-"""Abstract base class for text dividers."""
-
 from abc import ABC, abstractmethod
 from typing import List
 

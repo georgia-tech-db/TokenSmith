@@ -1,7 +1,4 @@
-"""Abstract base class for graph linkers."""
-
 from abc import ABC, abstractmethod
-from typing import List
 
 import networkx as nx
 
@@ -12,7 +9,7 @@ class BaseLinker(ABC):
     """Build a graph by creating edges between co-occurring nodes."""
 
     @abstractmethod
-    def link(self, extractions: List[ExtractionResult]) -> nx.Graph:
+    def link(self, extractions: list[ExtractionResult]) -> nx.Graph:
         """Create a :class:`networkx.Graph` from extraction results.
 
         Args:

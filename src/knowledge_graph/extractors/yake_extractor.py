@@ -1,10 +1,6 @@
-"""Keyword extraction via YAKE (unsupervised, no GPU needed)."""
-
-from typing import List, Optional
-
 import yake
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
@@ -25,7 +21,7 @@ class YakeExtractor(BaseExtractor):
         top_n: int = 10,
         language: str = "en",
         deduplicate_threshold: float = 0.9,
-        normalizer: Optional[Normalizer] = None,
+        normalizer: Normalizer | None = None,
     ):
         self.kw_extractor = yake.KeywordExtractor(
             lan=language,
@@ -35,8 +31,8 @@ class YakeExtractor(BaseExtractor):
         )
         self.normalizer = normalizer or Normalizer()
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
-        results: List[ExtractionResult] = []
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
+        results: list[ExtractionResult] = []
 
         for chunk in chunks:
             keywords = self.kw_extractor.extract_keywords(chunk.text)

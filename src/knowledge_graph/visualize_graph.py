@@ -13,10 +13,8 @@ def load_graph(filepath: str) -> nx.Graph:
 def visualize_graph(graph: nx.Graph, output_file: str):
     plt.figure(figsize=(16, 12))
     pos = nx.spring_layout(graph, k=0.5, iterations=50)
-
     # Draw nodes
     nx.draw_networkx_nodes(graph, pos, node_size=300, node_color="lightblue", alpha=0.8)
-
     # Draw edges
     if graph.number_of_edges() > 0:
         weights = [graph[u][v].get("weight", 1) for u, v in graph.edges()]
@@ -26,10 +24,8 @@ def visualize_graph(graph: nx.Graph, output_file: str):
         nx.draw_networkx_edges(
             graph, pos, width=normalized_weights, alpha=0.5, edge_color="gray"
         )
-
     # Draw labels
     nx.draw_networkx_labels(graph, pos, font_size=8, font_family="sans-serif")
-
     plt.title("Knowledge Graph Visualization")
     plt.axis("off")
     plt.tight_layout()

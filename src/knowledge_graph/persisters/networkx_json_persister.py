@@ -1,12 +1,9 @@
-"""Persist a NetworkX graph and chunk store as JSON files."""
-
 import json
 import os
-from typing import List
 from time import time
 import networkx as nx
 
-from src.knowledge_graph.base.persister import BasePersister
+from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk
 
 
@@ -22,7 +19,7 @@ class NetworkxJsonPersister(BasePersister):
       by chunk ID.
     """
 
-    def persist(self, graph: nx.Graph, chunks: List[Chunk], output_dir: str) -> None:
+    def persist(self, graph: nx.Graph, chunks: list[Chunk], output_dir: str) -> None:
         os.makedirs(output_dir, exist_ok=True)
 
         # --- graph.json ---

@@ -4,7 +4,7 @@ from typing import List
 
 import spacy
 
-from src.knowledge_graph.base.divider import BaseDivider
+from src.knowledge_graph.dividers.base_divider import BaseDivider
 from src.knowledge_graph.models import Chunk
 
 

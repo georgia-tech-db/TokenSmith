@@ -1,7 +1,4 @@
-"""Abstract base class for graph persisters."""
-
 from abc import ABC, abstractmethod
-from typing import List
 
 import networkx as nx
 
@@ -12,7 +9,7 @@ class BasePersister(ABC):
     """Save the graph and chunk store to disk."""
 
     @abstractmethod
-    def persist(self, graph: nx.Graph, chunks: List[Chunk], output_dir: str) -> None:
+    def persist(self, graph: nx.Graph, chunks: list[Chunk], output_dir: str) -> None:
         """Persist *graph* and *chunks* to *output_dir*.
 
         Args:

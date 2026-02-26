@@ -1,5 +1,4 @@
 import logging
-from typing import List, Optional, Tuple
 
 from gensim.models.ldamulticore import LdaMulticore
 from gensim.corpora.dictionary import Dictionary
@@ -7,7 +6,7 @@ from gensim.utils import simple_preprocess
 from nltk.corpus import stopwords
 import nltk
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
@@ -19,14 +18,14 @@ except Exception as e:
     logger.warning(f"Failed to download NLTK stopwords: {e}")
 
 
-class LdaExtractor(BaseExtractor):
+class LDAExtractor(BaseExtractor):
     """Gensim implementation of LDA as a knowledge graph Extractor."""
 
     def __init__(
         self,
         num_topics: int = 10,
         passes: int = 10,
-        normalizer: Optional[Normalizer] = None,
+        normalizer: Normalizer | None = None,
     ):
         self.num_topics = num_topics
         self.passes = passes
@@ -34,8 +33,8 @@ class LdaExtractor(BaseExtractor):
         self.normalizer = normalizer or Normalizer()
 
     def _preprocess(
-        self, texts: List[str]
-    ) -> Tuple[List[List[str]], Dictionary, List[List[Tuple[int, int]]]]:
+        self, texts: list[str]
+    ) -> tuple[list[list[str]], Dictionary, list[list[tuple[int, int]]]]:
         tokenized_docs = []
         for text in texts:
             tokens = [
@@ -49,7 +48,7 @@ class LdaExtractor(BaseExtractor):
         corpus = [dictionary.doc2bow(doc) for doc in tokenized_docs]
         return tokenized_docs, dictionary, corpus
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         texts = [c.text for c in chunks]
         if not texts:
             return []
@@ -78,7 +77,7 @@ class LdaExtractor(BaseExtractor):
             else:
                 assignments.append(-1)
 
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for i, chunk in enumerate(chunks):
             topic_idx = assignments[i]
             if topic_idx != -1 and topic_idx < len(extracted_topics):

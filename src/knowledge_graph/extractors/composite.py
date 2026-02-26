@@ -1,10 +1,7 @@
-"""Composite extractor that merges outputs from multiple extractors."""
-
 import time
 from collections import defaultdict
-from typing import List
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
@@ -22,13 +19,13 @@ class CompositeExtractor(BaseExtractor):
 
     def __init__(
         self,
-        extractors: List[BaseExtractor],
+        extractors: list[BaseExtractor],
         normalizer: Normalizer | None = None,
     ):
         self.extractors = extractors
         self.normalizer = normalizer or Normalizer()
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         # Collect all nodes per chunk_id across all extractors
         merged: defaultdict[int, list] = defaultdict(list)
 
@@ -55,7 +52,7 @@ class CompositeExtractor(BaseExtractor):
             )
 
         # Deduplicate per chunk via normalizer, preserve chunk ordering
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for chunk in chunks:
             raw_nodes = merged.get(chunk.id, [])
             # Nodes are already individually normalized by child extractors;

@@ -1,7 +1,6 @@
-from typing import List, Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
@@ -9,7 +8,7 @@ from src.knowledge_graph.utils.normalizer import Normalizer
 class TfidfExtractor(BaseExtractor):
     """Keyword extractor using TF-IDF weights to find important terms per chunk."""
 
-    def __init__(self, top_n: int = 10, normalizer: Optional[Normalizer] = None):
+    def __init__(self, top_n: int = 10, normalizer: Normalizer | None = None):
         """
         Args:
             top_n: Number of top TF-IDF words to extract per chunk.
@@ -18,7 +17,7 @@ class TfidfExtractor(BaseExtractor):
         self.top_n = top_n
         self.normalizer = normalizer or Normalizer()
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         texts = [c.text for c in chunks]
         if not texts:
             return []
@@ -39,7 +38,7 @@ class TfidfExtractor(BaseExtractor):
             return [ExtractionResult(chunk_id=chunk.id, nodes=[]) for chunk in chunks]
 
         feature_names = vectorizer.get_feature_names_out()
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
 
         for i, chunk in enumerate(chunks):
             # Get the row for this chunk

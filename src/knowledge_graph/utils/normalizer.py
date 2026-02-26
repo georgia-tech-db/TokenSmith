@@ -1,7 +1,3 @@
-"""Node normalization and deduplication utilities."""
-
-from typing import Dict, List, Optional
-
 import spacy
 
 
@@ -20,10 +16,10 @@ class Normalizer:
 
     def __init__(
         self,
-        alias_map: Optional[Dict[str, str]] = None,
+        alias_map: dict[str, str] | None = None,
         spacy_model: str = "en_core_web_sm",
     ):
-        self.alias_map: Dict[str, str] = alias_map or {}
+        self.alias_map: dict[str, str] = alias_map or {}
         self.nlp = spacy.load(spacy_model, disable=["ner", "parser"])
 
     def _lemmatize(self, text: str) -> str:
@@ -31,7 +27,7 @@ class Normalizer:
         doc = self.nlp(text)
         return " ".join(token.lemma_ for token in doc)
 
-    def normalize(self, nodes: List[str]) -> List[str]:
+    def normalize(self, nodes: list[str]) -> list[str]:
         """Normalize and deduplicate a list of node labels.
 
         Processing order per node:
@@ -48,7 +44,7 @@ class Normalizer:
             Deduplicated, normalized node labels.
         """
         seen: set = set()
-        result: List[str] = []
+        result: list[str] = []
 
         for node in nodes:
             normalized = node.strip().lower()

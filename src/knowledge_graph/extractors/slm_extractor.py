@@ -1,9 +1,8 @@
 import logging
 import json
 import re
-from typing import List, Optional
 
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 from src.knowledge_graph.utils.prompts import TOPIC_EXTRACTION_PROMPT
@@ -18,7 +17,7 @@ class SLMExtractor(BaseExtractor):
         self,
         model_path: str = "models/qwen2.5-1.5b-instruct-q5_k_m.gguf",
         n_threads: int = 8,
-        normalizer: Optional[Normalizer] = None,
+        normalizer: Normalizer | None = None,
         prompt_template: str = TOPIC_EXTRACTION_PROMPT,
     ):
         self.model_path = model_path
@@ -26,7 +25,7 @@ class SLMExtractor(BaseExtractor):
         self.normalizer = normalizer or Normalizer()
         self.prompt_template = prompt_template
 
-    def extract(self, chunks: List[Chunk]) -> List[ExtractionResult]:
+    def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         try:
             from llama_cpp import Llama
         except ImportError:
@@ -97,7 +96,7 @@ class SLMExtractor(BaseExtractor):
         raw_nodes = list(flat_topics)
         normalized = self.normalizer.normalize(raw_nodes)
 
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for chunk in chunks:
             # We assign these extracted topics to the chunks. Since there's no per-chunk breakdown
             # in the prompt, everyone gets the globally extracted nodes.

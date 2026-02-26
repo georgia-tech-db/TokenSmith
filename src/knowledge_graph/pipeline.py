@@ -1,5 +1,3 @@
-"""Pipeline runner — orchestrates Divider → Extractor → Linker → Persister."""
-
 from time import time
 import networkx as nx
 
@@ -11,10 +9,10 @@ from src.knowledge_graph.models import Chunk
 
 
 class Pipeline:
-    """Wire together the four pipeline stages and execute them in sequence.
+    """Orchestrates the knowledge graph construction pipeline.
 
     Args:
-        divider: Splits raw text into chunks.
+        divider: Splits raw text into chunks. Optional, can give chunks directly in run().
         extractor: Extracts node labels from chunks.
         linker: Builds a graph from extraction results.
         persister: Saves the graph and chunk store to disk.
@@ -44,6 +42,7 @@ class Pipeline:
 
         Args:
             text: Raw corpus text.
+            chunks: Pre-chunked text. Optional.
             output_dir: Directory to write output files into.
 
         Returns:
