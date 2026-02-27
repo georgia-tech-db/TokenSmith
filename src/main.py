@@ -5,7 +5,7 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
 from rich.console import Console
@@ -97,19 +97,30 @@ def get_answer(
     args: argparse.Namespace,
     logger: Any,
     console: Optional["Console"],
-    artifacts: Dict
-) -> str:
+    artifacts: Optional[Dict] = None,
+    golden_chunks: Optional[list] = None,
+    is_test_mode: bool = False
+) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
+    """
+    Run a single query through the pipeline.
+    """    
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    meta = artifacts["meta"]
-
-    topk_idxs = []
-    ordered_scores = []
+    # Ensure these locals exist for all control flows to avoid UnboundLocalError
+    ranked_chunks: List[str] = []
+    topk_idxs: List[int] = []
+    scores = []
     
-    # 1. Retrieval & Ranking Logic
-    if cfg.disable_chunks:
+    # Step 1: Get chunks (golden, retrieved, or none)
+    chunks_info = None
+    hyde_query = None
+    if golden_chunks and cfg.use_golden_chunks:
+        # Use provided golden chunks
+        ranked_chunks = golden_chunks
+    elif cfg.disable_chunks:
+        # No chunks - baseline mode
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
@@ -119,14 +130,47 @@ def get_answer(
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
-        raw_scores = {ret.name: ret.get_scores(retrieval_query, pool_n, chunks) for ret in retrievers}
+        raw_scores: Dict[str, Dict[int, float]] = {}
+        for retriever in retrievers:
+            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+        # TODO: Fix retrieval logging.
         
-        # Rank and filter
-        topk_idxs, ordered_scores = ranker.rank(raw_scores=raw_scores)
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, topk_idxs)
+        # Step 2: Ranking
+        ordered, scores = ranker.rank(raw_scores=raw_scores)
+        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
         
-        # Final Rerank
+        
+        # Capture chunk info if in test mode
+        if is_test_mode:
+            # Compute individual ranker ranks
+            faiss_scores = raw_scores.get("faiss", {})
+            bm25_scores = raw_scores.get("bm25", {})
+            index_scores = raw_scores.get("index_keywords", {})
+            
+            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
+            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
+            index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
+            
+            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
+            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+            index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
+            
+            chunks_info = []
+            for rank, idx in enumerate(topk_idxs, 1):
+                chunks_info.append({
+                    "rank": rank,
+                    "chunk_id": idx,
+                    "content": chunks[idx],
+                    "faiss_score": faiss_scores.get(idx, 0),
+                    "faiss_rank": faiss_ranks.get(idx, 0),
+                    "bm25_score": bm25_scores.get(idx, 0),
+                    "bm25_rank": bm25_ranks.get(idx, 0),
+                    "index_score": index_scores.get(idx, 0),
+                    "index_rank": index_ranks.get(idx, 0),
+                })
+
+        # Step 3: Final re-ranking
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
 
     if not ranked_chunks and not cfg.disable_chunks:
@@ -140,33 +184,36 @@ def get_answer(
         system_prompt_mode=args.system_prompt_mode or cfg.system_prompt_mode,
     )
 
-    full_ans = render_streaming_ans(console, stream_iter)
+    if is_test_mode:
+        # We do not render MD in the test mode
+        ans = ""
+        for delta in stream_iter:
+            ans += delta
+        ans = dedupe_generated_text(ans)
+        return ans, chunks_info, hyde_query
+    else:
+        # Accumulate the full text while rendering incremental Markdown chunks
+        ans = render_streaming_ans(console, stream_iter)
 
-    # 3. Unified Logging (Matches API Server)
-    try:
-        page_nums = get_page_numbers(topk_idxs, meta)
-        log_chunks = [chunks[i] for i in topk_idxs]
-        log_sources = [sources[i] for i in topk_idxs]
-
+        # Logging
+        meta = artifacts.get("meta", [])
+        page_nums = get_page_numbers(topk_idxs, meta, chunks)
         logger.save_chat_log(
             query=question,
-            chat_request_params={
-                "mode": "cli_chat",
-                "system_prompt": args.system_prompt_mode
-            },
-            ordered_scores=ordered_scores,
             config_state=cfg.get_config_state(),
+            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+            chat_request_params={
+                "system_prompt": system_prompt,
+                "max_tokens": cfg.max_gen_tokens
+            },
             top_idxs=topk_idxs,
-            chunks=log_chunks,
-            sources=log_sources,
+            chunks=chunks,
+            sources=sources,
             page_map=page_nums,
-            full_response=full_ans,
-            top_k=cfg.top_k
+            full_response=ans,
+            top_k=len(topk_idxs)
         )
-    except Exception as e:
-        print(f"Logging failed: {e}")
-
-    return full_ans
+        return ans
 
 def render_streaming_ans(console, stream_iter):
     ans = ""
@@ -214,16 +261,30 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
-
+    print("Initialization complete. You can start asking questions!")
+    print("Type 'exit' or 'quit' to end the session.")
     while True:
         try:
             q = input("\nAsk > ").strip()
-            if q.lower() in {"exit", "quit"}: break
-            if not q: continue
-            get_answer(q, cfg, args, logger, console, artifacts)
-        except KeyboardInterrupt: break
+            if not q:
+                continue
+            if q.lower() in {"exit", "quit"}:
+                print("Goodbye!")
+                break
+
+            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
+            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
+
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"\nAn unexpected error occurred: {e}")
+            import traceback
+            traceback.print_exc()
+            break
+
+
 
 def main():
     args = parse_args()
