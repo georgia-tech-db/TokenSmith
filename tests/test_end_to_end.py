@@ -85,23 +85,34 @@ def test_end_to_end_pipeline_stubbed():
         yield "from the stubbed LLM."
 
     # Using patch as a context manager to mock 'src.main.answer'
-    with patch("src.main.answer", return_value=mock_stream_generator()) as mock_answer_func:
+    # side_effect ensures each call gets a fresh generator
+    with patch("src.main.answer", side_effect=lambda *a, **k: mock_stream_generator()) as mock_answer_func:
         
         logger = RunLogger()
         console = MagicMock()
         question = "What is Python?"
         
-        result = get_answer(
+        # First, run in test mode to inspect retrieval internals.
+        ans, chunks_info, hyde_query = get_answer(
             question=question,
             cfg=cfg,
             args=args,
             logger=logger,
             console=console,
             artifacts=artifacts,
-            is_test_mode=True
+            is_test_mode=True,
         )
-        
-        ans, chunks_info, hyde_query = result
+
+        # Then, run with test mode disabled to exercise the full pipeline (including logging).
+        ans_prod = get_answer(
+            question=question,
+            cfg=cfg,
+            args=args,
+            logger=logger,
+            console=console,
+            artifacts=artifacts,
+            is_test_mode=False,
+        )
 
         
         # 7. Assertions
@@ -109,6 +120,7 @@ def test_end_to_end_pipeline_stubbed():
         # Check LLM output reconstruction
         expected_ans = "This is a dummy response from the stubbed LLM."
         assert ans == expected_ans
+        assert ans_prod == expected_ans
         
         # Check retrieval happened correctly
         # We expect top_k=2.
@@ -130,7 +142,7 @@ def test_end_to_end_pipeline_stubbed():
             assert info["content"] == chunks[cid]
         
         # Check that answer() was called with correct context
-        mock_answer_func.assert_called_once()
+        assert mock_answer_func.call_count == 2
         
         # Inspect arguments passed to answer()
         # answer(query, chunks, model_path, max_tokens, system_prompt_mode, temperature)
