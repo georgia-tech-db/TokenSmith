@@ -51,10 +51,10 @@ class RunLogger:
                 "chat_request_params": chat_request_params,
                 "config_state" : config_state,
                 "top_k": top_k,
-                "ordered_scores": ordered_scores,
+                "ordered_scores": ordered_scores[:len(top_idxs)],
                 "top_idxs": top_idxs,
-                "chunks": chunks,
-                "sources": sources,
+                "chunks": chunks[:len(top_idxs)],
+                "sources": sources[:len(top_idxs)],
                 "page_numbers": [page_map.get(i, 1) for i in top_idxs],
                 "full_response": full_response
             }
