@@ -28,7 +28,7 @@ class EnsembleRanker:
         if active_weights != 1.0:
             raise ValueError(f"Weights for active retrivers must sum to 1.0. Current sum: {active_weights}")
 
-    def rank(self, raw_scores: Dict[str, Dict[Candidate, float]]) -> List[int]:
+    def rank(self, raw_scores: Dict[str, Dict[Candidate, float]]) -> Tuple[List[int], List[float]]:
         """
         Executes the rank fusion process on the provided raw scores.
         """
