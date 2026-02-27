@@ -49,6 +49,11 @@ def parse_args() -> argparse.Namespace:
         help="prefix for generated index files (default: %(default)s)"
     )
     parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="use a partial index stored in 'index/partial_sections' instead of 'index/sections'"
+    )
+    parser.add_argument(
         "--model_path",
         help="path to generation model (uses config default if not specified)"
     )
@@ -91,7 +96,9 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
 
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    artifacts_dir = cfg.get_artifacts_directory()
+    # If building chapters, strictly build in the partial folder.
+    is_partial_build = args.partial or (args.chapters is not None)
+    artifacts_dir = cfg.get_artifacts_directory(partial=is_partial_build)
 
     build_index(
         markdown_file="data/silberschatz.md",
@@ -113,7 +120,7 @@ def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
 
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy)
-    artifacts_dir = cfg.get_artifacts_directory()
+    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
 
     add_to_index(
         markdown_file="data/silberschatz.md",
@@ -126,11 +133,13 @@ def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
     )
     print("Successfully added chapters to the index.")
 
-def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
+def use_indexed_chunks(question: str, chunks: list, cfg: RAGConfig, args: argparse.Namespace, logger: "RunLogger") -> list:
     """
     Retrieve chunks from the indexed chunks based on simple keyword matching.
     """
-    with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+    map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
+    with open(map_path, 'r') as f:
             page_to_chunk_map = json.load(f)
     with open('data/extracted_index.json', 'r') as f:
         extracted_index = json.load(f)
@@ -186,7 +195,7 @@ def get_answer(
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         # Use chunks from the textbook index
-        ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        ranked_chunks = use_indexed_chunks(question, chunks, cfg, args, logger)
     else:
         # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
@@ -319,7 +328,9 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     try:
         # Disabled till we fix the core pipeline
         # cfg = planner.plan(q)
-        artifacts_dir = cfg.get_artifacts_directory()
+        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+        # Update map path in config if needed
+        cfg.page_to_chunk_map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
         faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
             artifacts_dir=artifacts_dir, 
             index_prefix=args.index_prefix

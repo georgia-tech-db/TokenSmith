@@ -42,81 +42,27 @@ _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
 INDEX_METADATA: Optional[Dict] = None
+_current_is_partial: bool = False
 
 
-class SourceItem(BaseModel):
-    page: int
-    text: str
-    
-    class Config:
-        frozen = True  # Makes the model hashable so it can be used in sets
+def _initialize_artifacts(partial: bool = False):
+    """
+    Loads or reloads artifacts into the global state.
+    This handles the fallback logic via _config.get_artifacts_directory.
+    """
+    global _artifacts, _retrievers, _ranker, _config, _logger, INDEX_METADATA, _current_is_partial
 
-
-class ChatRequest(BaseModel):
-    query: str
-    enable_chunks: Optional[bool] = None
-    prompt_type: Optional[str] = None  # Maps to system_prompt_mode
-    max_chunks: Optional[int] = None  # Maps to top_k for retrieval
-    temperature: Optional[float] = None
-    top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
-
-class IndexBuilderRequest(BaseModel):
-    chapters: Optional[List[int]] = None
-
-class ChatResponse(BaseModel):
-    answer: str
-    sources: List[SourceItem]
-    chunks_used: List[int]
-    chunks_by_page: Dict[int, List[str]]
-    query: str
-
-
-def _resolve_config_path() -> pathlib.Path:
-    """Return the absolute path to the API config."""
-    return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
-
-def _ensure_initialized():
-    if not all([_config, _artifacts, _retrievers, _ranker]):
-        raise HTTPException(
-            status_code=503,
-            detail="Artifacts not loaded. Please run indexing first."
-        )
-
-def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
-    chunks = _artifacts["chunks"]
-    effective_top_k = top_k if top_k is not None else _config.top_k
-    pool_n = max(_config.num_candidates, effective_top_k + 10)
-    raw_scores: Dict[str, Dict[int, float]] = {}
-
-    for retriever in _retrievers:
-        raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
-
-    ordered = _ranker.rank(raw_scores=raw_scores)
-    # Create a temporary config with the effective top_k for filtering
-    temp_config = _config
-    if top_k is not None:
-        temp_config = deepcopy(_config)
-        temp_config.top_k = effective_top_k
-    topk_idxs = filter_retrieved_chunks(temp_config, chunks, ordered)
-    return raw_scores, topk_idxs
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger, INDEX_METADATA
-
-    config_path = _resolve_config_path()
-    if not config_path.exists():
-        raise FileNotFoundError(f"No config file found at {config_path}")
-
-    _config = RAGConfig.from_yaml(config_path)
-    init_logger(_config)
-    _logger = get_logger()
+    if _config is None:
+        raise ValueError("Config not initialized")
 
     try:
-        artifacts_dir = _config.get_artifacts_directory()
+        # get_artifacts_directory(partial) handles the fallback:
+        # If partial=False, it uses 'sections' if it exists, else 'partial_sections'.
+        artifacts_dir = _config.get_artifacts_directory(partial=partial)
         
+        # Update map path in config for retrievers
+        _config.page_to_chunk_map_path = _config.get_page_to_chunk_map_path(artifacts_dir, INDEX_PREFIX)
+
         # Load index metadata manifest
         meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
         if meta_path.exists():
@@ -124,6 +70,16 @@ async def lifespan(app: FastAPI):
                 INDEX_METADATA = json.load(f)
         else:
             INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
+
+        # Check if actual index files exist before loading
+        faiss_path = artifacts_dir / f"{INDEX_PREFIX}.faiss"
+        if not faiss_path.exists():
+            # If we were doing a fallback and nothing was found, we just return
+            _artifacts = None
+            _retrievers = None
+            _ranker = None
+            _current_is_partial = partial
+            return
 
         faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
@@ -152,11 +108,107 @@ async def lifespan(app: FastAPI):
             weights=_config.ranker_weights,
             rrf_k=int(_config.rrf_k),
         )
-
-        print("✅ TokenSmith API initialized successfully")
+        
+        _current_is_partial = partial
+        print(f"✅ TokenSmith artifacts loaded from {artifacts_dir} (partial={partial})")
+        
     except Exception as exc:
-        print(f"⚠️  Warning: Could not load artifacts: {exc}")
-        print("   Run indexing first or check your configuration")
+        print(f"⚠️  Warning: Failed to load artifacts from {artifacts_dir if 'artifacts_dir' in locals() else 'unknown'}: {exc}")
+        # Don't raise here, allow app to start so build endpoints can be used
+        _artifacts = None
+        _retrievers = None
+        _ranker = None
+
+class SourceItem(BaseModel):
+    page: int
+    text: str
+    
+    class Config:
+        frozen = True  # Makes the model hashable so it can be used in sets
+
+
+class ChatRequest(BaseModel):
+    query: str
+    enable_chunks: Optional[bool] = None
+    prompt_type: Optional[str] = None  # Maps to system_prompt_mode
+    max_chunks: Optional[int] = None  # Maps to top_k for retrieval
+    temperature: Optional[float] = None
+    top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
+    partial: Optional[bool] = False
+
+class IndexBuilderRequest(BaseModel):
+    chapters: Optional[List[int]] = None
+    partial: Optional[bool] = False
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: List[SourceItem]
+    chunks_used: List[int]
+    chunks_by_page: Dict[int, List[str]]
+    query: str
+
+
+def _resolve_config_path() -> pathlib.Path:
+    """Return the absolute path to the API config."""
+    return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+
+def _ensure_initialized(requested_partial: bool = False):
+    """
+    Ensure the global state is loaded. If the requested partial mode 
+    differs from what is currently loaded, reload it.
+    """
+    global _config, _current_is_partial
+    
+    if _config is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Config not loaded."
+        )
+
+    # Check if we need to switch (re-check is_partial against current_is_partial)
+    if _artifacts is None or requested_partial != _current_is_partial:
+        _initialize_artifacts(partial=requested_partial)
+
+    if not all([_artifacts, _retrievers, _ranker]):
+        raise HTTPException(
+            status_code=503,
+            detail="Artifacts not loaded or index folder empty. Please run indexing first."
+        )
+
+def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
+    chunks = _artifacts["chunks"]
+    effective_top_k = top_k if top_k is not None else _config.top_k
+    pool_n = max(_config.num_candidates, effective_top_k + 10)
+    raw_scores: Dict[str, Dict[int, float]] = {}
+
+    for retriever in _retrievers:
+        raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
+
+    ordered = _ranker.rank(raw_scores=raw_scores)
+    # Create a temporary config with the effective top_k for filtering
+    temp_config = _config
+    if top_k is not None:
+        temp_config = deepcopy(_config)
+        temp_config.top_k = effective_top_k
+    topk_idxs = filter_retrieved_chunks(temp_config, chunks, ordered)
+    return raw_scores, topk_idxs
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize artifacts on startup."""
+    global _config, _logger
+
+    config_path = _resolve_config_path()
+    if not config_path.exists():
+        raise FileNotFoundError(f"No config file found at {config_path}")
+
+    _config = RAGConfig.from_yaml(config_path)
+    init_logger(_config)
+    _logger = get_logger()
+
+    # Default startup: load main index if it exists, fallback to partial
+    _initialize_artifacts(partial=False)
 
     yield
 
@@ -211,7 +263,7 @@ async def test_chat(request: ChatRequest):
     print(f"🔍 Test chat request: {request.query}")
     
     try:
-        _ensure_initialized()
+        _ensure_initialized(requested_partial=request.partial)
     except HTTPException as exc:
         return {"error": exc.detail, "status": "error"}
     
@@ -250,7 +302,7 @@ async def test_chat(request: ChatRequest):
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Streaming chat endpoint using Server-Sent Events."""
-    _ensure_initialized()
+    _ensure_initialized(requested_partial=request.partial)
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
@@ -315,7 +367,7 @@ async def chat(request: ChatRequest):
     """Main chat endpoint."""
     print(f"🔍 Received chat request: {request.query}")  # Debug logging
 
-    _ensure_initialized()
+    _ensure_initialized(requested_partial=request.partial)
     
     if not request.query.strip():
         print("Empty query received")
@@ -424,7 +476,10 @@ async def build_index_endpoint(request: IndexBuilderRequest):
 
     try:
         # Parameters from config
-        artifacts_dir = _config.get_artifacts_directory()
+        is_partial = request.partial or (request.chapters is not None)
+        artifacts_dir = _config.get_artifacts_directory(partial=is_partial)
+        # Update map path in config if needed
+        _config.page_to_chunk_map_path = _config.get_page_to_chunk_map_path(artifacts_dir, INDEX_PREFIX)
         embedding_model_path = _config.embed_model
         chunk_config = _config.chunk_config # This is already a ChunkConfig object from config.__post_init__
         
@@ -450,41 +505,8 @@ async def build_index_endpoint(request: IndexBuilderRequest):
             chapters_to_index=request.chapters,
         )
 
-        # Reload INDEX_METADATA
-        meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
-        if meta_path.exists():
-            with open(meta_path, "r") as f:
-                INDEX_METADATA = json.load(f)
-        else:
-            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
-
-
-        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
-            artifacts_dir=artifacts_dir,
-            index_prefix=index_prefix
-        )
-
-        _artifacts = {
-            "chunks": chunks,
-            "sources": sources,
-            "meta": metadata,
-        }
-
-        _retrievers = [
-            FAISSRetriever(faiss_index, _config.embed_model),
-            BM25Retriever(bm25_index),
-        ]
-        
-        if _config.ranker_weights.get("index_keywords", 0) > 0:
-            _retrievers.append(
-                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
-            )
-
-        _ranker = EnsembleRanker(
-            ensemble_method=_config.ensemble_method,
-            weights=_config.ranker_weights,
-            rrf_k=int(_config.rrf_k),
-        )
+        # Reload state for the mode we just built
+        _initialize_artifacts(partial=is_partial)
 
         return {"status": "success", "message": "Index rebuilt successfully."}
 
@@ -503,7 +525,10 @@ async def add_to_index_endpoint(request: IndexBuilderRequest):
         raise HTTPException(status_code=400, detail="No chapters provided to add to the index.")
 
     try:
-        artifacts_dir = _config.get_artifacts_directory()
+        is_partial = request.partial or (request.chapters is not None)
+        artifacts_dir = _config.get_artifacts_directory(partial=is_partial)
+        # Update map path in config if needed
+        _config.page_to_chunk_map_path = _config.get_page_to_chunk_map_path(artifacts_dir, INDEX_PREFIX)
         embedding_model_path = _config.embed_model
         chunk_config = _config.chunk_config
         markdown_file = "data/silberschatz.md"
@@ -520,40 +545,8 @@ async def add_to_index_endpoint(request: IndexBuilderRequest):
             chapters_to_add=request.chapters,
         )
 
-        # Reload artifacts
-        meta_path = artifacts_dir / f"{INDEX_PREFIX}_info.json"
-        if meta_path.exists():
-            with open(meta_path, "r") as f:
-                INDEX_METADATA = json.load(f)
-        else:
-            INDEX_METADATA = {"status": "not_indexed", "indexed_chapters": []}
-
-        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
-            artifacts_dir=artifacts_dir,
-            index_prefix=index_prefix
-        )
-
-        _artifacts = {
-            "chunks": chunks,
-            "sources": sources,
-            "meta": metadata,
-        }
-
-        _retrievers = [
-            FAISSRetriever(faiss_index, _config.embed_model),
-            BM25Retriever(bm25_index),
-        ]
-        
-        if _config.ranker_weights.get("index_keywords", 0) > 0:
-            _retrievers.append(
-                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
-            )
-
-        _ranker = EnsembleRanker(
-            ensemble_method=_config.ensemble_method,
-            weights=_config.ranker_weights,
-            rrf_k=int(_config.rrf_k),
-        )
+        # Reload state
+        _initialize_artifacts(partial=is_partial)
 
         return {"status": "success", "message": "Chapters added to index successfully."}
 
