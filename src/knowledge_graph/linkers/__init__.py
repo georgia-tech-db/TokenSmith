@@ -1,7 +1,4 @@
-from .cooccurrence_linker import CooccurrenceLinker
 from .base_linker import BaseLinker
+from .cooccurrence_linker import CooccurrenceLinker
 
-__all__ = [
-    "CooccurrenceLinker",
-    "BaseLinker",
-]
+__all__ = ["BaseLinker", "CooccurrenceLinker"]

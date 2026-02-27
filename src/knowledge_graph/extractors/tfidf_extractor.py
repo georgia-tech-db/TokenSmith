@@ -22,24 +22,15 @@ class TfidfExtractor(BaseExtractor):
         if not texts:
             return []
 
-        # Configure vectorizer. max_df and min_df are defaults for keyword extraction.
-        # We use stop_words to filter out noise.
         vectorizer = TfidfVectorizer(
-            max_df=0.95,
-            min_df=2 if len(texts) > 1 else 1,
             stop_words="english",
-            token_pattern=r"(?u)\b[a-zA-Z]{3,}\b",  # Only words with 3+ letters
+            token_pattern=r"(?u)\b[a-zA-Z]{3,}\b",  # Only words with 3+ letters,
+            ngram_range=(1, 2),
         )
 
-        try:
-            tfidf_matrix = vectorizer.fit_transform(texts)
-        except ValueError:
-            # Handles case where vocabulary is empty after filtering
-            return [ExtractionResult(chunk_id=chunk.id, nodes=[]) for chunk in chunks]
-
+        tfidf_matrix = vectorizer.fit_transform(texts)
         feature_names = vectorizer.get_feature_names_out()
         results: list[ExtractionResult] = []
-
         for i, chunk in enumerate(chunks):
             # Get the row for this chunk
             row = tfidf_matrix.getrow(i).toarray().flatten()
@@ -51,7 +42,6 @@ class TfidfExtractor(BaseExtractor):
             for idx in top_indices:
                 if row[idx] > 0:
                     raw_nodes.append(feature_names[idx])
-
             normalized = self.normalizer.normalize(raw_nodes)
             results.append(ExtractionResult(chunk_id=chunk.id, nodes=normalized))
 

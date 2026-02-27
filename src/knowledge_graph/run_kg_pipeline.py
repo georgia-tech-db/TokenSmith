@@ -2,15 +2,16 @@ import os
 import pickle
 
 from src.knowledge_graph.models import Chunk
-from src.knowledge_graph.base.extractor import BaseExtractor
 from src.knowledge_graph.extractors import (
+    BaseExtractor,
     CompositeExtractor,
     YakeExtractor,
     TfidfExtractor,
     KeyBERTExtractor,
+    TextRankExtractor,
 )
-from src.knowledge_graph.linkers.cooccurrence_linker import CooccurrenceLinker
-from src.knowledge_graph.persisters.networkx_json_persister import NetworkxJsonPersister
+from src.knowledge_graph.linkers import CooccurrenceLinker
+from src.knowledge_graph.persisters import NetworkxJsonPersister
 
 from src.knowledge_graph.pipeline import Pipeline
 
@@ -18,6 +19,7 @@ PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
+# Will read chunks from textbook index chunks and metadata
 CHUNKS_PKL = os.path.join(
     PROJECT_ROOT, "index", "sections", "textbook_index_chunks.pkl"
 )
@@ -58,6 +60,7 @@ def main() -> None:
             YakeExtractor(top_n=TOP_N),
             TfidfExtractor(top_n=TOP_N),
             KeyBERTExtractor(top_n=TOP_N),
+            TextRankExtractor(top_n=TOP_N),
         ]
     )
     linker = CooccurrenceLinker(min_cooccurrence=MIN_COOCCURRENCE)

@@ -19,6 +19,7 @@ def load_graph(filepath: str) -> nx.Graph:
 
 
 def extract_query_nodes(query: str, graph: nx.Graph) -> list[str]:
+    # TODO: think about how to handle punctuation
     split_query = query.lower().removesuffix("?").removesuffix(".").split()
     bigrams = list(ngrams(split_query, 2))
     matched_nodes: set[str] = set()
@@ -110,60 +111,41 @@ def compute_difficulty_features(query: str, graph: nx.Graph):
     )
 
 
+def map_to_score(
+    input: int | float,
+    thresholds: list[int | float],
+    scores: list[int | DifficultyCategory],
+):
+    for threshold, score in zip(thresholds, scores):
+        if input <= threshold:
+            return score
+    return scores[-1]
+
+
 def compute_difficulty_score(features: QueryFeatures) -> DifficultyScore:
-    # 1. Multi-hop complexity
-    L_max = features.L_max
-    if L_max <= 1:
-        s1 = 0
-    elif L_max == 2:
-        s1 = 1
-    else:
-        s1 = 2
 
-    # 2. Graph fragmentation
-    C = features.C
-    if C <= 1:
-        s2 = 0
-    elif C == 2:
-        s2 = 1
-    else:
-        s2 = 2
+    # Multi-hop complexity
+    s1 = map_to_score(features.L_max, [1, 2], [0, 1, 2])
 
-    # 3. Subgraph size
-    N_sub = features.N_sub
-    if N_sub <= 20:
-        s3 = 0
-    elif N_sub <= 60:
-        s3 = 1
-    else:
-        s3 = 2
+    # Graph fragmentation
+    s2 = map_to_score(features.C, [1, 2], [0, 1, 2])
 
-    # 4. Branching
-    D_avg = features.D_avg
-    if D_avg <= 3:
-        s4 = 0
-    elif D_avg <= 6:
-        s4 = 1
-    else:
-        s4 = 2
+    # Subgraph size
+    s3 = map_to_score(features.N_sub, [20, 60], [0, 1, 2])
 
-    # 5. Dispersion
-    Doc_count = features.Doc_count
-    if Doc_count <= 2:
-        s5 = 0
-    elif Doc_count <= 4:
-        s5 = 1
-    else:
-        s5 = 2
+    # Branching
+    s4 = map_to_score(features.D_avg, [3, 6], [0, 1, 2])
+
+    # Dispersion
+    s5 = map_to_score(features.Doc_count, [2, 4], [0, 1, 2])
 
     diff = s1 + s2 + s3 + s4 + s5
 
-    if diff <= 2:
-        category = DifficultyCategory.EASY
-    elif diff <= 5:
-        category = DifficultyCategory.MEDIUM
-    else:
-        category = DifficultyCategory.HARD
+    category = map_to_score(
+        diff,
+        [3, 7],
+        [DifficultyCategory.EASY, DifficultyCategory.MEDIUM, DifficultyCategory.HARD],
+    )
 
     return DifficultyScore(
         score=diff,

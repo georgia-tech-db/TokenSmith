@@ -1,0 +1,10 @@
+auto_mix_prep==0.2.0
+gensim==4.4.0
+keybert==0.9.0
+matplotlib==3.10.8
+networkx==3.6.1
+nltk==3.9.2
+scikit_learn==1.8.0
+spacy==3.8.11
+yake==0.7.3
+llama-cpp-python==0.3.16

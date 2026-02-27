@@ -1,10 +1,10 @@
 from time import time
 import networkx as nx
 
-from src.knowledge_graph.base.divider import BaseDivider
-from src.knowledge_graph.base.extractor import BaseExtractor
-from src.knowledge_graph.base.linker import BaseLinker
-from src.knowledge_graph.base.persister import BasePersister
+from src.knowledge_graph.dividers import BaseDivider
+from src.knowledge_graph.extractors import BaseExtractor
+from src.knowledge_graph.linkers import BaseLinker
+from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk
 
 

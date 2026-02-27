@@ -7,12 +7,10 @@ from src.knowledge_graph.extractors import (
     YakeExtractor,
     TfidfExtractor,
     KeyBERTExtractor,
-    SpacyExtractor,
-    NMFExtractor,
-    LDAExtractor,
+    TextRankExtractor,
     SLMExtractor,
 )
-from src.knowledge_graph.base.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 
 
 def benchmark_extractor(name: str, extractor: BaseExtractor, chunks: list[Chunk]):
@@ -60,9 +58,7 @@ def main():
         ("YAKE", YakeExtractor(top_n=TOP_N)),
         ("TF-IDF", TfidfExtractor(top_n=TOP_N)),
         ("KeyBERT", KeyBERTExtractor(top_n=TOP_N)),
-        ("Spacy", SpacyExtractor()),
-        ("NMF", NMFExtractor(n_components=TOP_N)),
-        ("LDA", LDAExtractor(num_topics=TOP_N)),
+        ("TextRank", TextRankExtractor(top_n=TOP_N)),
         ("SLM", SLMExtractor()),
     ]
 

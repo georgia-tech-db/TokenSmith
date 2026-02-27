@@ -1,6 +1,6 @@
 from keybert import KeyBERT
 
-from src.knowledge_graph.extractor import BaseExtractor
+from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
 
