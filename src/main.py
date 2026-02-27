@@ -178,10 +178,11 @@ def get_answer(
         return ANSWER_NOT_FOUND
 
     # 2. Generation
+    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode,
     stream_iter = answer(
         question, ranked_chunks, cfg.gen_model,
         max_tokens=cfg.max_gen_tokens,
-        system_prompt_mode=args.system_prompt_mode or cfg.system_prompt_mode,
+        system_prompt_mode=system_prompt
     )
 
     if is_test_mode:
@@ -197,7 +198,7 @@ def get_answer(
 
         # Logging
         meta = artifacts.get("meta", [])
-        page_nums = get_page_numbers(topk_idxs, meta, chunks)
+        page_nums = get_page_numbers(topk_idxs, meta)
         logger.save_chat_log(
             query=question,
             config_state=cfg.get_config_state(),
