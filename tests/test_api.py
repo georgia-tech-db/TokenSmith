@@ -722,6 +722,7 @@ class TestMainEntryPoints:
         keywords = get_keywords(question)
         
         assert isinstance(keywords, list)
+        print(keywords)
         assert "what" not in keywords  # stopword
         assert "the" not in keywords   # stopword
         assert "database" in keywords or "transactions" in keywords
