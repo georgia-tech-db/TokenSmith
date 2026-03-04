@@ -106,9 +106,18 @@ _LLM_CACHE = {}
 
 def get_llama_model(model_path: str, n_ctx: int = 4096):
     if model_path not in _LLM_CACHE:
-        _LLM_CACHE[model_path] = Llama(model_path=model_path,
+        try:
+            _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
-                                       verbose=False)
+                                       verbose=False,
+                                       n_gpu_layers=-1)
+        except Exception as e: # Load to CPU Now
+            print(f"Error loading model on GPU: {e}. Attempting to load on CPU...")
+            _LLM_CACHE[model_path] = Llama(model_path=model_path,
+                                       n_ctx=n_ctx,
+                                       verbose=False,
+                                       n_gpu_layers=0)
+
     return _LLM_CACHE[model_path]
 
 def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):
