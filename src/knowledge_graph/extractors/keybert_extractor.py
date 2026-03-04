@@ -1,5 +1,5 @@
 from keybert import KeyBERT
-
+from typing import Any
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.utils.normalizer import Normalizer
@@ -23,10 +23,24 @@ class KeyBERTExtractor(BaseExtractor):
         keyphrase_ngram_range: tuple[int, int] = (1, 2),
         normalizer: Normalizer | None = None,
     ):
+        super().__init__()
+        self.model_name = model
         self.kw_model = KeyBERT(model=model)
         self.top_n = top_n
         self.keyphrase_ngram_range = keyphrase_ngram_range
         self.normalizer = normalizer or Normalizer()
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update(
+            {
+                "model": self.model_name,
+                "top_n": self.top_n,
+                "keyphrase_ngram_range": self.keyphrase_ngram_range,
+                "normalizer": self.normalizer.__class__.__name__,
+            }
+        )
+        return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         results: list[ExtractionResult] = []

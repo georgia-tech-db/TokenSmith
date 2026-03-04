@@ -46,8 +46,12 @@ def load_chunks(chunks_path: str, meta_path: str) -> list[Chunk]:
     chunks = []
     for i, (text, meta) in enumerate(zip(texts, metas)):
         chunk_id = meta.get("chunk_id", i)
-        chunks.append(Chunk(id=chunk_id, text=text, metadata=meta))
-
+        section_path = meta.get("section_path")
+        if section_path is None:
+            raise ValueError(f"Missing section_path in metadata for chunk {chunk_id}")
+        if section_path.startswith("Chapter 12"):
+            chunks.append(Chunk(id=chunk_id, text=text, metadata=meta))
+    print("Only using chapter 12, debug mode")
     return chunks
 
 

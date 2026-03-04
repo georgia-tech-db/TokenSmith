@@ -1,3 +1,4 @@
+from typing import Any
 import time
 from collections import defaultdict
 
@@ -22,8 +23,14 @@ class CompositeExtractor(BaseExtractor):
         extractors: list[BaseExtractor],
         normalizer: Normalizer | None = None,
     ):
+        super().__init__()
         self.extractors = extractors
         self.normalizer = normalizer or Normalizer()
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update({"extractors": [e.get_config() for e in self.extractors]})
+        return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         # Collect all nodes per chunk_id across all extractors

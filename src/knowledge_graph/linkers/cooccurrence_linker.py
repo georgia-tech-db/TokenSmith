@@ -1,4 +1,5 @@
 from itertools import combinations
+from typing import Any
 
 import networkx as nx
 
@@ -20,7 +21,13 @@ class CooccurrenceLinker(BaseLinker):
     """
 
     def __init__(self, min_cooccurrence: int = 1):
+        super().__init__()
         self.min_cooccurrence = min_cooccurrence
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update({"min_cooccurrence": self.min_cooccurrence})
+        return config
 
     def link(self, extractions: list[ExtractionResult]) -> nx.Graph:
         graph = nx.Graph()
@@ -49,6 +56,9 @@ class CooccurrenceLinker(BaseLinker):
                         chunk_ids=[chunk_id],
                     )
 
+        self.metadata["deleted_edges"] = 0
+        self.metadata["deleted_nodes"] = 0
+
         # Prune edges below the minimum co-occurrence threshold
         if self.min_cooccurrence > 1:
             edges_to_remove = [
@@ -56,10 +66,16 @@ class CooccurrenceLinker(BaseLinker):
                 for u, v, data in graph.edges(data=True)
                 if data["weight"] < self.min_cooccurrence
             ]
+            self.metadata["deleted_edges"] = len(edges_to_remove)
+            print(
+                f"Pruning {len(edges_to_remove)} edges below threshold {self.min_cooccurrence}"
+            )
             graph.remove_edges_from(edges_to_remove)
 
             # Remove isolated nodes left after pruning
             isolates = list(nx.isolates(graph))
+            self.metadata["deleted_nodes"] = len(isolates)
+            print(f"Removing {len(isolates)} isolated nodes")
             graph.remove_nodes_from(isolates)
 
         return graph

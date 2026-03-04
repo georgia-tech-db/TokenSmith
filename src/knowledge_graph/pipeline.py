@@ -5,7 +5,7 @@ from src.knowledge_graph.dividers import BaseDivider
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.persisters import BasePersister
-from src.knowledge_graph.models import Chunk
+from src.knowledge_graph.models import Chunk, RunMetadata
 
 
 class Pipeline:
@@ -76,7 +76,27 @@ class Pipeline:
         )
         self.log_msg("Persisting graph...")
         t0 = time()
-        self.persister.persist(graph, chunks, output_dir)
+
+        # Collect run metadata
+        run_config = {
+            "extractor": self.extractor.get_config(),
+            "linker": self.linker.get_config(),
+            "persister": self.persister.get_config(),
+        }
+        if self.divider:
+            run_config["divider"] = self.divider.get_config()
+
+        run_stats = {
+            "extractor": self.extractor.metadata,
+            "linker": self.linker.metadata,
+            "persister": self.persister.metadata,
+        }
+        if self.divider:
+            run_stats["divider"] = self.divider.metadata
+
+        run_metadata = RunMetadata(config=run_config, statistics=run_stats)
+
+        self.persister.persist(graph, chunks, output_dir, run_metadata=run_metadata)
         t1 = time()
         self.log_msg(f"  Graph persisted in {t1 - t0:.2f} seconds")
         # Quick stats

@@ -92,3 +92,17 @@ class QueryAnalysisResult:
             "features": self.features.to_dict(),
             "difficulty": self.difficulty.to_dict(),
         }
+
+
+@dataclass
+class RunMetadata:
+    """Configuration and execution statistics for a pipeline run."""
+
+    config: dict[str, Any] = field(default_factory=dict)
+    statistics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "config": self.config,
+            "statistics": self.statistics,
+        }

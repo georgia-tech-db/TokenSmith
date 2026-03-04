@@ -1,3 +1,4 @@
+from typing import Any
 import yake
 
 from src.knowledge_graph.extractors import BaseExtractor
@@ -23,13 +24,29 @@ class YakeExtractor(BaseExtractor):
         deduplicate_threshold: float = 0.9,
         normalizer: Normalizer | None = None,
     ):
+        super().__init__()
         self.kw_extractor = yake.KeywordExtractor(
             lan=language,
             n=3,  # max n-gram size
             top=top_n,
             dedupLim=deduplicate_threshold,
         )
+        self.top_n = top_n
+        self.language = language
+        self.deduplicate_threshold = deduplicate_threshold
         self.normalizer = normalizer or Normalizer()
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update(
+            {
+                "top_n": self.top_n,
+                "language": self.language,
+                "deduplicate_threshold": self.deduplicate_threshold,
+                "normalizer": self.normalizer.__class__.__name__,
+            }
+        )
+        return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         results: list[ExtractionResult] = []

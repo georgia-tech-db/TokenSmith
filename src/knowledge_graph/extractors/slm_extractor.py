@@ -1,3 +1,4 @@
+from typing import Any
 import logging
 import json
 import re
@@ -22,11 +23,25 @@ class SLMExtractor(BaseExtractor):
         prompt_template: str = KEYWORD_EXTRACTION_PROMPT,
         top_n: int = 10,
     ):
+        super().__init__()
         self.model_path = model_path
         self.n_threads = n_threads
         self.normalizer = normalizer or Normalizer()
         self.prompt_template = prompt_template
         self.top_n = top_n
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update(
+            {
+                "model_path": self.model_path,
+                "n_threads": self.n_threads,
+                "normalizer": self.normalizer.__class__.__name__,
+                "prompt_template": self.prompt_template,
+                "top_n": self.top_n,
+            }
+        )
+        return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         texts = [c.text for c in chunks]
