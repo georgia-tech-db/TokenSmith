@@ -116,23 +116,18 @@ def get_answer(
     topk_idxs: List[int] = []
     scores = []
 
-    logger.log_query_start(question)
-
     normalized_question = normalize_question(question)
     config_cache_key = make_cache_config_key(cfg, args, golden_chunks)
     question_embedding: Optional[np.ndarray] = None
     semantic_hit: Optional[Dict[str, Any]] = None
 
     # Check semantic cache
-    if config_cache_key in SEMANTIC_CACHE:
+    if cfg.semantic_cache_enabled and config_cache_key in SEMANTIC_CACHE:
         question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
         semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
 
     # Return cached answer if found
-    if semantic_hit:
-        chunk_indices = semantic_hit.get("chunk_indices", [])
-        if chunk_indices and not (cfg.disable_chunks or cfg.use_indexed_chunks):
-            logger.log_chunks_used(chunk_indices, chunks, sources)
+    if cfg.semantic_cache_enabled and semantic_hit:
 
         ans = semantic_hit.get("answer", "")
 
@@ -221,20 +216,21 @@ def get_answer(
         ans = render_streaming_ans(console, stream_iter)
 
     # Store in semantic cache
-    cache_payload = {
-        "answer": ans,
-        "chunks_info": chunks_info,
-        "hyde_query": hyde_query,
-        "chunk_indices": topk_idxs,
-    }
-    if question_embedding is None:
-        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
-    semantic_cache_store(
-        config_cache_key,
-        normalized_question,
-        question_embedding,
-        cache_payload
-    )
+    if cfg.semantic_cache_enabled:
+        cache_payload = {
+            "answer": ans,
+            "chunks_info": chunks_info,
+            "hyde_query": hyde_query,
+            "chunk_indices": topk_idxs,
+        }
+        if question_embedding is None:
+            question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
+        semantic_cache_store(
+            config_cache_key,
+            normalized_question,
+            question_embedding,
+            cache_payload
+        )
 
     if is_test_mode:
         return ans, chunks_info, hyde_query
