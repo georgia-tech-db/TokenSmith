@@ -32,6 +32,7 @@ data/
 *.faiss
 *.pkl
 index/cache/
+index/partial_sections
 
 # --- Model files ---
 models/
