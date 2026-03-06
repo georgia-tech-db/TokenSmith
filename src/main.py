@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
 def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    artifacts_dir = cfg.get_artifacts_directory()
+    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
 
     data_dir = pathlib.Path("data")
     print(f"Looking for markdown files in {data_dir.resolve()}...")
