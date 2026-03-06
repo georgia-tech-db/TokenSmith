@@ -292,8 +292,6 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if len(chat_history) > cfg.max_history_turns * 2:
                 chat_history = chat_history[-cfg.max_history_turns * 2:]
 
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
-
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
 
