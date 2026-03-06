@@ -166,6 +166,7 @@ def decompose_complex_query(
 def contextualize_query(
     query: str,
     history: list[dict],
+    summary: str,
     model_path: str,
     max_tokens: int = 128,
     **llm_kwargs
@@ -186,7 +187,7 @@ def contextualize_query(
 
     prompt = textwrap.dedent(f"""\
         <|im_start|>system
-        You are a query rewriting assistant. Your task is to rewrite the user's "Follow Up Input" to be a standalone question by replacing pronouns (it, they, this, that) with specific nouns from the "Chat History".
+        You are a query rewriting assistant. Your task is to rewrite the user's "Follow Up Input" to be a standalone question by replacing pronouns (it, they, this, that) with specific nouns from the "Chat History" and the "Conversation Summary".
         
         Examples:
         History: 
@@ -208,6 +209,8 @@ def contextualize_query(
         Output: what is sql?
         <|im_end|>
         <|im_start|>user
+        Conversation Summary: 
+        {summary if summary else "None"}
         Chat History:
         {conversation_text}
         
@@ -234,3 +237,66 @@ def contextualize_query(
         return query
         
     return rewritten
+
+def summarize_history_task(
+    current_summary: str,
+    old_messages: list[dict],
+    model_path: str,
+    memory_state: dict,
+    **llm_kwargs
+):
+    """
+    Runs in a background thread to compress old messages into a new summary.
+    Saves the result directly into the shared memory_state dictionary.
+    """
+    chat_log = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in old_messages])
+    
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are an AI assistant maintaining a conversational memory state. 
+        Your task is to summarize the USER'S INTENT and the TOPICS they are exploring. 
+        CRITICAL INSTRUCTIONS:
+        - DO NOT summarize the factual answers the assistant provided. 
+        - DO NOT write an encyclopedia article or list facts.
+        - Write exactly 1 to 2 sentences explaining what the user is asking about or trying to learn.
+        - Merge the "Previous Summary" with the new topics into a single seamless paragraph.
+        
+        Examples:
+        Previous Summary: None
+        Recent Conversation: 
+        User: What is a B-Tree?
+        Assistant: [Detailed explanation of B-Tree...]
+        User: How does it handle inserts?
+        Assistant: [Detailed explanation of inserts...]
+        Output: The user is studying B-Tree data structures, specifically focusing on the mechanics of node splitting during insertions.
+        
+        Previous Summary: The user is learning about database normalization and 1NF.
+        Recent Conversation:
+        User: What is 2NF then?
+        Assistant: [Detailed explanation of 2NF...]
+        User: Can you give an example of a partial dependency?
+        Assistant: [Detailed explanation of partial dependency...]
+        Output: The user is learning about database normalization, having progressed from 1NF to exploring 2NF and partial dependencies.
+        <|im_end|>
+        <|im_start|>user
+        Previous Summary: 
+        {current_summary if current_summary else "None"}
+        
+        Recent Conversation:
+        {chat_log}
+        
+        Output:
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+    
+    prompt = text_cleaning(prompt)
+    output = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=150,
+        temperature=0.1,
+        **llm_kwargs
+    )
+    new_summary = output["choices"][0]["text"].strip()
+    memory_state["summary"] = new_summary

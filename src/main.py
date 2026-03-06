@@ -5,6 +5,7 @@ import argparse
 import json
 import pathlib
 import sys
+import threading
 from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
@@ -17,7 +18,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.query_enhancement import generate_hypothetical_document, contextualize_query
+from src.query_enhancement import generate_hypothetical_document, contextualize_query, summarize_history_task
 from src.retriever import (
     filter_retrieved_chunks, 
     BM25Retriever, 
@@ -264,6 +265,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         sys.exit(1)
 
     chat_history = []
+    memory_state = {"summary": ""}
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
@@ -277,21 +279,36 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             
             effective_q = q
             if cfg.enable_history and chat_history:
-                effective_q = contextualize_query(q, chat_history, cfg.gen_model)
-            
-            # Use the single query function. get_answer also renders the streaming markdown.
+                effective_q = contextualize_query(q, chat_history, memory_state["summary"], cfg.gen_model)
+        
+            # Use the single query function. get_answer also renders the streaming markdown  and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts)
 
             # Update Chat history
             chat_history.append({"role": "user", "content": q})
             chat_history.append({"role": "assistant", "content": ans})
 
-            # Trim chat history to avoid exceeding context window
-            if len(chat_history) > cfg.max_history_turns * 2:
-                chat_history = chat_history[-cfg.max_history_turns * 2:]
-
-            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
+            if len(chat_history) >= cfg.memory_threshold:
+                if cfg.enable_rolling_memory:
+                    # Slice the list to get the oldest ones to compress
+                    messages_to_compress = chat_history[:-cfg.memory_keep]
+                    
+                    # Start the background thread (async)
+                    thread = threading.Thread(
+                        target=summarize_history_task,
+                        args=(
+                            memory_state["summary"], 
+                            messages_to_compress, 
+                            cfg.gen_model, 
+                            memory_state
+                        )
+                    )
+                    thread.start()
+                    
+                    # Prune the main list so it only contains the KEPT amount
+                    chat_history = chat_history[-cfg.memory_keep:]
+                else:
+                    chat_history = chat_history[-cfg.memory_threshold:]
 
         except KeyboardInterrupt:
             print("\nGoodbye!")

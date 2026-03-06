@@ -46,7 +46,9 @@ class RAGConfig:
 
     # conversational memory
     enable_history: bool = True
-    max_history_turns: int = 3
+    enable_rolling_memory: bool = True
+    memory_threshold: int = 12
+    memory_keep: int = 4
     
     # index parameters
     use_indexed_chunks: bool = False
