@@ -235,25 +235,25 @@ def get_answer(
     if is_test_mode:
         return ans, chunks_info, hyde_query
 
-        # Logging
-        meta = artifacts.get("meta", [])
-        page_nums = get_page_numbers(topk_idxs, meta)
-        logger.save_chat_log(
-            query=question,
-            config_state=cfg.get_config_state(),
-            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
-            chat_request_params={
-                "system_prompt": system_prompt,
-                "max_tokens": cfg.max_gen_tokens
-            },
-            top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
-            page_map=page_nums,
-            full_response=ans,
-            top_k=len(topk_idxs)
-        )
-        return ans
+    # Logging
+    meta = artifacts.get("meta", [])
+    page_nums = get_page_numbers(topk_idxs, meta)
+    logger.save_chat_log(
+        query=question,
+        config_state=cfg.get_config_state(),
+        ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+        chat_request_params={
+            "system_prompt": system_prompt,
+            "max_tokens": cfg.max_gen_tokens
+        },
+        top_idxs=topk_idxs,
+        chunks=chunks,
+        sources=sources,
+        page_map=page_nums,
+        full_response=ans,
+        top_k=len(topk_idxs)
+    )
+    return ans
 
 def render_streaming_ans(console, stream_iter):
     ans = ""

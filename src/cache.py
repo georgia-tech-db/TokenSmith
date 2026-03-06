@@ -42,10 +42,10 @@ def make_cache_config_key(cfg: RAGConfig, args: argparse.Namespace, golden_chunk
     Create a unique JSON key for semantic cache based on config, arguments, and optional golden chunks.
     """
     payload = {
-        "gen_model": args.model_path or cfg.gen_model,
+        "gen_model": getattr(args, "model_path", None) or cfg.gen_model,
         "embed_model": cfg.embed_model,
         "top_k": cfg.top_k,
-        "system_prompt_mode": args.system_prompt_mode or cfg.system_prompt_mode,
+        "system_prompt_mode": getattr(args, "system_prompt_mode", None) or cfg.system_prompt_mode,
         "ensemble_method": cfg.ensemble_method,
         "ranker_weights": cfg.ranker_weights,
         "use_hyde": cfg.use_hyde,

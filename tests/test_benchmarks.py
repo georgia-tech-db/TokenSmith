@@ -187,31 +187,28 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         system_prompt_mode=config.get("system_prompt_mode"),
     )
 
-    # Create RAGConfig from our test config
-    cfg = RAGConfig(
-        chunk_config=RAGConfig.get_chunk_config(config),
-        top_k=config.get("top_k", 10),
-        pool_size=config.get("pool_size", 60),
-        embed_model=config.get("embed_model"),
-        ensemble_method=config.get("retrieval_method", "rrf"),
-        rrf_k=60,
-        ranker_weights=config.get("ranker_weights", {"faiss": 1, "bm25": 0}),
-        rerank_mode=config.get("rerank_mode", "none"),
-        rerank_top_k=config.get("rerank_top_k", 5),
-        seg_filter=config.get("seg_filter", None),
-        system_prompt_mode=config.get("system_prompt_mode", "baseline"),
-        max_gen_tokens=config.get("max_gen_tokens", 400),
-        model_path=config.get("model_path"),
-        disable_chunks=config.get("disable_chunks", False),
-        use_golden_chunks=config.get("use_golden_chunks", False),
-        output_mode=config.get("output_mode", "html"),
-        metrics=config.get("metrics", ["all"]),
-        use_hyde=config.get("use_hyde", False),
-        hyde_max_tokens=config.get("hyde_max_tokens", 300),
-        use_indexed_chunks=config.get("use_indexed_chunks", False),
-        extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
-        page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
-    )
+    # Create RAGConfig from config.yaml and override with test config
+    cfg = RAGConfig.from_yaml("config/config.yaml")
+    if "top_k" in config: cfg.top_k = config.get("top_k", cfg.top_k)
+    if "pool_size" in config: cfg.num_candidates = config.get("pool_size", cfg.num_candidates)
+    if "embed_model" in config: cfg.embed_model = config.get("embed_model", cfg.embed_model)
+    if "ensemble_method" in config: cfg.ensemble_method = config.get("ensemble_method", cfg.ensemble_method)
+    if "retrieval_method" in config: cfg.ensemble_method = config.get("retrieval_method", cfg.ensemble_method)
+    if "ranker_weights" in config and config["ranker_weights"] is not None: cfg.ranker_weights = config.get("ranker_weights", cfg.ranker_weights)
+    if "rerank_mode" in config: cfg.rerank_mode = config.get("rerank_mode", cfg.rerank_mode)
+    if "rerank_top_k" in config: cfg.rerank_top_k = config.get("rerank_top_k", cfg.rerank_top_k)
+    if "system_prompt_mode" in config: cfg.system_prompt_mode = config.get("system_prompt_mode", cfg.system_prompt_mode)
+    if "max_gen_tokens" in config: cfg.max_gen_tokens = config.get("max_gen_tokens", cfg.max_gen_tokens)
+    if "model_path" in config: cfg.gen_model = config.get("model_path", cfg.gen_model)
+    if "disable_chunks" in config: cfg.disable_chunks = config.get("disable_chunks", cfg.disable_chunks)
+    if "use_golden_chunks" in config: cfg.use_golden_chunks = config.get("use_golden_chunks", cfg.use_golden_chunks)
+    if "output_mode" in config: cfg.output_mode = config.get("output_mode", cfg.output_mode)
+    if "metrics" in config: cfg.metrics = config.get("metrics", cfg.metrics)
+    if "use_hyde" in config: cfg.use_hyde = config.get("use_hyde", cfg.use_hyde)
+    if "hyde_max_tokens" in config: cfg.hyde_max_tokens = config.get("hyde_max_tokens", cfg.hyde_max_tokens)
+    if "use_indexed_chunks" in config: cfg.use_indexed_chunks = config.get("use_indexed_chunks", cfg.use_indexed_chunks)
+    if "extracted_index_path" in config: cfg.extracted_index_path = config.get("extracted_index_path", cfg.extracted_index_path)
+    if "page_to_chunk_map_path" in config: cfg.page_to_chunk_map_path = config.get("page_to_chunk_map_path", cfg.page_to_chunk_map_path)
     
     # Print status
     if golden_chunks and config["use_golden_chunks"]:
@@ -226,8 +223,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     logger = get_logger()
 
     # Run the query through the main pipeline
-    artifacts_dir = cfg.make_artifacts_directory()
-    faiss_index, bm25_index, chunks, sources = load_artifacts(
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
         artifacts_dir=artifacts_dir, 
         index_prefix=config["index_prefix"]
     )
@@ -254,16 +251,18 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         "chunks": chunks,
         "sources": sources,
         "retrievers": retrievers,
-        "ranker": ranker
+        "ranker": ranker,
+        "meta": meta
     }
 
+    from rich.console import Console
     result = get_answer(
         question=question,
         cfg=cfg,
         args=args,
         logger=logger,
         artifacts=artifacts,
-        console=None,
+        console=Console(quiet=True),
         golden_chunks=golden_chunks,
         is_test_mode=True
     )
