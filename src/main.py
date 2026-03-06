@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 from src.config import RAGConfig
 from src.generator import answer, dedupe_generated_text
 from src.index_builder import build_index
+from src.index_updater import add_to_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
@@ -32,9 +33,12 @@ ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer tha
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
-    parser.add_argument("mode", choices=["index", "chat"], help="operation mode")
+    parser.add_argument("mode", choices=["index", "chat", "add-chapters"], help="operation mode")
     parser.add_argument("--pdf_dir", default="data/chapters/", help="directory containing PDF files")
     parser.add_argument("--index_prefix", default="textbook_index", help="prefix for generated index files")
+    parser.add_argument("--partial", action="store_true",
+        help="use a partial index stored in 'index/partial_sections' instead of 'index/sections'"
+    )
     parser.add_argument("--model_path", help="path to generation model")
     parser.add_argument("--system_prompt_mode", choices=["baseline", "tutor", "concise", "detailed"], default="baseline")
     
@@ -42,6 +46,12 @@ def parse_args() -> argparse.Namespace:
     indexing_group.add_argument("--keep_tables", action="store_true")
     indexing_group.add_argument("--multiproc_indexing", action="store_true")
     indexing_group.add_argument("--embed_with_headings", action="store_true")
+    indexing_group.add_argument(
+        "--chapters",
+        nargs='+',
+        type=int,
+        help="a list of chapter numbers to index (e.g., --chapters 3 4 5)"
+    )
 
     return parser.parse_args()
 
@@ -69,12 +79,36 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
+        chapters_to_index=args.chapters,
     )
 
-def use_indexed_chunks(question: str, chunks: list) -> list:
+def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
+    """Handles the logic for adding chapters to an existing index."""
+    if not args.chapters:
+        print("Please provide a list of chapters to add using the --chapters argument.")
+        return
+
+    strategy = cfg.get_chunk_strategy()
+    chunker = DocumentChunker(strategy=strategy)
+    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+
+    add_to_index(
+        markdown_file="data/silberschatz.md",
+        chunker=chunker,
+        chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        artifacts_dir=artifacts_dir,
+        index_prefix=args.index_prefix,
+        chapters_to_add=args.chapters,
+    )
+    print("Successfully added chapters to the index.")
+
+def use_indexed_chunks(question: str, chunks: list, cfg: RAGConfig, args: argparse.Namespace) -> list:
     # Logic for keyword matching from textbook index
     try:
-        with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+        map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
+        with open(map_path, 'r') as f:
             page_to_chunk_map = json.load(f)
         with open('data/extracted_index.json', 'r') as f:
             extracted_index = json.load(f)
@@ -123,7 +157,7 @@ def get_answer(
         # No chunks - baseline mode
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
-        ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
+        ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks, cfg, args)
     else:
         retrieval_query = question
         if cfg.use_hyde:
@@ -249,7 +283,8 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
 
     print("Initializing TokenSmith Chat...")
     try:
-        artifacts_dir = cfg.get_artifacts_directory()
+        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+        cfg.page_to_chunk_map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
         faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
         print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
@@ -297,6 +332,8 @@ def main():
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "add-chapters":
+        run_add_chapters_mode(args, cfg)
 
 if __name__ == "__main__":
     main()
