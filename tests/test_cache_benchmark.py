@@ -49,6 +49,7 @@ def mock_config():
     config.use_indexed_chunks = False
     config.disable_chunks = False
     config.use_golden_chunks = False
+    config.semantic_cache_enabled = True
     return config
 
 def test_cache_benchmark_comprehensive(mock_config):
