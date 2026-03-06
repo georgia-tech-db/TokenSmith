@@ -125,6 +125,16 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     # Print result
     print_result(benchmark_id, passed, final_score, threshold, scores, config["output_mode"], retrieved_answer)
     
+    print(f"  Expected Chunks: {ideal_retrieved_chunks}")
+    print(f"  Actual Chunks:   {chunks_info}")
+    
+    with open("chunk_updates.txt", "a", encoding="utf-8") as f:
+        f.write(f"Benchmark: {benchmark_id}\n")
+        f.write(f"Question: {question}\n")
+        f.write(f"Expected Chunks: {ideal_retrieved_chunks}\n")
+        f.write(f"Actual Chunks: {chunks_info}\n")
+        f.write(f"Answer: {retrieved_answer}\n\n")
+
     # Save detailed result
     result_data = {
         "test_id": benchmark_id,
@@ -189,19 +199,17 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
 
     # Create RAGConfig from our test config
     cfg = RAGConfig(
-        chunk_config=RAGConfig.get_chunk_config(config),
         top_k=config.get("top_k", 10),
-        pool_size=config.get("pool_size", 60),
+        num_candidates=config.get("pool_size", 60),
         embed_model=config.get("embed_model"),
         ensemble_method=config.get("retrieval_method", "rrf"),
         rrf_k=60,
         ranker_weights=config.get("ranker_weights", {"faiss": 1, "bm25": 0}),
         rerank_mode=config.get("rerank_mode", "none"),
         rerank_top_k=config.get("rerank_top_k", 5),
-        seg_filter=config.get("seg_filter", None),
         system_prompt_mode=config.get("system_prompt_mode", "baseline"),
         max_gen_tokens=config.get("max_gen_tokens", 400),
-        model_path=config.get("model_path"),
+        gen_model=config.get("model_path"),
         disable_chunks=config.get("disable_chunks", False),
         use_golden_chunks=config.get("use_golden_chunks", False),
         output_mode=config.get("output_mode", "html"),
@@ -226,8 +234,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     logger = get_logger()
 
     # Run the query through the main pipeline
-    artifacts_dir = cfg.make_artifacts_directory()
-    faiss_index, bm25_index, chunks, sources = load_artifacts(
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
         artifacts_dir=artifacts_dir, 
         index_prefix=config["index_prefix"]
     )
@@ -254,7 +262,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         "chunks": chunks,
         "sources": sources,
         "retrievers": retrievers,
-        "ranker": ranker
+        "ranker": ranker,
+        "meta": meta
     }
 
     result = get_answer(

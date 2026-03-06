@@ -4,49 +4,49 @@ benchmarks:
     expected_answer: "Aggregation partitions tuples by grouping attributes and applies functions like sum, avg, min, max to each group, producing one result per group."
     keywords: ["aggregation", "grouping", "generalized projection", "ignore nulls", "attribute renaming", "duplicates"]
     similarity_threshold: 0.8
-    ideal_retrieved_chunks: [1039, 1040, 1496, 1497, 714]
+    ideal_retrieved_chunks: [1121, 351, 135, 333, 1202, 813, 141, 94, 139, 349]
     
   - id: "acid_properties"
     question: "What are the ACID properties of transactions?"
     expected_answer: "Atomicity ensures a transaction's actions are all-or-nothing, enforced by abort/rollback and recovery that can undo partial effects; consistency requires each transaction to preserve database integrity when run alone and relies on the scheduler to admit serializable, recoverable, and preferably cascadeless schedules; isolation makes concurrent executions equivalent to some serial order, commonly achieved with two-phase locking variants that prevent reads of uncommitted data; durability guarantees committed effects persist across crashes via logging to stable storage and redo on restart;"
     keywords: ["atomicity", "consistency", "isolation", "durability", "recoverable", "checkpoints", "two-phase locking", "two-phase commit"]
     similarity_threshold: 0.82
-    ideal_retrieved_chunks: [1143, 1142, 1145, 1146, 1148]
+    ideal_retrieved_chunks: [1227, 1229, 1228, 39, 1231, 1694, 1232, 1368, 213, 1269]
 
   - id: "bptree"
     question: "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access"
     expected_answer: "B+-trees match node size to a disk page, giving very high fan-out and a shallow, height-balanced tree, so searches/updates require few page I/Os."
     keywords: ["fan-out", "leaf linkage", "merge", "balanced height", "reduced height"]
     similarity_threshold: 0.78
-    ideal_retrieved_chunks: [908, 909, 940, 937, 938]
+    ideal_retrieved_chunks: [977, 985, 1872, 1013, 1011, 980, 1008, 1017, 1003, 1030]
 
   - id: "fd_normalization"
     question: "What are functional dependencies?"
     expected_answer: "A functional dependency X -> Y asserts that tuples agreeing on X must agree on Y."
     keywords: ["common key", "lossless join", "dependency preservation", "normalization", "superkey"]
     similarity_threshold: 0.7
-    ideal_retrieved_chunks: [438, 439, 463, 451, 484]
+    ideal_retrieved_chunks: [486, 466, 485, 467, 496, 511, 481, 491, 494, 468]
 
   - id: "sql_isolation"
     question: "What isolation guarantees does SQL provide by default?"
     expected_answer: "Serializable. In the SQL standard, the default isolation level is Serializable, which guarantees that the outcome of concurrently executing transactions is equivalent to some serial (one-at-a-time) order of those transactions—thereby preventing dirty reads, nonrepeatable reads, and phantoms."
     keywords: ["serializable", "read committed", "repeatable read", "dirty read", "nonrepeatable read", "phantom", "two-phase locking", "predicate locking"]
     similarity_threshold: 0.7
-    ideal_retrieved_chunks: [1173, 1174, 1142, 1143, 1172]
+    ideal_retrieved_chunks: [1260, 1227, 1259, 1228, 1910, 1336, 1344, 1335, 1269, 1268]
 
   - id: "primary_foreign_keys"
     question: "Explain primary keys and foreign keys"
     expected_answer: "A primary key is a set of one or more attributes that uniquely identifies each tuple in a relation, chosen from candidate keys which are minimal superkeys; primary key attributes are underlined in schema diagrams and cannot have null values. A foreign key is a set of attributes in one relation (the referencing relation) that references the primary key of another relation (the referenced relation), establishing a referential integrity constraint that requires values in the foreign key to match values in the referenced primary key, thereby linking related data across tables."
     keywords: ["primary key", "foreign key", "unique identifier", "referential integrity", "candidate key", "superkey"]
     similarity_threshold: 0.72
-    ideal_retrieved_chunks: [90, 91, 119, 93, 94]
+    ideal_retrieved_chunks: [71, 385, 222, 75, 103, 72, 73, 387, 404, 386]
 
   - id: "database_schema"
     question: "What is a database schema"
     expected_answer: "A database schema is the overall logical design and structure of the database, analogous to variable declarations in a program, defining the relations, their attributes, data types, and constraints including primary keys and foreign keys. The schema remains relatively stable over time, while a database instance represents the actual collection of data stored at a particular moment, with values that change as information is inserted, deleted, or modified."
     keywords: ["database schema", "logical design", "structure", "database instance", "relations", "attributes", "constraints"]
     similarity_threshold: 0.70
-    ideal_retrieved_chunks: [49, 50, 51, 250, 60]
+    ideal_retrieved_chunks: [22, 66, 32, 25, 99, 247, 24, 2023, 445, 366]
 
   - id: "book_authors"
     question: "Tell me about the authors of the book"
@@ -60,14 +60,14 @@ benchmarks:
     expected_answer: "The ARIES recovery algorithm ensures atomicity by maintaining a write-ahead log where all updates are recorded before being applied to the database, with each log record containing transaction ID, data item, old value, and new value. During normal operation, log records are written to stable storage before the transaction commits; if a transaction aborts or the system crashes, the recovery manager uses the log to undo uncommitted transactions by applying the old values in reverse order, ensuring that partial effects of incomplete transactions are completely rolled back and the all-or-nothing property of atomicity is preserved."
     keywords: ["ARIES", "write-ahead log", "log records", "undo", "rollback", "stable storage", "atomicity", "recovery"]
     similarity_threshold: 0.75
-    ideal_retrieved_chunks: [1355, 1356, 1358, 1353, 1359]
+    ideal_retrieved_chunks: [1448, 1459, 1458, 1453, 1450, 1463, 1449, 1469, 1466, 1411]
 
   - id: "oltp_vs_analytics"
     question: "Contrast the goals of Online Transaction Processing and data analytics"
     expected_answer: "Online Transaction Processing (OLTP) supports a large number of concurrent users performing small, fast transactions that retrieve and update relatively small amounts of data with requirements for high throughput, low latency, and immediate consistency, typically using normalized schemas optimized for transactional integrity. Data analytics, in contrast, processes large volumes of historical data to draw conclusions and infer patterns for business intelligence and decision support, involving complex queries that scan and aggregate data across many records, often using denormalized schemas like star schemas in data warehouses optimized for read-heavy analytical workloads rather than transactional updates."
     keywords: ["OLTP", "online transaction processing", "data analytics", "business intelligence", "decision support", "throughput", "data warehouse", "transactional", "analytical"]
     similarity_threshold: 0.73
-    ideal_retrieved_chunks: [33, 34, 738, 739, 741]
+    ideal_retrieved_chunks: [1925, 5, 809, 1368, 1490, 1, 798, 1594, 39, 1923]
 
   - id: "lossy_decomposition"
     question: "Show me what happens during a lossy decomposition"
@@ -75,3 +75,59 @@ benchmarks:
     keywords: ["lossy decomposition", "spurious tuples", "lossless join", "superkey", "natural join", "information loss", "functional dependency"]
     similarity_threshold: 0.70
     ideal_retrieved_chunks: [431, 430, 432, 433, 440]
+
+  - id: "buffer_recovery_steal"
+    question: "Explain how the 'steal' policy in buffer management necessitates the 'undo' phase in a recovery algorithm."
+    expected_answer: "The steal policy allows the buffer manager to write a page from the database buffer to disk even if the transaction that modified the page has not yet committed. This implies that if the system crashes or the transaction aborts, the version on disk might contain uncommitted updates from that transaction. To preserve atomicity and durability, the recovery algorithm must perform an 'undo' operation to revert those uncommitted changes on disk using the old-value information stored in the log, ensuring that the database returns to a consistent state prior to the start of the uncommitted transaction."
+    keywords: ["steal policy", "undo phase", "buffer management", "atomicity", "commit", "uncommitted updates", "log records", "redo"]
+    similarity_threshold: 0.75
+    ideal_retrieved_chunks: [1446, 1447, 1416, 1417]
+
+  - id: "norm_performance_tradeoff"
+    question: "Evaluate the trade-offs between BCNF and 3NF decomposition regarding both update consistency and query performance."
+    expected_answer: "Boyce-Codd Normal Form (BCNF) eliminates all redundancy resulting from functional dependencies by ensuring every determinant is a superkey, which prevents update anomalies and ensures strict consistency. However, a BCNF decomposition may not be dependency-preserving, meaning some functional dependencies can only be checked by performing expensive joins. In contrast, Third Normal Form (3NF) always allows for a dependency-preserving decomposition and is generally easier to achieve but allows some redundancy and potential update anomalies. From a query performance standpoint, 3NF may prevent expensive joins needed for dependency validation, while BCNF might require more joins both for validation and for reconstructed queries due to further table fragmentation."
+    keywords: ["BCNF", "3NF", "Boyce-Codd", "dependency preservation", "redundancy", "update anomaly", "join performance", "superkey", "functional dependency"]
+    similarity_threshold: 0.72
+    ideal_retrieved_chunks: [514, 515, 516, 512, 527]
+
+  - id: "snapshot_isolation_skew"
+    question: "Describe the 'write-skew' anomaly that can occur under Snapshot Isolation but is prevented by Serializability."
+    expected_answer: "Write-skew occurs when two concurrent transactions read overlapping data sets, perform disjoint updates, and commit based on the assumption that the other transaction's changes do not exist. In Snapshot Isolation, each transaction sees a private snapshot of the database from its start time. If Transaction 1 reads X and Y, updates X, and Transaction 2 reads X and Y and updates Y, both may commit successfully because they modified different items (no write-write conflict). However, the combined result might violate a cross-item constraint that depended on the initial values of both X and Y. True Serializability prevents this by ensuring the total effect is equivalent to some serial execution, often using locks or validation to detect that the read sets were invalidated by concurrent writes."
+    keywords: ["write-skew", "snapshot isolation", "serializability", "anomaly", "concurrent transactions", "constraint violation", "read set", "write-write conflict"]
+    similarity_threshold: 0.78
+    ideal_retrieved_chunks: [1341, 1344, 1268, 1340, 1273, 1335, 1345, 1910, 1336, 1342]
+
+  - id: "indexing_range_scan"
+    question: "Analyze why a B+ tree index is generally preferred over a hash index for range queries (e.g., salary between 50k and 100k)."
+    expected_answer: "B+ trees maintain keys in a sorted order within their leaf nodes and link those leaf nodes together in a doubly-linked list. This structure allows the system to find the starting key of a range using the tree's internal nodes and then simply scan the leaves sequentially to retrieve all subsequent keys in the range. In contrast, hash indices distribute keys across buckets based on a hash function that does not preserve order. To answer a range query with a hash index, the system would typically have to perform a full scan of the index or the table, as it cannot intelligently hop to the next key or even know which buckets contain the intermediate values, making hash indices efficient only for point lookups (equality searches)."
+    keywords: ["B+ tree", "hash index", "range query", "leaf nodes", "sorted order", "sequential scan", "point lookup", "buckets", "index pointer"]
+    similarity_threshold: 0.74
+    ideal_retrieved_chunks: [1872, 1019, 977, 961, 1857, 1890, 1013, 1024, 1011, 249]
+
+  - id: "slotted_page_locking"
+    question: "How does the slotted page structure for record storage enable fine-grained row-level locking?"
+    expected_answer: "The slotted page structure organizes a block of data with a header containing a slot directory (pointers to record offsets). Because records can be uniquely identified by a combination of Page ID and Slot Number (RID), the concurrency control manager can use these stable identifiers to place locks on specific records (rows) rather than locking the entire physical page. This allows multiple transactions to update different records on the same page simultaneously, significantly increasing concurrency compared to page-level locking. The slot directory also handles record movement or growth within the page without changing the RID, as only the internal offset in the slot directory needs to be updated."
+    keywords: ["slotted page", "row-level locking", "RID", "Page ID", "Slot Number", "slot directory", "concurrency", "page-level locking", "header"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [911, 1304, 912, 1356, 954, 915, 1360, 1314, 935, 809]
+
+  - id: "mars_capital_idk"
+    question: "What is the capital of the planet Mars according to the database textbook?"
+    expected_answer: "I am sorry, but the provided text focuses on database system concepts and does not contain information regarding the geography or political structure of out-of-scope topics like planets. I don't know the answer based on the retrieved context."
+    keywords: ["I don't know", "out of scope", "Mars", "capital"]
+    similarity_threshold: 0.35
+    ideal_retrieved_chunks: []
+
+  - id: "future_db_idk"
+    question: "Which database engine was released in the year 2029 according to the history section?"
+    expected_answer: "The provided text's historical timeline for database systems only goes up to the late 2010s or early 2020s. There is no information about database engine releases in the 2029 or the future. I don't know the answer based on the current context."
+    keywords: ["I don't know", "future", "2029", "out of scope"]
+    similarity_threshold: 0.35
+    ideal_retrieved_chunks: []
+
+  - id: "aries_analysis_phase"
+    question: "How does the ARIES 'Analysis' pass use the Dirty Page Table to determine the starting point for the 'Redo' pass?"
+    expected_answer: "The Analysis pass of the ARIES recovery algorithm scans the log forward from the last checkpoint to identify the state of transactions and active pages. Specifically, it reconstructs the Dirty Page Table (DPT), which tracks pages that were modified in memory but not yet flushed to disk. Each entry in the DPT contains a 'RecLSN' (Recovery Log Sequence Number), representing the first log record that dirtied that page. During the subsequent Redo pass, the system identifies the minimum RecLSN across all entries in the DPT. This minimum RecLSN represents the earliest point from which updates might still need to be reapplied to the database on disk, ensuring that no modified data is lost while avoiding unnecessary redo of data already persisted."
+    keywords: ["ARIES", "Analysis pass", "Dirty Page Table", "DPT", "RecLSN", "Redo pass", "checkpoint", "recovery", "log sequence number"]
+    similarity_threshold: 0.76
+    ideal_retrieved_chunks: [1457, 1448, 1453, 1459, 1455, 1458, 1454, 1450, 1449, 1456]

@@ -15,14 +15,14 @@ class MetricRegistry:
             SemanticSimilarityMetric,
             KeywordMatchMetric,
             NLIEntailmentMetric,
-            AsyncLLMJudgeMetric,
+            # AsyncLLMJudgeMetric,
             ChunkRetrievalMetric
         )
 
         self.register(SemanticSimilarityMetric())
         self.register(KeywordMatchMetric())
         self.register(NLIEntailmentMetric())
-        self.register(AsyncLLMJudgeMetric())
+        # self.register(AsyncLLMJudgeMetric())
         self.register(ChunkRetrievalMetric())
 
     def register(self, metric: MetricBase):
