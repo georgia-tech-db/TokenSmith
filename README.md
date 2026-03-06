@@ -2,6 +2,9 @@
 
 **TokenSmith** is a local-first database system for students to query textbooks, lecture slides, and notes and get fast, cited answers on their own machines using local LLMs. It is based on retrieval augmented generation (RAG) and applies database-inspired principles like indexing, latency-focused querying, caching, and incremental builds, to optimize the ingestion -> retrieval -> generation pipeline.
 
+<img width="1255" height="843" alt="tokensmith" src="https://github.com/user-attachments/assets/b36d6227-8cec-4f71-aacc-fccdd1285378" />
+
+
 ## Capabilities
 
 * Parse and index PDF documents

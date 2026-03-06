@@ -112,8 +112,8 @@ def build_index(
                 page_to_chunk_ids.setdefault(current_page, set()).add(total_chunks+sub_chunk_id)
                 chunk_pages.add(current_page)
 
-            # Process the new pages found within this sub_chunk. Step by 2
-            # where each pair represents (page number, text after it)
+            # Process the new pages found within this sub_chunk. 
+            # Step by 2 where each pair represents (page number, text after it)
             for i in range(1, len(fragments), 2):
                 try:
                     # Get the new page number from the marker
@@ -177,6 +177,7 @@ def build_index(
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
     embedder = SentenceTransformer(embedding_model_path)
+
     if use_multiprocessing:
         print("Starting multi-process pool for embeddings...")
         # Start the pool. Adjust number of workers as needed.
@@ -195,8 +196,9 @@ def build_index(
         # Standard single-process embedding
         embeddings = embedder.encode(
             all_chunks, 
-            batch_size=4, 
-            show_progress_bar=True
+            batch_size=8, 
+            show_progress_bar=True,
+            convert_to_numpy=True 
         )
 
     # Step 3: Build FAISS index
