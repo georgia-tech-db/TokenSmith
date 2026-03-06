@@ -17,7 +17,6 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document, contextualize_query
 from src.retriever import (
     filter_retrieved_chunks, 
@@ -27,7 +26,6 @@ from src.retriever import (
     get_page_numbers, 
     load_artifacts
 )
-from src.query_enhancement import generate_hypothetical_document
 from src.ranking.reranker import rerank
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
