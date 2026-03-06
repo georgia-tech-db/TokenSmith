@@ -255,8 +255,15 @@ def main():
         sys.exit(1)
 
     # Convert each PDF to Markdown
-    markdown_files = ["data/silberschatz--extracted_markdown.md"]
+    markdown_files = []
+    for pdf_path in pdfs:
+        pdf_name = pdf_path.stem
+        output_md = Path("data") / f"{pdf_name}--extracted_markdown.md"
 
+        print(f"Converting '{pdf_path}' to '{output_md}'...")
+        convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
+
+        markdown_files.append(output_md)
 
     # TODO: Add logic to select which markdown file to process
     extracted_sections = extract_sections_from_markdown(markdown_files[0])
