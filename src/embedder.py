@@ -69,8 +69,9 @@ class SentenceTransformer:
             n_ctx=n_ctx,
             n_threads=n_threads,
             embedding=True,
-            verbose=False,
-            use_mmap=True
+            verbose=True,
+            use_mmap=True,
+            n_gpu_layers=-1 # use GPU if available
         )
         self._embedding_dimension = None
         
@@ -85,12 +86,12 @@ class SentenceTransformer:
         return self._embedding_dimension
 
     def encode(self, 
-               texts: Union[str, List[str]], 
-               batch_size: int = 32,
-               normalize: bool = False,
-               device: str = None,
-               show_progress_bar: bool = False,
-               **kwargs) -> np.ndarray:
+           texts: Union[str, List[str]], 
+           batch_size: int = 16,  # Adjusted for 4B model
+           normalize: bool = False,
+           show_progress_bar: bool = False,
+           **kwargs) -> np.ndarray:
+
         """
         Encode texts to embeddings with batch processing.
         
@@ -98,10 +99,8 @@ class SentenceTransformer:
             texts: Single text or list of texts to encode
             batch_size: Number of texts to process at once
             normalize: Whether to normalize embeddings
-            device: Compatibility param (ignored, CPU only)
             show_progress_bar: Whether to show progress bar
-            
-        Returns:
+            Returns:
             numpy.ndarray: Float32 embeddings array
         """
         if isinstance(texts, str):
@@ -110,11 +109,8 @@ class SentenceTransformer:
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, -1)
         
-        print(f"Encoding {len(texts)} texts with batch_size={batch_size}")
-        
-        embeddings = []
-        
         # Process in batches
+        embeddings = []
         num_batches = (len(texts) + batch_size - 1) // batch_size
 
         for i in tqdm(range(num_batches), desc="Encoding", disable=not show_progress_bar):
@@ -122,27 +118,26 @@ class SentenceTransformer:
             end_idx = min((i + 1) * batch_size, len(texts))
             batch_texts = texts[start_idx:end_idx]
             
-            batch_embeddings = []
-            for text in batch_texts:
-                try:
-                    embedding = self.model.create_embedding(text)['data'][0]['embedding']
-                    batch_embeddings.append(embedding)
-                except Exception as e:
-                    print(f"Error encoding text: {e}")
-                    batch_embeddings.append([0.0] * self.embedding_dimension)
-			
-            if len(batch_embeddings) != len(batch_texts):
-                batch_embeddings.extend([[0.0] * self.embedding_dimension] * (len(batch_texts) - len(batch_embeddings)))
-			
-            embeddings.extend(batch_embeddings)
+            try:
+                # IMPORTANT CHANGE: Pass the entire LIST to the model at once.
+                # This triggers the native C++/Metal batch processing logic.
+                response = self.model.create_embedding(batch_texts)
+                
+                # Extract the list of embedding vectors from the response
+                batch_embeddings = [item['embedding'] for item in response['data']]
+                embeddings.extend(batch_embeddings)
+                
+            except Exception as e:
+                print(f"Error encoding batch: {e}")
+                # Fallback: encode one by one if batch fails, or append zeros
+                for _ in batch_texts:
+                    embeddings.append([0.0] * self.embedding_dimension)
                 
         vecs = np.array(embeddings, dtype=np.float32)
         
-        # Normalize if requested
-        if normalize:
+        if normalize: # do L2 normalization
             norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-            norms = np.where(norms == 0, 1e-12, norms)
-            vecs = vecs / norms
+            vecs = vecs / np.where(norms == 0, 1e-12, norms)
             
         return vecs
 

@@ -145,12 +145,13 @@ def config(pytestconfig):
     # Merge CLI arguments (higher priority)
     merged_config = {
         # Retrieval        
-        "top_k": cfg.get("top_k", 5),
+        "top_k": cfg.get("top_k", 10),
         "pool_size": cfg.get("pool_size", 60),
         "ensemble_method": cfg.get("ensemble_method", "rrf"),
         "rrf_k": cfg.get("rrf_k", 60),
         "ranker_weights": cfg.get("ranker_weights", {"faiss":0.6,"bm25":0.4}),
         "rerank_mode": cfg.get("rerank_mode", "none"),
+        "rerank_top_k": cfg.get("rerank_top_k", 5),
         "seg_filter": cfg.get("seg_filter", None),
         "chunk_mode": cfg.get("chunk_mode", "sections"),
         "recursive_chunk_size": cfg.get("recursive_chunk_size", 1000),
@@ -160,7 +161,7 @@ def config(pytestconfig):
         "output_mode": pytestconfig.getoption("--output-mode") or cfg.get("output_mode", "terminal"),
         
         # Models
-        "model_path": pytestconfig.getoption("--model-path") or cfg.get("model_path", "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"),
+        "model_path": pytestconfig.getoption("--model-path") or cfg.get("model_path", "models/qwen2.5-3b-instruct-q8_0.gguf"),
         "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", os.path.join(Path(__file__).parent.parent, "models", "Qwen3-Embedding-4B-Q8_0.gguf")),
         
         # Generator
@@ -175,7 +176,7 @@ def config(pytestconfig):
         
         # Query Enhancement (HyDE)
         "use_hyde": cfg.get("use_hyde", False),
-        "hyde_max_tokens": cfg.get("hyde_max_tokens", 100),
+        "hyde_max_tokens": cfg.get("hyde_max_tokens", 300),
     }
 
     # Handle enable/disable chunks

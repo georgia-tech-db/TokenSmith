@@ -8,6 +8,10 @@ __pycache__/
 *.pyd
 *.so
 
+# DS Store
+.DS_Store
+index/.DS_Store
+
 # LLAMA path
 *llama_path.txt
 
