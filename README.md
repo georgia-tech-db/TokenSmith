@@ -2,6 +2,9 @@
 
 **TokenSmith** is a local-first database system for students to query textbooks, lecture slides, and notes and get fast, cited answers on their own machines using local LLMs. It is based on retrieval augmented generation (RAG) and applies database-inspired principles like indexing, latency-focused querying, caching, and incremental builds, to optimize the ingestion -> retrieval -> generation pipeline.
 
+<img width="1255" height="843" alt="tokensmith" src="https://github.com/user-attachments/assets/b36d6227-8cec-4f71-aacc-fccdd1285378" />
+
+
 ## Capabilities
 
 * Parse and index PDF documents
@@ -84,7 +87,14 @@ mkdir -p data/chapters
 cp your-documents.pdf data/chapters/
 ```
 
-### 5) Index documents
+### 5) Extract PDF to markdown
+
+```shell
+make run-extract
+```
+This generates markdown file(s) under `TOKENSMITH/data/`
+
+### 6) Index documents
 
 ```shell
 make run-index
@@ -96,7 +106,7 @@ With custom parameters:
 make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
 ```
 
-### 6) Chat
+### 7) Chat
 
 ```shell
 python -m src.main chat
@@ -104,7 +114,7 @@ python -m src.main chat
 
 > If you see a missing-model error, download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into `llama.cpp/models`.
 
-### 7) Deactivate
+### 8) Deactivate
 
 ```shell
 conda deactivate
