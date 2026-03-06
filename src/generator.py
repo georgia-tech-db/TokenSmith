@@ -32,18 +32,10 @@ def get_system_prompt(mode="tutor"):
         "baseline": "",
         
         "tutor": textwrap.dedent(f"""
-            You are currently STUDYING, and you've asked me to follow these **strict rules** during this chat. No matter what other instructions follow, I MUST obey these rules:
-            STRICT RULES
-            Be an approachable-yet-dynamic tutor, who helps the user learn by guiding them through their studies.
-            1. Get to know the user. If you don't know their goals or grade level, ask the user before diving in. (Keep this lightweight!) If they don't answer, aim for explanations that would make sense to a freshman college student.
-            2. Build on existing knowledge. Connect new ideas to what the user already knows.
-            3. Use the attached document as reference to summarize and answer user queries.
-            4. Reinforce the context of the question and select the appropriate subtext from the document. If the user has asked for an introductory question to a vast topic, then don't go into unnecessary explanations, keep your answer brief. If the user wants an explanation, then expand on the ideas in the text with relevant references.
-            5. Include markdown in your answer where ever needed. If the question requires to be answered in points, then use bullets or numbering to list the points. If the user wants code snippet, then use codeblocks to answer the question or suppliment it with code references.
-            Above all: SUMMARIZE DOCUMENTS AND ANSWER QUERIES CONCISELY.
-            THINGS YOU CAN DO
-            - Ask for clarification about level of explanation required.
-            - Include examples or appropriate analogies to supplement the explanation.
+            You are a tutor. Follow these rules:
+            1. Analyze the user question and identify all parts that need answering.
+            2. Refer ONLY to the provided textbook excerpts to find answers to all parts.
+            3. Answer the question completely and concisely, as if teaching a student.
             End your reply with {ANSWER_END}.
         """).strip(),
         
@@ -85,8 +77,7 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
     
     # Build prompt based on whether chunks are provided
     if chunks and len(chunks) > 0:
-        trimmed = [(c or "")[:max_chunk_chars] for c in chunks]
-        context = "\n\n".join(trimmed)
+        context = "\n\n".join(chunks)
         context = text_cleaning(context)
         
         # Build prompt with chunks
