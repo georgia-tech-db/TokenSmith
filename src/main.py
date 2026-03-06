@@ -279,7 +279,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if cfg.enable_history and chat_history:
                 effective_q = contextualize_query(q, chat_history, cfg.gen_model)
             
-            # Use the single query function. get_answer also renders the streaming markdown.
+            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts)
 
             # Update Chat history
@@ -289,9 +289,6 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             # Trim chat history to avoid exceeding context window
             if len(chat_history) > cfg.max_history_turns * 2:
                 chat_history = chat_history[-cfg.max_history_turns * 2:]
-
-            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
