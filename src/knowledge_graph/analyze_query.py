@@ -3,13 +3,15 @@ import networkx as nx
 from itertools import combinations
 import argparse
 from nltk.util import ngrams
-from models import (
+from src.knowledge_graph.models import (
     QueryFeatures,
     DifficultyCategory,
     DifficultyScore,
     QueryAnalysisResult,
     DifficultyComponents,
 )
+from src.knowledge_graph.utils import Normalizer
+import re
 
 
 def load_graph(filepath: str) -> nx.Graph:
@@ -18,18 +20,26 @@ def load_graph(filepath: str) -> nx.Graph:
     return nx.node_link_graph(data)
 
 
+KW_PATTERN = r"\b\w+(?:\s*-\s*\w+)*\+?"
+
+
 def extract_query_nodes(query: str, graph: nx.Graph) -> list[str]:
     # TODO: think about how to handle punctuation
-    split_query = query.lower().removesuffix("?").removesuffix(".").split()
-    bigrams = list(ngrams(split_query, 2))
+    normalizer = Normalizer()
+    keywords = re.findall(KW_PATTERN, query)
+    bigrams = [" ".join(bigram) for bigram in ngrams(keywords, 2)]
+    trigrams = [" ".join(trigram) for trigram in ngrams(keywords, 3)]
+    trigrams = normalizer.normalize(trigrams)
+    bigrams = normalizer.normalize(bigrams)
+    keywords = normalizer.normalize(keywords)
     matched_nodes: set[str] = set()
-
+    for trigram in trigrams:
+        if graph.has_node(trigram):
+            matched_nodes.add(trigram)
     for bigram in bigrams:
-        composite = " ".join(bigram)
-        if graph.has_node(composite):
-            matched_nodes.add(composite)
-
-    for word in split_query:
+        if graph.has_node(bigram):
+            matched_nodes.add(bigram)
+    for word in keywords:
         if graph.has_node(word):
             matched_nodes.add(word)
     return list(matched_nodes)

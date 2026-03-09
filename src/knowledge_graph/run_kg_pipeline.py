@@ -9,6 +9,7 @@ from src.knowledge_graph.extractors import (
     TfidfExtractor,
     KeyBERTExtractor,
     TextRankExtractor,
+    JsonExtractor,
 )
 from src.knowledge_graph.linkers import CooccurrenceLinker
 from src.knowledge_graph.persisters import NetworkxJsonPersister
@@ -18,6 +19,12 @@ from src.knowledge_graph.pipeline import Pipeline
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
+JSON_KW_PATH = os.path.join(
+    PROJECT_ROOT,
+    "data",
+    "knowledge_graph",
+    "all__google_gemini-3-flash-preview__extractions__2.json",
+)
 
 # Will read chunks from textbook index chunks and metadata
 CHUNKS_PKL = os.path.join(
@@ -26,7 +33,7 @@ CHUNKS_PKL = os.path.join(
 META_PKL = os.path.join(PROJECT_ROOT, "index", "sections", "textbook_index_meta.pkl")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data", "knowledge_graph")
 
-MIN_COOCCURRENCE = 2  # prune edges that appear in fewer than X chunks
+MIN_COOCCURRENCE = 0  # prune edges that appear in fewer than X chunks
 TOP_N = 10  # keywords per chunk
 
 
@@ -59,14 +66,15 @@ def main() -> None:
     print(f"Loading chunks from:\n  {CHUNKS_PKL}\n  {META_PKL}")
     chunks = load_chunks(CHUNKS_PKL, META_PKL)
     print(f"Loaded {len(chunks)} chunks\n")
-    extractor: BaseExtractor = CompositeExtractor(
-        extractors=[
-            YakeExtractor(top_n=TOP_N),
-            TfidfExtractor(top_n=TOP_N),
-            KeyBERTExtractor(top_n=TOP_N),
-            TextRankExtractor(top_n=TOP_N),
-        ]
-    )
+    extractor: BaseExtractor = JsonExtractor(input_path=JSON_KW_PATH)
+    # CompositeExtractor(
+    #     extractors=[
+    #         YakeExtractor(top_n=TOP_N),
+    #         TfidfExtractor(top_n=TOP_N),
+    #         KeyBERTExtractor(top_n=TOP_N),
+    #         TextRankExtractor(top_n=TOP_N),
+    #     ]
+    # )
     linker = CooccurrenceLinker(min_cooccurrence=MIN_COOCCURRENCE)
     persister = NetworkxJsonPersister()
     pipeline = Pipeline(
