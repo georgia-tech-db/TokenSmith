@@ -2,7 +2,8 @@ from yaml import Node
 import argparse
 import json
 import hashlib
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Deque
+from collections import deque
 
 import numpy as np
 from sentence_transformers import CrossEncoder
@@ -14,8 +15,10 @@ from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, 
 # -----------------------------
 # Global cache and constants
 # -----------------------------
-SEMANTIC_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+SEMANTIC_CACHE: Dict[str, Deque[Dict[str, Any]]] = {}
 SEMANTIC_CACHE_THRESHOLD = 0.85
+BI_ENCODER_THRESHOLD = 0.40
+CROSS_ENCODER_THRESHOLD = 0.75
 SEMANTIC_CACHE_MAX_ENTRIES = 50
 QUESTION_EMBEDDERS: Dict[str, SentenceTransformer] = {}
 CROSS_ENCODER_MODEL: Optional[CrossEncoder] = None
@@ -75,7 +78,7 @@ def semantic_cache_lookup(config_key: str, query_embedding: np.ndarray, current_
     # Step 1: Bi-Encoder filter (fast cosine similarity)
     candidates = [
         entry for entry in entries
-        if entry.get("embedding") is not None and float(np.dot(entry["embedding"], query_embedding)) > 0.40
+        if np.dot(entry["embedding"], query_embedding) > BI_ENCODER_THRESHOLD
     ]
     if not candidates:
         return None
@@ -86,7 +89,7 @@ def semantic_cache_lookup(config_key: str, query_embedding: np.ndarray, current_
     ce_scores = ce_model.predict(pairs, show_progress_bar=False)
     best_idx = int(np.argmax(ce_scores))
 
-    if ce_scores[best_idx] > 0.75:
+    if ce_scores[best_idx] > CROSS_ENCODER_THRESHOLD:
         return candidates[best_idx]["payload"]
     return None
 
@@ -99,7 +102,9 @@ def semantic_cache_store(config_key: str, normalized_question: str, question_emb
     if question_embedding is None:
         return
 
-    entries = SEMANTIC_CACHE.setdefault(config_key, [])
+    if config_key not in SEMANTIC_CACHE:
+        SEMANTIC_CACHE[config_key] = deque()
+    entries = SEMANTIC_CACHE[config_key]
     entries.append({
         "question": normalized_question,
         "embedding": question_embedding.astype(np.float32),
@@ -107,7 +112,7 @@ def semantic_cache_store(config_key: str, normalized_question: str, question_emb
     })
 
     if len(entries) > SEMANTIC_CACHE_MAX_ENTRIES:
-        entries.pop(0)
+        entries.popleft()
 
 
 # -----------------------------
@@ -118,7 +123,7 @@ def get_question_embedder(retrievers: List[Any], embed_model: str) -> Optional[S
     Get or initialize a SentenceTransformer for encoding questions.
     Prefers the embedder from any FAISSRetriever in the retrievers list.
     """
-    for retriever in retrievers or []:
+    for retriever in retrievers:
         if isinstance(retriever, FAISSRetriever):
             return retriever.embedder
 
