@@ -141,6 +141,48 @@ def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_pr
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
     return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=temperature)
 
+def double_answer(query: str, chunks, model_path: str,
+                  max_tokens: int = 300,
+                  system_prompt_mode: str = "tutor",
+                  temperature: float = 0.2):
+
+    # ---- Pass 1 ----
+    base_prompt = format_prompt(
+        chunks,
+        query,
+        system_prompt_mode=system_prompt_mode
+    )
+
+    initial_stream = stream_llama_cpp(
+        base_prompt,
+        model_path,
+        max_tokens,
+        temperature
+    )
+
+    initial_response = "".join(initial_stream)
+    initial_response = dedupe_generated_text(initial_response)
+
+    # ---- Pass 2 (repeat SAME question) ----
+    repeated_prompt = (
+        base_prompt
+        + initial_response
+        + f"\n{ANSWER_END}\n"
+        + "<|im_end|>\n"
+        + "<|im_start|>user\n"
+        + f"Question: {query}"
+        + "\n<|im_end|>\n"
+        + "<|im_start|>assistant\n"
+        + ANSWER_START
+    )
+
+    return stream_llama_cpp(
+        repeated_prompt,
+        model_path,
+        max_tokens,
+        temperature
+    )
+
 def dedupe_generated_text(text: str) -> str:
     """
     Removes immediate consecutive duplicate sentences or lines from LLM output.
