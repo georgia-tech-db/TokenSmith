@@ -43,6 +43,7 @@ class RAGConfig:
     # query enhancement
     use_hyde: bool = False
     hyde_max_tokens: int = 300
+    use_double_prompt: bool = False
 
     # conversational memory
     enable_history: bool = True

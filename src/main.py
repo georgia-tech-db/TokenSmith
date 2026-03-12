@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from src.config import RAGConfig
-from src.generator import answer, dedupe_generated_text
+from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     indexing_group.add_argument("--keep_tables", action="store_true")
     indexing_group.add_argument("--multiproc_indexing", action="store_true")
     indexing_group.add_argument("--embed_with_headings", action="store_true")
+    parser.add_argument(
+        "--double_prompt",
+        action="store_true",
+        help="enable double prompting for higher quality answers"
+    )
 
     return parser.parse_args()
 
@@ -177,13 +182,28 @@ def get_answer(
         console.print(f"\n{ANSWER_NOT_FOUND}\n")
         return ANSWER_NOT_FOUND
 
-    # 2. Generation
-    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode,
-    stream_iter = answer(
-        question, ranked_chunks, cfg.gen_model,
-        max_tokens=cfg.max_gen_tokens,
-        system_prompt_mode=system_prompt
-    )
+    # Step 4: Generation
+    model_path = cfg.gen_model
+    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+
+    use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
+
+    if use_double:
+        stream_iter = double_answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+        )
+    else:
+        stream_iter = answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+        )
 
     if is_test_mode:
         # We do not render MD in the test mode
