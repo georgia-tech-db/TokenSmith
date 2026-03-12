@@ -33,3 +33,4 @@ dependencies:
     - pydantic
     - docling
     - markdown
+    - gpt4all

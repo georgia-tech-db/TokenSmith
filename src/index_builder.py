@@ -16,7 +16,9 @@ from typing import List, Dict
 
 import faiss
 from rank_bm25 import BM25Okapi
-from src.embedder import SentenceTransformer
+# from src.embedder import SentenceTransformer
+from gpt4all import Embed4All
+import numpy as np
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
@@ -176,30 +178,18 @@ def build_index(
 
     # Step 2: Create embeddings for FAISS index
     print(f"Embedding {len(all_chunks):,} chunks with {pathlib.Path(embedding_model_path).stem} ...")
-    embedder = SentenceTransformer(embedding_model_path)
-
-    if use_multiprocessing:
-        print("Starting multi-process pool for embeddings...")
-        # Start the pool. Adjust number of workers as needed.
-        pool = embedder.start_multi_process_pool(workers=4)
-        try:
-            # Compute embeddings in parallel
-            embeddings = embedder.encode_multi_process(
-                all_chunks, 
-                pool, 
-                batch_size=32
-            )
-        finally:
-            # Stop the pool to prevent hanging processes
-            embedder.stop_multi_process_pool(pool)
+    
+    model_name = os.path.basename(embedding_model_path)
+    model_dir = os.path.dirname(embedding_model_path)
+    if model_dir:
+        embedder = Embed4All(model_name, model_path=model_dir)
     else:
-        # Standard single-process embedding
-        embeddings = embedder.encode(
-            all_chunks, 
-            batch_size=8, 
-            show_progress_bar=True,
-            convert_to_numpy=True 
-        )
+        embedder = Embed4All(model_name)
+    
+    if use_multiprocessing:
+        print("Note: Python multiprocessing ignored. GPT4All uses native C++ hardware threading automatically.")
+    raw_embeddings = embedder.embed(all_chunks)
+    embeddings = np.array(raw_embeddings).astype('float32')
 
     # Step 3: Build FAISS index
     print(f"Building FAISS index for {len(all_chunks):,} chunks...")

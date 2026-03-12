@@ -17,7 +17,8 @@ from nltk.stem import WordNetLemmatizer
 
 import faiss
 import numpy as np
-from src.embedder import CachedEmbedder
+# from src.embedder import CachedEmbedder
+from gpt4all import Embed4All
 
 from src.config import RAGConfig
 from src.index_builder import preprocess_for_bm25
@@ -25,13 +26,13 @@ from src.index_builder import preprocess_for_bm25
 
 # -------------------------- Embedder cache ------------------------------
 
-_EMBED_CACHE: Dict[str, CachedEmbedder] = {}
+# _EMBED_CACHE: Dict[str, CachedEmbedder] = {}
 
-def _get_embedder(model_name: str) -> CachedEmbedder:
-    if model_name not in _EMBED_CACHE:
-        # Use the cached embedding model to avoid reloading it on every call
-        _EMBED_CACHE[model_name] = CachedEmbedder(model_name)
-    return _EMBED_CACHE[model_name]
+# def _get_embedder(model_name: str) -> CachedEmbedder:
+#     if model_name not in _EMBED_CACHE:
+#         # Use the cached embedding model to avoid reloading it on every call
+#         _EMBED_CACHE[model_name] = CachedEmbedder(model_name)
+#     return _EMBED_CACHE[model_name]
 
 
 # -------------------------- Read artifacts -------------------------------
@@ -91,7 +92,14 @@ class FAISSRetriever(Retriever):
 
     def __init__(self, index, embed_model: str):
         self.index = index
-        self.embedder = _get_embedder(embed_model)
+        # self.embedder = _get_embedder(embed_model)
+        model_name = os.path.basename(embed_model)
+        model_dir = os.path.dirname(embed_model)
+        
+        if model_dir:
+            self.embedder = Embed4All(model_name, model_path=model_dir)
+        else:
+            self.embedder = Embed4All(model_name)
 
     def get_scores(self,
                 query: str,
@@ -101,7 +109,8 @@ class FAISSRetriever(Retriever):
         Returns FAISS scores for top 'pool_size' keyed by global chunk index.
         """
         # FAISS expects a 2D array
-        q_vec = self.embedder.encode([query]).astype("float32")
+        query_raw = self.embedder.embed(query)
+        q_vec = np.array([query_raw]).astype("float32")
         
         # Safety check on vector dimensions
         if q_vec.shape[1] !=  self.index.d:
