@@ -1,0 +1,1 @@
+nohup python -u -m src.main index > out.log 2>&1 &
