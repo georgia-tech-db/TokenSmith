@@ -297,7 +297,11 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             
             effective_q = q
             if cfg.enable_history and chat_history:
-                effective_q = contextualize_query(q, chat_history, cfg.gen_model)
+                try:
+                    effective_q = contextualize_query(q, chat_history, cfg.gen_model)
+                except Exception as e:
+                    print(f"Warning: Failed to contextualize query: {e}. Using original query.")
+                    effective_q = q
             
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts)
