@@ -76,6 +76,7 @@ class FeedbackRequest(BaseModel):
 
 class FeedbackResponse(BaseModel):
     ok: bool
+    message: str
 
 
 class ChatResponse(BaseModel):
@@ -164,10 +165,13 @@ async def lifespan(app: FastAPI):
         )
 
         init_feedback_db()
-        _topic_extractor = TopicExtractor(
-            extracted_index_path=_config.extracted_index_path,
-            page_to_chunk_map_path=_config.page_to_chunk_map_path,
-        )
+        if _config.enable_topic_extraction:
+            _topic_extractor = TopicExtractor(
+                extracted_index_path=_config.extracted_index_path,
+                page_to_chunk_map_path=_config.page_to_chunk_map_path,
+            )
+        else:
+            _topic_extractor = None
 
         print("✅ TokenSmith API initialized successfully")
     except Exception as exc:
@@ -244,7 +248,10 @@ async def feedback(request: FeedbackRequest):
                     "reason": request.reason,
                 },
             )
-    return FeedbackResponse(ok=True)
+        return FeedbackResponse(ok=True, message="Feedback stored.")
+    if not question:
+        return FeedbackResponse(ok=True, message="Feedback stored; unknown answer_id.")
+    return FeedbackResponse(ok=True, message="Feedback stored; topic extractor disabled.")
 
 
 @app.post("/api/test-chat")
