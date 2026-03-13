@@ -126,12 +126,13 @@ def get_answer(
     question_embedding: Optional[np.ndarray] = None
     semantic_hit: Optional[Dict[str, Any]] = None
 
-    # Check semantic cache
+    # STEP 1: Check Semantic Cache Hit (if enabled by )
     if cfg.semantic_cache_enabled and config_cache_key in SEMANTIC_CACHE:
         question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
         semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
 
-    # Return cached answer if found
+    # STEP 1.1: Return cached answer if found
+    # Note: Has fucntion exit to must do logging here
     if cfg.semantic_cache_enabled and semantic_hit:
 
         ans = semantic_hit.get("answer", "")
@@ -142,30 +143,37 @@ def get_answer(
         render_final_answer(console, ans)
         return ans
 
-    # Step 1: Get chunks (golden, retrieved, or none)
+    # If no semantic hit, proceed with normal retrieval, ranking, and generation process
+    # Step 2: Retrieval 
     chunks_info = None
     hyde_query = None
     if golden_chunks and cfg.use_golden_chunks:
-        # Use provided golden chunks
+        # Use provided golden chunks (testing mode only)
         ranked_chunks = golden_chunks
     elif cfg.disable_chunks:
-        # No chunks - baseline mode
+        # No chunks - baseline mode (only tests model knowledge)
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
+        # basic inverted index using keywords (keywords here are just non-stopword tokens in question)
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
+        # Normal retrieval + ranking flow based on config
         retrieval_query = question
-        if cfg.use_hyde:
+
+        # Step 2.1: [OPTIONAL] using HyDe 
+        if cfg.use_hyde: # Hypothetical Document Embeddding Approach
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
+        # Step 2.2: Get raw scores from each retriever
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
-        
-        # Step 2: Ranking
+
+        # Step 2.3: Rank retrieved chunks using ensemble method
         ordered, scores = ranker.rank(raw_scores=raw_scores)
+        # filter down ordered and chunks list to max len cfg.top_k 
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
         
@@ -199,7 +207,7 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
 
-        # Step 3: Final re-ranking
+        # Step 3: Reranking with cross-encoder (if configured)
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
 
     if not ranked_chunks and not cfg.disable_chunks:
@@ -210,8 +218,8 @@ def get_answer(
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
+    # Step 4.1: Check for double prompting approach to improve answer quality (if enabled by config or CLI arg)
     use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
-
     if use_double:
         stream_iter = double_answer(
             question,
@@ -220,6 +228,7 @@ def get_answer(
             max_tokens=cfg.max_gen_tokens,
             system_prompt_mode=system_prompt,
         )
+    # If not double prompting, use normal answer method from generator.py
     else:
         stream_iter = answer(
             question,
@@ -235,7 +244,7 @@ def get_answer(
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
 
-    # Store in semantic cache
+    # Step 5: Store in semantic cache if enabled by config
     if cfg.semantic_cache_enabled:
         cache_payload = {
             "answer": ans,
@@ -255,7 +264,7 @@ def get_answer(
     if is_test_mode:
         return ans, chunks_info, hyde_query
 
-    # Logging
+    # Step 5: Logging - log all relevant information to a json file in logs/ directory 
     meta = artifacts.get("meta", [])
     page_nums = get_page_numbers(topk_idxs, meta)
     logger.save_chat_log(
@@ -273,6 +282,7 @@ def get_answer(
         full_response=ans,
         top_k=len(topk_idxs)
     )
+    
     return ans
 
 def render_streaming_ans(console, stream_iter):
