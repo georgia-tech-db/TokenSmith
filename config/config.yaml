@@ -17,3 +17,4 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+enable_topic_extraction: true
