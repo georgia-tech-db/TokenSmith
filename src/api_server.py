@@ -9,6 +9,8 @@ import re, json
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+import traceback
+import os
 
 # Add project root to Python path to allow imports when run directly
 _project_root = pathlib.Path(__file__).resolve().parent.parent
@@ -321,7 +323,10 @@ async def chat_stream(request: ChatRequest):
             chunks_by_page: Dict[int, List[str]] = {}
             for i in topk_idxs[:max_chunks]:
                 source_text = sources[i]
-                pages = page_nums.get(i, [1])
+                pages = page_nums.get(i, [1]) or [1]
+
+                print(f"[DEBUG] i={i} pages={pages!r} page_nums_has_key={i in page_nums}", flush=True)
+
                 for page in pages:
                     chunks_by_page.setdefault(page, []).append(chunks[i])
                     sources_used.add(SourceItem(page=page, text=source_text))
@@ -345,7 +350,8 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'done', 'sources': [s.dict() for s in sources_used]})}\n\n"
         except Exception as e:
             # Using print here so you can see crashes in the terminal while debugging
-            print(f"Logging Error: {e}")
+            print(f"Backend error: {e}")
+            traceback.print_exc()
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")
