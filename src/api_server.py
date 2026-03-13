@@ -6,6 +6,7 @@ Provides REST API endpoints for the React frontend.
 import sys
 import pathlib
 import re, json
+import traceback
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -444,11 +445,18 @@ async def chat(request: ChatRequest):
 
         for i in topk_idxs[:max_chunks]:
             source_text = sources[i]
-            pages = page_nums.get(i, [1]) or [1]
+            pages = page_nums.get(i, [1])
 
-            for page in pages:
-                sources_used.add(SourceItem(page=int(page), text=source_text))
-                chunks_by_page.setdefault(int(page), []).append(chunks[i])
+            if isinstance(pages, list):
+                for page in pages:
+                    sources_used.add(SourceItem(page=int(page), text=source_text))
+                    chunks_by_page.setdefault(int(page), []).append(chunks[i])
+            elif isinstance(pages, int):
+                sources_used.add(SourceItem(page=int(pages), text=source_text))
+                chunks_by_page.setdefault(int(pages), []).append(chunks[i])
+            else: # Error case
+                print(f"Unexpected page number format for chunk index {i}: {pages}")
+
 
         # 5. Logging
         if _logger:
