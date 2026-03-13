@@ -179,7 +179,8 @@ def get_answer(
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
 
     if not ranked_chunks and not cfg.disable_chunks:
-        console.print(f"\n{ANSWER_NOT_FOUND}\n")
+        if console:
+            console.print(f"\n{ANSWER_NOT_FOUND}\n")
         return ANSWER_NOT_FOUND
 
     # Step 4: Generation
