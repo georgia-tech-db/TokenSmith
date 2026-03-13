@@ -302,9 +302,14 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts)
 
-            # Update Chat history
-            chat_history.append({"role": "user", "content": q})
-            chat_history.append({"role": "assistant", "content": ans})
+            # Update Chat history (make it atomic for user + assistant turn)
+            try:
+                user_turn      = {"role": "user", "content": q}
+                assistant_turn = {"role": "assistant", "content": ans}
+                chat_history  += [user_turn, assistant_turn]
+            except Exception as e:
+                print(f"Warning: Failed to update chat history: {e}")
+                # We can continue without chat history, so we do not break the loop here.
 
             # Trim chat history to avoid exceeding context window
             if len(chat_history) > cfg.max_history_turns * 2:
