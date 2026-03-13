@@ -15,3 +15,4 @@ use_indexed_chunks: false
 rerank_mode: "cross_encoder"
 rerank_top_k: 5
 use_double_prompt: false
+semantic_cache_enabled: false
