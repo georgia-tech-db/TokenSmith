@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import yaml
@@ -119,6 +120,14 @@ def pytest_addoption(parser):
         help="Override similarity threshold for all tests"
     )
     
+    # === Backend Selection ===
+    group.addoption(
+        "--backend",
+        choices=["tokensmith", "llamaretriever"],
+        default="tokensmith",
+        help="Backend to benchmark: 'tokensmith' (src.main) or 'llamaretriever' (src.llamaretriever)"
+    )
+
     # === Utility Options ===
     group.addoption(
         "--list-metrics",
@@ -177,6 +186,9 @@ def config(pytestconfig):
         # Query Enhancement (HyDE)
         "use_hyde": cfg.get("use_hyde", False),
         "hyde_max_tokens": cfg.get("hyde_max_tokens", 300),
+
+        # Backend selection
+        "backend": pytestconfig.getoption("--backend"),
     }
 
     # Handle enable/disable chunks
@@ -232,10 +244,10 @@ def results_dir():
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_results_file(results_dir):
-    """Initialize results file (clean previous results)."""
+    """Initialize results file as empty JSON array (clean previous results)."""
     results_file = results_dir / "benchmark_results.json"
-    if results_file.exists():
-        results_file.unlink()
+    with open(results_file, "w") as f:
+        json.dump([], f, indent=2)
     return results_file
 
 
@@ -261,7 +273,7 @@ def pytest_sessionfinish(session, exitstatus):
     if not output_mode and config_path.exists():
         with open(config_path) as f:
             cfg = yaml.safe_load(f) or {}
-        output_mode = cfg.get("testing", {}).get("output_mode", "html")
+        output_mode = cfg.get("testing", {}).get("output_mode", "terminal")
     
     # Wait for async LLM grading to complete
     _wait_for_async_grading()
