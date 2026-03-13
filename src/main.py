@@ -17,6 +17,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
+from src.query_enhancement import generate_hypothetical_document, contextualize_query
 from src.retriever import (
     filter_retrieved_chunks, 
     BM25Retriever, 
@@ -25,7 +26,6 @@ from src.retriever import (
     get_page_numbers, 
     load_artifacts
 )
-from src.query_enhancement import generate_hypothetical_document
 from src.ranking.reranker import rerank
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
@@ -104,7 +104,8 @@ def get_answer(
     console: Optional["Console"],
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
-    is_test_mode: bool = False
+    is_test_mode: bool = False,
+    additional_log_info: Optional[Dict[str, Any]] = None
 ) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
     """
     Run a single query through the pipeline.
@@ -131,29 +132,29 @@ def get_answer(
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
         retrieval_query = question
-        print(f"Retrieval query: {retrieval_query}")
+        # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
-            print(f"Getting scores from retriever: {retriever.name}...")
+            # print(f"Getting scores from retriever: {retriever.name}...")
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
 
-        print("Raw scores from retrievers:")
-        for retriever_name, score_dict in raw_scores.items():
-            print(f"  {retriever_name}: {list(score_dict.values())}")
+        # print("Raw scores from retrievers:")
+        # for retriever_name, score_dict in raw_scores.items():
+        #     print(f"  {retriever_name}: {list(score_dict.values())}")
         # Step 2: Ranking
         ordered, scores = ranker.rank(raw_scores=raw_scores)
-        print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        print(f"Corresponding scores: {scores[:cfg.top_k]}")
+        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
+        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
-        print("Len Ranked chunks:", len(ranked_chunks))
-        print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
+        # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
+        # print("Len Ranked chunks:", len(ranked_chunks))
+        # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
         
         
         # Capture chunk info if in test mode
@@ -187,8 +188,8 @@ def get_answer(
 
         # Step 3: Final re-ranking
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
-        print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
-        print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
+        # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
+        # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
     if not ranked_chunks and not cfg.disable_chunks:
         if console:
@@ -245,7 +246,8 @@ def get_answer(
             sources=sources,
             page_map=page_nums,
             full_response=ans,
-            top_k=len(topk_idxs)
+            top_k=len(topk_idxs),
+            additional_log_info=additional_log_info
         )
         return ans
 
@@ -295,9 +297,13 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
+
+    chat_history = []
+    additional_log_info = {}
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
+        print("CHAT HISTORY:", chat_history)  # Debug print to trace chat history
         try:
             q = input("\nAsk > ").strip()
             if not q:
@@ -305,9 +311,35 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if q.lower() in {"exit", "quit"}:
                 print("Goodbye!")
                 break
-
+            
+            effective_q = q
+            if cfg.enable_history and chat_history:
+                try:
+                    effective_q = contextualize_query(q, chat_history, cfg.gen_model)
+                    additional_log_info["is_contextualizing_query"] = True
+                    additional_log_info["contextualized_query"] = effective_q
+                    additional_log_info["original_query"] = q
+                    additional_log_info["chat_history"] = chat_history
+                    print(f"Contextualized Query: {effective_q}")  # Debug print to trace contextualization
+                except Exception as e:
+                    print(f"Warning: Failed to contextualize query: {e}. Using original query.")
+                    effective_q = q
+            
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
+            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
+
+            # Update Chat history (make it atomic for user + assistant turn)
+            try:
+                user_turn      = {"role": "user", "content": q}
+                assistant_turn = {"role": "assistant", "content": ans}
+                chat_history  += [user_turn, assistant_turn]
+            except Exception as e:
+                print(f"Warning: Failed to update chat history: {e}")
+                # We can continue without chat history, so we do not break the loop here.
+
+            # Trim chat history to avoid exceeding context window
+            if len(chat_history) > cfg.max_history_turns * 2:
+                chat_history = chat_history[-cfg.max_history_turns * 2:]
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
