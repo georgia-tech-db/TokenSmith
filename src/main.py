@@ -131,19 +131,29 @@ def get_answer(
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
         retrieval_query = question
+        print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
+            print(f"Getting scores from retriever: {retriever.name}...")
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
-        
+
+        print("Raw scores from retrievers:")
+        for retriever_name, score_dict in raw_scores.items():
+            print(f"  {retriever_name}: {list(score_dict.values())}")
         # Step 2: Ranking
         ordered, scores = ranker.rank(raw_scores=raw_scores)
+        print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
+        print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
+        print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
+        print("Len Ranked chunks:", len(ranked_chunks))
+        print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
         
         
         # Capture chunk info if in test mode
@@ -177,6 +187,8 @@ def get_answer(
 
         # Step 3: Final re-ranking
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+        print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
+        print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
     if not ranked_chunks and not cfg.disable_chunks:
         if console:

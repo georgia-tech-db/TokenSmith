@@ -676,9 +676,9 @@ class TestGetPageNumbers:
         from src.retriever import get_page_numbers
         
         metadata = [
-            {"page_number": [10]},
-            {"page_number": [20, 21]},
-            {"page_number": [30, 31, 32]}
+            {"page_numbers": [10]},
+            {"page_numbers": [20, 21]},
+            {"page_numbers": [30, 31, 32]}
         ]
         
         result = get_page_numbers([0, 2], metadata)
@@ -690,13 +690,13 @@ class TestGetPageNumbers:
         from src.retriever import get_page_numbers
         assert get_page_numbers([], []) == {}
         assert get_page_numbers([0], []) == {}
-        assert get_page_numbers([], [{"page_number": [1]}]) == {}
+        assert get_page_numbers([], [{"page_numbers": [1]}]) == {}
     
     def test_get_page_numbers_out_of_bounds(self):
         """get_page_numbers handles out-of-bounds indices."""
         from src.retriever import get_page_numbers
         
-        metadata = [{"page_number": [10, 11]}]
+        metadata = [{"page_numbers": [10, 11]}]
         result = get_page_numbers([0, 5, 10], metadata)
         #HELLO TEST
         assert result == {0: [10, 11]}
