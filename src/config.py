@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict
 
 import yaml
 import pathlib
@@ -43,6 +43,7 @@ class RAGConfig:
     # query enhancement
     use_hyde: bool = False
     hyde_max_tokens: int = 300
+    use_double_prompt: bool = False
     
     # index parameters
     use_indexed_chunks: bool = False
