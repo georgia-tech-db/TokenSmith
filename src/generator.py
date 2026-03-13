@@ -93,7 +93,7 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
             {ANSWER_START}
         """)
 
-        print("Formatted prompt with chunks. Length:", len(final_prompt), final_prompt)
+        # print("Formatted prompt with chunks. Length:", len(final_prompt), final_prompt)
         return final_prompt
 
     else:
