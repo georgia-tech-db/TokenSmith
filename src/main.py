@@ -116,18 +116,21 @@ def get_answer(
     topk_idxs: List[int] = []
     scores = []
 
-    normalized_question = normalize_question(question)
-    config_cache_key = make_cache_config_key(cfg, args, golden_chunks)
+    normalized_question = None
+    config_cache_key = None
     question_embedding: Optional[np.ndarray] = None
     semantic_hit: Optional[Dict[str, Any]] = None
 
     # Check semantic cache
-    if cfg.semantic_cache_enabled and config_cache_key in SEMANTIC_CACHE:
-        question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
-        semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
+    if cfg.semantic_cache_enabled:
+        normalized_question = normalize_question(question)
+        config_cache_key = make_cache_config_key(cfg, args, golden_chunks)
+        if config_cache_key in SEMANTIC_CACHE:
+            question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
+            semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
 
     # Return cached answer if found
-    if cfg.semantic_cache_enabled and semantic_hit:
+    if cfg.semantic_cache_enabled and semantic_hit is not None:
 
         ans = semantic_hit.get("answer", "")
 
