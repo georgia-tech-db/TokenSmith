@@ -29,7 +29,8 @@ class RunLogger:
                       sources: List[str], 
                       page_map: Dict[int, int], 
                       full_response: str,
-                      top_k: int):
+                      top_k: int,
+                      additional_log_info: Optional[Dict[str, Any]] = None):
         """Creates a unique JSON file for this specific chat request."""
         
         # timestamp for filename: 20240520_143005 (Sorts newest to bottom, 
@@ -51,10 +52,10 @@ class RunLogger:
                 "chat_request_params": chat_request_params,
                 "config_state" : config_state,
                 "top_k": top_k,
-                "ordered_scores": ordered_scores,
+                "ordered_scores": ordered_scores[:len(top_idxs)],
                 "top_idxs": top_idxs,
-                "chunks": chunks,
-                "sources": sources,
+                "chunks": chunks[:len(top_idxs)],
+                "sources": sources[:len(top_idxs)],
                 "page_numbers": [page_map.get(i, 1) for i in top_idxs],
                 "full_response": full_response
             }
@@ -79,7 +80,13 @@ class RunLogger:
                 "retrieved_chunks": retrieved_chunks,
                 "full_response": full_response
             }
-
+        if additional_log_info:
+            for key in additional_log_info:
+                if key in log_data:
+                    print(f"Warning: Key '{key}' in additional_log_info conflicts with existing log data keys. Skipping this key.")
+                else:
+                    log_data[key] = additional_log_info[key]
+                    
         log_file = self.logs_dir / f"{log_id}.json"
         
         # Write as a single pretty-printed JSON file

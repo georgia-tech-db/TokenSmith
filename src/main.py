@@ -5,93 +5,64 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
-
-from src.config import RAGConfig
-from src.generator import answer, dedupe_generated_text
-from src.index_builder import build_index
-from src.instrumentation.logging import get_logger, RunLogger
-from src.ranking.ranker import EnsembleRanker
-from src.preprocessing.chunking import DocumentChunker
-from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
-from src.query_enhancement import generate_hypothetical_document
-from src.ranking.reranker import rerank
 from rich.console import Console
 from rich.markdown import Markdown
+
+from src.config import RAGConfig
+from src.generator import answer, double_answer, dedupe_generated_text
+from src.index_builder import build_index
+from src.instrumentation.logging import get_logger
+from src.ranking.ranker import EnsembleRanker
+from src.preprocessing.chunking import DocumentChunker
+from src.query_enhancement import generate_hypothetical_document, contextualize_query
+from src.retriever import (
+    filter_retrieved_chunks, 
+    BM25Retriever, 
+    FAISSRetriever, 
+    IndexKeywordRetriever, 
+    get_page_numbers, 
+    load_artifacts
+)
+from src.ranking.reranker import rerank
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for the application."""
-    parser = argparse.ArgumentParser(
-        description="Welcome to TokenSmith!"
-    )
-
-    # Required arguments
-    parser.add_argument(
-        "mode",
-        choices=["index", "chat"],
-        help="operation mode: 'index' to build index, 'chat' to query"
-    )
-
-    # Common arguments
-    parser.add_argument(
-        "--pdf_dir",
-        default="data/chapters/",
-        help="directory containing PDF files (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--index_prefix",
-        default="textbook_index",
-        help="prefix for generated index files (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--model_path",
-        help="path to generation model (uses config default if not specified)"
-    )
-    parser.add_argument(
-        "--system_prompt_mode",
-        choices=["baseline", "tutor", "concise", "detailed"],
-        default="baseline",
-        help="system prompt mode (choices: baseline, tutor, concise, detailed)"
-    )
+    parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
+    parser.add_argument("mode", choices=["index", "chat"], help="operation mode")
+    parser.add_argument("--pdf_dir", default="data/chapters/", help="directory containing PDF files")
+    parser.add_argument("--index_prefix", default="textbook_index", help="prefix for generated index files")
+    parser.add_argument("--model_path", help="path to generation model")
+    parser.add_argument("--system_prompt_mode", choices=["baseline", "tutor", "concise", "detailed"], default="baseline")
     
-    # Indexing-specific arguments
     indexing_group = parser.add_argument_group("indexing options")
-    indexing_group.add_argument(
-        "--keep_tables",
+    indexing_group.add_argument("--keep_tables", action="store_true")
+    indexing_group.add_argument("--multiproc_indexing", action="store_true")
+    indexing_group.add_argument("--embed_with_headings", action="store_true")
+    parser.add_argument(
+        "--double_prompt",
         action="store_true",
-        help="include tables in the index"
-    )
-    indexing_group.add_argument(
-        "--multiproc_indexing",
-        action="store_true",
-        help="use multiprocessing for index building"
-    )
-    indexing_group.add_argument(
-        "--embed_with_headings",
-        action="store_true",
-        help="embed sections with headings"
+        help="enable double prompting for higher quality answers"
     )
 
     return parser.parse_args()
 
-
 def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
-    """Handles the logic for building the index."""
-
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
     artifacts_dir = cfg.get_artifacts_directory()
 
-    # TODO: Add logic to chooes which markdown files to index. For now, we are simply indexing the first one.
     data_dir = pathlib.Path("data")
+    print(f"Looking for markdown files in {data_dir.resolve()}...")
     md_files = sorted(data_dir.glob("*.md"))
+    print(f"Found {len(md_files)} markdown files.")
+    print(f"First 5 markdown files: {[str(f) for f in md_files[:5]]}")
 
-    if len(md_files) == 0:
-        print("ERROR: No markdown files found in data/. Run extraction first.", file=sys.stderr)
+    if not md_files:
+        print("ERROR: No markdown files found in data/.", file=sys.stderr)
         sys.exit(1)
 
     build_index(
@@ -105,21 +76,17 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         use_headings=args.embed_with_headings,
     )
 
-def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list:
-    """
-    Retrieve chunks from the indexed chunks based on simple keyword matching.
-    """
-    with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+def use_indexed_chunks(question: str, chunks: list) -> list:
+    # Logic for keyword matching from textbook index
+    try:
+        with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
             page_to_chunk_map = json.load(f)
-    with open('data/extracted_index.json', 'r') as f:
-        extracted_index = json.load(f)
+        with open('data/extracted_index.json', 'r') as f:
+            extracted_index = json.load(f)
+    except FileNotFoundError:
+        return []
 
     keywords = get_keywords(question)
-    chunk_ids = set()
-    ranked_chunks = []
-
-    print(f"Extracted keywords for indexed chunk retrieval: {keywords}")
-
     chunk_ids = {
         chunk_id
         for word in keywords
@@ -127,23 +94,19 @@ def use_indexed_chunks(question: str, chunks: list, logger: "RunLogger") -> list
         for page_no in extracted_index[word]
         for chunk_id in page_to_chunk_map.get(str(page_no), [])
     }
-            
-    for cid in chunk_ids:
-        ranked_chunks.append(chunks[cid])
-
-    print(f"Chunks retrieved using indexed chunks: {len(ranked_chunks)}")
-    return ranked_chunks
+    return [chunks[cid] for cid in chunk_ids], list(chunk_ids)
 
 def get_answer(
     question: str,
     cfg: RAGConfig,
     args: argparse.Namespace,
-    logger: "RunLogger",
+    logger: Any,
     console: Optional["Console"],
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
-    is_test_mode: bool = False
-) -> str:
+    is_test_mode: bool = False,
+    additional_log_info: Optional[Dict[str, Any]] = None
+) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
     """
     Run a single query through the pipeline.
     """    
@@ -151,8 +114,10 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    
-    logger.log_query_start(question)
+    # Ensure these locals exist for all control flows to avoid UnboundLocalError
+    ranked_chunks: List[str] = []
+    topk_idxs: List[int] = []
+    scores = []
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
@@ -164,33 +129,33 @@ def get_answer(
         # No chunks - baseline mode
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
-        # Use chunks from the textbook index
-        ranked_chunks = use_indexed_chunks(question, chunks, logger)
+        ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
-        # Step 0: Query Enhancement (HyDE)
         retrieval_query = question
+        # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
-            model_path = cfg.gen_model
-            hypothetical_doc = generate_hypothetical_document(
-                question, model_path, max_tokens=cfg.hyde_max_tokens
-            )
-            retrieval_query = hypothetical_doc
-            hyde_query = hypothetical_doc
-            # print(f"🔍 HyDE query: {hypothetical_doc}")
+            retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
-        # Step 1: Retrieval
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
+            # print(f"Getting scores from retriever: {retriever.name}...")
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
         # TODO: Fix retrieval logging.
-        
+
+        # print("Raw scores from retrievers:")
+        # for retriever_name, score_dict in raw_scores.items():
+        #     print(f"  {retriever_name}: {list(score_dict.values())}")
         # Step 2: Ranking
-        ordered = ranker.rank(raw_scores=raw_scores)
+        ordered, scores = ranker.rank(raw_scores=raw_scores)
+        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
+        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
-        logger.log_chunks_used(topk_idxs, chunks, sources)
-        
         ranked_chunks = [chunks[i] for i in topk_idxs]
+        # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
+        # print("Len Ranked chunks:", len(ranked_chunks))
+        # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
+        
         
         # Capture chunk info if in test mode
         if is_test_mode:
@@ -223,24 +188,36 @@ def get_answer(
 
         # Step 3: Final re-ranking
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+        # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
+        # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
-    # If no chunks found, return answer not found message
-    if ranked_chunks == []:
+    if not ranked_chunks and not cfg.disable_chunks:
         if console:
-            console.print("\n"+ANSWER_NOT_FOUND+"\n")
+            console.print(f"\n{ANSWER_NOT_FOUND}\n")
         return ANSWER_NOT_FOUND
 
     # Step 4: Generation
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
-    stream_iter = answer(
-        question,
-        ranked_chunks,
-        model_path,
-        max_tokens=cfg.max_gen_tokens,
-        system_prompt_mode=system_prompt,
-    )
+    use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
+
+    if use_double:
+        stream_iter = double_answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+        )
+    else:
+        stream_iter = answer(
+            question,
+            ranked_chunks,
+            model_path,
+            max_tokens=cfg.max_gen_tokens,
+            system_prompt_mode=system_prompt,
+        )
 
     if is_test_mode:
         # We do not render MD in the test mode
@@ -252,25 +229,41 @@ def get_answer(
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
-    return ans
 
+        # Logging
+        meta = artifacts.get("meta", [])
+        page_nums = get_page_numbers(topk_idxs, meta)
+        logger.save_chat_log(
+            query=question,
+            config_state=cfg.get_config_state(),
+            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+            chat_request_params={
+                "system_prompt": system_prompt,
+                "max_tokens": cfg.max_gen_tokens
+            },
+            top_idxs=topk_idxs,
+            chunks=chunks,
+            sources=sources,
+            page_map=page_nums,
+            full_response=ans,
+            top_k=len(topk_idxs),
+            additional_log_info=additional_log_info
+        )
+        return ans
 
 def render_streaming_ans(console, stream_iter):
-    if not console:
-        raise ValueError("Console must be non null for rendering.")
     ans = ""
     is_first = True
-    with Live(console=console, refresh_per_second=5) as live:
+    with Live(console=console, refresh_per_second=8) as live:
         for delta in stream_iter:
             if is_first:
-                # we need to do this to ensure this marker comes after warning noise in Macs.
-                console.print("\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n")
+                console.print("\n[bold cyan]=== START OF ANSWER ===[/bold cyan]\n")
                 is_first = False
             ans += delta
             live.update(Markdown(ans))
     ans = dedupe_generated_text(ans)
     live.update(Markdown(ans))
-    console.print("\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n")
+    console.print("\n[bold cyan]=== END OF ANSWER ===[/bold cyan]\n")
     return ans
 
 def get_keywords(question: str) -> list:
@@ -286,58 +279,31 @@ def get_keywords(question: str) -> list:
     return keywords
 
 def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
-    """
-    Initializes artifacts and runs the main interactive chat loop.
-    """
     logger = get_logger()
     console = Console()
 
-    # planner = HeuristicQueryPlanner(cfg)
-
-    # Load artifacts, initialize retrievers and rankers once before the loop.
-    print("Welcome to Tokensmith! Initializing chat...")
+    print("Initializing TokenSmith Chat...")
     try:
-        # Disabled till we fix the core pipeline
-        # cfg = planner.plan(q)
         artifacts_dir = cfg.get_artifacts_directory()
-        faiss_index, bm25_index, chunks, sources, meta = load_artifacts(
-            artifacts_dir=artifacts_dir, 
-            index_prefix=args.index_prefix
-        )
-
-        retrievers = [
-            FAISSRetriever(faiss_index, cfg.embed_model),
-            BM25Retriever(bm25_index)
-        ]
-        
-        # Add index keyword retriever if weight > 0
+        faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
+        print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
+        retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
         if cfg.ranker_weights.get("index_keywords", 0) > 0:
-            retrievers.append(
-                IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
-            )
+            retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
         
-        ranker = EnsembleRanker(
-            ensemble_method=cfg.ensemble_method,
-            weights=cfg.ranker_weights,
-            rrf_k=int(cfg.rrf_k)
-        )
-        
-        # Package artifacts for reuse
-        artifacts = {
-            "chunks": chunks,
-            "sources": sources,
-            "retrievers": retrievers,
-            "ranker": ranker,
-            "meta": meta,
-        }
+        ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
+        print("Loaded retrievers and initialized ranker.")
+        artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
     except Exception as e:
-        print(f"ERROR: Failed to initialize chat artifacts: {e}")
-        print("Please ensure you have run 'index' mode first.")
+        print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
 
+    chat_history = []
+    additional_log_info = {}
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
+        print("CHAT HISTORY:", chat_history)  # Debug print to trace chat history
         try:
             q = input("\nAsk > ").strip()
             if not q:
@@ -345,43 +311,57 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if q.lower() in {"exit", "quit"}:
                 print("Goodbye!")
                 break
+            
+            effective_q = q
+            if cfg.enable_history and chat_history:
+                try:
+                    effective_q = contextualize_query(q, chat_history, cfg.gen_model)
+                    additional_log_info["is_contextualizing_query"] = True
+                    additional_log_info["contextualized_query"] = effective_q
+                    additional_log_info["original_query"] = q
+                    additional_log_info["chat_history"] = chat_history
+                    print(f"Contextualized Query: {effective_q}")  # Debug print to trace contextualization
+                except Exception as e:
+                    print(f"Warning: Failed to contextualize query: {e}. Using original query.")
+                    effective_q = q
+            
+            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
+            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
 
-            # Use the single query function. get_answer also renders the streaming markdown.
-            ans = get_answer(q, cfg, args, logger, console, artifacts=artifacts)
-            logger.log_generation(ans, {"max_tokens": cfg.max_gen_tokens, "model_path": cfg.gen_model})
+            # Update Chat history (make it atomic for user + assistant turn)
+            try:
+                user_turn      = {"role": "user", "content": q}
+                assistant_turn = {"role": "assistant", "content": ans}
+                chat_history  += [user_turn, assistant_turn]
+            except Exception as e:
+                print(f"Warning: Failed to update chat history: {e}")
+                # We can continue without chat history, so we do not break the loop here.
+
+            # Trim chat history to avoid exceeding context window
+            if len(chat_history) > cfg.max_history_turns * 2:
+                chat_history = chat_history[-cfg.max_history_turns * 2:]
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
         except Exception as e:
             print(f"\nAn unexpected error occurred: {e}")
-            logger.log_error(str(e))
+            import traceback
+            traceback.print_exc()
             break
 
-    # TODO: Fix completion logging.
-    # logger.log_query_complete()
 
 
 def main():
-    """Main entry point for the script."""
     args = parse_args()
-
-    # Config loading
     config_path = pathlib.Path("config/config.yaml")
-    cfg = None
-    if config_path.exists():
-        cfg = RAGConfig.from_yaml(config_path)
-
-    if cfg is None:
-        raise FileNotFoundError(
-            "No config file provided at config/config.yaml."
-        )
-
+    if not config_path.exists(): raise FileNotFoundError("config/config.yaml not found.")
+    cfg = RAGConfig.from_yaml(config_path)
+    print(f"Loaded configuration from {config_path.resolve()}.")
     if args.mode == "index":
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
-
 
 if __name__ == "__main__":
     main()

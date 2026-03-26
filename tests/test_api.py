@@ -682,13 +682,12 @@ class TestGetPageNumbers:
         ]
         
         result = get_page_numbers([0, 2], metadata)
-        
+        print("Result of get_page_numbers:", result)
         assert result == {0: [10], 2: [30, 31, 32]}
     
     def test_get_page_numbers_empty(self):
         """get_page_numbers handles empty inputs."""
         from src.retriever import get_page_numbers
-        
         assert get_page_numbers([], []) == {}
         assert get_page_numbers([0], []) == {}
         assert get_page_numbers([], [{"page_numbers": [1]}]) == {}
@@ -699,7 +698,7 @@ class TestGetPageNumbers:
         
         metadata = [{"page_numbers": [10, 11]}]
         result = get_page_numbers([0, 5, 10], metadata)
-        
+        #HELLO TEST
         assert result == {0: [10, 11]}
 
 
@@ -722,6 +721,7 @@ class TestMainEntryPoints:
         keywords = get_keywords(question)
         
         assert isinstance(keywords, list)
+        print(keywords)
         assert "what" not in keywords  # stopword
         assert "the" not in keywords   # stopword
         assert "database" in keywords or "transactions" in keywords

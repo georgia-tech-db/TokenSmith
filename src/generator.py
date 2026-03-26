@@ -77,19 +77,25 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
     
     # Build prompt based on whether chunks are provided
     if chunks and len(chunks) > 0:
+        if isinstance(chunks[0], tuple):
+            chunks = [c[0] for c in chunks]
         context = "\n\n".join(chunks)
         context = text_cleaning(context)
         
         # Build prompt with chunks
         context_section = f"Textbook Excerpts:\n{context}\n\n\n"
         
-        return textwrap.dedent(f"""\
+        final_prompt = textwrap.dedent(f"""\
             {system_section}<|im_start|>user
             {context_section}Question: {query}
             <|im_end|>
             <|im_start|>assistant
             {ANSWER_START}
         """)
+
+        # print("Formatted prompt with chunks. Length:", len(final_prompt), final_prompt)
+        return final_prompt
+
     else:
         # Build prompt without chunks
         question_label = "Question: " if system_prompt else ""
@@ -106,7 +112,14 @@ _LLM_CACHE = {}
 
 def get_llama_model(model_path: str, n_ctx: int = 4096):
     if model_path not in _LLM_CACHE:
-        _LLM_CACHE[model_path] = Llama(model_path=model_path,
+        try:
+            _LLM_CACHE[model_path] = Llama(model_path=model_path,
+                                       n_ctx=n_ctx,
+                                       verbose=False,
+                                       n_gpu_layers=-1)
+        except Exception as e:
+            print(f"Error loading LLaMA model from {model_path} on GPU: {e}")
+            _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
                                        verbose=False)
     return _LLM_CACHE[model_path]
@@ -140,6 +153,48 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: fl
 def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_prompt_mode: str = "tutor", temperature: float = 0.2):
     prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
     return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=temperature)
+
+def double_answer(query: str, chunks, model_path: str,
+                  max_tokens: int = 300,
+                  system_prompt_mode: str = "tutor",
+                  temperature: float = 0.2):
+
+    # ---- Pass 1 ----
+    base_prompt = format_prompt(
+        chunks,
+        query,
+        system_prompt_mode=system_prompt_mode
+    )
+
+    initial_stream = stream_llama_cpp(
+        base_prompt,
+        model_path,
+        max_tokens,
+        temperature
+    )
+
+    initial_response = "".join(initial_stream)
+    initial_response = dedupe_generated_text(initial_response)
+
+    # ---- Pass 2 (repeat SAME question) ----
+    repeated_prompt = (
+        base_prompt
+        + initial_response
+        + f"\n{ANSWER_END}\n"
+        + "<|im_end|>\n"
+        + "<|im_start|>user\n"
+        + f"Question: {query}"
+        + "\n<|im_end|>\n"
+        + "<|im_start|>assistant\n"
+        + ANSWER_START
+    )
+
+    return stream_llama_cpp(
+        repeated_prompt,
+        model_path,
+        max_tokens,
+        temperature
+    )
 
 def dedupe_generated_text(text: str) -> str:
     """
