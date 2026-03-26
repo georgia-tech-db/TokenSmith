@@ -1,92 +1,92 @@
 from pathlib import Path
 import re
 import json
-from typing import List, Dict
+from abc import ABC, abstractmethod
+from typing import List, Dict, Optional
 import sys
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
 from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 
-def extract_sections_from_markdown(
-    file_path: str,
-    exclusion_keywords: List[str] = None
-) -> List[Dict]:
+EXPLICIT_NUMBERED = "explicit_numbered"  # ## 1.2.3 Title
+FLAT_NUMBERED = "flat_numbered"          # ## N. Title (chapter) / ## Title (subsection)
+TITLE_ONLY = "title_only"               # ## Title (no numbering, all flat)
+
+
+class HeadingStyleHandler(ABC):
     """
-    Chunks a markdown file into sections based on '##' headings.
+    Base class for markdown heading style handlers.
 
-    Args:
-        file_path : The path to the markdown file.
-        exclusion_keywords : List of keywords for excluding sections.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary represents a
-              section with 'heading' and 'content' keys.
+    To add a new heading style:
+      1. Subclass this and implement `detect` and `extract`.
+      2. Append an instance to _HANDLERS (more specific detectors first).
     """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-        return []
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return []
+    name: str
 
-    # The regular expression looks for lines starting with '## '
-    # This will act as our delimiter for splitting the text.
-    # We use a positive lookahead (?=...) to keep the delimiter (the heading)
-    # in the resulting chunks.
-    heading_pattern = r'(?=^## \d+(\.\d+)* .*)'
-    numbering_pattern = re.compile(r"(\d+(?:\.\d+)*)")
-    chunks = re.split(heading_pattern, content, flags=re.MULTILINE)
+    @abstractmethod
+    def detect(self, content: str) -> bool:
+        """Returns True if this style matches the content."""
 
-    sections = []
-    
-    # The first chunk might be content before the first heading.
-    if chunks[0].strip():
-        sections.append({
-            'heading': 'Introduction',
-            'content': chunks[0].strip()
-        })
+    @abstractmethod
+    def extract(self, content: str, exclusion_keywords: Optional[List[str]]) -> List[Dict]:
+        """Returns list of section dicts with 'heading', 'content', 'level', 'chapter'."""
 
-    # Process the rest of the chunks
-    for chunk in chunks[1:]:
-        if not chunk:
-            continue
-        if chunk.strip():
-            # Split the chunk into the heading and the rest of the content
-            parts = chunk.split('\n', 1)
-            heading = parts[0].strip()
-            heading = heading.lstrip('#').strip()
-            heading = f"Section {heading}"
+    @staticmethod
+    def _split(content: str, pattern: re.Pattern) -> List[str]:
+        return pattern.split(content)
 
-            # Exclude sections based on keywords if provided
-            if exclusion_keywords is not None:
-                if any(keyword.lower() in heading.lower() for keyword in exclusion_keywords):
-                    continue
+    @staticmethod
+    def _parse_chunk(chunk: str) -> tuple[str, str]:
+        """Returns (heading_line, body) from a chunk that starts with a heading."""
+        parts = chunk.split('\n', 1)
+        return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else '')
 
-            section_content = parts[1].strip() if len(parts) > 1 else ''
-            
-            if section_content == '':
+    @staticmethod
+    def _excluded(heading: str, exclusion_keywords: Optional[List[str]]) -> bool:
+        return bool(
+            exclusion_keywords
+            and any(kw.lower() in heading.lower() for kw in exclusion_keywords)
+        )
+
+
+class ExplicitNumberedHandler(HeadingStyleHandler):
+    """
+    ## 1.2.3 Title — every section carries a full dot-notation number.
+    Level and chapter are derived from the number (e.g. 1.2.3 → level 3, chapter 1).
+    """
+    name = EXPLICIT_NUMBERED
+    _split_re = re.compile(r'(?=^## \d+(?:\.\d+)* )', re.MULTILINE)
+    _numbering_re = re.compile(r'(\d+(?:\.\d+)*)')
+
+    def detect(self, content: str) -> bool:
+        return bool(re.search(r'^## \d+(?:\.\d+)* \S', content, re.MULTILINE))
+
+    def extract(self, content: str, exclusion_keywords: Optional[List[str]]) -> List[Dict]:
+        chunks = self._split(content, self._split_re)
+        sections = []
+
+        if chunks[0].strip():
+            sections.append({'heading': 'Introduction', 'content': chunks[0].strip()})
+
+        for chunk in chunks[1:]:
+            if not chunk or not chunk.strip():
                 continue
-            else:
-                # Clean the section content
-                section_content = preprocess_extracted_section(section_content)
-            
-            # Determine the section level based on numbering
-            match = numbering_pattern.search(heading)
+
+            heading_line, section_content = self._parse_chunk(chunk)
+            heading = f"Section {heading_line.lstrip('#').strip()}"
+
+            if self._excluded(heading, exclusion_keywords) or not section_content:
+                continue
+
+            section_content = preprocess_extracted_section(section_content)
+
+            match = self._numbering_re.search(heading)
             if match:
-                assert match.lastindex >= 1, f"No capturing group for section number in heading: {heading}"
-
                 section_number = match.group(1)
-
                 assert isinstance(section_number, str) and section_number.strip(), \
-                    f"Invalid section number extracted from heading: {heading}"
-
-                assert all(part.isdigit() for part in section_number.split('.')), \
+                    f"Invalid section number in heading: {heading}"
+                assert all(p.isdigit() for p in section_number.split('.')), \
                     f"Malformed section numbering '{section_number}' in heading: {heading}"
-
-                # Logic: "1.8.1" (2 dots) -> Level 3
                 current_level = section_number.count('.') + 1
                 try:
                     chapter_num = int(section_number.split('.')[0])
@@ -100,10 +100,171 @@ def extract_sections_from_markdown(
                 'heading': heading,
                 'content': section_content,
                 'level': current_level,
-                'chapter': chapter_num
+                'chapter': chapter_num,
             })
 
-    return sections
+        return sections
+
+
+class FlatNumberedHandler(HeadingStyleHandler):
+    """
+    ## N. Title (chapter) / ## Title (subsection).
+    Subsection numbers are inferred as N.1, N.2, ... within each chapter.
+    """
+    name = FLAT_NUMBERED
+    _split_re = re.compile(r'(?=^## .+)', re.MULTILINE)
+    _chapter_re = re.compile(r'^## (\d+)\. (.+)')
+    _subsection_re = re.compile(r'^## (.+)')
+
+    def detect(self, content: str) -> bool:
+        return bool(re.search(r'^## \d+\. \S', content, re.MULTILINE))
+
+    def extract(self, content: str, exclusion_keywords: Optional[List[str]]) -> List[Dict]:
+        chunks = self._split(content, self._split_re)
+        sections = []
+        current_chapter = 0
+        subsection_counter = 0
+
+        if chunks[0].strip():
+            sections.append({'heading': 'Introduction', 'content': chunks[0].strip()})
+
+        for chunk in chunks[1:]:
+            if not chunk or not chunk.strip():
+                continue
+
+            heading_line, section_content = self._parse_chunk(chunk)
+            if not section_content:
+                continue
+
+            chapter_match = self._chapter_re.match(heading_line)
+            if chapter_match:
+                current_chapter = int(chapter_match.group(1))
+                subsection_counter = 0
+                title = chapter_match.group(2).strip()
+                heading = f"Section {current_chapter}. {title}"
+                current_level = 1
+            else:
+                sub_match = self._subsection_re.match(heading_line)
+                if not sub_match:
+                    continue
+                subsection_counter += 1
+                section_number = f"{current_chapter}.{subsection_counter}"
+                heading = f"Section {section_number} {sub_match.group(1).strip()}"
+                current_level = 2
+
+            if self._excluded(heading, exclusion_keywords):
+                continue
+
+            sections.append({
+                'heading': heading,
+                'content': preprocess_extracted_section(section_content),
+                'level': current_level,
+                'chapter': current_chapter,
+            })
+
+        return sections
+
+
+class TitleOnlyHandler(HeadingStyleHandler):
+    """
+    ## Title — all sections use ## with no numbering.
+    Sections are assigned sequential chapter numbers.
+    """
+    name = TITLE_ONLY
+    _split_re = re.compile(r'(?=^## .+)', re.MULTILINE)
+    _heading_re = re.compile(r'^## (.+)')
+
+    def detect(self, content: str) -> bool:
+        return bool(re.search(r'^## \S', content, re.MULTILINE))
+
+    def extract(self, content: str, exclusion_keywords: Optional[List[str]]) -> List[Dict]:
+        chunks = self._split(content, self._split_re)
+        sections = []
+        chapter_counter = 0
+
+        if chunks[0].strip():
+            sections.append({'heading': 'Introduction', 'content': chunks[0].strip()})
+
+        for chunk in chunks[1:]:
+            if not chunk or not chunk.strip():
+                continue
+
+            heading_line, section_content = self._parse_chunk(chunk)
+            heading_match = self._heading_re.match(heading_line)
+            if not heading_match or not section_content:
+                continue
+
+            heading = f"Section {heading_match.group(1).strip()}"
+            if self._excluded(heading, exclusion_keywords):
+                continue
+
+            chapter_counter += 1
+            sections.append({
+                'heading': heading,
+                'content': preprocess_extracted_section(section_content),
+                'level': 1,
+                'chapter': chapter_counter,
+            })
+
+        return sections
+
+
+# Detection order matters: more specific patterns must come before more general ones.
+_HANDLERS: List[HeadingStyleHandler] = [
+    FlatNumberedHandler(),
+    ExplicitNumberedHandler(),
+    TitleOnlyHandler(),   # most general — acts as fallback
+]
+_HANDLER_BY_NAME: Dict[str, HeadingStyleHandler] = {h.name: h for h in _HANDLERS}
+
+
+def _get_handler(heading_style: Optional[str], content: str) -> HeadingStyleHandler:
+    if heading_style is not None:
+        if heading_style not in _HANDLER_BY_NAME:
+            raise ValueError(
+                f"Unknown heading_style '{heading_style}'. "
+                f"Available: {list(_HANDLER_BY_NAME)}"
+            )
+        return _HANDLER_BY_NAME[heading_style]
+    for handler in _HANDLERS:
+        if handler.detect(content):
+            return handler
+    return _HANDLERS[-1]
+
+
+def extract_sections_from_markdown(
+    file_path: str,
+    exclusion_keywords: List[str] = None,
+    heading_style: str = None,
+) -> List[Dict]:
+    """
+    Chunks a markdown file into sections based on '##' headings.
+
+    Supported heading styles (auto-detected if heading_style is None):
+    - explicit_numbered: ## 1.2.3 Title
+    - flat_numbered:     ## N. Title (chapter) / ## Title (subsection, level inferred)
+    - title_only:        ## Title (no numbering, sequential chapter numbers assigned)
+
+    Args:
+        file_path: Path to the markdown file.
+        exclusion_keywords: Keywords to exclude sections by heading.
+        heading_style: One of the style name constants. Auto-detected if None.
+
+    Returns:
+        List of section dicts with 'heading', 'content', 'level', 'chapter' keys.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+        return []
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return []
+
+    handler = _get_handler(heading_style, content)
+    return handler.extract(content, exclusion_keywords)
 
 def extract_index_with_range_expansion(text_content):
     """
@@ -203,21 +364,52 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         
     doc = result.document
 
-    num_pages = len(doc.pages)
+    # Define a unique placeholder that won't appear in the text.
+    # Using "\n" ensures it's on its own line.
+    UNIQUE_PLACEHOLDER = "\n%%%__DOCLING_PAGE_BREAK__%%%\n"
+
+    # Export the entire document at once, using our placeholder.
+    # This avoids the fragile doc.filter() method.
+    try:
+        full_markdown = doc.export_to_markdown(page_break_placeholder=UNIQUE_PLACEHOLDER)
+    except Exception as e:
+        print(f"Error during final markdown export: {e}", file=sys.stderr)
+        print("Falling back to exporting document without page numbers.")
+        try:
+            # Fallback: just save the raw export
+            with open(output_file_path, "w", encoding="utf-8") as f:
+                f.write(doc.export_to_markdown())
+            print(f"Successfully saved (fallback, no page numbers) to {output_file_path}")
+        except IOError as e_io:
+            print(f"Error writing fallback file: {e_io}", file=sys.stderr)
+        return
+
+    # Split the full markdown by our unique placeholder.
+    # This gives us a list where each item is one page's content.
+    markdown_pages = full_markdown.split(UNIQUE_PLACEHOLDER)
     
-    # Extract markdown and append page number footer except for the last page
-    final_text = "".join(
-        doc.export_to_markdown(page_no=i) + (f"\n\n--- Page {i} ---\n\n" if i < num_pages else "")
-        for i in range(1, num_pages + 1)
-    )
+    final_output_chunks = []
+    
+    # Iterate through the pages, adding our custom footer.
+    # We use enumerate to get a 1-based page number.
+    num_pages = len(markdown_pages)
+    for i, page_content in enumerate(markdown_pages, 1):
+        # Add the content for the current page
+        final_output_chunks.append(page_content)
+        
+        # Add our custom footer, but not after the very last page
+        if i < num_pages:
+            final_output_chunks.append(f"\n\n--- Page {i} ---\n\n")
 
     # Write the combined markdown string to the output file
     try:
         with open(output_file_path, "w", encoding="utf-8") as f:
-            f.write(final_text)
+            f.write("".join(final_output_chunks))
         print(f"Successfully converted and saved to {output_file_path}")
-    except Exception as e:
+    except IOError as e:
         print(f"Error writing to file {output_file_path}: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
 
 
 def preprocess_extracted_section(text: str) -> str:
@@ -261,7 +453,7 @@ def main():
         output_md = Path("data") / f"{pdf_name}--extracted_markdown.md"
 
         print(f"Converting '{pdf_path}' to '{output_md}'...")
-        convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
+        # convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
 
         markdown_files.append(output_md)
 
