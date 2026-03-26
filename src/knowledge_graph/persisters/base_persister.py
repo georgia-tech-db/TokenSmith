@@ -1,22 +1,13 @@
-from abc import ABC, abstractmethod
-from typing import Any
+from abc import abstractmethod
 
 import networkx as nx
 
+from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import Chunk, RunMetadata
 
 
-class BasePersister(ABC):
+class BasePersister(BasePipelineComponent):
     """Save the graph and chunk store to disk."""
-
-    def __init__(self):
-        self.metadata: dict[str, Any] = {}
-
-    def get_config(self) -> dict[str, Any]:
-        """Return the configuration of this persister."""
-        return {
-            "class": self.__class__.__name__,
-        }
 
     @abstractmethod
     def persist(

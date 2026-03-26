@@ -3,8 +3,6 @@ import yake
 
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
-from src.knowledge_graph.utils.normalizer import Normalizer
-
 
 class YakeExtractor(BaseExtractor):
     """Extract top-N keywords using the YAKE algorithm.
@@ -14,7 +12,6 @@ class YakeExtractor(BaseExtractor):
         language: Language code for YAKE (default ``"en"``).
         deduplicate_threshold: YAKE deduplication threshold (0–1). Higher
             values allow more similar keywords.
-        normalizer: Optional pre-built :class:`Normalizer`.
     """
 
     def __init__(
@@ -22,7 +19,6 @@ class YakeExtractor(BaseExtractor):
         top_n: int = 10,
         language: str = "en",
         deduplicate_threshold: float = 0.9,
-        normalizer: Normalizer | None = None,
     ):
         super().__init__()
         self.kw_extractor = yake.KeywordExtractor(
@@ -34,7 +30,6 @@ class YakeExtractor(BaseExtractor):
         self.top_n = top_n
         self.language = language
         self.deduplicate_threshold = deduplicate_threshold
-        self.normalizer = normalizer or Normalizer()
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()
@@ -43,7 +38,6 @@ class YakeExtractor(BaseExtractor):
                 "top_n": self.top_n,
                 "language": self.language,
                 "deduplicate_threshold": self.deduplicate_threshold,
-                "normalizer": self.normalizer.__class__.__name__,
             }
         )
         return config
@@ -53,8 +47,7 @@ class YakeExtractor(BaseExtractor):
 
         for chunk in chunks:
             keywords = self.kw_extractor.extract_keywords(chunk.text)
-            raw_nodes = [kw for kw, _score in keywords]
-            normalized = self.normalizer.normalize(raw_nodes)
-            results.append(ExtractionResult(chunk_id=chunk.id, nodes=normalized))
+            raw_nodes = [kw for kw, _ in keywords]
+            results.append(ExtractionResult(chunk_id=chunk.id, keywords=raw_nodes))
 
         return results

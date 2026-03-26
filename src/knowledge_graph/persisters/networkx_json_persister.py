@@ -1,25 +1,25 @@
 import json
 import os
-from time import time, strftime
+
 import networkx as nx
 
 from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk, RunMetadata
 
 
+
 class NetworkxJsonPersister(BasePersister):
     """Save the graph in NetworkX node-link JSON format and chunks as a
     separate JSON dictionary.
 
-    Output files:
+    The caller is responsible for creating a timestamped run directory and
+    passing it as ``output_dir``.  This persister writes fixed filenames into
+    that directory so the directory itself carries the run identity:
 
-    * ``graph.json`` — NetworkX node-link serialization (nodes, edges,
-      attributes).
-    * ``chunks.json`` — ``{ "0": "chunk text …", "1": "…" }`` indexed
-      by chunk ID.
+    * ``graph.json``               — NetworkX node-link serialization
+    * ``chunks.json``              — ``{ "0": "chunk text …", "1": "…" }``
+    * ``run_metadata.json``        — timing + graph statistics (optional)
     """
-
-    TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
     def persist(
         self,
@@ -30,20 +30,14 @@ class NetworkxJsonPersister(BasePersister):
     ) -> None:
         os.makedirs(output_dir, exist_ok=True)
 
-        timestamp = strftime(self.TIME_FORMAT)
-        # --- graph.json ---
         graph_data = nx.node_link_data(graph)
-        graph_path = os.path.join(output_dir, "graph__{}.json".format(timestamp))
-        with open(graph_path, "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "graph.json"), "w", encoding="utf-8") as f:
             json.dump(graph_data, f, indent=2, ensure_ascii=False)
 
-        # --- chunks.json ---
         chunk_store = {str(chunk.id): chunk.text for chunk in chunks}
-        chunks_path = os.path.join(output_dir, "chunks__{}.json".format(timestamp))
-        with open(chunks_path, "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "chunks.json"), "w", encoding="utf-8") as f:
             json.dump(chunk_store, f, indent=2, ensure_ascii=False)
 
-        # --- run_metadata.json ---
         if run_metadata:
             num_nodes = graph.number_of_nodes()
             num_edges = graph.number_of_edges()
@@ -60,8 +54,7 @@ class NetworkxJsonPersister(BasePersister):
                 "largest_component_size": largest_comp_size,
                 "max_degree": max(dict(graph.degree()).values(), default=0),
             }
-            meta_path = os.path.join(
-                output_dir, "run_metadata__{}.json".format(timestamp)
-            )
-            with open(meta_path, "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(output_dir, "run_metadata.json"), "w", encoding="utf-8"
+            ) as f:
                 json.dump(run_metadata.to_dict(), f, indent=2, ensure_ascii=False)

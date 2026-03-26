@@ -1,20 +1,11 @@
-from abc import ABC, abstractmethod
-from typing import Any
+from abc import abstractmethod
 
+from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import Chunk, ExtractionResult
 
 
-class BaseExtractor(ABC):
-    """Extract and normalize nodes from each chunk."""
-
-    def __init__(self):
-        self.metadata: dict[str, Any] = {}
-
-    def get_config(self) -> dict[str, Any]:
-        """Return the configuration of this extractor."""
-        return {
-            "class": self.__class__.__name__,
-        }
+class BaseExtractor(BasePipelineComponent):
+    """Extract keywords from each chunk."""
 
     @abstractmethod
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
@@ -24,7 +15,6 @@ class BaseExtractor(ABC):
             chunks: The chunks produced by a :class:`BaseDivider`.
 
         Returns:
-            One :class:`ExtractionResult` per chunk, containing normalized
-            node labels.
+            A list of extraction results, each containing the chunk ID and a list of raw keywords.
         """
         ...

@@ -1,11 +1,16 @@
+import logging
 from time import time
+
 import networkx as nx
+
 
 from src.knowledge_graph.dividers import BaseDivider
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk, RunMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class Pipeline:
@@ -24,13 +29,11 @@ class Pipeline:
         linker: BaseLinker,
         persister: BasePersister,
         divider: BaseDivider | None = None,
-        verbose: bool = False,
     ):
         self.divider = divider
         self.extractor = extractor
         self.linker = linker
         self.persister = persister
-        self.verbose = verbose
 
     def run(
         self,
@@ -51,30 +54,31 @@ class Pipeline:
         if self.divider:
             if text is None:
                 raise ValueError("Text must be provided")
-            self.log_msg("Dividing text...")
+            logger.info("Dividing text...")
             t0 = time()
             chunks = self.divider.divide(text)
             t1 = time()
-            self.log_msg(f"  {len(chunks)} chunks created in {t1 - t0:.2f} seconds")
+            logger.info(
+                f"  {len(chunks)} chunks created in {t1 - t0:.2f} seconds")
         else:
             if chunks is None:
                 raise ValueError("Chunks must be provided")
-            self.log_msg(f"  {len(chunks)} chunks loaded from memory")
-        self.log_msg("Extracting nodes...")
+            logger.info(f"  {len(chunks)} chunks loaded from memory")
+        logger.info("Extracting nodes...")
         t0 = time()
         extractions = self.extractor.extract(chunks)
         t1 = time()
-        self.log_msg(
+        logger.info(
             f"  {len(extractions)} extractions created in {t1 - t0:.2f} seconds"
         )
-        self.log_msg("Linking co-occurrences...")
+        logger.info("Linking co-occurrences...")
         t0 = time()
         graph = self.linker.link(extractions)
         t1 = time()
-        self.log_msg(
+        logger.info(
             f"  {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges in {t1 - t0:.2f} seconds"
         )
-        self.log_msg("Persisting graph...")
+        logger.info("Persisting graph...")
         t0 = time()
 
         # Collect run metadata
@@ -96,18 +100,17 @@ class Pipeline:
 
         run_metadata = RunMetadata(config=run_config, statistics=run_stats)
 
-        self.persister.persist(graph, chunks, output_dir, run_metadata=run_metadata)
+        self.persister.persist(
+            graph, chunks, output_dir,
+            run_metadata=run_metadata,
+        )
         t1 = time()
-        self.log_msg(f"  Graph persisted in {t1 - t0:.2f} seconds")
+        logger.info(f"  Graph persisted in {t1 - t0:.2f} seconds")
         # Quick stats
-        self.log_msg("═" * 50)
-        self.log_msg(f"  Chunks:  {len(chunks)}")
-        self.log_msg(f"  Nodes:   {graph.number_of_nodes()}")
-        self.log_msg(f"  Edges:   {graph.number_of_edges()}")
-        self.log_msg(f"  Output:  {output_dir}")
-        self.log_msg("═" * 50)
+        logger.info("═" * 50)
+        logger.info(f"  Chunks:  {len(chunks)}")
+        logger.info(f"  Nodes:   {graph.number_of_nodes()}")
+        logger.info(f"  Edges:   {graph.number_of_edges()}")
+        logger.info(f"  Output:  {output_dir}")
+        logger.info("═" * 50)
         return graph
-
-    def log_msg(self, msg):
-        if self.verbose:
-            print(msg)

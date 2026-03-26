@@ -2,27 +2,22 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from typing import Any
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
-from src.knowledge_graph.utils.normalizer import Normalizer
 
 
 class TfidfExtractor(BaseExtractor):
     """Keyword extractor using TF-IDF weights to find important terms per chunk."""
 
-    def __init__(self, top_n: int = 10, normalizer: Normalizer | None = None):
+    def __init__(self, top_n: int = 10):
         """
         Args:
             top_n: Number of top TF-IDF words to extract per chunk.
-            normalizer: Optional Normalizer for cleaning terms.
         """
         super().__init__()
         self.top_n = top_n
-        self.normalizer = normalizer or Normalizer()
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()
-        config.update(
-            {"top_n": self.top_n, "normalizer": self.normalizer.__class__.__name__}
-        )
+        config.update({"top_n": self.top_n})
         return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
@@ -32,7 +27,8 @@ class TfidfExtractor(BaseExtractor):
 
         vectorizer = TfidfVectorizer(
             stop_words="english",
-            token_pattern=r"(?u)\b[a-zA-Z]{3,}\b",  # Only words with 3+ letters,
+            # Only words with 3+ letters,
+            token_pattern=r"(?u)\b[a-zA-Z]{3,}\b",
             ngram_range=(1, 2),
         )
 
@@ -50,7 +46,7 @@ class TfidfExtractor(BaseExtractor):
             for idx in top_indices:
                 if row[idx] > 0:
                     raw_nodes.append(feature_names[idx])
-            normalized = self.normalizer.normalize(raw_nodes)
-            results.append(ExtractionResult(chunk_id=chunk.id, nodes=normalized))
+            results.append(ExtractionResult(
+                chunk_id=chunk.id, keywords=raw_nodes))
 
         return results

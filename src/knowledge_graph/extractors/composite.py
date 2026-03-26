@@ -1,10 +1,13 @@
-from typing import Any
+import logging
 import time
 from collections import defaultdict
+from typing import Any
 
-from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
-from src.knowledge_graph.utils.normalizer import Normalizer
+from src.knowledge_graph.extractors import BaseExtractor
+
+
+logger = logging.getLogger(__name__)
 
 
 class CompositeExtractor(BaseExtractor):
@@ -15,58 +18,51 @@ class CompositeExtractor(BaseExtractor):
 
     Args:
         extractors: List of :class:`BaseExtractor` instances to compose.
-        normalizer: Optional :class:`Normalizer` for final deduplication pass.
     """
 
-    def __init__(
-        self,
-        extractors: list[BaseExtractor],
-        normalizer: Normalizer | None = None,
-    ):
+    def __init__(self, extractors: list[BaseExtractor]):
         super().__init__()
         self.extractors = extractors
-        self.normalizer = normalizer or Normalizer()
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()
-        config.update({"extractors": [e.get_config() for e in self.extractors]})
+        config.update({"extractors": [e.get_config()
+                      for e in self.extractors]})
         return config
 
     def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]:
         # Collect all nodes per chunk_id across all extractors
-        merged: defaultdict[int, list] = defaultdict(list)
+        merged: defaultdict[int, set] = defaultdict(set)
 
         total_chunks = len(chunks)
-        print(
-            f"Starting extraction on {total_chunks} chunks using {len(self.extractors)} extractors..."
+        logger.info(
+            "Starting extraction on %d chunks using %d extractors...",
+            total_chunks, len(self.extractors),
         )
 
         total_start_time = time.time()
 
         for idx, extractor in enumerate(self.extractors, 1):
             extractor_name = extractor.__class__.__name__
-            print(f"Running {extractor_name} ({idx}/{len(self.extractors)})...")
+            logger.info("Running %s (%d/%d)...", extractor_name,
+                        idx, len(self.extractors))
 
             start_time = time.time()
             for result in extractor.extract(chunks):
-                merged[result.chunk_id].extend(result.nodes)
+                merged[result.chunk_id].update(result.keywords)
             elapsed = time.time() - start_time
 
             speed = elapsed / total_chunks if total_chunks > 0 else 0
+            logger.info("  -> Finished %s in %.2fs (%.4fs / chunk)",
+                        extractor_name, elapsed, speed)
 
-            print(
-                f"  -> Finished {extractor_name} in {elapsed:.2f}s ({speed:.4f}s / chunk)"
-            )
-
-        # Deduplicate per chunk via normalizer, preserve chunk ordering
+        # Merge extraction results
         results: list[ExtractionResult] = []
         for chunk in chunks:
-            raw_nodes = merged.get(chunk.id, [])
-            # Nodes are already individually normalized by child extractors;
-            # run normalize again to deduplicate across extractors.
-            deduped = self.normalizer.normalize(raw_nodes)
-            results.append(ExtractionResult(chunk_id=chunk.id, nodes=deduped))
+            raw_keywords = merged.get(chunk.id, [])
+            results.append(ExtractionResult(
+                chunk_id=chunk.id, keywords=list(raw_keywords)))
 
         total_elapsed = time.time() - total_start_time
-        print(f"Completed all extraction in {total_elapsed:.2f}s")
+        logger.info("Completed all extraction in %.2fs", total_elapsed)
         return results

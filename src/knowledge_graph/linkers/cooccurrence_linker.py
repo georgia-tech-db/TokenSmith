@@ -1,7 +1,10 @@
+import logging
 from itertools import combinations
 from typing import Any
 
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 
 from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.models import ExtractionResult
@@ -34,7 +37,7 @@ class CooccurrenceLinker(BaseLinker):
 
         for extraction in extractions:
             chunk_id = extraction.chunk_id
-            nodes = extraction.nodes
+            nodes = extraction.keywords
 
             # Ensure every node exists and track its chunk_ids
             for node in nodes:
@@ -67,15 +70,13 @@ class CooccurrenceLinker(BaseLinker):
                 if data["weight"] < self.min_cooccurrence
             ]
             self.metadata["deleted_edges"] = len(edges_to_remove)
-            print(
-                f"Pruning {len(edges_to_remove)} edges below threshold {self.min_cooccurrence}"
-            )
+            logger.info("Pruning %d edges below threshold %s", len(edges_to_remove), self.min_cooccurrence)
             graph.remove_edges_from(edges_to_remove)
 
             # Remove isolated nodes left after pruning
             isolates = list(nx.isolates(graph))
             self.metadata["deleted_nodes"] = len(isolates)
-            print(f"Removing {len(isolates)} isolated nodes")
+            logger.info("Removing %d isolated nodes", len(isolates))
             graph.remove_nodes_from(isolates)
 
         return graph

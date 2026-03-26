@@ -2,7 +2,6 @@ from keybert import KeyBERT
 from typing import Any
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
-from src.knowledge_graph.utils.normalizer import Normalizer
 
 
 class KeyBERTExtractor(BaseExtractor):
@@ -13,7 +12,6 @@ class KeyBERTExtractor(BaseExtractor):
         top_n: Maximum number of keyphrases per chunk.
         keyphrase_ngram_range: Tuple ``(min_n, max_n)`` for keyphrase
             n-gram sizes.
-        normalizer: Optional pre-built :class:`Normalizer`.
     """
 
     def __init__(
@@ -21,14 +19,12 @@ class KeyBERTExtractor(BaseExtractor):
         model: str = "all-MiniLM-L6-v2",
         top_n: int = 10,
         keyphrase_ngram_range: tuple[int, int] = (1, 2),
-        normalizer: Normalizer | None = None,
     ):
         super().__init__()
         self.model_name = model
         self.kw_model = KeyBERT(model=model)
         self.top_n = top_n
         self.keyphrase_ngram_range = keyphrase_ngram_range
-        self.normalizer = normalizer or Normalizer()
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()
@@ -37,7 +33,6 @@ class KeyBERTExtractor(BaseExtractor):
                 "model": self.model_name,
                 "top_n": self.top_n,
                 "keyphrase_ngram_range": self.keyphrase_ngram_range,
-                "normalizer": self.normalizer.__class__.__name__,
             }
         )
         return config
@@ -50,7 +45,6 @@ class KeyBERTExtractor(BaseExtractor):
                 keyphrase_ngram_range=self.keyphrase_ngram_range,
                 top_n=self.top_n,
             )
-            raw_nodes = [kw for kw, _score in keywords]
-            normalized = self.normalizer.normalize(raw_nodes)
-            results.append(ExtractionResult(chunk_id=chunk.id, nodes=normalized))
+            raw_nodes = [kw for kw, _ in keywords]
+            results.append(ExtractionResult(chunk_id=chunk.id, keywords=raw_nodes))
         return results

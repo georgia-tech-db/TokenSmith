@@ -1,22 +1,13 @@
-from abc import ABC, abstractmethod
-from typing import Any
+from abc import abstractmethod
 
 import networkx as nx
 
+from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import ExtractionResult
 
 
-class BaseLinker(ABC):
+class BaseLinker(BasePipelineComponent):
     """Build a graph by creating edges between co-occurring nodes."""
-
-    def __init__(self):
-        self.metadata: dict[str, Any] = {}
-
-    def get_config(self) -> dict[str, Any]:
-        """Return the configuration of this linker."""
-        return {
-            "class": self.__class__.__name__,
-        }
 
     @abstractmethod
     def link(self, extractions: list[ExtractionResult]) -> nx.Graph:

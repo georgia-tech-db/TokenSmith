@@ -23,21 +23,3 @@ Compare performance and quality of different keyword extraction algorithms (YAKE
 ```bash
 python -m src.knowledge_graph.benchmark_extractors --num_chunks 10
 ```
-
-### 4. Analyze Query Difficulty
-Analyze a specific query against a generated knowledge graph to estimate its complexity.
-```bash
-python -m src.knowledge_graph.analyze_query --graph data/knowledge_graph/graph.json --query "What is a shared-nothing architecture?"
-```
-
-### 5. Analyze Pipeline Runs
-Compare different pipeline runs and visualize statistics (nodes, edges, deleted items).
-```bash
-python -m src.knowledge_graph.analyze_runs --dir data/knowledge_graph
-```
-
-### 6. Visualize Graph
-Generate a static visualization of the knowledge graph.
-```bash
-python -m src.knowledge_graph.visualize_graph --graph data/knowledge_graph/graph.json --output visualization.png
-```

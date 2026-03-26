@@ -2,7 +2,7 @@ embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
-ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
+ranker_weights: {"faiss":0.8,"bm25":0,"index_keywords":0, "kg":0.2}
 rrf_k: 60
 max_gen_tokens: 400
 chunk_mode : "recursive_sections"
@@ -14,3 +14,12 @@ hyde_max_tokens: 300
 use_indexed_chunks: false
 rerank_mode: "cross_encoder"
 rerank_top_k: 5
+kg_pipeline:
+  corpus_description: "Database System Concepts, 7th edition by Silberschatz et al."
+  min_cooccurrence: 0
+  top_n: 10
+  canonicalization:
+    llm_model: "openai/gpt-4o-mini"
+    similarity_threshold: 0.78
+    max_group_size: 30
+    batch_size: 15

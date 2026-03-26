@@ -1,20 +1,12 @@
-from abc import ABC, abstractmethod
-from typing import List, Any
+from abc import abstractmethod
+from typing import List
 
+from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import Chunk
 
 
-class BaseDivider(ABC):
+class BaseDivider(BasePipelineComponent):
     """Split raw text into a list of Chunks."""
-
-    def __init__(self):
-        self.metadata: dict[str, Any] = {}
-
-    def get_config(self) -> dict[str, Any]:
-        """Return the configuration of this divider."""
-        return {
-            "class": self.__class__.__name__,
-        }
 
     @abstractmethod
     def divide(self, text: str) -> List[Chunk]:

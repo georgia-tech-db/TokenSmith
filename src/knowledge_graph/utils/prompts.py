@@ -10,3 +10,11 @@ Documents:
 <|im_end|>
 <|im_start|>assistant
 """
+
+OPENROUTER_KEYWORD_EXTRACTION_PROMPT = """You are a linguistic analysis expert. Analyze the provided text
+and identify the {top_n} most relevant and descriptive keywords 
+or short phrases (1-3 words). Focus on terms that carry the most 
+information density, such as technical terms, proper nouns, and 
+central concepts. Return the result as a raw JSON list of strings. 
+Do not include any other text or explanation in your response.
+"""
