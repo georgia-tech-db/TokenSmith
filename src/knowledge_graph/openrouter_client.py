@@ -1,9 +1,3 @@
-"""Thin wrapper around the OpenRouter chat-completions endpoint.
-
-Centralises the POST request, auth headers, and retry loop so that
-``Canonicalizer`` and ``OpenRouterExtractor`` don't duplicate them.
-"""
-
 import logging
 
 import requests

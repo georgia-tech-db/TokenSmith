@@ -18,14 +18,29 @@ from src.knowledge_graph.build import (
     TOP_N,
     load_chunks,
 )
+from src.knowledge_graph.canonicalizer import Canonicalizer
 from src.knowledge_graph.extractors import BaseExtractor, JsonExtractor
 from src.knowledge_graph.linkers import CooccurrenceLinker
 from src.knowledge_graph.persisters import NetworkxJsonPersister
 from src.knowledge_graph.pipeline import Pipeline
+from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
 
 logger = logging.getLogger(__name__)
 
 _RUN_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
+
+
+# ---------------------------------------------------------------------------
+# Config dataclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CanonicalizationConfig:
+    llm_model: str = "openai/gpt-4o-mini"
+    similarity_threshold: float = 0.78
+    max_group_size: int = 30
+    batch_size: int = 15
 
 
 @dataclass
@@ -33,6 +48,9 @@ class KGPipelineConfig:
     corpus_description: str = ""
     min_cooccurrence: int = 0
     top_n: int = TOP_N
+    canonicalization: CanonicalizationConfig = field(
+        default_factory=CanonicalizationConfig
+    )
 
     @classmethod
     def from_yaml(cls, path: str) -> "KGPipelineConfig":
@@ -40,7 +58,13 @@ class KGPipelineConfig:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         kg = dict(data.get("kg_pipeline", {}))
-        return cls(**kg)
+        canon_data = kg.pop("canonicalization", {})
+        return cls(**kg, canonicalization=CanonicalizationConfig(**canon_data))
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _create_run_dir(runs_dir: str) -> str:
@@ -56,8 +80,7 @@ def _setup_input_dir(run_dir: str) -> None:
     os.makedirs(input_dir, exist_ok=True)
 
     # Symlinks for the (large) pkl files — no copy
-    os.symlink(os.path.abspath(CHUNKS_PKL),
-               os.path.join(input_dir, "chunks.pkl"))
+    os.symlink(os.path.abspath(CHUNKS_PKL), os.path.join(input_dir, "chunks.pkl"))
     os.symlink(os.path.abspath(META_PKL), os.path.join(input_dir, "meta.pkl"))
 
     # Full copy of the keyword extractions JSON
@@ -82,6 +105,11 @@ def _update_latest_symlink(runs_dir: str, run_dir: str) -> None:
     if os.path.islink(latest):
         os.unlink(latest)
     os.symlink(os.path.abspath(run_dir), latest)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -116,14 +144,43 @@ def main() -> None:
     # To switch extractors, replace the line above with e.g.:
     # extractor = CompositeExtractor([YakeExtractor(top_n=cfg.top_n), TfidfExtractor(top_n=cfg.top_n)])
 
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise EnvironmentError(
+            "OPENROUTER_API_KEY environment variable must be set for canonicalization."
+        )
+
+    c = cfg.canonicalization
+    canonicalizer = Canonicalizer(
+        corpus_description=cfg.corpus_description,
+        api_key=api_key,
+        llm_model=c.llm_model,
+        similarity_threshold=c.similarity_threshold,
+        max_group_size=c.max_group_size,
+        batch_size=c.batch_size,
+    )
+
     linker = CooccurrenceLinker(min_cooccurrence=cfg.min_cooccurrence)
     persister = NetworkxJsonPersister()
     pipeline = Pipeline(
         extractor=extractor,
         linker=linker,
         persister=persister,
+        canonicalizer=canonicalizer,
     )
-    pipeline.run(chunks=chunks, output_dir=run_dir)
+    graph = pipeline.run(chunks=chunks, output_dir=run_dir)
+
+    logger.info("Building section tree...")
+    tree = build_section_tree(chunks, graph)
+    tree_path = save_section_tree(tree, run_dir)
+    level_counts: dict[int, int] = {}
+    for node in tree.node_index.values():
+        level_counts[node.level] = level_counts.get(node.level, 0) + 1
+    level_labels = {1: "chapters", 2: "sections", 3: "subsections"}
+    for level, count in sorted(level_counts.items()):
+        label = level_labels.get(level, f"level-{level} nodes")
+        logger.info("  %4d %s", count, label)
+    logger.info("  Saved: %s", tree_path)
 
     _update_latest_symlink(runs_dir, run_dir)
     logger.info("Updated: %s -> %s", os.path.join(runs_dir, "latest"), run_dir)

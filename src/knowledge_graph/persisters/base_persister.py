@@ -3,6 +3,7 @@ from abc import abstractmethod
 import networkx as nx
 
 from src.knowledge_graph.base import BasePipelineComponent
+from src.knowledge_graph.canonicalizer import CanonicalizationResult
 from src.knowledge_graph.models import Chunk, RunMetadata
 
 
@@ -16,6 +17,7 @@ class BasePersister(BasePipelineComponent):
         chunks: list[Chunk],
         output_dir: str,
         run_metadata: RunMetadata | None = None,
+        canonicalization_result: CanonicalizationResult | None = None,
     ) -> None:
         """Persist *graph* and *chunks* to *output_dir*.
 
@@ -24,5 +26,6 @@ class BasePersister(BasePipelineComponent):
             chunks: The original chunks (for building the chunk store).
             output_dir: Directory to write output files into.
             run_metadata: Configuration and stats from the pipeline run.
+            canonicalization_result: Optional canonicalization artifacts to persist.
         """
         ...

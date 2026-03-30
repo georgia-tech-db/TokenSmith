@@ -2,10 +2,12 @@ import json
 import os
 
 import networkx as nx
+import numpy as np
 
 from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk, RunMetadata
 
+from src.knowledge_graph.canonicalizer import CanonicalizationResult
 
 
 class NetworkxJsonPersister(BasePersister):
@@ -19,6 +21,9 @@ class NetworkxJsonPersister(BasePersister):
     * ``graph.json``               — NetworkX node-link serialization
     * ``chunks.json``              — ``{ "0": "chunk text …", "1": "…" }``
     * ``run_metadata.json``        — timing + graph statistics (optional)
+    * ``synonym_table.json``       — keyword → canonical mapping (if canonicalized)
+    * ``canonical_keywords.json``  — sorted list of canonical forms (if canonicalized)
+    * ``canonical_embeddings.npy`` — embedding matrix for canonical keywords (if canonicalized)
     """
 
     def persist(
@@ -27,17 +32,38 @@ class NetworkxJsonPersister(BasePersister):
         chunks: list[Chunk],
         output_dir: str,
         run_metadata: RunMetadata | None = None,
+        canonicalization_result: CanonicalizationResult | None = None,
     ) -> None:
         os.makedirs(output_dir, exist_ok=True)
 
+        # --- graph.json ---
         graph_data = nx.node_link_data(graph)
         with open(os.path.join(output_dir, "graph.json"), "w", encoding="utf-8") as f:
             json.dump(graph_data, f, indent=2, ensure_ascii=False)
 
+        # --- chunks.json ---
         chunk_store = {str(chunk.id): chunk.text for chunk in chunks}
         with open(os.path.join(output_dir, "chunks.json"), "w", encoding="utf-8") as f:
             json.dump(chunk_store, f, indent=2, ensure_ascii=False)
 
+        # --- canonicalization artifacts ---
+        if canonicalization_result is not None:
+            with open(
+                os.path.join(output_dir, "synonym_table.json"), "w", encoding="utf-8"
+            ) as f:
+                json.dump(canonicalization_result.synonym_table, f, indent=2, ensure_ascii=False)
+
+            with open(
+                os.path.join(output_dir, "canonical_keywords.json"), "w", encoding="utf-8"
+            ) as f:
+                json.dump(canonicalization_result.canonical_keywords, f, indent=2, ensure_ascii=False)
+
+            np.save(
+                os.path.join(output_dir, "canonical_embeddings.npy"),
+                canonicalization_result.canonical_embeddings,
+            )
+
+        # --- run_metadata.json ---
         if run_metadata:
             num_nodes = graph.number_of_nodes()
             num_edges = graph.number_of_edges()

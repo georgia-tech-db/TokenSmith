@@ -8,3 +8,4 @@ scikit_learn==1.8.0
 spacy==3.8.11
 yake==0.7.3
 llama-cpp-python==0.3.16
+pytextrank==3.3.0

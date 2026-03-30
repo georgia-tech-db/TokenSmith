@@ -48,6 +48,13 @@ class RAGConfig:
     # conversational memory
     enable_history: bool = True
     max_history_turns: int = 3
+
+    # knowledge graph retrieval
+    kg_graph_dir: str = ""
+    kg_beta: float = 0.5          # blend weight: 0 = node-only, 1 = section-tree-only
+    kg_heading_alpha: float = 0.5  # heading sim vs KG keyword blend: 1 = heading-only, 0 = KG-only
+    kg_inheritance_decay: float = 0.5  # parent→child score decay in top-down propagation
+
     
     # index parameters
     use_indexed_chunks: bool = False

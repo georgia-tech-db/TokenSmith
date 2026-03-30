@@ -3,14 +3,14 @@ from time import time
 
 import networkx as nx
 
+logger = logging.getLogger(__name__)
 
+from src.knowledge_graph.canonicalizer import Canonicalizer
 from src.knowledge_graph.dividers import BaseDivider
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.persisters import BasePersister
 from src.knowledge_graph.models import Chunk, RunMetadata
-
-logger = logging.getLogger(__name__)
 
 
 class Pipeline:
@@ -21,6 +21,7 @@ class Pipeline:
         extractor: Extracts node labels from chunks.
         linker: Builds a graph from extraction results.
         persister: Saves the graph and chunk store to disk.
+        canonicalizer: Optional semantic canonicalization step between extraction and linking.
     """
 
     def __init__(
@@ -29,11 +30,13 @@ class Pipeline:
         linker: BaseLinker,
         persister: BasePersister,
         divider: BaseDivider | None = None,
+        canonicalizer: Canonicalizer | None = None,
     ):
         self.divider = divider
         self.extractor = extractor
         self.linker = linker
         self.persister = persister
+        self.canonicalizer = canonicalizer
 
     def run(
         self,
@@ -58,8 +61,7 @@ class Pipeline:
             t0 = time()
             chunks = self.divider.divide(text)
             t1 = time()
-            logger.info(
-                f"  {len(chunks)} chunks created in {t1 - t0:.2f} seconds")
+            logger.info(f"  {len(chunks)} chunks created in {t1 - t0:.2f} seconds")
         else:
             if chunks is None:
                 raise ValueError("Chunks must be provided")
@@ -71,6 +73,20 @@ class Pipeline:
         logger.info(
             f"  {len(extractions)} extractions created in {t1 - t0:.2f} seconds"
         )
+
+        canon_result = None
+        if self.canonicalizer:
+            logger.info("Canonicalizing keywords...")
+            t0 = time()
+            extractions, canon_result = self.canonicalizer.canonicalize(extractions)
+            t1 = time()
+            s = canon_result.stats
+            logger.info(
+                f"  {s['keywords_after_stage1']} → {s['canonical_keywords_final']} keywords, "
+                f"{s['merges_performed']} merges, {s['llm_calls']} LLM calls "
+                f"in {t1 - t0:.2f} seconds"
+            )
+
         logger.info("Linking co-occurrences...")
         t0 = time()
         graph = self.linker.link(extractions)
@@ -89,6 +105,8 @@ class Pipeline:
         }
         if self.divider:
             run_config["divider"] = self.divider.get_config()
+        if self.canonicalizer:
+            run_config["canonicalizer"] = self.canonicalizer.get_config()
 
         run_stats = {
             "extractor": self.extractor.metadata,
@@ -97,12 +115,15 @@ class Pipeline:
         }
         if self.divider:
             run_stats["divider"] = self.divider.metadata
+        if canon_result:
+            run_stats["canonicalization"] = canon_result.stats
 
         run_metadata = RunMetadata(config=run_config, statistics=run_stats)
 
         self.persister.persist(
             graph, chunks, output_dir,
             run_metadata=run_metadata,
+            canonicalization_result=canon_result,
         )
         t1 = time()
         logger.info(f"  Graph persisted in {t1 - t0:.2f} seconds")
@@ -114,3 +135,4 @@ class Pipeline:
         logger.info(f"  Output:  {output_dir}")
         logger.info("═" * 50)
         return graph
+
