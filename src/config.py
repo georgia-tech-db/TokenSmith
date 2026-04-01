@@ -44,7 +44,7 @@ class RAGConfig:
     use_hyde: bool = False
     hyde_max_tokens: int = 300
     use_double_prompt: bool = False
-    
+
     # cache
     semantic_cache_enabled: bool = False
     

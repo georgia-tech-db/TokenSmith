@@ -42,20 +42,25 @@ def make_cache_config_key(cfg: RAGConfig, args: argparse.Namespace, golden_chunk
     """
     Create a unique JSON key for semantic cache based on config, arguments, and optional golden chunks.
     """
-    payload = {
-        "gen_model": getattr(args, "model_path", None) or cfg.gen_model,
-        "embed_model": cfg.embed_model,
-        "top_k": cfg.top_k,
-        "system_prompt_mode": getattr(args, "system_prompt_mode", None) or cfg.system_prompt_mode,
-        "ensemble_method": cfg.ensemble_method,
-        "ranker_weights": cfg.ranker_weights,
-        "use_hyde": cfg.use_hyde,
-        "use_indexed_chunks": cfg.use_indexed_chunks,
-        "disable_chunks": cfg.disable_chunks,
-        "use_golden_chunks": bool(golden_chunks and cfg.use_golden_chunks),
-        "index_prefix": getattr(args, "index_prefix", None),
-    }
 
+    try: 
+        payload = RAGConfig.get_config_state()
+    except Exception as e:
+        payload = {
+            "gen_model": getattr(args, "model_path", None) or cfg.gen_model,
+            "embed_model": cfg.embed_model,
+            "top_k": cfg.top_k,
+            "system_prompt_mode": getattr(args, "system_prompt_mode", None) or cfg.system_prompt_mode,
+            "ensemble_method": cfg.ensemble_method,
+            "ranker_weights": cfg.ranker_weights,
+            "use_hyde": cfg.use_hyde,
+            "use_indexed_chunks": cfg.use_indexed_chunks,
+            "disable_chunks": cfg.disable_chunks,
+            "use_golden_chunks": bool(golden_chunks and cfg.use_golden_chunks),
+            "index_prefix": getattr(args, "index_prefix", None),
+        }
+
+    # !!! Unnencessary to include - to remove later !!!
     if golden_chunks and cfg.use_golden_chunks:
         signature = hashlib.sha256("||".join(golden_chunks).encode("utf-8")).hexdigest()
         payload["golden_signature"] = signature
