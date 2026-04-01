@@ -77,19 +77,25 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
     
     # Build prompt based on whether chunks are provided
     if chunks and len(chunks) > 0:
+        if isinstance(chunks[0], tuple):
+            chunks = [c[0] for c in chunks]
         context = "\n\n".join(chunks)
         context = text_cleaning(context)
         
         # Build prompt with chunks
         context_section = f"Textbook Excerpts:\n{context}\n\n\n"
         
-        return textwrap.dedent(f"""\
+        final_prompt = textwrap.dedent(f"""\
             {system_section}<|im_start|>user
             {context_section}Question: {query}
             <|im_end|>
             <|im_start|>assistant
             {ANSWER_START}
         """)
+
+        # print("Formatted prompt with chunks. Length:", len(final_prompt), final_prompt)
+        return final_prompt
+
     else:
         # Build prompt without chunks
         question_label = "Question: " if system_prompt else ""
@@ -110,9 +116,7 @@ def get_llama_model(model_path: str, n_ctx: int = 4096):
             _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
                                        verbose=False,
-                                       # add gpu offloading with -1
-                                       n_gpu_layers=-1,
-                                    )
+                                       n_gpu_layers=-1)
         except Exception as e:
             print(f"Error occurred while initializing Llama model on. GPU: {e}")
             _LLM_CACHE[model_path] = Llama(model_path=model_path,

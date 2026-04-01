@@ -47,6 +47,10 @@ class RAGConfig:
 
     # cache
     semantic_cache_enabled: bool = False
+
+    # conversational memory
+    enable_history: bool = True
+    max_history_turns: int = 3
     
     # index parameters
     use_indexed_chunks: bool = False

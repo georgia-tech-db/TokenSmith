@@ -203,52 +203,21 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         
     doc = result.document
 
-    # Define a unique placeholder that won't appear in the text.
-    # Using "\n" ensures it's on its own line.
-    UNIQUE_PLACEHOLDER = "\n%%%__DOCLING_PAGE_BREAK__%%%\n"
-
-    # Export the entire document at once, using our placeholder.
-    # This avoids the fragile doc.filter() method.
-    try:
-        full_markdown = doc.export_to_markdown(page_break_placeholder=UNIQUE_PLACEHOLDER)
-    except Exception as e:
-        print(f"Error during final markdown export: {e}", file=sys.stderr)
-        print("Falling back to exporting document without page numbers.")
-        try:
-            # Fallback: just save the raw export
-            with open(output_file_path, "w", encoding="utf-8") as f:
-                f.write(doc.export_to_markdown())
-            print(f"Successfully saved (fallback, no page numbers) to {output_file_path}")
-        except IOError as e_io:
-            print(f"Error writing fallback file: {e_io}", file=sys.stderr)
-        return
-
-    # Split the full markdown by our unique placeholder.
-    # This gives us a list where each item is one page's content.
-    markdown_pages = full_markdown.split(UNIQUE_PLACEHOLDER)
+    num_pages = len(doc.pages)
     
-    final_output_chunks = []
-    
-    # Iterate through the pages, adding our custom footer.
-    # We use enumerate to get a 1-based page number.
-    num_pages = len(markdown_pages)
-    for i, page_content in enumerate(markdown_pages, 1):
-        # Add the content for the current page
-        final_output_chunks.append(page_content)
-        
-        # Add our custom footer, but not after the very last page
-        if i < num_pages:
-            final_output_chunks.append(f"\n\n--- Page {i} ---\n\n")
+    # Extract markdown and append page number footer except for the last page
+    final_text = "".join(
+        doc.export_to_markdown(page_no=i) + (f"\n\n--- Page {i} ---\n\n" if i < num_pages else "")
+        for i in range(1, num_pages + 1)
+    )
 
     # Write the combined markdown string to the output file
     try:
         with open(output_file_path, "w", encoding="utf-8") as f:
-            f.write("".join(final_output_chunks))
+            f.write(final_text)
         print(f"Successfully converted and saved to {output_file_path}")
-    except IOError as e:
-        print(f"Error writing to file {output_file_path}: {e}", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        print(f"Error writing to file {output_file_path}: {e}", file=sys.stderr)
 
 
 def preprocess_extracted_section(text: str) -> str:
