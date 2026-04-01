@@ -158,7 +158,7 @@ def build_index(
                     f"Content: "
                 )
             else:
-                chunk_prefix = ""
+                chunk_prefix = "search_document: "
 
             all_chunks.append(chunk_prefix+clean_chunk)
             sources.append(markdown_file)

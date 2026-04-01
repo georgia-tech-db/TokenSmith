@@ -144,7 +144,10 @@ def get_answer(
         ordered, scores = ranker.rank(raw_scores=raw_scores)
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        
+
+        print(f"Top {len(ranked_chunks)} retrieved chunks:")
+        for rank, idx in enumerate(topk_idxs, 1):
+            print(f"Rank {rank}: Chunk ID {idx} - {chunks[idx][:100]}... (Score: {scores[rank-1]:.4f})")
         
         # Capture chunk info if in test mode
         if is_test_mode:

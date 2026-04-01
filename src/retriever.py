@@ -109,7 +109,7 @@ class FAISSRetriever(Retriever):
         Returns FAISS scores for top 'pool_size' keyed by global chunk index.
         """
         # FAISS expects a 2D array
-        query_raw = self.embedder.embed(query)
+        query_raw = self.embedder.embed(f"search_query: {query}")
         q_vec = np.array([query_raw]).astype("float32")
         
         # Safety check on vector dimensions
