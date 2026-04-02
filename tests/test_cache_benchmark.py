@@ -4,14 +4,7 @@ import yaml
 from pathlib import Path
 from unittest.mock import MagicMock
 from src.config import RAGConfig
-from src.cache import (
-    SEMANTIC_CACHE,
-    semantic_cache_store,
-    semantic_cache_lookup,
-    compute_question_embedding,
-    make_cache_config_key,
-    normalize_question,
-)
+from src.cache import get_cache
 
 
 # -----------------------------
@@ -100,19 +93,20 @@ def test_cache_benchmark_comprehensive(mock_config):
 
     Scores:
       Accuracy rate  — fraction of genuine variations that got a cache hit.
-                     Higher is better. Target >= 80%.
+                     Higher is better. Target >= 60%.
       False Positives rate — fraction of adversarial queries that falsely got a cache hit.
-                     Lower is better. Target <= 10%.
+                     Lower is better. Target <= 0%.
     """
-    # Clear any state from previous runs
-    SEMANTIC_CACHE.clear()
+    
+    cache = get_cache(mock_config)
+    cache.clear()
 
     args = MagicMock()
     args.model_path = None
     args.system_prompt_mode = None
     args.index_prefix = "test_index"
 
-    cache_key = make_cache_config_key(mock_config, args, None)
+    cache_key = cache.make_config_key(mock_config, args, None)
     embed_model_name = mock_config.embed_model
 
     total_var_hits = 0
@@ -137,8 +131,8 @@ def test_cache_benchmark_comprehensive(mock_config):
         adversarial_vars     = entry.get("adversarial_queries", [])
 
         # --- Seed the cache with the canonical question ---
-        normalized_main = normalize_question(main_question)
-        embedding_main  = compute_question_embedding(normalized_main, [], embed_model_name)
+        normalized_main = cache.normalize_question(main_question)
+        embedding_main  = cache.compute_embedding(normalized_main, [], embed_model_name)
         assert embedding_main is not None, (
             f"Failed to compute embedding for {question_id}: '{main_question}'"
         )
@@ -149,14 +143,14 @@ def test_cache_benchmark_comprehensive(mock_config):
             "hyde_query":    None,
             "chunk_indices": [],
         }
-        semantic_cache_store(cache_key, normalized_main, embedding_main, payload)
+        cache.store(cache_key, normalized_main, embedding_main, payload)
 
         # --- Test genuine variations ---
         var_results = []
         for var_q in variations:
-            normalized_var = normalize_question(var_q)
-            embedding_var  = compute_question_embedding(normalized_var, [], embed_model_name)
-            hit = semantic_cache_lookup(cache_key, embedding_var, normalized_var) is not None
+            normalized_var = cache.normalize_question(var_q)
+            embedding_var  = cache.compute_embedding(normalized_var, [], embed_model_name)
+            hit = cache.lookup(cache_key, embedding_var, normalized_var) is not None
             var_results.append((var_q, hit))
             if not hit:
                 accuracy_failures.append(f"[{question_id}] Missed variation : '{var_q}'")
@@ -164,10 +158,10 @@ def test_cache_benchmark_comprehensive(mock_config):
         # --- Test adversarial queries ---
         adversarial_results = []
         for adversarial_q in adversarial_vars:
-            normalized_adversarial = normalize_question(adversarial_q)
-            embedding_adversarial  = compute_question_embedding(normalized_adversarial, [], embed_model_name)
+            normalized_adversarial = cache.normalize_question(adversarial_q)
+            embedding_adversarial  = cache.compute_embedding(normalized_adversarial, [], embed_model_name)
             
-            payload_hit = semantic_cache_lookup(cache_key, embedding_adversarial, normalized_adversarial)
+            payload_hit = cache.lookup(cache_key, embedding_adversarial, normalized_adversarial)
             # A false hit is when the cache incorrectly returns the CURRENT question's answer 
             # for a query that is semantically different.
             hit = payload_hit is not None and payload_hit.get("answer") == f"Cached answer for {question_id}"
@@ -203,13 +197,13 @@ def test_cache_benchmark_comprehensive(mock_config):
     print("  recognises a genuine paraphrase of a cached question.")
     print("  A high accuracy rate means users asking the same thing")
     print("  in different words will get a fast cached response.")
-    print("  Target: >= 80%")
+    print("  Target: >= 60%")
     print()
     print("  False Positive Rate — measures how often the cache is fooled")
     print("  into returning an answer for a semantically or")
     print("  syntactically similar but DIFFERENT question. A false")
     print("  hit here means a user gets the wrong cached answer.")
-    print("  Lower is strictly better. Target: <= 10%")
+    print("  Lower is strictly better. Target: <= 0%")
 
     if accuracy_failures:
         print()
@@ -233,7 +227,7 @@ def test_cache_benchmark_comprehensive(mock_config):
         f"First 10 misses: {accuracy_failures[:10]}"
     )
     assert false_positive_rate <= 0.05, (
-        f"False Positives rate {false_positive_rate:.1%} exceeds the 10% target. "
+        f"False Positives rate {false_positive_rate:.1%} exceeds the 5% target. "
         f"The cache is returning false hits for adversarial queries.\n"
         f"First 10 leaks: {false_positive_failures[:10]}"
     )

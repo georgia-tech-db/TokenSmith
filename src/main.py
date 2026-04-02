@@ -28,7 +28,7 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
-from src.cache import SEMANTIC_CACHE, semantic_cache_store, compute_question_embedding, normalize_question, make_cache_config_key, semantic_cache_lookup
+from src.cache import get_cache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -122,21 +122,15 @@ def get_answer(
     topk_idxs: List[int] = []
     scores = []
 
-    normalized_question = None
-    config_cache_key = None
-    question_embedding: Optional[np.ndarray] = None
-    semantic_hit: Optional[Dict[str, Any]] = None
-
-    # Check semantic cache
-    if cfg.semantic_cache_enabled:
-        normalized_question = normalize_question(question)
-        config_cache_key = make_cache_config_key(cfg, args, golden_chunks)
-        if config_cache_key in SEMANTIC_CACHE:
-            question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
-            semantic_hit = semantic_cache_lookup(config_cache_key, question_embedding, normalized_question)
+    cache = get_cache(cfg)
+    normalized_question = cache.normalize_question(question)
+    config_cache_key = cache.make_config_key(cfg, args, golden_chunks)
+    question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
+    
+    semantic_hit = cache.lookup(config_cache_key, question_embedding, normalized_question)
 
     # Return cached answer if found
-    if cfg.semantic_cache_enabled and semantic_hit is not None:
+    if semantic_hit is not None:
 
         ans = semantic_hit.get("answer", "")
 
@@ -277,22 +271,21 @@ def get_answer(
             additional_log_info=additional_log_info
         )
 
-    # Step 5: Store in semantic cache if enabled by config
-    if cfg.semantic_cache_enabled:
-        cache_payload = {
-            "answer": ans,
-            "chunks_info": chunks_info,
-            "hyde_query": hyde_query,
-            "chunk_indices": topk_idxs,
-        }
-        if question_embedding is None:
-            question_embedding = compute_question_embedding(normalized_question, retrievers, cfg.embed_model)
-        semantic_cache_store(
-            config_cache_key,
-            normalized_question,
-            question_embedding,
-            cache_payload
-        )
+    # Step 5: Store in semantic cache
+    cache_payload = {
+        "answer": ans,
+        "chunks_info": chunks_info,
+        "hyde_query": hyde_query,
+        "chunk_indices": topk_idxs,
+    }
+    if question_embedding is None:
+        question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
+    cache.store(
+        config_cache_key,
+        normalized_question,
+        question_embedding,
+        cache_payload
+    )
 
     if is_test_mode:
         return ans, chunks_info, hyde_query
