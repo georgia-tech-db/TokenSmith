@@ -15,8 +15,8 @@ from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, 
 # Global cache and constants
 # -----------------------------
 SEMANTIC_CACHE: Dict[str, Deque[Dict[str, Any]]] = {}
-BI_ENCODER_THRESHOLD = 0.40
-CROSS_ENCODER_THRESHOLD = 0.75
+BI_ENCODER_THRESHOLD = 0.95
+CROSS_ENCODER_THRESHOLD = 0.99
 SEMANTIC_CACHE_MAX_ENTRIES = 50
 QUESTION_EMBEDDERS: Dict[str, SentenceTransformer] = {}
 CROSS_ENCODER_MODEL: Optional[CrossEncoder] = None
