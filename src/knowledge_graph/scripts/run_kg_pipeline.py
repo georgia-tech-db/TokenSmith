@@ -151,6 +151,9 @@ def main() -> None:
         )
 
     c = cfg.canonicalization
+    from src.knowledge_graph.canonicalizer import MockCanonicalizer
+
+    """     
     canonicalizer = Canonicalizer(
         corpus_description=cfg.corpus_description,
         api_key=api_key,
@@ -158,8 +161,9 @@ def main() -> None:
         similarity_threshold=c.similarity_threshold,
         max_group_size=c.max_group_size,
         batch_size=c.batch_size,
-    )
-
+    ) 
+    """
+    canonicalizer = MockCanonicalizer("debug/canonicalization_cache.json")
     linker = CooccurrenceLinker(min_cooccurrence=cfg.min_cooccurrence)
     persister = NetworkxJsonPersister()
     pipeline = Pipeline(

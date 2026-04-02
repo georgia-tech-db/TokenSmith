@@ -65,6 +65,7 @@ class Canonicalizer:
         self.batch_size = batch_size
         self.fallback_threshold = fallback_threshold
         self._normalizer = normalizer or Normalizer()
+        self.retries = retries
         self._client = OpenRouterClient(api_key, retries=retries)
 
         logger.info("Loading embedding model: %s", embedding_model)
@@ -113,7 +114,6 @@ class Canonicalizer:
 
         # 2c — LLM verification
         logger.info("  [2c] LLM verification (%d groups)…", len(non_singletons))
-        self._llm_calls = 0
         partial_table = self._verify_with_llm(non_singletons)
 
         # 2d — build structures
@@ -230,7 +230,6 @@ class Canonicalizer:
             f"Group {i + 1}: {json.dumps(g)}" for i, g in enumerate(groups)
         )
 
-        
         system_prompt = SYNONYM_SYSTEM_PROMPT.format(corpus_description=self.corpus_description)
         user_prompt = SYNONYM_PROMPT.format(groups_text=groups_text)
 
@@ -304,3 +303,40 @@ class Canonicalizer:
                     seen.add(canonical)
             updated.append(ExtractionResult(chunk_id=er.chunk_id, keywords=canonical_nodes))
         return updated
+
+
+class MockCanonicalizer:
+    """Drop-in replacement for Canonicalizer that replays a pre-saved result.
+
+    Loads a cache file produced by generate_canon_cache.py and returns the
+    stored extractions and CanonicalizationResult without running any model
+    or LLM. Useful for iterating on pipeline stages that follow canonicalization.
+
+    Args:
+        cache_path: Path to the JSON cache file (relative to repo root or absolute).
+    """
+
+    def __init__(self, cache_path: str):
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self._updated_extractions = [
+            ExtractionResult(chunk_id=e["chunk_id"], keywords=e["keywords"])
+            for e in data["updated_extractions"]
+        ]
+        self._result = CanonicalizationResult(
+            synonym_table=data["synonym_table"],
+            canonical_keywords=data["canonical_keywords"],
+            canonical_embeddings=np.array(data["canonical_embeddings"], dtype=np.float32),
+            stats=data.get("stats", {}),
+        )
+        logger.warning("MockCanonicalizer: loaded cache from %s", cache_path)
+
+    def get_config(self) -> dict[str, Any]:
+        return {"class": self.__class__.__name__}
+
+    def canonicalize(
+        self, extractions: list[ExtractionResult]
+    ) -> tuple[list[ExtractionResult], CanonicalizationResult]:
+        logger.warning("MockCanonicalizer: returning cached canonicalization, input ignored")
+        return self._updated_extractions, self._result
