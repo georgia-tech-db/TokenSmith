@@ -19,17 +19,17 @@ For each group:
 2. Choose the best canonical label — prefer the form used in academic/textbook literature.
 3. List keywords that are NOT synonymous with any other keyword as standalone.
 Respond in JSON only:
-{
+{{
     "groups": [
-        {
+        {{
             "group_id": 1,
             "synonym_groups": [
-                {"canonical": "label", "members": ["kw1", "kw2"], "reason": "..."}
+                {{"canonical": "label", "members": ["kw1", "kw2"], "reason": "..."}}
             ],
             "standalone": ["kw_x"]
-        }
+        }}
     ]
-}
+}}
 """
 
 SYNONYM_SYSTEM_PROMPT = """You are a terminology expert analyzing keywords extracted from: {corpus_description}.
