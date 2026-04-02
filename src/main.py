@@ -136,7 +136,7 @@ def get_answer(
 
         if is_test_mode:
             return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
-
+        console.print("Using cached answer")
         render_final_answer(console, ans)
         return ans
 
