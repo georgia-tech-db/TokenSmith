@@ -189,8 +189,13 @@ class NoOpCache(Cache):
         return ""
 
 
+_GLOBAL_SEMANTIC_CACHE: Optional[SemanticCache] = None
+
 def get_cache(cfg: RAGConfig) -> Cache:
     """Return a configured cache layer, either SemanticCache or NoOpCache depending on config."""
+    global _GLOBAL_SEMANTIC_CACHE
     if getattr(cfg, 'semantic_cache_enabled', False):
-        return SemanticCache()
+        if _GLOBAL_SEMANTIC_CACHE is None:
+            _GLOBAL_SEMANTIC_CACHE = SemanticCache()
+        return _GLOBAL_SEMANTIC_CACHE
     return NoOpCache()
