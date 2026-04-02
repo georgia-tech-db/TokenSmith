@@ -232,7 +232,7 @@ def test_cache_benchmark_comprehensive(mock_config):
         f"The cache is missing too many genuine paraphrases.\n"
         f"First 10 misses: {accuracy_failures[:10]}"
     )
-    assert false_positive_rate <= 0.10, (
+    assert false_positive_rate <= 0.05, (
         f"False Positives rate {false_positive_rate:.1%} exceeds the 10% target. "
         f"The cache is returning false hits for adversarial queries.\n"
         f"First 10 leaks: {false_positive_failures[:10]}"
