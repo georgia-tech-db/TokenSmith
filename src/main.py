@@ -5,7 +5,6 @@ import argparse
 import json
 import pathlib
 import sys
-import numpy as np
 from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
@@ -140,27 +139,23 @@ def get_answer(
         render_final_answer(console, ans)
         return ans
 
-    # If no semantic hit, proceed with normal retrieval, ranking, and generation process
-    # Step 2: Retrieval 
+    # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
     if golden_chunks and cfg.use_golden_chunks:
-        # Use provided golden chunks (testing mode only)
+        # Use provided golden chunks
         ranked_chunks = golden_chunks
     elif cfg.disable_chunks:
-        # No chunks - baseline mode (only tests model knowledge)
+        # No chunks - baseline mode
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
-        # basic inverted index using keywords (keywords here are just non-stopword tokens in question)
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
-        # Normal retrieval + ranking flow based on config
         retrieval_query = question
         # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
-        # Step 2.2: Get raw scores from each retriever
+
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
@@ -211,7 +206,7 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
 
-        # Step 3: Reranking with cross-encoder (if configured)
+        # Step 3: Final re-ranking
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
@@ -225,7 +220,6 @@ def get_answer(
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
-    # Step 4.1: Check for double prompting approach to improve answer quality (if enabled by config or CLI arg)
     use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
     if use_double:
         stream_iter = double_answer(
@@ -235,7 +229,6 @@ def get_answer(
             max_tokens=cfg.max_gen_tokens,
             system_prompt_mode=system_prompt,
         )
-    # If not double prompting, use normal answer method from generator.py
     else:
         stream_iter = answer(
             question,
