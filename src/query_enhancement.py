@@ -44,10 +44,11 @@ def generate_hypothetical_document(
         prompt,
         model_path,
         max_tokens=max_tokens,
+        temperature=0.7,
         **llm_kwargs
     )
     
-    return hypothetical.strip()
+    return hypothetical["choices"][0]["text"].strip()
 
 def correct_query_grammar(
     query: str,

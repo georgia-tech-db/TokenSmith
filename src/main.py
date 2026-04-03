@@ -17,7 +17,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.query_enhancement import generate_hypothetical_document, contextualize_query
+from src.query_enhancement import generate_hypothetical_document, contextualize_query, expand_query_with_keywords
 from src.retriever import (
     filter_retrieved_chunks, 
     BM25Retriever, 
@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         "--double_prompt",
         action="store_true",
         help="enable double prompting for higher quality answers"
+    )
+    parser.add_argument(
+        "--use_query_expansion",
+        action="store_true",
+        help="enable multi-query retrieval (query expansion) for higher accuracy"
     )
 
     return parser.parse_args()
@@ -131,38 +136,65 @@ def get_answer(
     elif cfg.use_indexed_chunks:
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
-        retrieval_query = question
-        # print(f"Retrieval query: {retrieval_query}")
-        if cfg.use_hyde:
-            retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
+        use_expansion = getattr(args, "use_query_expansion", False) or cfg.use_query_expansion
+        
+        if use_expansion:
+            queries_to_run = expand_query_with_keywords(question, cfg.gen_model, max_tokens=cfg.query_expansion_max_tokens)
+        elif cfg.use_hyde:
+            queries_to_run = [generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)]
+        else:
+            queries_to_run = [question]
         
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
+        
+        # Store original weights so we can adjust dynamically for RRF if multiple queries are used
+        original_weights = ranker.weights.copy()
+        
+        for q_idx, q_variant in enumerate(queries_to_run):
+            for retriever in retrievers:
+                scores = retriever.get_scores(q_variant, pool_n, chunks)
+                
+                if len(queries_to_run) == 1:
+                    raw_scores[retriever.name] = scores
+                else:
+                    r_key = f"{retriever.name}_{q_idx}"
+                    raw_scores[r_key] = scores
+                    if r_key not in ranker.weights:
+                        ranker.weights[r_key] = original_weights.get(retriever.name, 0.0) / len(queries_to_run)
+                        
+        if len(queries_to_run) > 1:
+            for retriever in retrievers:
+                ranker.weights[retriever.name] = 0.0
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
         # Step 2: Ranking
         ordered, scores = ranker.rank(raw_scores=raw_scores)
-        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
-        # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
-        # print("Len Ranked chunks:", len(ranked_chunks))
-        # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
         
+        # Restore old ranker weights to keep things clean
+        ranker.weights = original_weights
         
         # Capture chunk info if in test mode
         if is_test_mode:
-            # Compute individual ranker ranks
-            faiss_scores = raw_scores.get("faiss", {})
-            bm25_scores = raw_scores.get("bm25", {})
-            index_scores = raw_scores.get("index_keywords", {})
+            from collections import defaultdict
+            if len(queries_to_run) > 1:
+                agg_faiss = defaultdict(float)
+                agg_bm25 = defaultdict(float)
+                agg_index = defaultdict(float)
+                for rv, s_dict in raw_scores.items():
+                    base_rv = rv.rsplit('_', 1)[0]
+                    for cand, sc in s_dict.items():
+                        if base_rv == "faiss": agg_faiss[cand] += sc
+                        elif base_rv == "bm25": agg_bm25[cand] += sc
+                        elif base_rv == "index_keywords": agg_index[cand] += sc
+                faiss_scores = dict(agg_faiss)
+                bm25_scores = dict(agg_bm25)
+                index_scores = dict(agg_index)
+            else:
+                faiss_scores = raw_scores.get("faiss", {})
+                bm25_scores = raw_scores.get("bm25", {})
+                index_scores = raw_scores.get("index_keywords", {})
             
             faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
             bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
