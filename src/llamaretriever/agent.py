@@ -32,7 +32,10 @@ class Passage:
     """A single passage in the evidence pool (before selection)."""
     id: int
     passage: str
+    chapter: str
     section: str
+    subsection: str
+    header_path: str
     source: str
 
 
@@ -41,7 +44,10 @@ class Reference:
     """An evidence passage with section provenance (after selection)."""
     id: int
     passage: str
+    chapter: str
     section: str
+    subsection: str
+    header_path: str
     source: str
 
 
@@ -61,7 +67,10 @@ class ScoredPassage:
     """A passage with keyword-match score and matched terms."""
     id: int
     passage: str
+    chapter: str
     section: str
+    subsection: str
+    header_path: str
     source: str
     score: int
     matched_keywords: list[str]
@@ -133,12 +142,18 @@ _HEADER_RE = re.compile(r"^(#{1,4})\s+(.+)", re.MULTILINE)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
-def _extract_section(text: str) -> str:
-    """Extract the deepest markdown section header from chunk text."""
-    headers = _HEADER_RE.findall(text)
-    if headers:
-        return max(headers, key=lambda h: len(h[0]))[1].strip()
-    return "Unknown"
+def _node_hierarchy(node: NodeWithScore) -> tuple[str, str, str, str]:
+    md = node.metadata or {}
+    chapter = md.get("chapter", "Unknown")
+    section = md.get("section", chapter)
+    subsection = md.get("subsection", section)
+    header_path = md.get("header_path", f"{chapter} > {section} > {subsection}")
+    return chapter, section, subsection, header_path
+
+
+def _node_raw_text(node: NodeWithScore) -> str:
+    md = node.metadata or {}
+    return md.get("raw_text") or node.text or ""
 
 
 def _split_passages(text: str, min_len: int = 30, max_len: int = 500) -> list[str]:
@@ -188,31 +203,57 @@ def _prepare_pool(nodes: list[NodeWithScore]) -> list[Passage]:
     pool: list[Passage] = []
     seen: set[str] = set()
     gid = 1
+
     for node in nodes:
-        source = node.metadata.get("file_name", "chunk")
-        section = _extract_section(node.text)
-        for text in _split_passages(node.text):
-            key = text[:100]
+        source = node.metadata.get("source") or node.metadata.get("file_name", "chunk")
+        chapter, section, subsection, header_path = _node_hierarchy(node)
+        raw_text = _node_raw_text(node)
+
+        for text in _split_passages(raw_text):
+            key = f"{source}|{header_path}|{text[:160]}"
             if key not in seen:
                 seen.add(key)
-                pool.append(Passage(id=gid, passage=text, section=section, source=source))
+                pool.append(
+                    Passage(
+                        id=gid,
+                        passage=text,
+                        chapter=chapter,
+                        section=section,
+                        subsection=subsection,
+                        header_path=header_path,
+                        source=source,
+                    )
+                )
                 gid += 1
     return pool
 
 
 def _add_to_pool(pool: list[Passage], nodes: list[NodeWithScore]) -> None:
     """Append new unique passages from nodes into the pool."""
-    existing = {p.passage[:100] for p in pool}
+    existing = {f"{p.source}|{p.header_path}|{p.passage[:160]}" for p in pool}
     max_id = max(p.id for p in pool) if pool else 0
+
     for node in nodes:
-        source = node.metadata.get("file_name", "chunk")
-        section = _extract_section(node.text)
-        for text in _split_passages(node.text):
-            key = text[:100]
+        source = node.metadata.get("source") or node.metadata.get("file_name", "chunk")
+        chapter, section, subsection, header_path = _node_hierarchy(node)
+        raw_text = _node_raw_text(node)
+
+        for text in _split_passages(raw_text):
+            key = f"{source}|{header_path}|{text[:160]}"
             if key not in existing:
                 existing.add(key)
                 max_id += 1
-                pool.append(Passage(id=max_id, passage=text, section=section, source=source))
+                pool.append(
+                    Passage(
+                        id=max_id,
+                        passage=text,
+                        chapter=chapter,
+                        section=section,
+                        subsection=subsection,
+                        header_path=header_path,
+                        source=source,
+                    )
+                )
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────
@@ -315,7 +356,10 @@ def _curate_user(
         scored.append(ScoredPassage(
             id=p.id,
             passage=p.passage,
+            chapter=p.chapter,
             section=p.section,
+            subsection=p.subsection,
+            header_path=p.header_path,
             source=p.source,
             score=score,
             matched_keywords=matched,
@@ -328,7 +372,11 @@ def _curate_user(
         lines.append(f"Passages matching key terms ({len(matching)}):\n")
         for s in matching:
             tag = " [SELECTED]" if s.id in selected else ""
-            lines.append(f"[{s.id}] (§ {s.section}) [matches: {', '.join(s.matched_keywords)}]{tag}")
+            lines.append(
+                f"[{s.id}] ({s.source}) "
+                f"[Ch: {s.chapter} | Sec: {s.section} | Subsec: {s.subsection}] "
+                f"[matches: {', '.join(s.matched_keywords)}]{tag}"
+            )
             lines.append(f"  {s.passage}\n")
 
     non_matching = len(pool) - len(matching)
@@ -380,7 +428,12 @@ def _parse_enrich(response: str, existing: list[str]) -> tuple[list[str], list[s
 def _synth_user(question: str, refs: list[Reference]) -> str:
     lines = [f"Question: {question}\n", "References:"]
     for r in refs:
-        lines.append(f"[{r.id}] (§ {r.section}) {r.passage}")
+        lines.append(
+            f"[{r.id}] ({r.source}) "
+            f"[Chapter: {r.chapter}] [Section: {r.section}] "
+            f"[Subsection: {r.subsection}] [Path: {r.header_path}] "
+            f"{r.passage}"
+        )
     lines.append("\nAnswer:")
     return "\n".join(lines)
 
@@ -486,19 +539,21 @@ def run_agent(
     reranker,
     llm: LLM,
     max_curate_steps: int = 3,
+    cfg=None,
 ) -> AgentResult:
     """
     Evidence-curation agent with keyword enrichment.
 
-    1. Retrieve + rerank, split into passages with section headers
+    1. Retrieve + rerank + grade, split into passages with section headers
     2. Extract keywords from question (automated)
-    3. Keyword enrichment (1 LLM call) — expand terms
-    4. Agent curates (1-3 LLM calls) — COUNT+SELECT / DROP / RETRIEVE / DONE
-    5. Hard cap: trim to ≤15 references
-    6. Synthesize cited answer (1 LLM call)
+    3. Agent curates (1-3 LLM calls) — COUNT+SELECT / DROP / RETRIEVE / DONE
+    4. Hard cap: trim to ≤15 references
+    5. Synthesize cited answer (1 LLM call)
 
     Returns AgentResult with references, answer, iteration log, call count.
     """
+    from .retrieval_grader import grade_retrieved_nodes
+
     result = AgentResult(references=[], answer="")
 
     # ── 1. Retrieve ──────────────────────────────────────────────────────
@@ -506,6 +561,8 @@ def run_agent(
     nodes = retriever.retrieve(bundle)
     if reranker:
         nodes = reranker.postprocess_nodes(nodes, bundle)
+    if cfg and cfg.use_retrieval_grader:
+        nodes = grade_retrieved_nodes(nodes, question, cfg)
 
     pool = _prepare_pool(nodes)
     if not pool:
@@ -582,6 +639,8 @@ def run_agent(
             new_nodes = retriever.retrieve(new_bundle)
             if reranker:
                 new_nodes = reranker.postprocess_nodes(new_nodes, new_bundle)
+            if cfg and cfg.use_retrieval_grader:
+                new_nodes = grade_retrieved_nodes(new_nodes, cur.retrieve_query, cfg)
             _add_to_pool(pool, new_nodes)
             valid_ids = {p.id for p in pool}
 
@@ -616,12 +675,17 @@ def run_agent(
     refs: list[Reference] = []
     for p in pool:
         if p.id in selected:
-            refs.append(Reference(
-                id=len(refs) + 1,
-                passage=p.passage,
-                section=p.section,
-                source=p.source,
-            ))
+            refs.append(
+                Reference(
+                    id=len(refs) + 1,
+                    passage=p.passage,
+                    chapter=p.chapter,
+                    section=p.section,
+                    subsection=p.subsection,
+                    header_path=p.header_path,
+                    source=p.source,
+                )
+            )
 
     # ── 7. Synthesize (1 LLM call) ─────────────────────────────────────
     synth_prompt = _synth_user(question, refs)

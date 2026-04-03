@@ -103,6 +103,7 @@ def get_answer(
         reranker=artifacts["reranker"],
         llm=artifacts["llm"],
         max_curate_steps=cfg.max_curate_steps,
+        cfg=cfg,
     )
     total_time = time.time() - t0
 
@@ -115,7 +116,11 @@ def get_answer(
         print("  Keywords (scoring): {}".format(", ".join(result.keywords)))
     print("=" * 60)
     for ref in result.references:
-        print(f"\n  [{ref.id}] § {ref.section}")
+        print(f"\n  [{ref.id}] ({ref.source})")
+        print(f"     Chapter    : {ref.chapter}")
+        print(f"     Section    : {ref.section}")
+        print(f"     Subsection : {ref.subsection}")
+        print(f"     Path       : {ref.header_path}")
         print(f"     {ref.passage}")
 
     # ── Print answer ─────────────────────────────────────────────────────
@@ -131,7 +136,15 @@ def get_answer(
             question=question,
             answer=result.answer,
             references=[
-                {"id": r.id, "passage": r.passage, "section": r.section, "source": r.source}
+                {
+                    "id": r.id,
+                    "passage": r.passage,
+                    "chapter": r.chapter,
+                    "section": r.section,
+                    "subsection": r.subsection,
+                    "header_path": r.header_path,
+                    "source": r.source,
+                }
                 for r in result.references
             ],
             iterations=result.iterations,

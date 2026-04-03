@@ -94,7 +94,14 @@ def get_llamaretriever_answer(
     if references:
         evidence_lines = ["\n\nEvidence:"]
         for r in references:
-            evidence_lines.append(f"\n[{r.id}] § {r.section}\n{r.passage}")
+            evidence_lines.append(
+                f"\n[{r.id}] {r.source}"
+                f"\nChapter: {r.chapter}"
+                f"\nSection: {r.section}"
+                f"\nSubsection: {r.subsection}"
+                f"\nPath: {r.header_path}"
+                f"\n{r.passage}"
+            )
         answer = answer + "".join(evidence_lines)
 
     # ── Build dummy chunks_info ───────────────────────────────────────────
