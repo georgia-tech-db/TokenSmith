@@ -69,6 +69,8 @@ class TestPydanticModels:
 
         sources = [SourceItem(page=1, text="source1")]
         response = ChatResponse(
+            answer_id="test-answer-id",
+            session_id="test-session-id",
             answer="This is the answer",
             sources=sources,
             chunks_used=[0, 1, 2],
@@ -76,6 +78,8 @@ class TestPydanticModels:
             query="What is a database?"
         )
 
+        assert response.answer_id == "test-answer-id"
+        assert response.session_id == "test-session-id"
         assert response.answer == "This is the answer"
         assert len(response.sources) == 1
         assert response.chunks_used == [0, 1, 2]
@@ -244,8 +248,10 @@ class TestChatEndpoint:
 
         assert response.status_code == 400
 
+    @patch('src.api_server.update_user_topic_state')
+    @patch('src.api_server.save_answer')
     @patch('src.api_server.answer')
-    def test_chat_success(self, mock_answer, mock_server_state):
+    def test_chat_success(self, mock_answer, mock_save, mock_update, mock_server_state):
         """Chat endpoint returns successful response."""
         from fastapi.testclient import TestClient
         from src.api_server import app
@@ -266,8 +272,10 @@ class TestChatEndpoint:
         assert "chunks_used" in data
         assert data["query"] == "What is a database?"
 
+    @patch('src.api_server.update_user_topic_state')
+    @patch('src.api_server.save_answer')
     @patch('src.api_server.answer')
-    def test_chat_with_custom_params(self, mock_answer, mock_server_state):
+    def test_chat_with_custom_params(self, mock_answer, mock_save, mock_update, mock_server_state):
         """Chat endpoint respects custom parameters."""
         from fastapi.testclient import TestClient
         from src.api_server import app
@@ -291,8 +299,10 @@ class TestChatEndpoint:
         assert call_args[1]["system_prompt_mode"] == "tutor"
         assert call_args[1]["temperature"] == 0.5
 
+    @patch('src.api_server.update_user_topic_state')
+    @patch('src.api_server.save_answer')
     @patch('src.api_server.answer')
-    def test_chat_disable_chunks(self, mock_answer, mock_server_state):
+    def test_chat_disable_chunks(self, mock_answer, mock_save, mock_update, mock_server_state):
         """Chat endpoint works with chunks disabled."""
         from fastapi.testclient import TestClient
         from src.api_server import app
@@ -311,8 +321,10 @@ class TestChatEndpoint:
         # When chunks disabled, should have empty chunks_used
         assert data["chunks_used"] == []
 
+    @patch('src.api_server.update_user_topic_state')
+    @patch('src.api_server.save_answer')
     @patch('src.api_server.answer')
-    def test_chat_generation_error_handled(self, mock_answer, mock_server_state):
+    def test_chat_generation_error_handled(self, mock_answer, mock_save, mock_update, mock_server_state):
         """Chat endpoint handles generation errors gracefully."""
         from fastapi.testclient import TestClient
         from src.api_server import app
@@ -636,8 +648,10 @@ class TestAPIIntegration:
         for key, value in originals.items():
             setattr(api_module, key, value)
 
+    @patch('src.api_server.update_user_topic_state')
+    @patch('src.api_server.save_answer')
     @patch('src.api_server.answer')
-    def test_full_chat_flow(self, mock_answer, full_mock_state):
+    def test_full_chat_flow(self, mock_answer, mock_save, mock_update, full_mock_state):
         """Test complete chat flow from request to response."""
         from fastapi.testclient import TestClient
         from src.api_server import app
