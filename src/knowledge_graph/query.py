@@ -1,5 +1,6 @@
 import logging
 
+import faiss
 import networkx as nx
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
@@ -7,6 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity as cos_sim
 from src.retriever import Retriever
 from src.knowledge_graph.io import RUNS_DIR, load_graph_and_chunks
 from src.knowledge_graph.section_tree import SectionTree
+from src.knowledge_graph.summary_tree import SummaryEntry
 from src.knowledge_graph.utils import KW_PATTERN, Normalizer, extract_ngrams
 
 
@@ -94,11 +96,11 @@ def extract_query_nodes(
         List of matched node label strings (may be empty).
     """
     terms = extract_ngrams(query, KW_PATTERN)
-
     normalized_terms = _normalizer.normalize(terms)
 
     if canonical_lookup is not None:
-        terms = {canonical_lookup.resolve(t) for t in normalized_terms}
+        resolved = {canonical_lookup.resolve(t) for t in normalized_terms}
+        return [t for t in resolved if graph.has_node(t)]
 
     return [t for t in normalized_terms if graph.has_node(t)]
 
@@ -251,6 +253,67 @@ class SectionTreeRetriever(Retriever):
             heading_alpha=self.heading_alpha,
             inheritance_decay=self.inheritance_decay,
         )
+
+
+class SectionSummaryRetriever(Retriever):
+    """Retriever that scores chunks via semantic similarity to LLM-generated section summaries.
+
+    At query time the query is embedded and compared against all stored summary
+    embeddings (chunk-group, section, and chapter level) using cosine similarity.
+    Each FAISS hit distributes its similarity score to every chunk it covers;
+    a chunk's final score is the maximum across all hits that include it.
+
+    Plugs into ``EnsembleRanker`` via the standard ``Retriever`` interface.
+    Combine with ``KGNodeRetriever`` and ``SectionTreeRetriever`` in the
+    ensemble for a richer retrieval signal.
+    """
+
+    name = "section_summary"
+
+    def __init__(
+        self,
+        index: faiss.Index,
+        entries: list[SummaryEntry],
+        embed_model: str = "all-MiniLM-L6-v2",
+        top_sections: int = 20,
+    ):
+        self.index = index
+        self.entries = entries
+        self.embed_model_name = embed_model
+        self.top_sections = top_sections
+        self._model = None  # lazy-load
+
+    def get_scores(self, query: str, pool_size: int, chunks: list) -> dict[int, float]:
+        """Return summary-similarity scores keyed by global chunk index.
+
+        Args:
+            query:       Natural-language query string.
+            pool_size:   Maximum number of chunks to return scores for (unused;
+                         present for interface compatibility).
+            chunks:      The RAG pipeline's chunk list (unused).
+
+        Returns:
+            ``Dict[chunk_id, score]`` where score is the maximum cosine
+            similarity across all summary entries that cover that chunk.
+        """
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(self.embed_model_name)
+
+        q_emb = self._model.encode([query]).astype("float32")
+        faiss.normalize_L2(q_emb)
+
+        k = min(self.top_sections, self.index.ntotal)
+        similarities, indices = self.index.search(q_emb, k)
+
+        chunk_scores: dict[int, float] = {}
+        for sim, idx in zip(similarities[0], indices[0]):
+            if idx < 0 or sim <= 0:
+                continue
+            for chunk_id in self.entries[idx].chunk_ids:
+                chunk_scores[chunk_id] = max(chunk_scores.get(chunk_id, 0.0), float(sim))
+
+        return chunk_scores
 
 
 if __name__ == "__main__":

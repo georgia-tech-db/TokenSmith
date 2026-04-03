@@ -44,6 +44,24 @@ central concepts. Return the result as a raw JSON list of strings.
 Do not include any other text or explanation in your response.
 """
 
+SUMMARY_SYSTEM_PROMPT = """\
+You are an expert at summarizing academic textbook content. \
+Produce dense, accurate summaries that preserve technical terminology."""
+
+CHUNK_SUMMARY_PROMPT = """\
+Summarize the following textbook excerpt in 2-4 sentences.
+Capture the key concepts, definitions, and relationships. Be precise and concise.
+
+Text:
+{text}"""
+
+SECTION_SUMMARY_PROMPT = """\
+Summarize the section "{heading}" of a textbook using the content summaries below.
+Write 3-5 sentences capturing the main topics, key concepts, and their relationships.
+
+Content:
+{summaries}"""
+
 GRADE_PROMPT = """\
 You are evaluating a retrieval system for a question-answering application.
 

@@ -23,7 +23,10 @@ from src.knowledge_graph.extractors import BaseExtractor, JsonExtractor
 from src.knowledge_graph.linkers import CooccurrenceLinker
 from src.knowledge_graph.persisters import NetworkxJsonPersister
 from src.knowledge_graph.pipeline import Pipeline
+from src.knowledge_graph.io import load_run_chunks
+from src.knowledge_graph.openrouter_client import OpenRouterClient
 from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
+from src.knowledge_graph.summary_tree import build_summary_index
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,27 @@ def main() -> None:
         default=os.path.join(PROJECT_ROOT, "config", "config.yaml"),
         help="Path to project config YAML (default: config/config.yaml)",
     )
+    parser.add_argument(
+        "--summarize",
+        action="store_true",
+        help="Build LLM summary index after the section tree (requires OPENROUTER_API_KEY).",
+    )
+    parser.add_argument(
+        "--summary-model",
+        default="openai/gpt-4o-mini",
+        help="OpenRouter model used for chunk/section summarization.",
+    )
+    parser.add_argument(
+        "--embed-model",
+        default="all-MiniLM-L6-v2",
+        help="SentenceTransformer model for embedding summaries.",
+    )
+    parser.add_argument(
+        "--chunk-window",
+        type=int,
+        default=3,
+        help="Number of adjacent chunks summarized together at the leaf level.",
+    )
     args = parser.parse_args()
 
     cfg = KGPipelineConfig.from_yaml(args.config)
@@ -185,6 +209,25 @@ def main() -> None:
         label = level_labels.get(level, f"level-{level} nodes")
         logger.info("  %4d %s", count, label)
     logger.info("  Saved: %s", tree_path)
+
+    if args.summarize:
+        logger.info(
+            "Building summary index (model=%s, chunk_window=%d)...",
+            args.summary_model,
+            args.chunk_window,
+        )
+        chunk_texts = load_run_chunks(os.path.join(run_dir, "chunks.json"))
+        client = OpenRouterClient(api_key, retries=2)
+        summarize_fn = lambda messages: client.chat(args.summary_model, messages)
+        build_summary_index(
+            section_tree=tree,
+            chunks=chunk_texts,
+            summarize_fn=summarize_fn,
+            embed_model=args.embed_model,
+            chunk_window=args.chunk_window,
+            run_dir=run_dir,
+        )
+        logger.info("Summary index saved to %s", run_dir)
 
     _update_latest_symlink(runs_dir, run_dir)
     logger.info("Updated: %s -> %s", os.path.join(runs_dir, "latest"), run_dir)

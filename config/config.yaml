@@ -2,7 +2,8 @@ embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
-ranker_weights: {"faiss":0.8,"bm25":0,"index_keywords":0, "kg":0.2}
+ranker_weights: {"faiss":0.7,"bm25":0,"index_keywords":0,"kg_node":0.1,"section_tree":0.1,"section_summary":0.1}
+kg_graph_dir: "data/knowledge_graph/runs"
 rrf_k: 60
 max_gen_tokens: 400
 chunk_mode : "recursive_sections"

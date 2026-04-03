@@ -11,11 +11,18 @@ from src.knowledge_graph.build import RUNS_DIR
 from src.knowledge_graph.io import (
     load_canonicalization_data,
     load_graph_chunks_and_tree,
+    load_summary_data,
     resolve_run_dir,
 )
 from src.knowledge_graph.openrouter_client import OpenRouterClient
-from src.knowledge_graph.query import CanonicalLookup, KGNodeRetriever
+from src.knowledge_graph.query import (
+    CanonicalLookup,
+    KGNodeRetriever,
+    SectionSummaryRetriever,
+    SectionTreeRetriever,
+)
 from src.knowledge_graph.utils.prompts import GRADE_PROMPT
+from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +33,6 @@ def _grade_with_llm(
     query: str,
     retrieved: list[tuple[int, str, float]],
 ) -> list[dict]:
-    """Grade a list of (chunk_id, text, score) tuples for relevance to query.
-
-    Returns a list of {"chunk_id": int, "score": 0|1|2, "reason": str} dicts
-    in the same order as *retrieved*. score=-1 if the LLM omitted that passage.
-    """
     passages = "\n\n".join(
         f"[{i + 1}] {text[:600].strip()}"
         for i, (_, text, _) in enumerate(retrieved)
@@ -84,23 +86,67 @@ def run_benchmark(
     llm_model: str = "openai/gpt-4o-mini",
     num_hops: int = 1,
     neighbor_weight: float = 0.5,
+    artifacts_dir: str | None = None,
+    index_prefix: str = "textbook_index",
+    embed_model: str = "",
+    extracted_index_path: str = "data/extracted_index.json",
+    page_to_chunk_map_path: str = "index/sections/textbook_index_page_to_chunk_map.json",
 ) -> list[dict]:
-    """Run retrieval benchmark for all queries and return per-query result dicts."""
-    graph, chunks, _ = load_graph_chunks_and_tree(run_dir)
+    """Run retrieval benchmark for all queries across all available retrievers."""
+    kg_graph, kg_chunks, tree = load_graph_chunks_and_tree(run_dir)
 
     resolved = resolve_run_dir(run_dir)
     syn_table, can_kw, can_emb = load_canonicalization_data(resolved)
     canonical_lookup = (
         CanonicalLookup(syn_table, can_kw, can_emb) if syn_table is not None else None
     )
+    index, entries = load_summary_data(resolved)
 
-    retriever = KGNodeRetriever(
-        graph,
-        chunks,
-        neighbor_weight=neighbor_weight,
-        num_hops=num_hops,
-        canonical_lookup=canonical_lookup,
+    # Unified chunk lookup: RAG list takes precedence (dict-wrapped), KG dict as fallback.
+    chunks: dict[int, str] = kg_chunks
+    retrievers = []
+
+    if artifacts_dir:
+        try:
+            faiss_idx, bm25_idx, rag_chunks, _, _ = load_artifacts(artifacts_dir, index_prefix)
+            chunks = {i: t for i, t in enumerate(rag_chunks)}
+
+            if embed_model:
+                retrievers.append(FAISSRetriever(faiss_idx, embed_model))
+                logger.info("FAISSRetriever enabled.")
+            else:
+                logger.info("Skipping FAISSRetriever: --embed-model not provided.")
+
+            retrievers.append(BM25Retriever(bm25_idx))
+            logger.info("BM25Retriever enabled.")
+
+            if os.path.exists(extracted_index_path) and os.path.exists(page_to_chunk_map_path):
+                retrievers.append(IndexKeywordRetriever(extracted_index_path, page_to_chunk_map_path))
+                logger.info("IndexKeywordRetriever enabled.")
+        except (FileNotFoundError, RuntimeError) as e:
+            logger.warning("RAG artifacts not found, skipping FAISS/BM25: %s", e)
+
+    retrievers.append(
+        KGNodeRetriever(
+            kg_graph,
+            kg_chunks,
+            neighbor_weight=neighbor_weight,
+            num_hops=num_hops,
+            canonical_lookup=canonical_lookup,
+        )
     )
+
+    if tree is not None:
+        retrievers.append(SectionTreeRetriever(tree, kg_graph, canonical_lookup=canonical_lookup))
+        logger.info("SectionTreeRetriever enabled.")
+    else:
+        logger.info("No section tree found — SectionTreeRetriever skipped.")
+
+    if index is not None:
+        retrievers.append(SectionSummaryRetriever(index, entries))
+        logger.info("SectionSummaryRetriever enabled (%d entries).", len(entries))
+    else:
+        logger.info("No summary index found — SectionSummaryRetriever skipped.")
 
     results = []
     for q in queries:
@@ -110,20 +156,9 @@ def run_benchmark(
 
         print(f"\n[{qid}] {query_text}")
 
-        scores = retriever.get_scores(query_text, top_k, [])
-        retrieved = sorted(
-            [(cid, chunks[cid], score) for cid, score in scores.items() if cid in chunks],
-            key=lambda x: x[2], reverse=True,
-        )[:top_k]
-        retrieved_ids = [cid for cid, _, _ in retrieved]
-
-        if not retrieved:
-            print("  WARNING: no chunks retrieved (no query nodes matched graph)")
-
-        # Difficulty
         difficulty = None
         try:
-            analysis = analyze_query(query_text, graph)
+            analysis = analyze_query(query_text, kg_graph)
             difficulty = {
                 "score": analysis.difficulty.score,
                 "category": analysis.difficulty.category.value,
@@ -136,54 +171,71 @@ def run_benchmark(
         except Exception as e:
             logger.debug("Difficulty analysis failed for %r: %s", qid, e)
 
-        # Ideal precision / recall
-        ideal_m = None
-        if ideal:
-            ideal_m = _ideal_metrics(retrieved_ids, ideal, top_k)
-            print(
-                f"  Ideal  P@{top_k}={ideal_m['precision_at_k']:.2f}  "
-                f"R@{top_k}={ideal_m['recall_at_k']:.2f}  "
-                f"hits={ideal_m['hits']}"
-            )
+        retriever_results: dict[str, dict] = {}
+        for retriever in retrievers:
+            scores = retriever.get_scores(query_text, top_k, list(chunks.values()))
+            retrieved = sorted(
+                [(cid, chunks[cid], score) for cid, score in scores.items() if cid in chunks],
+                key=lambda x: x[2],
+                reverse=True,
+            )[:top_k]
+            retrieved_ids = [cid for cid, _, _ in retrieved]
 
-        # LLM grading
-        llm_grades = None
-        llm_m = None
-        if llm_client and retrieved:
-            try:
-                llm_grades = _grade_with_llm(llm_client, llm_model, query_text, retrieved)
-                llm_m = _llm_metrics(llm_grades, top_k)
+            if not retrieved:
+                print(f"  [{retriever.name}] WARNING: no chunks retrieved")
+
+            ideal_m = _ideal_metrics(retrieved_ids, ideal, top_k) if ideal else None
+            if ideal_m:
                 print(
-                    f"  LLM    P@{top_k}={llm_m.get('precision_at_k', 0):.2f}  "
-                    f"mean_score={llm_m.get('mean_relevance_score', 0):.2f}"
+                    f"  [{retriever.name}] Ideal "
+                    f"P@{top_k}={ideal_m['precision_at_k']:.2f}  "
+                    f"R@{top_k}={ideal_m['recall_at_k']:.2f}  "
+                    f"hits={ideal_m['hits']}"
                 )
-            except Exception as e:
-                logger.warning("LLM grading failed for %r: %s", qid, e)
 
-        # Build annotated retrieved list
-        retrieved_list = []
-        for chunk_id, text, score in retrieved:
-            entry: dict = {
-                "chunk_id": chunk_id,
-                "score": round(score, 4),
-                "text_preview": text[:200],
+            llm_grades = None
+            llm_m = None
+            if llm_client and retrieved:
+                try:
+                    llm_grades = _grade_with_llm(llm_client, llm_model, query_text, retrieved)
+                    llm_m = _llm_metrics(llm_grades, top_k)
+                    print(
+                        f"  [{retriever.name}] LLM "
+                        f"P@{top_k}={llm_m.get('precision_at_k', 0):.2f}  "
+                        f"mean_score={llm_m.get('mean_relevance_score', 0):.2f}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "LLM grading failed for %r / %r: %s", qid, retriever.name, e
+                    )
+
+            retrieved_list = []
+            for chunk_id, text, score in retrieved:
+                entry: dict = {
+                    "chunk_id": chunk_id,
+                    "score": round(score, 4),
+                    "text_preview": text[:200],
+                }
+                if ideal:
+                    entry["in_ideal"] = chunk_id in ideal
+                if llm_grades:
+                    grade = next((g for g in llm_grades if g["chunk_id"] == chunk_id), {})
+                    entry["llm_score"] = grade.get("score")
+                    entry["llm_reason"] = grade.get("reason", "")
+                retrieved_list.append(entry)
+
+            retriever_results[retriever.name] = {
+                "retrieved": retrieved_list,
+                "ideal_metrics": ideal_m,
+                "llm_metrics": llm_m,
             }
-            if ideal:
-                entry["in_ideal"] = chunk_id in ideal
-            if llm_grades:
-                grade = next((g for g in llm_grades if g["chunk_id"] == chunk_id), {})
-                entry["llm_score"] = grade.get("score")
-                entry["llm_reason"] = grade.get("reason", "")
-            retrieved_list.append(entry)
 
         results.append(
             {
                 "id": qid,
                 "query": query_text,
                 "difficulty": difficulty,
-                "retrieved": retrieved_list,
-                "ideal_metrics": ideal_m,
-                "llm_metrics": llm_m,
+                "retrievers": retriever_results,
             }
         )
 
@@ -196,9 +248,22 @@ def _avg(values: list[float]) -> float | None:
 
 
 def print_summary(results: list[dict], top_k: int) -> None:
-    """Print an aggregate summary table to stdout."""
-    has_ideal = any(r["ideal_metrics"] for r in results)
-    has_llm = any(r["llm_metrics"] for r in results)
+    retriever_names: list[str] = []
+    for r in results:
+        for name in r.get("retrievers", {}):
+            if name not in retriever_names:
+                retriever_names.append(name)
+
+    has_ideal = any(
+        r.get("retrievers", {}).get(name, {}).get("ideal_metrics")
+        for r in results
+        for name in retriever_names
+    )
+    has_llm = any(
+        r.get("retrievers", {}).get(name, {}).get("llm_metrics")
+        for r in results
+        for name in retriever_names
+    )
 
     col_id = 30
     cols = [("Query ID", col_id), ("Nodes", 5)]
@@ -211,72 +276,72 @@ def print_summary(results: list[dict], top_k: int) -> None:
     header = "  ".join(f"{h:<{w}}" for h, w in cols)
     sep = "  ".join("-" * w for _, w in cols)
 
-    print(f"\n{'=' * len(sep)}")
-    print("BENCHMARK SUMMARY")
-    print("=" * len(sep))
-    print(header)
-    print(sep)
+    for name in retriever_names:
+        print(f"\n{'=' * len(sep)}")
+        print(f"RETRIEVER: {name}")
+        print("=" * len(sep))
+        print(header)
+        print(sep)
 
-    ideal_p, ideal_r, llm_p, llm_mean = [], [], [], []
-    no_results = []
+        ideal_p, ideal_r, llm_p, llm_mean = [], [], [], []
+        no_results = []
 
-    for r in results:
-        if not r["retrieved"]:
-            no_results.append(r["id"])
+        for r in results:
+            rd = r.get("retrievers", {}).get(name, {})
+            if not rd.get("retrieved"):
+                no_results.append(r["id"])
 
-        nodes = r["difficulty"]["matched_nodes"] if r["difficulty"] else "-"
-        diff = r["difficulty"]["category"] if r["difficulty"] else "-"
-        im = r["ideal_metrics"] or {}
-        lm = r["llm_metrics"] or {}
+            nodes = r["difficulty"]["matched_nodes"] if r["difficulty"] else "-"
+            diff = r["difficulty"]["category"] if r["difficulty"] else "-"
+            im = rd.get("ideal_metrics") or {}
+            lm = rd.get("llm_metrics") or {}
 
-        row = [(r["id"][:col_id], col_id), (str(nodes), 5)]
+            row = [(r["id"][:col_id], col_id), (str(nodes), 5)]
+            if has_ideal:
+                row += [
+                    (f"{im.get('precision_at_k', '-'):.2f}" if im else "-", 6),
+                    (f"{im.get('recall_at_k', '-'):.2f}" if im else "-", 6),
+                ]
+                if im:
+                    ideal_p.append(im["precision_at_k"])
+                    ideal_r.append(im["recall_at_k"])
+            if has_llm:
+                row += [
+                    (f"{lm.get('precision_at_k', '-'):.2f}" if lm else "-", 8),
+                    (f"{lm.get('mean_relevance_score', '-'):.2f}" if lm else "-", 8),
+                ]
+                if lm:
+                    llm_p.append(lm["precision_at_k"])
+                    llm_mean.append(lm["mean_relevance_score"])
+            row.append((diff, 10))
+            print("  ".join(f"{v:<{w}}" for v, w in row))
+
+        print(sep)
+        avg_row = [("AVERAGE", col_id), ("", 5)]
         if has_ideal:
-            row += [
-                (f"{im.get('precision_at_k', '-'):.2f}" if im else "-", 6),
-                (f"{im.get('recall_at_k', '-'):.2f}" if im else "-", 6),
+            avg_p = _avg(ideal_p)
+            avg_r = _avg(ideal_r)
+            avg_row += [
+                (f"{avg_p:.2f}" if avg_p is not None else "-", 6),
+                (f"{avg_r:.2f}" if avg_r is not None else "-", 6),
             ]
-            if im:
-                ideal_p.append(im["precision_at_k"])
-                ideal_r.append(im["recall_at_k"])
         if has_llm:
-            row += [
-                (f"{lm.get('precision_at_k', '-'):.2f}" if lm else "-", 8),
-                (f"{lm.get('mean_relevance_score', '-'):.2f}" if lm else "-", 8),
+            a_lp = _avg(llm_p)
+            a_lm = _avg(llm_mean)
+            avg_row += [
+                (f"{a_lp:.2f}" if a_lp is not None else "-", 8),
+                (f"{a_lm:.2f}" if a_lm is not None else "-", 8),
             ]
-            if lm:
-                llm_p.append(lm["precision_at_k"])
-                llm_mean.append(lm["mean_relevance_score"])
-        row.append((diff, 10))
+        avg_row.append(("", 10))
+        print("  ".join(f"{v:<{w}}" for v, w in avg_row))
 
-        print("  ".join(f"{v:<{w}}" for v, w in row))
-
-    print(sep)
-
-    avg_row = [("AVERAGE", col_id), ("", 5)]
-    if has_ideal:
-        avg_p = _avg(ideal_p)
-        avg_r = _avg(ideal_r)
-        avg_row += [
-            (f"{avg_p:.2f}" if avg_p is not None else "-", 6),
-            (f"{avg_r:.2f}" if avg_r is not None else "-", 6),
-        ]
-    if has_llm:
-        a_lp = _avg(llm_p)
-        a_lm = _avg(llm_mean)
-        avg_row += [
-            (f"{a_lp:.2f}" if a_lp is not None else "-", 8),
-            (f"{a_lm:.2f}" if a_lm is not None else "-", 8),
-        ]
-    avg_row.append(("", 10))
-    print("  ".join(f"{v:<{w}}" for v, w in avg_row))
-
-    if no_results:
-        print(f"\nNo chunks retrieved (0 matched nodes): {', '.join(no_results)}")
+        if no_results:
+            print(f"\nNo chunks retrieved: {', '.join(no_results)}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark KGRetriever retrieval quality.",
+        description="Benchmark all retrievers against a query set.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -312,6 +377,31 @@ def main() -> None:
     )
     parser.add_argument("--num-hops", type=int, default=1)
     parser.add_argument("--neighbor-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--artifacts-dir",
+        default=None,
+        help="RAG artifacts directory for FAISS/BM25 retrievers (e.g. index/recursive_sections/)",
+    )
+    parser.add_argument(
+        "--index-prefix",
+        default="textbook_index",
+        help="Index artifact prefix used when building the RAG index",
+    )
+    parser.add_argument(
+        "--embed-model",
+        default="",
+        help="Embedding model path for FAISSRetriever (GGUF or HuggingFace name)",
+    )
+    parser.add_argument(
+        "--extracted-index",
+        default="data/extracted_index.json",
+        help="Path to extracted_index.json for IndexKeywordRetriever",
+    )
+    parser.add_argument(
+        "--page-chunk-map",
+        default="index/sections/textbook_index_page_to_chunk_map.json",
+        help="Path to page_to_chunk_map.json for IndexKeywordRetriever",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -345,6 +435,11 @@ def main() -> None:
         llm_model=args.model,
         num_hops=args.num_hops,
         neighbor_weight=args.neighbor_weight,
+        artifacts_dir=args.artifacts_dir,
+        index_prefix=args.index_prefix,
+        embed_model=args.embed_model,
+        extracted_index_path=args.extracted_index,
+        page_to_chunk_map_path=args.page_chunk_map,
     )
 
     print_summary(results, args.top_k)
