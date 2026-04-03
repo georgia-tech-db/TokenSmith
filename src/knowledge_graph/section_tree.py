@@ -32,7 +32,7 @@ def _parent_number(number: str) -> str | None:
     return ".".join(parts[:-1]) if len(parts) > 1 else None
 
 
-def _build_heading_keywords(heading: str, normalizer: Normalizer) -> set[str]:
+def _build_heading_keywords(heading: str) -> set[str]:
     """Tokenize a section heading into a normalized keyword set.
 
     Strips the section number and "Section"/"Chapter" prefixes, then
@@ -41,16 +41,16 @@ def _build_heading_keywords(heading: str, normalizer: Normalizer) -> set[str]:
     """
     text = _NUMBER_RE.sub("", heading)
     text = _HEADING_PREFIX_RE.sub("", text).strip()
-    return extract_ngrams(text, HEADING_PATTERN, normalizer)
+    return extract_ngrams(text, HEADING_PATTERN)
 
 
-def _tokenize_query(query: str, normalizer: Normalizer) -> set[str]:
+def _tokenize_query(query: str) -> set[str]:
     """Extract normalized unigrams, bigrams, and trigrams from a raw query.
 
     Unlike ``extract_query_nodes``, this does **not** filter against the KG
     graph — all normalized query tokens are returned.
     """
-    return extract_ngrams(query, KW_PATTERN, normalizer)
+    return extract_ngrams(query, KW_PATTERN)
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ class SectionTree:
         query_tokens: set[str] = set()
         if query is not None:
             normalizer = Normalizer()
-            query_tokens = _tokenize_query(query, normalizer)
+            query_tokens = _tokenize_query(query)
 
         # ── Step 1: Compute own score for every node ──────────────────────────
         own_scores: dict[str, float] = {}
@@ -359,7 +359,7 @@ def build_section_tree(
     # ── Step 6: Extract heading keywords for each section ─────────────────────
     normalizer = Normalizer()
     for node in seen.values():
-        node.heading_keywords = _build_heading_keywords(node.heading, normalizer)
+        node.heading_keywords = _build_heading_keywords(node.heading)
 
     return tree
 

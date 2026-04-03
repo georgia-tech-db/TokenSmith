@@ -37,9 +37,26 @@ Identify keywords that refer to exactly the same concept and should be merged.
 """
 
 OPENROUTER_KEYWORD_EXTRACTION_PROMPT = """You are a linguistic analysis expert. Analyze the provided text
-and identify the {top_n} most relevant and descriptive keywords 
-or short phrases (1-3 words). Focus on terms that carry the most 
-information density, such as technical terms, proper nouns, and 
-central concepts. Return the result as a raw JSON list of strings. 
+and identify the {top_n} most relevant and descriptive keywords
+or short phrases (1-3 words). Focus on terms that carry the most
+information density, such as technical terms, proper nouns, and
+central concepts. Return the result as a raw JSON list of strings.
 Do not include any other text or explanation in your response.
 """
+
+GRADE_PROMPT = """\
+You are evaluating a retrieval system for a question-answering application.
+
+Question: {query}
+
+Retrieved passages:
+{passages}
+
+Rate each passage for how well it helps answer the question.
+Return a JSON object with key "grades" containing one entry per passage (same order):
+{{"grades": [{{"id": 1, "score": 0, "reason": "brief reason"}}]}}
+
+Scoring:
+0 = Not relevant — passage is unrelated to the question
+1 = Partially relevant — passage touches the topic but doesn't directly answer it
+2 = Highly relevant — passage directly helps answer the question"""
