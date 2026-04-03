@@ -33,10 +33,10 @@ from src.feedback_store import (
     get_answer_question,
     update_user_topic_state,
 )
-from src.instrumentation.logging import init_logger, get_logger
+from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
-from src.user_model import TopicExtractor, estimate_difficulty
+from src.user_feedback_model import TopicExtractor, estimate_difficulty
 
 # Constants
 INDEX_PREFIX = "textbook_index"
@@ -395,7 +395,6 @@ async def chat_stream(request: ChatRequest):
         full_response_accumulator = []
         try:
             page_nums = get_page_numbers(topk_idxs, _artifacts["meta"])
-            page_nums = {int(k): int(v) for k, v in page_nums.items()}
             sources_used = set()
             chunks_by_page: Dict[int, List[str]] = {}
             for i in topk_idxs[:max_chunks]:
@@ -426,7 +425,7 @@ async def chat_stream(request: ChatRequest):
 
             retrieval_info = {
                 "chunks_used": [int(i) for i in topk_idxs[:max_chunks]],
-                "page_numbers": {int(k): int(v) for k, v in page_nums.items()},
+                "page_numbers": page_nums,
                 "index_prefix": INDEX_PREFIX,
             }
             save_answer(
@@ -598,7 +597,7 @@ async def chat(request: ChatRequest):
             question=request.query,
             answer=answer_text,
             retrieval_info=retrieval_info,
-            model=model_path,
+            model=_config.gen_model,
             prompt_mode=prompt_type,
         )
 
@@ -622,7 +621,7 @@ async def chat(request: ChatRequest):
             answer_id=answer_id,
             session_id=session_id,
             answer=answer_text.strip() if answer_text and answer_text.strip() else "No response generated",
-            sources=sources_used,
+            sources=list(sources_used),
             chunks_used=topk_idxs,
             chunks_by_page=chunks_by_page,
             query=request.query,
