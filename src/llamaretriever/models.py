@@ -3,9 +3,9 @@ Model factories for the LlamaIndex pipeline.
 
 - LLM:        Qwen 2.5 1.5B GGUF via llama-cpp-python  (same as original)
 - Embeddings: Qwen3-Embedding-4B Q5_K_M GGUF via llama-cpp-python (same as original)
-- Index LLM:  Optional larger model for index-time KG extraction only.
-              Either a bigger local GGUF or an OpenRouter API model.
-              Never used at query time.
+- Index LLM:  Use ``ExternalLLM.from_config()`` from ``external_llm.py`` instead.
+              The ``build_index_llm`` function below is kept for backward compat
+              but new code should use ExternalLLM directly.
 """
 
 from __future__ import annotations

@@ -3,369 +3,232 @@ BookRAG-style hierarchical indexing pipeline.
 
 Pipeline:
   1. Load markdown docs from data/
-  2. Parse numbered section headers (## N.N, ## N.N.N, ...) into a DocumentTree
-  3. Split section content into leaf chunks
-  4. Build section summaries for section-level retrieval
-  5. Extract entities → entity graph (section titles + cross-references + acronyms)
-  6. Build dual VectorStoreIndex (sections + leaves)
-  7. Persist tree + both indices
+  2. Parse numbered section headers into a DocumentTree    (heuristics)
+  3. Split section content into leaf chunks                (heuristics)
+  4. Build section summaries (LLM if available, else heuristic)
+  5. Extract entities → entity graph (heuristic + optional LLM)
+  6. Entity resolution / canonicalization (if LLM available)
+  7. Optional bottom-up parent rollup summaries
+  8. Build dual VectorStoreIndex (sections + leaves)
+  9. Persist tree + both indices
 
-The book markdown uses ## for ALL headers — hierarchy comes from the numbering
-pattern (1.1, 1.3.1, 5.1.1.1), not from header depth.  Chapter nodes are
-inferred from the leading number in each section identifier.
+Heuristic primitives live in ``heuristics.py``; this module adds the
+LLM-powered stages and orchestrates the full build.
 """
 
 from __future__ import annotations
 
-import re
+import logging
 import time
 from pathlib import Path
 
 from llama_index.core import StorageContext, VectorStoreIndex, load_index_from_storage
-from llama_index.core.llms import LLM, ChatMessage
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import TextNode
 
 from .config import LlamaIndexConfig
-from .tree import DocumentTree, EntityNode, SectionNode
-
-# Matches "## Chapter N Title" (optionally prefixed with "Page xi" etc.)
-_CHAPTER_TITLE_RE = re.compile(
-    r"^##\s+(?:Page\s+\S+\s+)?Chapter\s+(\d+)\s+(.+)$",
+from .external_llm import ExternalLLM
+from .heuristics import (
+    IMAGE_TAG,
+    PAGE_MARKER,
+    build_entity_graph,
+    create_leaf_nodes,
+    create_section_summaries_heuristic,
+    heuristic_summary,
+    make_summary_node,
+    parse_markdown_files,
 )
+from .tree import DocumentTree, EntityNode, Relation
 
-# Matches numbered section headers: "## 19.1  Failure Classification"
-_NUMBERED_RE = re.compile(r"^##\s+(\d+(?:\.\d+)+)\s+(.+)$")
-
-# Page markers: "## Page 908", "## Page xi", "## Page ix Something"
-_PAGE_RE = re.compile(r"^##\s+Page\s", re.IGNORECASE)
-
-_PAGE_MARKER = re.compile(r"---\s*Page\s+\d+\s*---")
-_IMAGE_TAG = re.compile(r"<!-- image -->")
-_ACRONYM_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,}(?:[-/][A-Z0-9]+)*\b")
-
-# End-of-chapter material — stop collecting content when we hit these
-_STOP_HEADERS = frozenset({
-    "review terms", "practice exercises", "exercises",
-    "further reading", "bibliography", "credits", "tools",
-})
+logger = logging.getLogger(__name__)
 
 
-# ── Markdown tree parsing ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# LLM-GENERATED SECTION SUMMARIES
+# ══════════════════════════════════════════════════════════════════════════
+
+_SUMMARY_SYSTEM = """\
+You are generating retrieval-oriented summaries for sections of a technical textbook.
+
+For each section provided, generate a concise summary optimized for search retrieval.
+Each summary must include:
+- The scope (what the section covers)
+- Key technical concepts, algorithms, data structures mentioned
+- 2-3 example questions this section can answer
+
+Output JSON:
+{
+  "summaries": [
+    {
+      "section_id": "<id from input>",
+      "summary": "<3-5 sentence retrieval-oriented summary>"
+    }
+  ]
+}"""
 
 
-def _parse_markdown_files(
-    filepaths: list[Path],
-) -> tuple[DocumentTree, dict[str, str]]:
-    """Parse markdown files into a document tree using numbered section headers.
-
-    The book uses ``## N.N.N Title`` for all hierarchy.  Chapter nodes are
-    auto-created from the leading number in section identifiers.  Content
-    before the first numbered section (preamble / TOC) is skipped.
-
-    Returns (tree, section_id → raw text content).
-    """
-    tree = DocumentTree()
-    section_texts: dict[str, str] = {}
-    counter = 0
-
-    for filepath in filepaths:
-        text = filepath.read_text(encoding="utf-8")
-        source = filepath.name
-
-        # Pass 1: extract chapter titles from TOC entries
-        chapter_titles: dict[str, str] = {}
-        for line in text.split("\n"):
-            m = _CHAPTER_TITLE_RE.match(line)
-            if m:
-                chapter_titles[m.group(1)] = m.group(2).strip()
-
-        # Pass 2: build tree from numbered sections
-        chapters_created: dict[str, str] = {}  # chapter_num -> section_id
-        stack: list[tuple[int, str]] = []  # (depth, section_id)
-        current_id: str | None = None
-        buf: list[str] = []
-        collecting = False
-
-        for line in text.split("\n"):
-
-            m_section = _NUMBERED_RE.match(line)
-
-            if m_section:
-                # ── Numbered section header ──────────────────────────
-                number = m_section.group(1)        # e.g. "19.3.1"
-                title = m_section.group(2).strip()  # e.g. "Log Records"
-                chapter_num = number.split(".")[0]   # e.g. "19"
-                section_depth = number.count(".") + 1  # 19.1→2, 19.1.1→3
-
-                # Skip exercise questions: numbered entries that appear after
-                # end-of-chapter material for an already-parsed chapter
-                if not collecting and chapter_num in chapters_created:
-                    continue
-
-                # Flush previous section, start collecting for this one
-                if current_id is not None:
-                    section_texts[current_id] = "\n".join(buf).strip()
-                buf = []
-                collecting = True
-
-                # Auto-create chapter node if first section of this chapter
-                if chapter_num not in chapters_created:
-                    ch_title = chapter_titles.get(
-                        chapter_num, f"Chapter {chapter_num}",
-                    )
-                    ch_id = f"sec_{counter}"
-                    counter += 1
-
-                    ch_node = SectionNode(
-                        id=ch_id,
-                        title=f"Chapter {chapter_num}: {ch_title}",
-                        depth=1,
-                        parent_id=None,
-                        header_path=[f"Chapter {chapter_num}: {ch_title}"],
-                        source=source,
-                    )
-                    tree.add_section(ch_node)
-                    chapters_created[chapter_num] = ch_id
-                    stack = [(1, ch_id)]
-
-                # Pop to find correct parent
-                while stack and stack[-1][0] >= section_depth:
-                    stack.pop()
-                if not stack:
-                    # Safety: re-anchor to the chapter
-                    stack = [(1, chapters_created[chapter_num])]
-
-                parent_id = stack[-1][1]
-                section_id = f"sec_{counter}"
-                counter += 1
-
-                header_path = [
-                    tree.sections[sid].title for _, sid in stack
-                ] + [f"{number} {title}"]
-
-                section = SectionNode(
-                    id=section_id,
-                    title=f"{number} {title}",
-                    depth=section_depth,
-                    parent_id=parent_id,
-                    header_path=header_path,
-                    source=source,
-                )
-                tree.add_section(section)
-                stack.append((section_depth, section_id))
-                current_id = section_id
-
-            elif line.startswith("## "):
-                # ── Non-numbered ## header ────────────────────────────
-                remainder = line[3:].strip()
-
-                if _PAGE_RE.match(line):
-                    # Page marker — skip but don't stop collecting
-                    continue
-
-                lower = remainder.lower()
-                # Strip leading "Page NNN " that sometimes prefixes headers
-                clean = re.sub(r"^page\s+\w+\s*", "", lower).strip()
-                if clean in _STOP_HEADERS or lower in _STOP_HEADERS:
-                    if current_id is not None:
-                        section_texts[current_id] = "\n".join(buf).strip()
-                        current_id = None
-                        buf = []
-                    collecting = False
-                else:
-                    if collecting:
-                        buf.append(line)
-
-            else:
-                if collecting:
-                    buf.append(line)
-
-        # Flush last section
-        if current_id is not None:
-            section_texts[current_id] = "\n".join(buf).strip()
-
-    return tree, section_texts
-
-
-# ── Leaf chunk creation ───────────────────────────────────────────────────
-
-
-def _create_leaf_nodes(
+def _create_section_summaries_llm(
+    llm: ExternalLLM,
     tree: DocumentTree,
     section_texts: dict[str, str],
-    splitter: SentenceSplitter,
+    max_chars: int,
 ) -> list[TextNode]:
-    """Chunk each section's text into leaf TextNodes linked to the tree."""
-    leaves: list[TextNode] = []
+    """Generate LLM-powered summaries, batched per chapter.
 
-    for section_id, text in section_texts.items():
-        text = text.strip()
-        if not text:
+    Falls back to heuristic for any chapter where LLM generation fails.
+    """
+    nodes: list[TextNode] = []
+    chapters = [s for s in tree.sections.values() if s.depth == 1]
+    done_ids: set[str] = set()
+
+    for ch in chapters:
+        all_sids = tree.subtree_section_ids(ch.id)
+        batch_parts: list[str] = []
+
+        for sid in all_sids:
+            section = tree.sections[sid]
+            raw = section_texts.get(sid, "").strip()
+            raw = PAGE_MARKER.sub("", raw)
+            raw = IMAGE_TAG.sub("", raw).strip()
+            preview = raw[:1500] if raw else "(no body text)"
+
+            children_str = ""
+            if section.children:
+                child_titles = [tree.sections[c].title for c in section.children]
+                children_str = f"\nSubsections: {', '.join(child_titles)}"
+
+            batch_parts.append(
+                f"[Section ID: {sid}] {section.title}\n"
+                f"Path: {' > '.join(section.header_path)}"
+                f"{children_str}\n"
+                f"Content:\n{preview}"
+            )
+
+        if not batch_parts:
             continue
 
-        section = tree.sections[section_id]
-        chunks = splitter.split_text(text)
+        user_msg = (
+            f"Chapter: {ch.title}\n"
+            f"Number of sections: {len(batch_parts)}\n\n"
+            + "\n\n---\n\n".join(batch_parts)
+        )
 
-        for chunk_idx, chunk_text in enumerate(chunks):
-            chunk_text = chunk_text.strip()
-            if not chunk_text:
-                continue
+        try:
+            result = llm.generate_json(_SUMMARY_SYSTEM, user_msg)
+            summaries_by_id: dict[str, str] = {}
+            for item in result.get("summaries", []):
+                sid = item.get("section_id", "")
+                text = item.get("summary", "")
+                if sid and text:
+                    summaries_by_id[sid] = text
 
-            leaf_id = f"leaf_{section_id}_{chunk_idx}"
-            hp = section.header_path
+            for sid in all_sids:
+                section = tree.sections[sid]
+                llm_summary = summaries_by_id.get(sid)
 
-            node = TextNode(
-                text=chunk_text,
-                id_=leaf_id,
-                metadata={
-                    "section_id": section_id,
-                    "node_type": "leaf",
-                    "depth": section.depth,
-                    "header_path": " > ".join(hp),
-                    "source": section.source,
-                    "chapter": hp[0] if hp else section.title,
-                    "section": hp[1] if len(hp) > 1 else section.title,
-                    "subsection": hp[2] if len(hp) > 2 else "",
-                },
-                excluded_embed_metadata_keys=[
-                    "section_id", "node_type", "depth",
-                ],
-                excluded_llm_metadata_keys=[
-                    "section_id", "node_type", "depth",
-                ],
+                if llm_summary:
+                    parts = [
+                        f"Section: {section.title}",
+                        f"Path: {' > '.join(section.header_path)}",
+                    ]
+                    if section.children:
+                        child_titles = [tree.sections[c].title for c in section.children]
+                        parts.append(f"Subsections: {', '.join(child_titles)}")
+                    parts.append(llm_summary)
+                    summary = "\n".join(parts)
+                else:
+                    raw = section_texts.get(sid, "").strip()
+                    summary = heuristic_summary(section, tree, raw, max_chars)
+
+                nodes.append(make_summary_node(section, summary))
+                done_ids.add(sid)
+
+            logger.info("LLM summaries for %s: %d/%d", ch.title, len(summaries_by_id), len(all_sids))
+
+        except Exception:
+            logger.warning(
+                "LLM summary generation failed for %s, falling back to heuristic",
+                ch.title,
+                exc_info=True,
             )
-            leaves.append(node)
-            section.leaf_ids.append(leaf_id)
+            for sid in all_sids:
+                if sid not in done_ids:
+                    section = tree.sections[sid]
+                    raw = section_texts.get(sid, "").strip()
+                    summary = heuristic_summary(section, tree, raw, max_chars)
+                    nodes.append(make_summary_node(section, summary))
+                    done_ids.add(sid)
 
-    return leaves
+    for sid, section in tree.sections.items():
+        if sid not in done_ids:
+            raw = section_texts.get(sid, "").strip()
+            summary = heuristic_summary(section, tree, raw, max_chars)
+            nodes.append(make_summary_node(section, summary))
 
-
-# ── Section summary creation ──────────────────────────────────────────────
+    return nodes
 
 
 def _create_section_summaries(
     tree: DocumentTree,
     section_texts: dict[str, str],
     max_chars: int,
+    llm: ExternalLLM | None = None,
 ) -> list[TextNode]:
-    """Build summary TextNodes for each section (for section-level retrieval)."""
-    nodes: list[TextNode] = []
-
-    for section_id, section in tree.sections.items():
-        parts = [f"Section: {section.title}"]
-        parts.append(f"Path: {' > '.join(section.header_path)}")
-
-        if section.children:
-            child_titles = [tree.sections[c].title for c in section.children]
-            parts.append(f"Subsections: {', '.join(child_titles)}")
-
-        raw = section_texts.get(section_id, "").strip()
-        raw = _PAGE_MARKER.sub("", raw)
-        raw = _IMAGE_TAG.sub("", raw)
-        raw = raw.strip()
-        if raw:
-            truncated = raw[:max_chars]
-            if len(raw) > max_chars:
-                truncated = truncated.rsplit(" ", 1)[0] + "..."
-            parts.append(truncated)
-
-        summary = "\n".join(parts)
-        section.summary = summary
-
-        nodes.append(TextNode(
-            text=summary,
-            id_=f"summary_{section_id}",
-            metadata={
-                "section_id": section_id,
-                "node_type": "section_summary",
-                "depth": section.depth,
-                "header_path": " > ".join(section.header_path),
-                "source": section.source,
-                "title": section.title,
-            },
-        ))
-
-    return nodes
+    """Build section summaries — LLM-generated when available, else heuristic."""
+    if llm is not None:
+        return _create_section_summaries_llm(llm, tree, section_texts, max_chars)
+    return create_section_summaries_heuristic(tree, section_texts, max_chars)
 
 
-# ── Entity graph construction ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# LLM-BASED STRUCTURED ENTITY + RELATION EXTRACTION
+# ══════════════════════════════════════════════════════════════════════════
 
+_ENTITY_EXTRACT_SYSTEM = """\
+You are a knowledge-graph builder for a technical textbook.
 
-def _build_entity_graph(
-    tree: DocumentTree,
-    section_texts: dict[str, str],
-) -> None:
-    """Build entity graph from section titles and cross-references.
+For each section provided, extract:
+1. **Entities**: technical concepts, algorithms, data structures, protocols, \
+named systems, metrics, properties, and operations.
+2. **Relations**: typed connections between entities observed in the text.
 
-    Phase 1: each section title becomes an entity.
-    Phase 2: scan section text for mentions of other section titles.
-    Phase 3: extract acronyms and link to containing sections.
-    """
-    # Phase 1 — section titles as entities
-    for sid, section in tree.sections.items():
-        title = section.title.strip()
-        if len(title) < 3:
-            continue
-        canonical = title.lower()
-        if canonical not in tree.entities:
-            tree.entities[canonical] = EntityNode(
-                name=title, canonical=canonical, section_ids=[sid],
-            )
-        elif sid not in tree.entities[canonical].section_ids:
-            tree.entities[canonical].section_ids.append(sid)
+For each entity:
+- name: canonical form (e.g. "B+-tree" not "b+ tree")
+- type: one of [concept, algorithm, data_structure, protocol, system, \
+metric, property, operation]
+- aliases: alternative names, abbreviations, acronyms used in the text
+- salience: how central this entity is to the section (0.0–1.0)
 
-    # Phase 2 — cross-reference scan
-    for sid, text in section_texts.items():
-        text_lower = text.lower()
-        for canonical, entity in tree.entities.items():
-            if len(canonical) < 4:
-                continue
-            if canonical in text_lower and sid not in entity.section_ids:
-                entity.section_ids.append(sid)
+For each relation:
+- source: canonical entity name (must match an entity you listed)
+- target: canonical entity name (must match an entity you listed)
+- type: one of [is_a, part_of, uses, implements, extends, enables, \
+ensures, requires, contrasts_with, optimizes, produces, stores]
 
-    # Phase 3 — acronyms
-    for sid, text in section_texts.items():
-        for match in _ACRONYM_RE.finditer(text):
-            acr = match.group()
-            if len(acr) < 2 or len(acr) > 12:
-                continue
-            canonical = acr.lower()
-            if canonical not in tree.entities:
-                tree.entities[canonical] = EntityNode(
-                    name=acr, canonical=canonical, section_ids=[sid],
-                )
-            elif sid not in tree.entities[canonical].section_ids:
-                tree.entities[canonical].section_ids.append(sid)
-
-
-# ── LLM-based entity extraction (index-time only) ────────────────────────
-
-_ENTITY_SYSTEM = """\
-You are an expert knowledge-graph builder for a database textbook.
-Given sections of text, extract the key technical entities: concepts,
-algorithms, data structures, protocols, and named systems.
-
-Output a single line:
-ENTITIES: entity1, entity2, entity3, ...
-
-Rules:
-- Only extract specific, meaningful technical terms (not generic words).
-- Normalize casing: use the canonical form (e.g. "B+-tree" not "b+ tree").
-- Merge duplicates.
-- 20-40 entities per batch is ideal.
-"""
+Output JSON:
+{
+  "sections": [
+    {
+      "section_id": "<id>",
+      "entities": [
+        {"name": "...", "type": "...", "aliases": ["..."], "salience": 0.9}
+      ],
+      "relations": [
+        {"source": "...", "target": "...", "type": "..."}
+      ]
+    }
+  ]
+}"""
 
 
 def _llm_extract_entities(
-    llm: LLM,
+    llm: ExternalLLM,
     tree: DocumentTree,
     section_texts: dict[str, str],
 ) -> None:
-    """Use an LLM to extract entities per chapter, merging into the tree.
+    """Schema-constrained entity + relation extraction, batched per chapter.
 
-    Batches all sections of each chapter into one LLM call to keep costs
-    reasonable (~26 calls for a full textbook).
+    Merges results into the existing entity graph built by heuristics.
     """
     chapters = [s for s in tree.sections.values() if s.depth == 1]
 
@@ -378,61 +241,283 @@ def _llm_extract_entities(
             text = section_texts.get(sid, "").strip()
             if not text:
                 continue
-            preview = text[:600]
-            batch_parts.append(f"[{section.title}]\n{preview}")
+            preview = text[:800]
+            batch_parts.append(
+                f"[Section ID: {sid}] {section.title}\n{preview}"
+            )
 
         if not batch_parts:
             continue
 
         user_msg = (
             f"Chapter: {ch.title}\n\n"
-            + "\n\n".join(batch_parts)
+            + "\n\n---\n\n".join(batch_parts)
         )
 
-        response = llm.chat([
-            ChatMessage(role="system", content=_ENTITY_SYSTEM),
-            ChatMessage(role="user", content=user_msg),
-        ])
-        raw = response.message.content or ""
+        try:
+            result = llm.generate_json(_ENTITY_EXTRACT_SYSTEM, user_msg)
+        except Exception:
+            logger.warning(
+                "LLM entity extraction failed for %s", ch.title, exc_info=True,
+            )
+            continue
 
-        for line in raw.split("\n"):
-            line = line.strip()
-            if line.upper().startswith("ENTITIES:"):
-                entities_str = line.split(":", 1)[1].strip()
-                for ent in entities_str.split(","):
-                    ent = ent.strip()
-                    if len(ent) < 2:
-                        continue
-                    canonical = ent.lower()
-                    if canonical not in tree.entities:
-                        tree.entities[canonical] = EntityNode(
-                            name=ent,
-                            canonical=canonical,
-                            section_ids=list(all_sids),
+        for sec_data in result.get("sections", []):
+            sid = sec_data.get("section_id", "")
+            if sid not in tree.sections:
+                continue
+
+            for ent in sec_data.get("entities", []):
+                name = ent.get("name", "").strip()
+                if len(name) < 2:
+                    continue
+                canonical = name.lower()
+                aliases = [a.strip() for a in ent.get("aliases", []) if a.strip()]
+                etype = ent.get("type", "")
+                salience = float(ent.get("salience", 0.5))
+
+                if canonical not in tree.entities:
+                    tree.entities[canonical] = EntityNode(
+                        name=name,
+                        canonical=canonical,
+                        section_ids=[sid],
+                        aliases=aliases,
+                        entity_type=etype,
+                        provenance={sid: salience},
+                    )
+                else:
+                    existing = tree.entities[canonical]
+                    if sid not in existing.section_ids:
+                        existing.section_ids.append(sid)
+                    for a in aliases:
+                        if a not in existing.aliases:
+                            existing.aliases.append(a)
+                    if not existing.entity_type and etype:
+                        existing.entity_type = etype
+                    existing.provenance[sid] = max(
+                        existing.provenance.get(sid, 0.0), salience,
+                    )
+
+            for rel in sec_data.get("relations", []):
+                src = rel.get("source", "").strip().lower()
+                tgt = rel.get("target", "").strip().lower()
+                rtype = rel.get("type", "").strip()
+                if not (src and tgt and rtype):
+                    continue
+                if src in tree.entities:
+                    tree.entities[src].relations.append(
+                        Relation(
+                            source=src,
+                            target=tgt,
+                            relation_type=rtype,
+                            section_id=sid,
                         )
-                    else:
-                        for sid in all_sids:
-                            if sid not in tree.entities[canonical].section_ids:
-                                tree.entities[canonical].section_ids.append(sid)
-                break
+                    )
 
-        print(f"  LLM entities for {ch.title}: extracted from response")
+        logger.info("LLM entities for %s: extracted", ch.title)
 
 
-# ── Index build / load ────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# ENTITY RESOLUTION / CANONICALIZATION
+# ══════════════════════════════════════════════════════════════════════════
+
+_ENTITY_RESOLUTION_SYSTEM = """\
+You are performing entity resolution on a knowledge graph extracted from a \
+technical textbook.
+
+Given a list of entity names, identify groups that refer to the same concept \
+and should be merged. Consider:
+- Abbreviations (e.g. "2PL" and "Two-Phase Locking")
+- Spelling variants (e.g. "B+-tree" and "B-plus tree")
+- Synonyms (e.g. "deadlock" and "circular wait")
+- Acronym expansions
+
+Output JSON:
+{
+  "merge_groups": [
+    {
+      "canonical": "<preferred name>",
+      "members": ["<variant1>", "<variant2>", ...]
+    }
+  ]
+}
+
+Rules:
+- Only include groups with 2+ members that genuinely refer to the SAME concept.
+- Do NOT merge related-but-distinct concepts (e.g. "lock" vs "latch").
+- The "members" list must use the exact entity names from the input."""
+
+
+def _resolve_entities(
+    llm: ExternalLLM,
+    tree: DocumentTree,
+) -> None:
+    """Merge duplicate entities identified by LLM-based resolution.
+
+    Processes entities in batches to stay within context limits.
+    """
+    all_names = sorted(tree.entities.keys())
+    if len(all_names) < 5:
+        return
+
+    batch_size = 200
+    for start in range(0, len(all_names), batch_size):
+        batch = all_names[start : start + batch_size]
+        user_msg = "Entity names:\n" + "\n".join(f"- {n}" for n in batch)
+
+        try:
+            result = llm.generate_json(_ENTITY_RESOLUTION_SYSTEM, user_msg)
+        except Exception:
+            logger.warning(
+                "Entity resolution failed for batch %d–%d",
+                start, start + len(batch),
+                exc_info=True,
+            )
+            continue
+
+        for group in result.get("merge_groups", []):
+            canonical_name = group.get("canonical", "").strip()
+            members = [m.strip().lower() for m in group.get("members", []) if m.strip()]
+            if len(members) < 2 or not canonical_name:
+                continue
+
+            canonical_key = canonical_name.lower().strip()
+
+            if canonical_key not in tree.entities:
+                if members and members[0] in tree.entities:
+                    canonical_key = members[0]
+                else:
+                    continue
+
+            target = tree.entities[canonical_key]
+
+            for member_key in members:
+                if member_key == canonical_key:
+                    continue
+                source = tree.entities.get(member_key)
+                if source is None:
+                    continue
+
+                for sid in source.section_ids:
+                    if sid not in target.section_ids:
+                        target.section_ids.append(sid)
+
+                if source.name not in target.aliases and source.name.lower() != target.name.lower():
+                    target.aliases.append(source.name)
+                for a in source.aliases:
+                    if a not in target.aliases:
+                        target.aliases.append(a)
+
+                for sid, sal in source.provenance.items():
+                    target.provenance[sid] = max(
+                        target.provenance.get(sid, 0.0), sal,
+                    )
+
+                for r in source.relations:
+                    target.relations.append(Relation(
+                        source=canonical_key,
+                        target=r.target,
+                        relation_type=r.relation_type,
+                        section_id=r.section_id,
+                    ))
+
+                for ent in tree.entities.values():
+                    for r in ent.relations:
+                        if r.target == member_key:
+                            r.target = canonical_key
+
+                del tree.entities[member_key]
+
+    logger.info("Entity resolution complete: %d entities remain", len(tree.entities))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# OPTIONAL PARENT ROLLUP SUMMARIES
+# ══════════════════════════════════════════════════════════════════════════
+
+_ROLLUP_SYSTEM = """\
+Synthesize a parent-level summary from the child section summaries below.
+Capture the overall scope and key concepts covered across all children.
+Optimize for retrieval — a search system uses this to decide whether to \
+examine the subtree.
+
+Output a single paragraph, 3-5 sentences."""
+
+
+def _create_parent_rollup_summaries(
+    llm: ExternalLLM,
+    tree: DocumentTree,
+) -> None:
+    """Bottom-up: replace parent section summaries with LLM rollups of child summaries.
+
+    Only processes sections that have children (chapters and mid-level sections).
+    Processes deepest parents first so that parents-of-parents get updated children.
+    """
+    parents = [
+        s for s in tree.sections.values()
+        if s.children
+    ]
+    parents.sort(key=lambda s: -s.depth)
+
+    for section in parents:
+        child_summaries = []
+        for cid in section.children:
+            child = tree.sections.get(cid)
+            if child and child.summary:
+                child_summaries.append(f"[{child.title}]\n{child.summary}")
+
+        if not child_summaries:
+            continue
+
+        user_msg = (
+            f"Parent section: {section.title}\n"
+            f"Path: {' > '.join(section.header_path)}\n\n"
+            f"Child summaries:\n\n" + "\n\n---\n\n".join(child_summaries)
+        )
+
+        try:
+            rollup = llm.generate(_ROLLUP_SYSTEM, user_msg)
+            parts = [
+                f"Section: {section.title}",
+                f"Path: {' > '.join(section.header_path)}",
+            ]
+            child_titles = [tree.sections[c].title for c in section.children]
+            parts.append(f"Subsections: {', '.join(child_titles)}")
+            parts.append(rollup)
+            section.summary = "\n".join(parts)
+        except Exception:
+            logger.warning(
+                "Parent rollup failed for %s, keeping existing summary",
+                section.title,
+                exc_info=True,
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# INDEX BUILD / LOAD
+# ══════════════════════════════════════════════════════════════════════════
 
 
 def build_index(
     cfg: LlamaIndexConfig,
-    index_llm: LLM | None = None,
+    external_llm: ExternalLLM | None = None,
 ) -> tuple[VectorStoreIndex, VectorStoreIndex, DocumentTree]:
-    """Build BookRAG indices: leaf index + section index + document tree."""
+    """Build BookRAG indices: leaf index + section index + document tree.
+
+    When ``external_llm`` is provided, uses it for:
+      - retrieval-oriented section summaries
+      - structured entity/relation extraction
+      - entity resolution / canonicalization
+      - parent rollup summaries
+    Otherwise falls back to heuristic-only indexing.
+    """
     print("=" * 60)
     print("Building BookRAG indices ...")
-    print(f"  Data dir    : {cfg.data_dir}")
-    print(f"  Persist dir : {cfg.persist_dir}")
-    print(f"  Embed model : {cfg.embed_model}")
-    print(f"  Chunk size  : {cfg.chunk_size}  overlap: {cfg.chunk_overlap}")
+    print(f"  Data dir      : {cfg.data_dir}")
+    print(f"  Persist dir   : {cfg.persist_dir}")
+    print(f"  Embed model   : {cfg.embed_model}")
+    print(f"  Chunk size    : {cfg.chunk_size}  overlap: {cfg.chunk_overlap}")
+    print(f"  External LLM  : {'yes' if external_llm else 'none (heuristic only)'}")
     print("=" * 60)
 
     t0 = time.time()
@@ -447,9 +532,8 @@ def build_index(
     print(f"Found {len(md_files)} markdown file(s): {[f.name for f in md_files]}")
 
     # 2. Parse into section tree
-    tree, section_texts = _parse_markdown_files(md_files)
+    tree, section_texts = parse_markdown_files(md_files)
     print(f"Parsed {len(tree.sections)} sections")
-
     if not tree.sections:
         raise ValueError("No sections parsed from markdown files")
 
@@ -457,30 +541,57 @@ def build_index(
     splitter = SentenceSplitter(
         chunk_size=cfg.chunk_size, chunk_overlap=cfg.chunk_overlap,
     )
-    leaf_nodes = _create_leaf_nodes(tree, section_texts, splitter)
+    leaf_nodes = create_leaf_nodes(tree, section_texts, splitter)
     print(f"Created {len(leaf_nodes)} leaf chunks")
-
     if not leaf_nodes:
         raise ValueError("No leaf chunks created from sections")
 
-    # 4. Create section summaries
+    # 4. Section summaries (LLM or heuristic)
+    t_sum = time.time()
     summary_nodes = _create_section_summaries(
-        tree, section_texts, cfg.section_summary_chars,
+        tree, section_texts, cfg.section_summary_chars, llm=external_llm,
     )
-    print(f"Created {len(summary_nodes)} section summaries")
+    print(f"Created {len(summary_nodes)} section summaries in {time.time() - t_sum:.1f}s")
 
     # 5. Entity graph — heuristic baseline
-    _build_entity_graph(tree, section_texts)
+    build_entity_graph(tree, section_texts)
     print(f"Extracted {len(tree.entities)} heuristic entities")
 
-    # 5b. Optional LLM-enhanced entity extraction (index-time only)
-    if index_llm is not None:
-        print("Running LLM-based entity extraction ...")
+    # 5b. LLM structured entity + relation extraction
+    if external_llm is not None:
+        print("Running LLM-based entity/relation extraction ...")
+        t_ent = time.time()
         before = len(tree.entities)
-        _llm_extract_entities(index_llm, tree, section_texts)
-        print(f"LLM added {len(tree.entities) - before} new entities")
+        _llm_extract_entities(external_llm, tree, section_texts)
+        n_relations = sum(len(e.relations) for e in tree.entities.values())
+        print(
+            f"LLM added {len(tree.entities) - before} new entities, "
+            f"{n_relations} relations in {time.time() - t_ent:.1f}s"
+        )
 
-    # 6. Build indices
+    # 5c. Entity resolution / canonicalization
+    if external_llm is not None:
+        print("Running entity resolution ...")
+        t_er = time.time()
+        before = len(tree.entities)
+        _resolve_entities(external_llm, tree)
+        print(
+            f"Entity resolution merged {before - len(tree.entities)} entities "
+            f"in {time.time() - t_er:.1f}s"
+        )
+
+    # 6. Optional parent rollup summaries
+    if external_llm is not None:
+        print("Generating parent rollup summaries ...")
+        t_ru = time.time()
+        _create_parent_rollup_summaries(external_llm, tree)
+        summary_nodes = [
+            make_summary_node(section, section.summary)
+            for section in tree.sections.values()
+        ]
+        print(f"Parent rollups done in {time.time() - t_ru:.1f}s")
+
+    # 7. Build vector indices
     t1 = time.time()
     leaf_index = VectorStoreIndex(leaf_nodes, show_progress=True)
     print(f"Leaf index built in {time.time() - t1:.1f}s")
@@ -489,7 +600,7 @@ def build_index(
     section_index = VectorStoreIndex(summary_nodes, show_progress=True)
     print(f"Section index built in {time.time() - t2:.1f}s")
 
-    # 7. Persist
+    # 8. Persist
     Path(cfg.leaf_persist_dir).mkdir(parents=True, exist_ok=True)
     Path(cfg.section_persist_dir).mkdir(parents=True, exist_ok=True)
 
@@ -527,9 +638,11 @@ def load_index(
 
     tree = DocumentTree.load(cfg.tree_path)
 
+    n_relations = sum(len(e.relations) for e in tree.entities.values())
     print(
         f"Loaded: {len(tree.sections)} sections, "
-        f"{len(tree.entities)} entities"
+        f"{len(tree.entities)} entities, "
+        f"{n_relations} relations"
     )
     return leaf_index, section_index, tree
 
@@ -537,7 +650,7 @@ def load_index(
 def get_or_build_index(
     cfg: LlamaIndexConfig,
     force_rebuild: bool = False,
-    index_llm: LLM | None = None,
+    external_llm: ExternalLLM | None = None,
 ) -> tuple[VectorStoreIndex, VectorStoreIndex, DocumentTree]:
     if (
         not force_rebuild
@@ -546,4 +659,4 @@ def get_or_build_index(
         and Path(cfg.tree_path).exists()
     ):
         return load_index(cfg)
-    return build_index(cfg, index_llm=index_llm)
+    return build_index(cfg, external_llm=external_llm)

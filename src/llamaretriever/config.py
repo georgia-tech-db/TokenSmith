@@ -48,8 +48,8 @@ class LlamaIndexConfig:
     retrieval_keep_at_least: int = 8
     retrieval_max_after_grade: int = 20
 
-    # ── Index-time LLM for KG extraction (never used at query time) ─────
-    # "none" = heuristic only, "local" = larger local GGUF, "openrouter" = API
+    # ── Index-time LLM for summaries, KG, entity resolution ─────────────
+    # "none" = heuristic only, "local" = GGUF, "openrouter" = API, "gemini" = Google
     index_llm_provider: str = "none"
     index_llm_model: str = ""
     index_llm_context_window: int = 16384

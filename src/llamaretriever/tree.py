@@ -2,7 +2,8 @@
 
 Structures:
   - SectionNode: one node in the document hierarchy (chapter / section / subsection)
-  - EntityNode:  a concept with links to sections where it appears
+  - Relation:    typed edge between two entities, grounded to a section
+  - EntityNode:  a concept with aliases, type, provenance, and relations
   - DocumentTree: full tree + entity graph, with subtree / co-occurrence queries
 """
 
@@ -17,7 +18,7 @@ from pathlib import Path
 class SectionNode:
     id: str
     title: str
-    depth: int  # 1=h1, 2=h2, etc.
+    depth: int  # 1=chapter, 2=section, 3=subsection, …
     parent_id: str | None
     children: list[str] = field(default_factory=list)
     leaf_ids: list[str] = field(default_factory=list)
@@ -27,10 +28,23 @@ class SectionNode:
 
 
 @dataclass
+class Relation:
+    """Typed, provenance-grounded edge between two entities."""
+    source: str          # canonical key of the source entity
+    target: str          # canonical key of the target entity
+    relation_type: str   # is_a | part_of | uses | implements | extends | …
+    section_id: str      # section where this relation was observed
+
+
+@dataclass
 class EntityNode:
     name: str
-    canonical: str  # lowercased canonical form
+    canonical: str                                       # lowercased canonical key
     section_ids: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)     # alternative names / abbreviations
+    entity_type: str = ""                                # concept | algorithm | data_structure | …
+    provenance: dict[str, float] = field(default_factory=dict)   # section_id → salience (0–1)
+    relations: list[Relation] = field(default_factory=list)
 
 
 class DocumentTree:
@@ -41,6 +55,8 @@ class DocumentTree:
         self.entities: dict[str, EntityNode] = {}
         self.root_ids: list[str] = []
 
+    # ── tree mutation ─────────────────────────────────────────────────────
+
     def add_section(self, section: SectionNode) -> None:
         self.sections[section.id] = section
         if section.parent_id is None:
@@ -49,6 +65,8 @@ class DocumentTree:
             parent = self.sections[section.parent_id]
             if section.id not in parent.children:
                 parent.children.append(section.id)
+
+    # ── tree queries ──────────────────────────────────────────────────────
 
     def subtree_leaf_ids(self, section_id: str) -> list[str]:
         """All leaf node IDs reachable from this section (recursive)."""
@@ -64,6 +82,8 @@ class DocumentTree:
         for child_id in self.sections[section_id].children:
             ids.extend(self.subtree_section_ids(child_id))
         return ids
+
+    # ── entity queries ────────────────────────────────────────────────────
 
     def sections_for_entity(self, entity_canonical: str) -> list[str]:
         entity = self.entities.get(entity_canonical)
@@ -87,7 +107,31 @@ class DocumentTree:
         cooccurring.discard(entity_canonical)
         return cooccurring
 
-    # ── Persistence ───────────────────────────────────────────────────────
+    def resolve_alias(self, name: str) -> EntityNode | None:
+        """Look up an entity by canonical key *or* any alias."""
+        key = name.lower().strip()
+        if key in self.entities:
+            return self.entities[key]
+        for entity in self.entities.values():
+            if key in (a.lower() for a in entity.aliases):
+                return entity
+        return None
+
+    def entity_relations(self, entity_canonical: str) -> list[Relation]:
+        """All relations where this entity is source or target."""
+        entity = self.entities.get(entity_canonical)
+        if entity is None:
+            return []
+        rels = list(entity.relations)
+        for other in self.entities.values():
+            if other.canonical == entity_canonical:
+                continue
+            for r in other.relations:
+                if r.target == entity_canonical:
+                    rels.append(r)
+        return rels
+
+    # ── persistence ───────────────────────────────────────────────────────
 
     def save(self, path: str) -> None:
         data = {
@@ -111,6 +155,18 @@ class DocumentTree:
                     "name": e.name,
                     "canonical": e.canonical,
                     "section_ids": e.section_ids,
+                    "aliases": e.aliases,
+                    "entity_type": e.entity_type,
+                    "provenance": e.provenance,
+                    "relations": [
+                        {
+                            "source": r.source,
+                            "target": r.target,
+                            "relation_type": r.relation_type,
+                            "section_id": r.section_id,
+                        }
+                        for r in e.relations
+                    ],
                 }
                 for name, e in self.entities.items()
             },
@@ -125,6 +181,7 @@ class DocumentTree:
             data = json.load(f)
         tree = cls()
         tree.root_ids = data["root_ids"]
+
         for sid, sd in data["sections"].items():
             tree.sections[sid] = SectionNode(
                 id=sd["id"],
@@ -137,10 +194,18 @@ class DocumentTree:
                 header_path=sd["header_path"],
                 source=sd["source"],
             )
+
         for name, ed in data["entities"].items():
             tree.entities[name] = EntityNode(
                 name=ed["name"],
                 canonical=ed["canonical"],
                 section_ids=ed["section_ids"],
+                aliases=ed.get("aliases", []),
+                entity_type=ed.get("entity_type", ""),
+                provenance=ed.get("provenance", {}),
+                relations=[
+                    Relation(**r) for r in ed.get("relations", [])
+                ],
             )
+
         return tree

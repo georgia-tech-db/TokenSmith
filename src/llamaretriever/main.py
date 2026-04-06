@@ -58,22 +58,25 @@ def build_config(args: argparse.Namespace) -> LlamaIndexConfig:
 def run_index_mode(cfg: LlamaIndexConfig, rebuild: bool) -> None:
     from llama_index.core import Settings
 
+    from .external_llm import ExternalLLM
     from .indexer import build_index, get_or_build_index
-    from .models import build_embed_model, build_index_llm, build_llm
+    from .models import build_embed_model, build_llm
 
     Settings.llm = build_llm(cfg)
     Settings.embed_model = build_embed_model(cfg)
     Settings.chunk_size = cfg.chunk_size
     Settings.chunk_overlap = cfg.chunk_overlap
 
-    index_llm = build_index_llm(cfg)
-    if index_llm is not None:
+    external_llm = ExternalLLM.from_config(cfg)
+    if external_llm is not None:
         print(f"Index-time LLM: {cfg.index_llm_provider} / {cfg.index_llm_model}")
+    else:
+        print("Index-time LLM: none (heuristic-only indexing)")
 
     if rebuild:
-        build_index(cfg, index_llm=index_llm)
+        build_index(cfg, external_llm=external_llm)
     else:
-        get_or_build_index(cfg, index_llm=index_llm)
+        get_or_build_index(cfg, external_llm=external_llm)
     print("\nIndexing complete.")
 
 
