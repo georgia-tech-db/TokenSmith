@@ -1,11 +1,8 @@
 """
-Retriever and reranker factories.
+Retriever and reranker factories for the BookRAG pipeline.
 
-Uses LlamaIndex built-in modules to match the original TokenSmith pipeline:
-  - VectorIndexRetriever  (equivalent to FAISS)
-  - BM25Retriever         (llama-index-retrievers-bm25)
-  - QueryFusionRetriever  (reciprocal rank fusion)
-  - SentenceTransformerRerank (cross-encoder/ms-marco-MiniLM-L6-v2)
+Provides hybrid (vector + BM25 + RRF) retrievers for both the
+section index and the leaf index, plus the cross-encoder reranker.
 """
 
 from __future__ import annotations
@@ -19,37 +16,36 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from .config import LlamaIndexConfig
 
 
-def build_retriever(
-    index: VectorStoreIndex,
-    cfg: LlamaIndexConfig,
-) -> QueryFusionRetriever:
-    """
-    Build a hybrid retriever: vector + BM25, fused with RRF.
-
-    Equivalent to the original pipeline's:
-      FAISSRetriever + BM25Retriever -> EnsembleRanker(method="rrf")
-    """
-    vector_retriever = index.as_retriever(similarity_top_k=cfg.num_candidates)
-
-    bm25_retriever = BM25Retriever.from_defaults(
-        docstore=index.docstore,
-        similarity_top_k=cfg.num_candidates,
+def _build_hybrid(index: VectorStoreIndex, top_k: int) -> QueryFusionRetriever:
+    vector = index.as_retriever(similarity_top_k=top_k)
+    bm25 = BM25Retriever.from_defaults(
+        docstore=index.docstore, similarity_top_k=top_k,
     )
-
     return QueryFusionRetriever(
-        retrievers=[vector_retriever, bm25_retriever],
-        similarity_top_k=cfg.num_candidates,
-        num_queries=1,                           # no query generation, just fuse
-        mode=FUSION_MODES.RECIPROCAL_RANK,       # RRF
+        retrievers=[vector, bm25],
+        similarity_top_k=top_k,
+        num_queries=1,
+        mode=FUSION_MODES.RECIPROCAL_RANK,
         use_async=False,
     )
 
 
+def build_leaf_retriever(
+    index: VectorStoreIndex, cfg: LlamaIndexConfig,
+) -> QueryFusionRetriever:
+    return _build_hybrid(index, cfg.num_candidates)
+
+
+def build_section_retriever(
+    index: VectorStoreIndex, cfg: LlamaIndexConfig,
+) -> QueryFusionRetriever:
+    return _build_hybrid(index, cfg.section_top_k * 3)
+
+
 def build_reranker(cfg: LlamaIndexConfig) -> SentenceTransformerRerank | None:
-    """Build cross-encoder reranker (same model as original pipeline)."""
     if not cfg.use_reranker:
         return None
     return SentenceTransformerRerank(
         model=cfg.rerank_model,
-        top_n=cfg.top_k,
+        top_n=cfg.max_leaves,
     )

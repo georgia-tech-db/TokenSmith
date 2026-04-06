@@ -1,9 +1,7 @@
 """
-LlamaRetriever — evidence-curation RAG pipeline for TokenSmith.
+LlamaRetriever — BookRAG-style hierarchical RAG pipeline for TokenSmith.
 
-Uses vector + BM25 + RRF fusion + cross-encoder rerank. Replaces single-shot
-generation with an iterative agent that:
-  1. Selects exact source sentences as evidence
-  2. Optionally retrieves more context
-  3. Synthesizes a cited answer referencing numbered evidence
+Indexes documents as a section tree + entity graph, retrieves at section
+level first, then narrows to leaf passages within selected subtrees.
+Pipeline: classify → section-select → leaf-retrieve → synthesize.
 """

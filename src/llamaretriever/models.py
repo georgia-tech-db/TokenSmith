@@ -3,15 +3,20 @@ Model factories for the LlamaIndex pipeline.
 
 - LLM:        Qwen 2.5 1.5B GGUF via llama-cpp-python  (same as original)
 - Embeddings: Qwen3-Embedding-4B Q5_K_M GGUF via llama-cpp-python (same as original)
+- Index LLM:  Optional larger model for index-time KG extraction only.
+              Either a bigger local GGUF or an OpenRouter API model.
+              Never used at query time.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, List
 
 import numpy as np
 from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.llms import LLM
 from llama_index.llms.llama_cpp import LlamaCPP
 
 from .config import LlamaIndexConfig
@@ -101,3 +106,40 @@ def build_embed_model(cfg: LlamaIndexConfig) -> LlamaCppEmbedding:
         n_ctx=cfg.embed_n_ctx,
         n_batch=512
     )
+
+
+def build_index_llm(cfg: LlamaIndexConfig) -> LLM | None:
+    """Build the index-time LLM for KG extraction. Returns None if disabled."""
+    if cfg.index_llm_provider == "none" or not cfg.index_llm_model:
+        return None
+
+    if cfg.index_llm_provider == "local":
+        return LlamaCPP(
+            model_path=cfg.index_llm_model,
+            temperature=cfg.index_llm_temperature,
+            max_new_tokens=cfg.index_llm_max_tokens,
+            context_window=cfg.index_llm_context_window,
+            model_kwargs={"n_gpu_layers": cfg.n_gpu_layers},
+            messages_to_prompt=_messages_to_prompt,
+            completion_to_prompt=_completion_to_prompt,
+            verbose=False,
+        )
+
+    if cfg.index_llm_provider == "openrouter":
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY env var required when "
+                "index_llm_provider='openrouter'"
+            )
+        from llama_index.llms.openai import OpenAI
+
+        return OpenAI(
+            model=cfg.index_llm_model,
+            api_base="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            temperature=cfg.index_llm_temperature,
+            max_tokens=cfg.index_llm_max_tokens,
+        )
+
+    raise ValueError(f"Unknown index_llm_provider: {cfg.index_llm_provider!r}")

@@ -1,7 +1,5 @@
 """
-CLI entry point for the LlamaRetriever pipeline.
-
-Uses an iterative evidence-curation agent instead of single-shot generation.
+CLI entry point for the BookRAG pipeline.
 
 Usage:
     python -m src.llamaretriever index
@@ -15,19 +13,16 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from pathlib import Path
 from typing import Dict, Optional
 
 from .config import LlamaIndexConfig
-
-ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LlamaRetriever Pipeline")
+    parser = argparse.ArgumentParser(description="BookRAG Pipeline")
     parser.add_argument("mode", choices=["index", "chat", "query"])
     parser.add_argument("question", nargs="?", default=None)
     parser.add_argument("--rebuild", action="store_true")
@@ -62,18 +57,23 @@ def build_config(args: argparse.Namespace) -> LlamaIndexConfig:
 
 def run_index_mode(cfg: LlamaIndexConfig, rebuild: bool) -> None:
     from llama_index.core import Settings
-    from .models import build_llm, build_embed_model
-    from .indexer import get_or_build_index, build_index
+
+    from .indexer import build_index, get_or_build_index
+    from .models import build_embed_model, build_index_llm, build_llm
 
     Settings.llm = build_llm(cfg)
     Settings.embed_model = build_embed_model(cfg)
     Settings.chunk_size = cfg.chunk_size
     Settings.chunk_overlap = cfg.chunk_overlap
 
+    index_llm = build_index_llm(cfg)
+    if index_llm is not None:
+        print(f"Index-time LLM: {cfg.index_llm_provider} / {cfg.index_llm_model}")
+
     if rebuild:
-        build_index(cfg)
+        build_index(cfg, index_llm=index_llm)
     else:
-        get_or_build_index(cfg)
+        get_or_build_index(cfg, index_llm=index_llm)
     print("\nIndexing complete.")
 
 
@@ -88,40 +88,47 @@ def get_answer(
     return_references: bool = False,
 ):
     """
-    Run a single query through the evidence-curation agent.
+    Run a single query through the BookRAG pipeline.
 
-    Flow: retrieve -> sentence split -> LLM curates evidence -> LLM synthesizes cited answer.
-
-    If return_references is True, returns (answer, references); otherwise returns answer only.
+    Flow: classify → section-select → leaf-retrieve → synthesize.
     """
-    from .agent import run_agent
+    from .agent import run_bookrag
 
     t0 = time.time()
-    result = run_agent(
+    result = run_bookrag(
         question=question,
-        retriever=artifacts["retriever"],
-        reranker=artifacts["reranker"],
         llm=artifacts["llm"],
-        max_curate_steps=cfg.max_curate_steps,
+        section_retriever=artifacts["section_retriever"],
+        leaf_index=artifacts["leaf_index"],
+        tree=artifacts["tree"],
+        reranker=artifacts["reranker"],
         cfg=cfg,
     )
     total_time = time.time() - t0
 
-    # ── Print references ─────────────────────────────────────────────────
+    # ── Print selected sections ───────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("  EVIDENCE  ({} references, {} LLM calls, {:.1f}s)".format(
-        len(result.references), result.total_llm_calls, total_time,
+    print("  BOOKRAG  (type={}, {} sections, {} refs, {} LLM calls, {:.1f}s)".format(
+        result.query_type,
+        len(result.selected_sections),
+        len(result.references),
+        result.total_llm_calls,
+        total_time,
     ))
-    if result.keywords:
-        print("  Keywords (scoring): {}".format(", ".join(result.keywords)))
     print("=" * 60)
+
+    if result.selected_sections:
+        tree = artifacts["tree"]
+        print("  Selected sections:")
+        for sid in result.selected_sections:
+            sec = tree.sections.get(sid)
+            if sec:
+                print(f"    [{sid}] {' > '.join(sec.header_path)}")
+
     for ref in result.references:
         print(f"\n  [{ref.id}] ({ref.source})")
-        print(f"     Chapter    : {ref.chapter}")
-        print(f"     Section    : {ref.section}")
-        print(f"     Subsection : {ref.subsection}")
-        print(f"     Path       : {ref.header_path}")
-        print(f"     {ref.passage}")
+        print(f"     Path : {ref.header_path}")
+        print(f"     {ref.passage[:200]}{'...' if len(ref.passage) > 200 else ''}")
 
     # ── Print answer ─────────────────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -139,6 +146,7 @@ def get_answer(
                 {
                     "id": r.id,
                     "passage": r.passage,
+                    "section_id": r.section_id,
                     "chapter": r.chapter,
                     "section": r.section,
                     "subsection": r.subsection,
@@ -150,7 +158,8 @@ def get_answer(
             iterations=result.iterations,
             total_llm_calls=result.total_llm_calls,
             total_time_s=total_time,
-            keywords=result.keywords,
+            query_type=result.query_type,
+            selected_sections=result.selected_sections,
         )
 
     if return_references:
@@ -162,23 +171,30 @@ def get_answer(
 
 
 def init_artifacts(cfg: LlamaIndexConfig) -> tuple:
-    """Load models + index + retriever + reranker. Fail fast on any error."""
+    """Load models + indices + tree + retrievers + reranker."""
     from llama_index.core import Settings
-    from .models import build_llm, build_embed_model
+
     from .indexer import load_index
-    from .retriever import build_retriever, build_reranker
     from .logger import QueryLogger
+    from .models import build_embed_model, build_llm
+    from .retriever import build_reranker, build_section_retriever
 
     llm = build_llm(cfg)
     embed_model = build_embed_model(cfg)
     Settings.llm = llm
     Settings.embed_model = embed_model
 
-    index = load_index(cfg)
-    retriever = build_retriever(index, cfg)
+    leaf_index, section_index, tree = load_index(cfg)
+    section_retriever = build_section_retriever(section_index, cfg)
     reranker = build_reranker(cfg)
 
-    artifacts = {"llm": llm, "retriever": retriever, "reranker": reranker}
+    artifacts = {
+        "llm": llm,
+        "leaf_index": leaf_index,
+        "section_retriever": section_retriever,
+        "tree": tree,
+        "reranker": reranker,
+    }
     logger = QueryLogger(cfg)
 
     return artifacts, logger
@@ -188,8 +204,7 @@ def init_artifacts(cfg: LlamaIndexConfig) -> tuple:
 
 
 def run_chat_session(cfg: LlamaIndexConfig) -> None:
-    """Load artifacts once, then run the interactive chat loop."""
-    print("Initializing LlamaIndex pipeline...")
+    print("Initializing BookRAG pipeline...")
     artifacts, logger = init_artifacts(cfg)
     print("Initialization complete. Type 'exit' or 'quit' to end.\n")
 
@@ -214,7 +229,6 @@ def run_chat_session(cfg: LlamaIndexConfig) -> None:
 
 
 def run_query_mode(cfg: LlamaIndexConfig, question: str) -> None:
-    """Run a single query and exit."""
     artifacts, logger = init_artifacts(cfg)
     get_answer(question, cfg, artifacts, logger)
 

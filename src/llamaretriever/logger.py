@@ -1,5 +1,4 @@
-"""
-JSON query logger for the evidence-curation agent.
+"""JSON query logger for the BookRAG pipeline.
 
 Writes one pretty-printed .json file per session to logs/llamaretriever/<timestamp>.json
 """
@@ -15,7 +14,6 @@ from .config import LlamaIndexConfig
 
 
 class QueryLogger:
-    """Pretty-printed JSON logger for agent diagnostics."""
 
     def __init__(self, cfg: LlamaIndexConfig) -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -27,8 +25,8 @@ class QueryLogger:
                 "gen_model": cfg.gen_model,
                 "chunk_size": cfg.chunk_size,
                 "num_candidates": cfg.num_candidates,
-                "top_k": cfg.top_k,
-                "max_curate_steps": cfg.max_curate_steps,
+                "section_top_k": cfg.section_top_k,
+                "max_leaves": cfg.max_leaves,
                 "rerank_model": cfg.rerank_model if cfg.use_reranker else None,
             },
             "queries": [],
@@ -43,21 +41,21 @@ class QueryLogger:
         iterations: list[dict[str, Any]],
         total_llm_calls: int,
         total_time_s: float,
-        keywords: list[str] | None = None,
+        query_type: str = "",
+        selected_sections: list[str] | None = None,
     ) -> None:
-        """Log a single agent query with references, iterations, and timings."""
         entry: dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "question": question,
             "answer": answer,
+            "query_type": query_type,
+            "selected_sections": selected_sections or [],
             "num_references": len(references),
             "references": references,
             "total_llm_calls": total_llm_calls,
             "total_time_s": round(total_time_s, 3),
             "iterations": iterations,
         }
-        if keywords is not None:
-            entry["keywords"] = keywords
         self._data["queries"].append(entry)
         self._flush()
 

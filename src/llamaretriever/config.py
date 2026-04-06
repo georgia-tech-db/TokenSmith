@@ -1,8 +1,4 @@
-"""Configuration for the LlamaRetriever pipeline.
-
-Uses the same retrieval stack (vector + BM25 + RRF + reranker) with an
-iterative evidence-curation agent instead of single-shot generation.
-"""
+"""Configuration for the BookRAG-style retrieval pipeline."""
 
 from __future__ import annotations
 
@@ -36,13 +32,14 @@ class LlamaIndexConfig:
     chunk_size: int = 2000
     chunk_overlap: int = 200
 
-    # ── Contextual chunk enrichment ──────────────────────────────────────
-    enrich_chunks_with_context: bool = True
-    max_context_prefix_chars: int = 350
-
     # ── Retrieval ────────────────────────────────────────────────────────
     num_candidates: int = 50
     top_k: int = 5
+
+    # ── BookRAG section retrieval ────────────────────────────────────────
+    section_top_k: int = 5
+    section_summary_chars: int = 500
+    max_leaves: int = 20
 
     # ── Retrieval grading / filtering ────────────────────────────────────
     use_retrieval_grader: bool = True
@@ -51,12 +48,17 @@ class LlamaIndexConfig:
     retrieval_keep_at_least: int = 8
     retrieval_max_after_grade: int = 20
 
+    # ── Index-time LLM for KG extraction (never used at query time) ─────
+    # "none" = heuristic only, "local" = larger local GGUF, "openrouter" = API
+    index_llm_provider: str = "none"
+    index_llm_model: str = ""
+    index_llm_context_window: int = 16384
+    index_llm_max_tokens: int = 2048
+    index_llm_temperature: float = 0.1
+
     # ── Reranking ────────────────────────────────────────────────────────
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
     use_reranker: bool = True
-
-    # ── Agent ────────────────────────────────────────────────────────────
-    max_curate_steps: int = 3
 
     @classmethod
     def from_yaml(cls, path: os.PathLike) -> "LlamaIndexConfig":
@@ -68,3 +70,15 @@ class LlamaIndexConfig:
     def __post_init__(self) -> None:
         Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
         Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+
+    @property
+    def leaf_persist_dir(self) -> str:
+        return str(Path(self.persist_dir) / "leaf")
+
+    @property
+    def section_persist_dir(self) -> str:
+        return str(Path(self.persist_dir) / "section")
+
+    @property
+    def tree_path(self) -> str:
+        return str(Path(self.persist_dir) / "tree.json")
