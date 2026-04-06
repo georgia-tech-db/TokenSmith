@@ -1,7 +1,9 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
+
 import numpy as np
 
 class NpEncoder(json.JSONEncoder):
@@ -30,7 +32,8 @@ class RunLogger:
                       page_map: Dict[int, int], 
                       full_response: str,
                       top_k: int,
-                      additional_log_info: Optional[Dict[str, Any]] = None):
+                      additional_log_info: Optional[Dict[str, Any]] = None,
+                      workload_db_path: Optional[os.PathLike] = None):
         """Creates a unique JSON file for this specific chat request."""
         
         # timestamp for filename: 20240520_143005 (Sorts newest to bottom, 
@@ -92,6 +95,27 @@ class RunLogger:
         # Write as a single pretty-printed JSON file
         with open(log_file, "w", encoding="utf-8") as f:
             json.dump(log_data, f, ensure_ascii=False, indent=4, cls=NpEncoder)
+
+        if workload_db_path:
+            try:
+                from src.catalog.workload_store import record_chat_turn
+
+                record_chat_turn(
+                    Path(workload_db_path),
+                    query=query,
+                    config_state=config_state,
+                    chat_request_params=chat_request_params,
+                    top_idxs=top_idxs,
+                    chunks=chunks,
+                    sources=sources,
+                    ordered_scores=ordered_scores,
+                    page_map=page_map,
+                    full_response=full_response,
+                    top_k=top_k,
+                    additional_log_info=additional_log_info,
+                )
+            except Exception as exc:
+                print(f"Warning: SQLite workload log failed ({exc}). JSON log was written.")
 
 # Global Instance logic
 _INSTANCE = None
