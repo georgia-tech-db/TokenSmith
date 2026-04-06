@@ -1,0 +1,69 @@
+% GT 4423/6423 two-page project progress report (ACM SIG template on Overleaf recommended).
+% Same layout as proposal: 10pt, twocolumn, single-spaced.
+
+\documentclass[10pt,twocolumn]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{times}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlength{\parskip}{0.22em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{noitemsep, topsep=1pt, leftmargin=1.15em}
+
+\title{\vspace{-1.4em}Project Progress Report: SQLite Workload Store for TokenSmith\vspace{-0.45em}}
+\author{Kevin Song \\ Georgia Institute of Technology --- CS 6423}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.1em}
+
+\paragraph{Summary.}
+This report updates the proposed project to add an embedded SQLite \emph{workload store} to TokenSmith: each chat query is recorded with configuration metadata, the model response, and a normalized set of retrieval hits (chunk index, rank, score, source path, page number, text preview). The vector index (FAISS) and existing JSON logs are unchanged; SQLite is an optional, transactional append path enabled via configuration.
+
+\paragraph{Proposal goals and status.}
+Table~\ref{tab:goals} maps the original 75\%/100\%/125\% goals to current progress. Work so far concentrates on the 75\% tier: schema, write path, basic analytics examples, and unit tests.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}p{0.42\linewidth}p{0.48\linewidth}@{}}
+\hline
+Goal tier & Status \\
+\hline
+75\%: schema, transactional query/hit logging, SQL examples, parity tests &
+\textbf{Completed:} schema, logging integration, example SQL, tests for normalization and integrity. \textbf{Not yet:} end-to-end golden parity vs.\ full chat pipeline. \\
+100\%: load chunk metadata from SQLite at startup (pickle fallback), README/eval numbers &
+\textbf{Not started} (next milestone). \\
+125\%: incremental catalog API and rebuild-diff queries &
+\textbf{Not started} (stretch). \\
+\hline
+\end{tabular}
+\vspace{-0.5em}
+\caption{Goal tiers vs.\ implementation status (mid-project).}
+\label{tab:goals}
+\vspace{-0.8em}
+\end{table}
+
+\paragraph{Subtasks completed (concrete).}
+\begin{itemize}
+  \item \textbf{Relational schema.} Implemented tables \texttt{queries} (timestamp, query text, JSON config snapshot, request parameters, \texttt{top\_k}, full response, optional additional JSON) and \texttt{retrieval\_hits} (foreign key to \texttt{queries}, rank, \texttt{chunk\_idx}, score, source path, page number, text preview). Added indexes on \texttt{queries(created\_at)} and \texttt{retrieval\_hits(chunk\_idx)} for analytics. Foreign keys are enabled per connection (\texttt{PRAGMA foreign\_keys=ON}).
+  \item \textbf{Idempotent initialization.} \texttt{init\_db} creates parent directories and applies \texttt{CREATE TABLE IF NOT EXISTS} so repeated runs are safe (no duplicate-schema errors).
+  \item \textbf{Hit normalization.} Chat logging historically passes either the full chunk corpus or pre-sliced chunk lists depending on CLI vs.\ API. \texttt{normalize\_retrieval\_hits} resolves both conventions so stored rows always reference true corpus indices and previews.
+  \item \textbf{Page metadata.} TokenSmith's \texttt{get\_page\_numbers} returns lists of pages per chunk; the store coerces the first page to an integer for the workload row (consistent with downstream analytics).
+  \item \textbf{Application wiring.} Extended \texttt{RAGConfig} with optional \texttt{workload\_db\_path}. \texttt{RunLogger.save\_chat\_log} writes JSON as before, then optionally appends one transaction to SQLite; failures print a warning without breaking the user-facing path. Integrated from CLI chat (\texttt{src/main.py}) and the FastAPI server (\texttt{src/api\_server.py}).
+  \item \textbf{Analytics examples.} Added \texttt{scripts/workload\_analytics.sql} with commented templates for recent queries, top retrieved chunk ids, and per-query hit counts.
+  \item \textbf{Unit tests.} New tests verify normalization equivalence (corpus vs.\ sliced), foreign-key consistency after insert, JSON round-trip fields, and idempotent \texttt{init\_db}. Run: \texttt{pytest tests/test\_workload\_store.py --output-mode terminal} (terminal mode avoids optional HTML report dependencies in this environment).
+\end{itemize}
+
+\paragraph{Timeline for remaining work.}
+\textbf{Short term:} add an integration or golden test that replays a small fixed prompt set against a checked-in or generated tiny index and asserts stored \texttt{chunk\_idx} and previews match the pre-SQLite behavior. \textbf{Medium term (100\%):} optional dual-write of chunk metadata at index-build time and read path from SQLite with pickle fallback. \textbf{Stretch:} incremental catalog updates aligned with FAISS row ids.
+
+\paragraph{Evaluation plan (sketch).}
+Compare (1) wall-clock overhead of chat with SQLite enabled vs.\ JSON-only logging on a fixed prompt batch; (2) on-disk size of the \texttt{.db} file vs.\ cumulative JSON logs; (3) wall-clock time for the example aggregate queries in \texttt{workload\_analytics.sql} as the database grows.
+
+\paragraph{Related work (brief).}
+RAG systems routinely separate vector indexes from document stores; embedding operational workloads in SQLite follows common ``embedded analytics'' practice for single-user and edge deployments. TokenSmith's existing pickles and JSON logs mirror many research prototypes; the workload store makes that state queryable without replacing FAISS or the generation stack.
+
+\end{document}
