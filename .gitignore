@@ -32,6 +32,7 @@ data/
 *.faiss
 *.pkl
 index/cache/
+index/llamaindex/
 
 # --- Model files ---
 models/
