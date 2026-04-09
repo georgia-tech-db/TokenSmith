@@ -9,7 +9,12 @@ from typing import Optional
 import networkx as nx
 
 from src.knowledge_graph.models import Chunk
-from src.knowledge_graph.utils import HEADING_PATTERN, KW_PATTERN, Normalizer, extract_ngrams
+from src.knowledge_graph.utils import (
+    HEADING_PATTERN,
+    KW_PATTERN,
+    Normalizer,
+    extract_ngrams,
+)
 
 _NUMBER_RE = re.compile(r"(\d+(?:\.\d+)*)")
 
@@ -32,7 +37,7 @@ def _parent_number(number: str) -> str | None:
     return ".".join(parts[:-1]) if len(parts) > 1 else None
 
 
-def _build_heading_keywords(heading: str, normalizer: Normalizer) -> set[str]:
+def _build_heading_keywords(heading: str) -> set[str]:
     """Tokenize a section heading into a normalized keyword set.
 
     Strips the section number and "Section"/"Chapter" prefixes, then
@@ -41,16 +46,16 @@ def _build_heading_keywords(heading: str, normalizer: Normalizer) -> set[str]:
     """
     text = _NUMBER_RE.sub("", heading)
     text = _HEADING_PREFIX_RE.sub("", text).strip()
-    return extract_ngrams(text, HEADING_PATTERN, normalizer)
+    return extract_ngrams(text, HEADING_PATTERN)
 
 
-def _tokenize_query(query: str, normalizer: Normalizer) -> set[str]:
+def _tokenize_query(query: str) -> set[str]:
     """Extract normalized unigrams, bigrams, and trigrams from a raw query.
 
     Unlike ``extract_query_nodes``, this does **not** filter against the KG
     graph — all normalized query tokens are returned.
     """
-    return extract_ngrams(query, KW_PATTERN, normalizer)
+    return extract_ngrams(query, KW_PATTERN)
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -58,10 +63,10 @@ def _tokenize_query(query: str, normalizer: Normalizer) -> set[str]:
 
 @dataclass
 class SectionNode:
-    heading: str                              # e.g. "Section 13.1 Physical Storage Media"
-    level: int                                # 1 = chapter, 2 = section, 3 = subsection
-    chapter: int                              # e.g. 13
-    section_number: str                       # e.g. "13.1"
+    heading: str  # e.g. "Section 13.1 Physical Storage Media"
+    level: int  # 1 = chapter, 2 = section, 3 = subsection
+    chapter: int  # e.g. 13
+    section_number: str  # e.g. "13.1"
     chunk_ids: list[int] = field(default_factory=list)
     keyword_set: set[str] = field(default_factory=set)
     children: list[SectionNode] = field(default_factory=list)
@@ -74,9 +79,11 @@ class SectionTree:
 
     def __init__(self, root: SectionNode) -> None:
         self.root = root
-        self.node_index: dict[str, SectionNode] = {}        # heading → node
-        self._number_index: dict[str, SectionNode] = {}     # section_number → node
-        self.chunk_to_sections: dict[int, list[SectionNode]] = {}  # chunk_id → leaf nodes
+        self.node_index: dict[str, SectionNode] = {}  # heading → node
+        self._number_index: dict[str, SectionNode] = {}  # section_number → node
+        self.chunk_to_sections: dict[
+            int, list[SectionNode]
+        ] = {}  # chunk_id → leaf nodes
 
     # ── Index helpers ─────────────────────────────────────────────────────────
 
@@ -178,7 +185,7 @@ class SectionTree:
         query_tokens: set[str] = set()
         if query is not None:
             normalizer = Normalizer()
-            query_tokens = _tokenize_query(query, normalizer)
+            query_tokens = _tokenize_query(query)
 
         # ── Step 1: Compute own score for every node ──────────────────────────
         own_scores: dict[str, float] = {}
@@ -187,7 +194,9 @@ class SectionTree:
 
             if query_tokens and node.heading_keywords:
                 heading_score = self._score_section_heading(node, query_tokens, alpha)
-                own_scores[heading] = heading_alpha * heading_score + (1 - heading_alpha) * kg_score
+                own_scores[heading] = (
+                    heading_alpha * heading_score + (1 - heading_alpha) * kg_score
+                )
             else:
                 own_scores[heading] = kg_score
 
@@ -359,12 +368,13 @@ def build_section_tree(
     # ── Step 6: Extract heading keywords for each section ─────────────────────
     normalizer = Normalizer()
     for node in seen.values():
-        node.heading_keywords = _build_heading_keywords(node.heading, normalizer)
+        node.heading_keywords = _build_heading_keywords(node.heading)
 
     return tree
 
 
 # ── Persist / load ────────────────────────────────────────────────────────────
+
 
 def save_section_tree(tree: SectionTree, run_dir: str) -> str:
     """Serialize *tree* to ``section_tree.json`` inside *run_dir*.

@@ -1,5 +1,6 @@
 import logging
 
+import faiss
 import networkx as nx
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
@@ -67,7 +68,9 @@ class CanonicalLookup:
         sims = cos_sim(emb, self.canonical_embeddings)[0]
         best_idx = int(np.argmax(sims))
         if sims[best_idx] >= self.fallback_threshold:
-            return self.canonical_keywords[best_idx]
+            synonym = self.canonical_keywords[best_idx]
+            print(f"Embedding fallback: '{keyword}' → '{synonym}' (sim={sims[best_idx]:.4f})")
+            return synonym
 
         return keyword
 
@@ -110,28 +113,27 @@ def extract_query_nodes(
         resolved = set(normalized_terms)
 
     matched = [t for t in resolved if graph.has_node(t)]
-    return [
+    filtered = [
         n for n in matched
         if not any(n != m and _tokens_subsumed(n, m) for m in matched)
     ]
+    return filtered
 
 
-class KGRetriever(Retriever):
-    """Knowledge-graph retriever compatible with the RAG ``EnsembleRanker``.
+class KGNodeRetriever(Retriever):
+    """Knowledge-graph retriever that scores chunks via BFS node matching.
 
-    Implements the duck-typed interface (``name`` attribute + ``get_scores``
-    method) so it can be slotted into the retrievers list without changes to
-    the ranking logic.
+    Scores are derived purely from graph topology: direct query-node matches
+    score +1.0, and neighbors at hop *k* contribute
+    ``neighbor_weight**k * (edge_weight / max_edge_weight)``.
+    All scores are normalized to [0, 1].
 
-    When a ``section_tree`` is provided, the final chunk score is a weighted
-    blend of the local node-match score and the global section-level score::
-
-        combined = beta * section_score + (1 - beta) * node_score
-
-    Set ``beta = 0.0`` to disable section scoring (pure node-match).
+    Plugs into ``EnsembleRanker`` via the standard ``Retriever`` interface.
+    Combine with ``SectionTreeRetriever`` (and others) in the ensemble to
+    blend complementary signals.
     """
 
-    name = "kg"
+    name = "kg_node"
 
     def __init__(
         self,
@@ -139,27 +141,16 @@ class KGRetriever(Retriever):
         kg_chunks: dict[int, str],
         neighbor_weight: float = 0.5,
         num_hops: int = 1,
-        section_tree: SectionTree | None = None,
-        beta: float = 0.5,
-        heading_alpha: float = 0.5,
-        inheritance_decay: float = 0.5,
         canonical_lookup: CanonicalLookup | None = None,
     ):
         self.graph = graph
         self.kg_chunks = kg_chunks
         self.neighbor_weight = neighbor_weight
         self.num_hops = num_hops
-        self.section_tree = section_tree
-        self.beta = beta
-        self.heading_alpha = heading_alpha
-        self.inheritance_decay = inheritance_decay
         self.canonical_lookup = canonical_lookup
 
     def get_scores(self, query: str, pool_size: int, chunks: list) -> dict[int, float]:
-        """Return KG-based relevance scores keyed by global chunk index.
-
-        If a section tree was provided at construction time, blends local
-        node-match scores with global section-level scores.
+        """Return BFS-based relevance scores keyed by global chunk index.
 
         Args:
             query:     Natural-language query string.
@@ -167,74 +158,8 @@ class KGRetriever(Retriever):
             chunks:    The RAG pipeline's chunk list (used only for length).
 
         Returns:
-            ``Dict[chunk_id, score]`` with scores normalized to [0, 1].
+            ``Dict[chunk_id, score]`` normalized to [0, 1].
             Returns an empty dict if no query nodes match the graph.
-        """
-        results = self.retrieve_from_kg(
-            query,
-            top_k=pool_size
-        )
-        node_scores: dict[int, float] = {
-            cid: score for cid, _, score in results}
-
-        if self.section_tree is None or self.beta == 0.0:
-            return node_scores
-
-        query_keywords = set(extract_query_nodes(
-            query, self.graph, self.canonical_lookup))
-
-        section_scores = self.section_tree.get_chunk_scores(
-            query_keywords,
-            query=query,
-            heading_alpha=self.heading_alpha,
-            inheritance_decay=self.inheritance_decay,
-        )
-
-        if not section_scores:
-            return node_scores
-
-        all_ids = set(node_scores) | set(section_scores)
-        combined: dict[int, float] = {
-            cid: self.beta * section_scores.get(cid, 0.0)
-            + (1 - self.beta) * node_scores.get(cid, 0.0)
-            for cid in all_ids
-        }
-
-        max_score = max(combined.values(), default=0.0)
-        if max_score > 0:
-            combined = {cid: v / max_score for cid, v in combined.items()}
-
-        heading_mode = "hybrid" if query is not None else "kg-only"
-        logger.debug(
-            "Section blending (%s): beta=%s, %d section-scored, %d node-scored → %d combined",
-            heading_mode, self.beta, len(section_scores), len(
-                node_scores), len(combined),
-        )
-        return combined
-
-    def retrieve_from_kg(self, query: str, top_k: int = 10) -> list[tuple[int, str, float]]:
-        """Retrieve and rank chunks relevant to *query* via the knowledge graph.
-
-        Scoring:
-        - Each chunk referenced by a directly-matched query node receives +1.0.
-        - Each chunk referenced by a node at hop *k* contributes
-        ``neighbor_weight**k * (edge_weight / max_edge_weight)``.
-        - Each node is scored only once, at the shortest hop distance from any
-        matched query node (BFS order), so ``neighbor_weight`` acts as a
-        geometric decay per hop.
-        - All scores are normalized to [0, 1] before ranking.
-
-        Args:
-            query:           Natural-language query string.
-            graph:           Knowledge graph produced by the KG pipeline.
-            chunks:          Mapping of chunk ID to chunk text.
-            top_k:           Maximum number of results to return.
-            neighbor_weight: Per-hop decay factor (0–1) for neighbor contributions.
-            num_hops:        Number of hops to traverse from matched query nodes.
-
-        Returns:
-            List of ``(chunk_id, chunk_text, score)`` tuples sorted descending.
-            Returns an empty list if no query nodes are matched.
         """
         query_nodes = extract_query_nodes(
             query, self.graph, self.canonical_lookup)
@@ -243,7 +168,7 @@ class KGRetriever(Retriever):
                      len(query_nodes), query_nodes)
         if not query_nodes:
             logger.debug("No query nodes matched — returning empty.")
-            return []
+            return {}
 
         max_edge_weight = max(
             (data["weight"] for _, _, data in self.graph.edges(data=True)),
@@ -256,11 +181,7 @@ class KGRetriever(Retriever):
 
         # Hop 0: directly matched query nodes
         for node in query_nodes:
-            node_data = self.graph.nodes[node]
-            direct_chunks = node_data.get("chunk_ids", [])
-            logger.debug("  Node %r (hop=0): chunk_ids=%s",
-                         node, direct_chunks)
-            for chunk_id in direct_chunks:
+            for chunk_id in self.graph.nodes[node].get("chunk_ids", []):
                 scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0
 
         # BFS over hops 1..num_hops; each node is visited only at its closest hop
@@ -277,58 +198,88 @@ class KGRetriever(Retriever):
                     next_frontier.add(neighbor)
                     edge_weight = self.graph[node][neighbor].get("weight", 1)
                     contribution = decay * (edge_weight / max_edge_weight)
-                    neighbor_chunks = self.graph.nodes[neighbor].get(
-                        "chunk_ids", [])
-                    logger.debug(
-                        "    Neighbor %r (hop=%d): edge_weight=%s, contribution=%.4f, chunk_ids=%s",
-                        neighbor, hop, edge_weight, contribution, neighbor_chunks,
-                    )
-                    for chunk_id in neighbor_chunks:
+                    for chunk_id in self.graph.nodes[neighbor].get("chunk_ids", []):
                         scores[chunk_id] = scores.get(
                             chunk_id, 0.0) + contribution
             visited |= next_frontier
             frontier = next_frontier
-            logger.debug("  Hop %d: %d new node(s) explored.",
+            logger.debug("Hop %d: %d new node(s) explored.",
                          hop, len(next_frontier))
             if not frontier:
                 break
 
-        logger.debug(
-            "Raw scores (%d chunks): %s",
-            len(scores),
-            dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)),
-        )
-
         if not scores:
             logger.debug("No chunks scored — returning empty.")
-            return []
+            return {}
 
         max_score = max(scores.values())
         if max_score <= 0:
             logger.debug("Max score is %s — returning empty.", max_score)
-            return []
+            return {}
 
         normalized = {cid: s / max_score for cid, s in scores.items()}
         logger.debug(
             "Normalized scores: %s",
             dict(sorted(normalized.items(), key=lambda x: x[1], reverse=True)),
         )
+        return normalized
 
-        results = [
-            (chunk_id, self.kg_chunks[chunk_id], score)
-            for chunk_id, score in normalized.items()
-            if chunk_id in self.kg_chunks
-        ]
-        results.sort(key=lambda x: x[2], reverse=True)
-        logger.debug("Returning top %d of %d scored chunks.",
-                     min(top_k, len(results)), len(results))
-        return results[:top_k]
+
+class SectionTreeRetriever(Retriever):
+    """Retriever that scores chunks based on section-heading relevance.
+
+    Uses ``SectionTree.get_chunk_scores`` which blends:
+    - Heading keyword overlap (structural signal).
+    - KG keyword overlap aggregated from the graph (lexical signal).
+    - Top-down score inheritance from parent sections to children.
+
+    Plugs into ``EnsembleRanker`` via the standard ``Retriever`` interface.
+    Combine with ``KGNodeRetriever`` (and others) in the ensemble to blend
+    complementary signals.
+    """
+
+    name = "section_tree"
+
+    def __init__(
+        self,
+        section_tree: SectionTree,
+        graph: nx.Graph,
+        canonical_lookup: CanonicalLookup | None = None,
+        heading_alpha: float = 0.5,
+        inheritance_decay: float = 0.5,
+    ):
+        self.section_tree = section_tree
+        self.graph = graph
+        self.canonical_lookup = canonical_lookup
+        self.heading_alpha = heading_alpha
+        self.inheritance_decay = inheritance_decay
+
+    def get_scores(self, query: str, pool_size: int, chunks: list) -> dict[int, float]:
+        """Return section-relevance scores keyed by global chunk index.
+
+        Args:
+            query:     Natural-language query string.
+            pool_size: Maximum number of chunks to return scores for.
+            chunks:    The RAG pipeline's chunk list (unused; present for interface compat).
+
+        Returns:
+            ``Dict[chunk_id, score]`` normalized to [0, 1].
+        """
+        query_keywords = set(extract_query_nodes(
+            query, self.graph, self.canonical_lookup))
+        return self.section_tree.get_chunk_scores(
+            query_keywords,
+            query=query,
+            heading_alpha=self.heading_alpha,
+            inheritance_decay=self.inheritance_decay,
+        )
+
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Test the KG retriever.")
+    parser = argparse.ArgumentParser(description="Test the KG node retriever.")
     parser.add_argument(
         "output_dir",
         nargs="?",
@@ -342,12 +293,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     _graph, _chunks = load_graph_and_chunks(args.output_dir)
-    _retriever = KGRetriever(
+    _retriever = KGNodeRetriever(
         _graph, _chunks,
         neighbor_weight=args.neighbor_weight,
         num_hops=args.num_hops,
     )
-    _results = _retriever.retrieve(args.query, top_k=args.top_k)
+    _scores = _retriever.get_scores(
+        args.query, args.top_k, list(_chunks.values()))
+    _results = sorted(
+        [(cid, _chunks[cid], score)
+         for cid, score in _scores.items() if cid in _chunks],
+        key=lambda x: x[2], reverse=True,
+    )[:args.top_k]
 
     print(f"\nTop {len(_results)} results for query: {args.query!r}\n")
     for i, (chunk_id, chunk_text, score) in enumerate(_results, 1):
