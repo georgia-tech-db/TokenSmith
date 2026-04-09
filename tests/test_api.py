@@ -493,13 +493,20 @@ class TestRerankerAPI:
     """Tests for reranker module API contracts."""
     
     def test_rerank_passthrough(self):
-        """rerank returns chunks unchanged for unknown modes."""
+        """rerank returns indexed chunks unchanged for unknown modes."""
         from src.ranking.reranker import rerank
-        
-        chunks = ["chunk1", "chunk2", "chunk3"]
-        result = rerank("query", chunks, mode="", top_n=3)
-        
-        assert result == chunks
+
+        # New interface: List[Tuple[int, str]]
+        indexed_chunks = [(0, "chunk1"), (1, "chunk2"), (2, "chunk3")]
+        result = rerank("query", indexed_chunks, mode="", top_n=3)
+
+        # Returns List[Tuple[int, str, float]] — index, text, score
+        assert isinstance(result, list)
+        assert len(result) == 3
+        result_idxs  = [r[0] for r in result]
+        result_texts = [r[1] for r in result]
+        assert result_idxs  == [0, 1, 2]
+        assert result_texts == ["chunk1", "chunk2", "chunk3"]
     
     def test_rerank_empty_chunks(self):
         """rerank handles empty chunks."""
@@ -512,15 +519,22 @@ class TestRerankerAPI:
     def test_rerank_cross_encoder_interface(self, mock_get_ce):
         """rerank_with_cross_encoder uses CrossEncoder correctly."""
         from src.ranking.reranker import rerank_with_cross_encoder
-        
+
         mock_model = Mock()
         mock_model.predict = Mock(return_value=np.array([0.9, 0.5, 0.7]))
         mock_get_ce.return_value = mock_model
-        
-        chunks = ["chunk1", "chunk2", "chunk3"]
-        result = rerank_with_cross_encoder("query", chunks, top_n=2)
-        
+
+        # New interface: List[Tuple[int, str]]
+        indexed_chunks = [(0, "chunk1"), (1, "chunk2"), (2, "chunk3")]
+        result = rerank_with_cross_encoder("query", indexed_chunks, top_n=2)
+
         assert isinstance(result, list)
+        assert len(result) == 2
+        # Each entry is (idx, text, cross_encoder_score)
+        assert all(len(r) == 3 for r in result)
+        # Top 2 by score: chunk1 (0.9) and chunk3 (0.7)
+        result_texts = [r[1] for r in result]
+        assert result_texts == ["chunk1", "chunk3"]
         mock_model.predict.assert_called_once()
 
 

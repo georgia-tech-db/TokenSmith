@@ -107,149 +107,181 @@ def get_answer(
     is_test_mode: bool = False,
     additional_log_info: Optional[Dict[str, Any]] = None
 ) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
-    """
-    Run a single query through the pipeline.
-    """    
+    """Run a single query through the pipeline."""
+
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
-    # Ensure these locals exist for all control flows to avoid UnboundLocalError
+
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
-    scores = []
-    
-    # Step 1: Get chunks (golden, retrieved, or none)
-    chunks_info = None
+    scores: List[float] = []
+    chunk_diagnostics: Dict[int, Dict[str, Any]] = {}
     hyde_query = None
+    chunks_info = None
+
+    # Step 1: Get chunks
     if golden_chunks and cfg.use_golden_chunks:
-        # Use provided golden chunks
         ranked_chunks = golden_chunks
+
     elif cfg.disable_chunks:
-        # No chunks - baseline mode
         ranked_chunks = []
+
     elif cfg.use_indexed_chunks:
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
+
     else:
         retrieval_query = question
-        # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
-            retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
+            retrieval_query = generate_hypothetical_document(
+                question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens
+            )
+            hyde_query = retrieval_query
+
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
+
+        # Step 1a: Per-retriever raw scores
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
+            raw_scores[retriever.name] = retriever.get_scores(
+                retrieval_query, pool_n, chunks
+            )
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
-        # Step 2: Ranking
+        # Step 2: Fusion ranking
         ordered, scores = ranker.rank(raw_scores=raw_scores)
-        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
-        ranked_chunks = [chunks[i] for i in topk_idxs]
-        # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
-        # print("Len Ranked chunks:", len(ranked_chunks))
-        # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
-        
-        
-        # Capture chunk info if in test mode
-        if is_test_mode:
-            # Compute individual ranker ranks
-            faiss_scores = raw_scores.get("faiss", {})
-            bm25_scores = raw_scores.get("bm25", {})
-            index_scores = raw_scores.get("index_keywords", {})
-            
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
-            index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
-            
-            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
-            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
-            index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
-            
-            chunks_info = []
-            for rank, idx in enumerate(topk_idxs, 1):
-                chunks_info.append({
-                    "rank": rank,
-                    "chunk_id": idx,
-                    "content": chunks[idx],
-                    "faiss_score": faiss_scores.get(idx, 0),
-                    "faiss_rank": faiss_ranks.get(idx, 0),
-                    "bm25_score": bm25_scores.get(idx, 0),
-                    "bm25_rank": bm25_ranks.get(idx, 0),
-                    "index_score": index_scores.get(idx, 0),
-                    "index_rank": index_ranks.get(idx, 0),
-                })
 
-        # Step 3: Final re-ranking
-        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
-        # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
-        # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
+        # Post-fusion rank lookup: chunk_idx -> 1-based rank in fused ordering
+        post_fusion_ranks = {idx: rank + 1 for rank, idx in enumerate(ordered)}
+
+        # Step 3: Filter to top-k
+        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+
+        # Step 4: Build per-retriever rank lookups for diagnostics
+        faiss_scores = raw_scores.get("faiss", {})
+        bm25_scores  = raw_scores.get("bm25", {})
+
+        faiss_ranked = sorted(faiss_scores, key=lambda i: faiss_scores[i], reverse=True)
+        bm25_ranked  = sorted(bm25_scores,  key=lambda i: bm25_scores[i],  reverse=True)
+
+        faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
+        bm25_ranks  = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+
+        # Build diagnostics dict for each top-k chunk (pre-reranking)
+        for idx in topk_idxs:
+            chunk_diagnostics[idx] = {
+                "faiss_score":         faiss_scores.get(idx, None),
+                "faiss_rank":          faiss_ranks.get(idx, None),
+                "bm25_score":          bm25_scores.get(idx, None),
+                "bm25_rank":           bm25_ranks.get(idx, None),
+                "post_fusion_rank":    post_fusion_ranks.get(idx, None),
+                # Filled in after reranking below
+                "post_reranking_rank": None,
+                "cross_encoder_score": None,
+            }
+
+        # Step 5: Reranking — pass (idx, text) pairs so indices survive
+        indexed_chunks = [(idx, chunks[idx]) for idx in topk_idxs]
+        reranked = rerank(
+            question,
+            indexed_chunks,
+            mode=cfg.rerank_mode,
+            top_n=cfg.rerank_top_k,
+        )
+        # reranked is List[Tuple[int, str, float]]: (idx, text, cross_encoder_score)
+
+        # Rebuild topk_idxs and ranked_chunks in reranked order
+        topk_idxs    = [idx for idx, _, _ in reranked]
+        ranked_chunks = [(text, ce_score) for _, text, ce_score in reranked]
+
+        # Fill in post-reranking rank and cross-encoder score
+        for rerank_rank, (idx, _, ce_score) in enumerate(reranked, start=1):
+            if idx in chunk_diagnostics:
+                chunk_diagnostics[idx]["post_reranking_rank"] = rerank_rank
+                chunk_diagnostics[idx]["cross_encoder_score"] = ce_score
+
+        # For test mode
+        if is_test_mode:
+            chunks_info = []
+            for rerank_rank, (idx, text, ce_score) in enumerate(reranked, start=1):
+                diag = chunk_diagnostics.get(idx, {})
+                chunks_info.append({
+                    "rank":                rerank_rank,
+                    "chunk_id":            idx,
+                    "content":             text,
+                    "faiss_score":         diag.get("faiss_score"),
+                    "faiss_rank":          diag.get("faiss_rank"),
+                    "bm25_score":          diag.get("bm25_score"),
+                    "bm25_rank":           diag.get("bm25_rank"),
+                    "post_fusion_rank":    diag.get("post_fusion_rank"),
+                    "post_reranking_rank": rerank_rank,
+                    "cross_encoder_score": ce_score,
+                })
 
     if not ranked_chunks and not cfg.disable_chunks:
         if console:
             console.print(f"\n{ANSWER_NOT_FOUND}\n")
         return ANSWER_NOT_FOUND
 
-    # Step 4: Generation
+    # Step 6: Generation
     model_path = cfg.gen_model
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-
     use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
 
     if use_double:
         stream_iter = double_answer(
-            question,
-            ranked_chunks,
-            model_path,
+            question, ranked_chunks, model_path,
             max_tokens=cfg.max_gen_tokens,
             system_prompt_mode=system_prompt,
         )
     else:
         stream_iter = answer(
-            question,
-            ranked_chunks,
-            model_path,
+            question, ranked_chunks, model_path,
             max_tokens=cfg.max_gen_tokens,
             system_prompt_mode=system_prompt,
         )
 
     if is_test_mode:
-        # We do not render MD in the test mode
         ans = ""
         for delta in stream_iter:
             ans += delta
         ans = dedupe_generated_text(ans)
         return ans, chunks_info, hyde_query
-    else:
-        # Accumulate the full text while rendering incremental Markdown chunks
-        ans = render_streaming_ans(console, stream_iter)
 
-        # Logging
-        meta = artifacts.get("meta", [])
-        page_nums = get_page_numbers(topk_idxs, meta)
-        logger.save_chat_log(
-            query=question,
-            config_state=cfg.get_config_state(),
-            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
-            chat_request_params={
-                "system_prompt": system_prompt,
-                "max_tokens": cfg.max_gen_tokens
-            },
-            top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
-            page_map=page_nums,
-            full_response=ans,
-            top_k=len(topk_idxs),
-            additional_log_info=additional_log_info
-        )
-        return ans
+    # Step 7: Render + log
+    ans = render_streaming_ans(console, stream_iter)
+
+    meta = artifacts.get("meta", [])
+    page_nums = get_page_numbers(topk_idxs, meta)
+
+    # Build aligned lists for the logger (post-reranking order)
+    top_chunks_text = [chunks[i] for i in topk_idxs]
+    top_sources     = [sources[i] for i in topk_idxs]
+    top_scores      = [
+        scores[ordered.index(i)] if i in ordered else 0.0
+        for i in topk_idxs
+    ]
+
+    logger.save_chat_log(
+        query=question,
+        config_state=cfg.get_config_state(),
+        ordered_scores=top_scores,
+        chat_request_params={
+            "system_prompt": system_prompt,
+            "max_tokens": cfg.max_gen_tokens,
+        },
+        top_idxs=topk_idxs,
+        chunks=top_chunks_text,
+        sources=top_sources,
+        page_map=page_nums,
+        full_response=ans,
+        top_k=len(topk_idxs),
+        chunk_diagnostics=chunk_diagnostics,
+        additional_log_info=additional_log_info,
+    )
+
+    return ans
+
 
 def render_streaming_ans(console, stream_iter):
     ans = ""
