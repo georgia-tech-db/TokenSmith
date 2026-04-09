@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+import nltk
+from sentence_transformers import SentenceTransformer, util
+
+try:
+    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
 
 # -------------------------- Chunking Configs --------------------------
 
@@ -28,6 +37,18 @@ class SectionRecursiveConfig(ChunkConfig):
     def validate(self):
         assert self.recursive_chunk_size > 0, "recursive_chunk_size must be > 0"
         assert self.recursive_overlap >= 0, "recursive_overlap must be >= 0"
+
+@dataclass
+class SemanticBoundaryConfig(ChunkConfig):
+    """Configuration for NLP-driven semantic chunking."""
+    similarity_threshold: float = 0.5
+    min_chunk_size: int = 100  # Prevent absurdly small chunks
+    
+    def to_string(self) -> str:
+        return f"chunk_mode=semantic_boundary, threshold={self.similarity_threshold}"
+
+    def validate(self):
+        assert 0.0 < self.similarity_threshold < 1.0, "Threshold must be between 0 and 1"
 
 # -------------------------- Chunking Strategies --------------------------
 
@@ -73,6 +94,51 @@ class SectionRecursiveStrategy(ChunkStrategy):
             separators=[". "]
         )
         return splitter.split_text(text)
+
+class SemanticBoundaryStrategy(ChunkStrategy):
+    """
+    Applies semantic boundary splitting using sentence embeddings.
+    """
+    def __init__(self, config: SemanticBoundaryConfig):
+        self.config = config
+        self.threshold = config.similarity_threshold
+        self.min_chunk_size = config.min_chunk_size
+        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+
+    def name(self) -> str:
+        return f"semantic_boundary({self.threshold})"
+
+    def artifact_folder_name(self) -> str:
+        return "semantic_sections"
+
+    def chunk(self, text: str) -> List[str]:
+        if not text.strip():
+            return []
+
+        sentences = nltk.sent_tokenize(text)
+        if len(sentences) <= 1:
+            return [text]
+
+        embeddings = self.encoder.encode(sentences, convert_to_tensor=True)
+        chunks = []
+        current_chunk_sentences = [sentences[0]]
+        current_chunk_length = len(sentences[0])
+
+        for i in range(1, len(sentences)):
+            sim_score = util.cos_sim(embeddings[i-1], embeddings[i]).item()
+
+            if sim_score < self.threshold and current_chunk_length >= self.min_chunk_size:
+                chunks.append(" ".join(current_chunk_sentences))
+                current_chunk_sentences = [sentences[i]]
+                current_chunk_length = len(sentences[i])
+            else:
+                current_chunk_sentences.append(sentences[i])
+                current_chunk_length += len(sentences[i])
+
+        if current_chunk_sentences:
+            chunks.append(" ".join(current_chunk_sentences))
+
+        return chunks
 
 # ----------------------------- Document Chunker ---------------------------------
 

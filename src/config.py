@@ -7,7 +7,7 @@ from typing import Dict
 import yaml
 import pathlib
 
-from src.preprocessing.chunking import ChunkStrategy, SectionRecursiveStrategy, SectionRecursiveConfig, ChunkConfig
+from src.preprocessing.chunking import ChunkStrategy, SectionRecursiveStrategy, SectionRecursiveConfig, ChunkConfig, SemanticBoundaryStrategy, SemanticBoundaryConfig
 
 @dataclass
 class RAGConfig:
@@ -16,6 +16,7 @@ class RAGConfig:
     chunk_mode: str = "recursive_sections"
     chunk_size: int = 2000
     chunk_overlap: int = 200
+    semantic_threshold: float = 0.55
 
     # retrieval + ranking
     top_k: int = 10
@@ -84,12 +85,18 @@ class RAGConfig:
                 recursive_chunk_size=self.chunk_size,
                 recursive_overlap=self.chunk_overlap
             )
+        elif self.chunk_mode == "semantic_boundary":
+            return SemanticBoundaryConfig(
+                similarity_threshold=self.semantic_threshold
+            )
         else:
-            raise ValueError(f"Unknown chunk_mode: {self.chunk_mode}. Supported: recursive_sections")
+            raise ValueError(f"Unknown chunk_mode: {self.chunk_mode}. Supported: recursive_sections, semantic_boundary")
 
     def get_chunk_strategy(self) -> ChunkStrategy:
         if isinstance(self.chunk_config, SectionRecursiveConfig):
             return SectionRecursiveStrategy(self.chunk_config)
+        elif isinstance(self.chunk_config, SemanticBoundaryConfig):
+            return SemanticBoundaryStrategy(self.chunk_config)
         raise ValueError(f"Unknown chunk config type: {self.chunk_config.__class__.__name__}")
 
     def get_artifacts_directory(self) -> os.PathLike:

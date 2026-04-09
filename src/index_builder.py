@@ -196,7 +196,7 @@ def build_index(
         # Standard single-process embedding
         embeddings = embedder.encode(
             all_chunks, 
-            batch_size=8, 
+            batch_size=1, 
             show_progress_bar=True,
             convert_to_numpy=True 
         )

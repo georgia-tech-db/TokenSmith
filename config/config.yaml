@@ -5,7 +5,8 @@ ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
 rrf_k: 60
 max_gen_tokens: 400
-chunk_mode : "recursive_sections"
+chunk_mode: "semantic_boundary"
+semantic_threshold: 0.55
 gen_model: "models/qwen2.5-3b-instruct-q8_0.gguf"
 chunk_size: 2000
 chunk_overlap: 200
