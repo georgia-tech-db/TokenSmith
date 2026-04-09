@@ -10,7 +10,7 @@ from src.knowledge_graph.models import (
     QueryAnalysisResult,
     QueryFeatures,
 )
-from src.knowledge_graph.query import extract_query_nodes
+from src.knowledge_graph.query import CanonicalLookup, extract_query_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +39,16 @@ def extract_query_subgraph(query_nodes: list[str], graph: nx.Graph) -> nx.Graph:
     return graph.subgraph(subgraph_nodes).copy()
 
 
-def compute_difficulty_features(query: str, graph: nx.Graph) -> QueryFeatures:
+def compute_difficulty_features(
+    query: str,
+    graph: nx.Graph,
+    canonical_lookup: CanonicalLookup | None = None,
+) -> QueryFeatures:
     """Compute graph-structural features for *query*.
 
     Returns a zeroed ``QueryFeatures`` if no query nodes are found in *graph*.
     """
-    query_nodes = extract_query_nodes(query, graph)
+    query_nodes = extract_query_nodes(query, graph, canonical_lookup)
     logger.debug("Query nodes: %s", query_nodes)
     if not query_nodes:
         return QueryFeatures()
@@ -125,8 +129,12 @@ def compute_difficulty_score(features: QueryFeatures) -> DifficultyScore:
     )
 
 
-def analyze_query(query: str, graph: nx.Graph) -> QueryAnalysisResult:
+def analyze_query(
+    query: str,
+    graph: nx.Graph,
+    canonical_lookup: CanonicalLookup | None = None,
+) -> QueryAnalysisResult:
     """Run the full difficulty analysis pipeline for *query*."""
-    features = compute_difficulty_features(query, graph)
+    features = compute_difficulty_features(query, graph, canonical_lookup)
     difficulty = compute_difficulty_score(features)
     return QueryAnalysisResult(query=query, features=features, difficulty=difficulty)
