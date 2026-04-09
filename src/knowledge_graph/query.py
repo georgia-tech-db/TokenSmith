@@ -26,11 +26,12 @@ class CanonicalLookup:
     against canonical keyword embeddings, gated by a similarity threshold.
 
     Args:
-        synonym_table: Mapping of normalized keyword → canonical form.
+        synonym_table: Mapping of normalized keyword → canonical form (synonyms only,
+            no identity entries).
         canonical_keywords: Ordered list of canonical forms (aligned with embeddings).
         canonical_embeddings: Embedding matrix for canonical keywords (shape N × D).
-        embedding_model: Sentence-transformer model name (must match what was used
-            during offline canonicalization, i.e. "all-MiniLM-L6-v2").
+        embedding_model: Path to the GGUF embedding model (must match the model used
+            during offline canonicalization).
         fallback_threshold: Minimum cosine similarity for the embedding fallback to
             accept a canonical match (default 0.85).
     """
@@ -40,7 +41,7 @@ class CanonicalLookup:
         synonym_table: dict[str, str],
         canonical_keywords: list[str],
         canonical_embeddings: np.ndarray,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf",
         fallback_threshold: float = 0.85,
     ):
         self.synonym_table = synonym_table
@@ -60,9 +61,8 @@ class CanonicalLookup:
         if keyword in self.synonym_table:
             return self.synonym_table[keyword]
 
-        # Lazy-load the embedding model on first fallback use
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            from src.embedder import SentenceTransformer
             self._model = SentenceTransformer(self._model_name)
 
         emb = self._model.encode([keyword])
@@ -74,6 +74,13 @@ class CanonicalLookup:
         return keyword
 
 
+def _tokens_subsumed(short: str, long: str) -> bool:
+    """Return True if the tokens of *short* appear contiguously inside *long*."""
+    ws, wl = short.split(), long.split()
+    n = len(ws)
+    return any(wl[i : i + n] == ws for i in range(len(wl) - n + 1))
+
+
 def extract_query_nodes(
     query: str,
     graph: nx.Graph,
@@ -83,7 +90,8 @@ def extract_query_nodes(
 
     Generates unigrams, bigrams, and trigrams from *query*, normalises them,
     optionally maps each to its canonical form via *canonical_lookup*, and
-    returns any that are present as nodes in *graph*.
+    returns any that are present as nodes in *graph*. Shorter nodes that are
+    token-level substrings of a longer matched node are dropped.
 
     Args:
         query: Natural-language query string.
@@ -100,9 +108,14 @@ def extract_query_nodes(
 
     if canonical_lookup is not None:
         resolved = {canonical_lookup.resolve(t) for t in normalized_terms}
-        return [t for t in resolved if graph.has_node(t)]
+    else:
+        resolved = set(normalized_terms)
 
-    return [t for t in normalized_terms if graph.has_node(t)]
+    matched = [t for t in resolved if graph.has_node(t)]
+    return [
+        n for n in matched
+        if not any(n != m and _tokens_subsumed(n, m) for m in matched)
+    ]
 
 
 class KGNodeRetriever(Retriever):

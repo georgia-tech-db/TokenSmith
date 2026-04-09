@@ -114,12 +114,11 @@ class Canonicalizer:
 
         # 2c — LLM verification
         logger.info("  [2c] LLM verification (%d groups)…", len(non_singletons))
-        partial_table = self._verify_with_llm(non_singletons)
+        self._llm_calls = 0
+        synonym_table = self._verify_with_llm(non_singletons)
 
         # 2d — build structures
-        synonym_table, canonical_keywords = self._build_canonical_structures(
-            singletons, partial_table
-        )
+        canonical_keywords = sorted(set(synonym_table.values()) | set(singletons))
 
         logger.info("  [2d] Embedding %d canonical keywords…", len(canonical_keywords))
         canonical_embeddings = self._embed(canonical_keywords)
@@ -223,8 +222,9 @@ class Canonicalizer:
     def _llm_call(self, groups: list[list[str]]) -> dict[str, str]:
         """One OpenRouter API call covering a batch of candidate groups.
 
-        Returns a keyword → canonical mapping for every keyword in the batch.
-        Keywords not mentioned by the LLM fall back to mapping to themselves.
+        Returns a keyword → canonical mapping only for keywords that the LLM
+        confirms are true synonyms. Standalone or unmentioned keywords are omitted;
+        callers treat a missing entry as "no synonym found".
         """
         groups_text = "\n".join(
             f"Group {i + 1}: {json.dumps(g)}" for i, g in enumerate(groups)
@@ -233,7 +233,6 @@ class Canonicalizer:
         system_prompt = SYNONYM_SYSTEM_PROMPT.format(corpus_description=self.corpus_description)
         user_prompt = SYNONYM_PROMPT.format(groups_text=groups_text)
 
-        all_group_kws = {kw for g in groups for kw in g}
         partial: dict[str, str] = {}
 
         try:
@@ -254,39 +253,11 @@ class Canonicalizer:
                     for member in sg.get("members", []):
                         if member:
                             partial[self._normalize_kw(member)] = canonical
-                for kw in group_result.get("standalone", []):
-                    if kw:
-                        norm = self._normalize_kw(kw)
-                        partial[norm] = norm
 
         except Exception as e:
-            logger.warning(
-                "LLM call failed after all attempts (%s) — treating batch as standalone", e
-            )
-
-        # Fallback: any keyword the LLM didn't mention maps to itself
-        for kw in all_group_kws:
-            partial.setdefault(kw, kw)
+            logger.warning("LLM call failed after all attempts (%s) — batch skipped", e)
 
         return partial
-
-    @staticmethod
-    def _build_canonical_structures(
-        singletons: list[str],
-        partial_table: dict[str, str],
-    ) -> tuple[dict[str, str], list[str]]:
-        synonym_table = dict(partial_table)
-
-        for kw in singletons:
-            synonym_table.setdefault(kw, kw)
-
-        canonical_keywords = sorted(set(synonym_table.values()))
-
-        # Ensure every canonical form maps to itself
-        for canonical in canonical_keywords:
-            synonym_table.setdefault(canonical, canonical)
-
-        return synonym_table, canonical_keywords
 
     @staticmethod
     def _apply(

@@ -11,11 +11,14 @@ Documents:
 <|im_start|>assistant
 """
 
-SYNONYM_PROMPT = """Given the following groups of keywords extracted from the corpus, 
+SYNONYM_PROMPT = """Given the following groups of keywords extracted from the corpus, \
 determine which keywords within each group are true synonyms.
 {groups_text}
 For each group:
-1. Identify sets of true synonyms (same concept, interchangeable).
+1. Identify sets of TRUE synonyms (keywords that refer to the EXACT same concept and \
+are fully interchangeable word-for-word in any sentence without changing meaning). \
+Topical relatedness, part-whole relationships, abbreviation-expansion pairs with \
+different scope, and general-vs-specific pairs do NOT qualify. When in doubt, keep them separate.
 2. Choose the best canonical label — prefer the form used in academic/textbook literature.
 3. List keywords that are NOT synonymous with any other keyword as standalone.
 Respond in JSON only:
@@ -33,7 +36,8 @@ Respond in JSON only:
 """
 
 SYNONYM_SYSTEM_PROMPT = """You are a terminology expert analyzing keywords extracted from: {corpus_description}.
-Identify keywords that refer to exactly the same concept and should be merged.
+Identify keywords that refer to exactly the same concept and should be merged. \
+Be conservative, prefer keeping terms separate over incorrectly merging distinct concepts.
 """
 
 OPENROUTER_KEYWORD_EXTRACTION_PROMPT = """You are a linguistic analysis expert. Analyze the provided text
