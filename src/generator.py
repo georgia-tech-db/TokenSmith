@@ -1,5 +1,5 @@
 import textwrap, re
-from llama_cpp import Llama
+from llama_cpp import Llama, LlamaRAMCache
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -116,12 +116,16 @@ def get_llama_model(model_path: str, n_ctx: int = 4096):
             _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
                                        verbose=False,
-                                       n_gpu_layers=-1)
+                                       n_gpu_layers=-1,
+                                       flash_attn=True)
         except Exception as e:
             print(f"Error loading LLaMA model from {model_path} on GPU: {e}")
             _LLM_CACHE[model_path] = Llama(model_path=model_path,
                                        n_ctx=n_ctx,
                                        verbose=False)
+
+        cache = LlamaRAMCache()
+        _LLM_CACHE[model_path].set_cache(cache)
     return _LLM_CACHE[model_path]
 
 def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):
