@@ -100,6 +100,13 @@ class FAISSRetriever(Retriever):
         """
         Returns FAISS scores for top 'pool_size' keyed by global chunk index.
         """
+
+        # Add instruction for Qwen3 embedding model to provide better contextualization (based on model docs)
+        model_path = getattr(getattr(self.embedder, "model", None), "model_path", "")
+        if isinstance(model_path, (str, bytes, os.PathLike)):
+            if "qwen3" in os.path.basename(self.embedder.model.model_path).lower():
+                query = self._get_detailed_instruct_for_qwen3_embedder(query)
+
         # FAISS expects a 2D array
         q_vec = self.embedder.encode([query]).astype("float32")
         
@@ -123,6 +130,9 @@ class FAISSRetriever(Retriever):
             idx: 1.0 / (1.0 + dist)
             for idx, dist in dists.items()
         }
+    
+    def _get_detailed_instruct_for_qwen3_embedder(self, query: str, task_description: str = "Given a web search query, retrieve relevant passages that answer the query") -> str:
+        return f'Instruct: {task_description}\nQuery:{query}'
 
 
 class BM25Retriever(Retriever):
