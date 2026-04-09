@@ -1,11 +1,12 @@
 import os
+import json
+import os
+import shutil
+from time import strftime
+
 import pickle
 
-from src.knowledge_graph.models import Chunk
-
-# ---------------------------------------------------------------------------
-# Project-level path constants
-# ---------------------------------------------------------------------------
+from src.knowledge_graph.models import Chunk, KGPipelineConfig
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,11 +28,50 @@ JSON_KW_PATH = os.path.join(
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data", "knowledge_graph")
 RUNS_DIR = os.path.join(OUTPUT_DIR, "runs")
 
+RUN_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
+
 TOP_N = 10  # default keywords extracted per chunk
 
-# ---------------------------------------------------------------------------
-# Chunk loader (build-time: reads pickle files from index_builder)
-# ---------------------------------------------------------------------------
+
+def create_run_dir(runs_dir: str) -> str:
+    """Create a timestamped run directory and return its path."""
+    run_dir = os.path.join(runs_dir, strftime(RUN_TIMESTAMP_FORMAT))
+    os.makedirs(run_dir, exist_ok=True)
+    return run_dir
+
+
+def setup_input_dir(run_dir: str) -> None:
+    """Create input/ with symlinks to pkl sources and a copy of the extractions JSON."""
+    input_dir = os.path.join(run_dir, "input")
+    os.makedirs(input_dir, exist_ok=True)
+
+    # Symlinks for the (large) pkl files — no copy
+    os.symlink(os.path.abspath(CHUNKS_PKL),
+               os.path.join(input_dir, "chunks.pkl"))
+    os.symlink(os.path.abspath(META_PKL), os.path.join(input_dir, "meta.pkl"))
+
+    # Full copy of the keyword extractions JSON
+    shutil.copy2(JSON_KW_PATH, os.path.join(input_dir, "extractions.json"))
+
+
+def write_config(run_dir: str, cfg: KGPipelineConfig) -> None:
+    config = {
+        "extractor": {"class": "JsonExtractor", "input_path": JSON_KW_PATH},
+        "linker": {"class": "CooccurrenceLinker", "min_cooccurrence": cfg.min_cooccurrence},
+        "chunks_pkl": CHUNKS_PKL,
+        "meta_pkl": META_PKL,
+        "top_n": cfg.top_n,
+        "timestamp": os.path.basename(run_dir),
+    }
+    with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+
+def update_latest_symlink(runs_dir: str, run_dir: str) -> None:
+    latest = os.path.join(runs_dir, "latest")
+    if os.path.islink(latest):
+        os.unlink(latest)
+    os.symlink(os.path.abspath(run_dir), latest)
 
 
 def load_chunks(

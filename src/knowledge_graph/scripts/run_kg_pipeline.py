@@ -1,12 +1,7 @@
 import argparse
-import json
 import logging
 import os
-import shutil
-from dataclasses import dataclass, field
-from time import strftime
 
-import yaml
 from dotenv import load_dotenv
 
 from src.knowledge_graph.build import (
@@ -15,8 +10,12 @@ from src.knowledge_graph.build import (
     META_PKL,
     OUTPUT_DIR,
     PROJECT_ROOT,
-    TOP_N,
     load_chunks,
+    create_run_dir,
+    setup_input_dir,
+    write_config,
+    update_latest_symlink,
+
 )
 from src.knowledge_graph.canonicalizer import Canonicalizer
 from src.knowledge_graph.extractors import BaseExtractor, JsonExtractor
@@ -24,92 +23,9 @@ from src.knowledge_graph.linkers import CooccurrenceLinker
 from src.knowledge_graph.persisters import NetworkxJsonPersister
 from src.knowledge_graph.pipeline import Pipeline
 from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
+from src.knowledge_graph.models import KGPipelineConfig
 
 logger = logging.getLogger(__name__)
-
-_RUN_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
-
-
-# ---------------------------------------------------------------------------
-# Config dataclasses
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class CanonicalizationConfig:
-    llm_model: str = "openai/gpt-4o-mini"
-    similarity_threshold: float = 0.78
-    max_group_size: int = 30
-    batch_size: int = 15
-
-
-@dataclass
-class KGPipelineConfig:
-    corpus_description: str = ""
-    min_cooccurrence: int = 0
-    top_n: int = TOP_N
-    canonicalization: CanonicalizationConfig = field(
-        default_factory=CanonicalizationConfig
-    )
-
-    @classmethod
-    def from_yaml(cls, path: str) -> "KGPipelineConfig":
-        """Load the ``kg_pipeline`` section from a project config YAML file."""
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        kg = dict(data.get("kg_pipeline", {}))
-        canon_data = kg.pop("canonicalization", {})
-        return cls(**kg, canonicalization=CanonicalizationConfig(**canon_data))
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _create_run_dir(runs_dir: str) -> str:
-    """Create a timestamped run directory and return its path."""
-    run_dir = os.path.join(runs_dir, strftime(_RUN_TIMESTAMP_FORMAT))
-    os.makedirs(run_dir, exist_ok=True)
-    return run_dir
-
-
-def _setup_input_dir(run_dir: str) -> None:
-    """Create input/ with symlinks to pkl sources and a copy of the extractions JSON."""
-    input_dir = os.path.join(run_dir, "input")
-    os.makedirs(input_dir, exist_ok=True)
-
-    # Symlinks for the (large) pkl files — no copy
-    os.symlink(os.path.abspath(CHUNKS_PKL), os.path.join(input_dir, "chunks.pkl"))
-    os.symlink(os.path.abspath(META_PKL), os.path.join(input_dir, "meta.pkl"))
-
-    # Full copy of the keyword extractions JSON
-    shutil.copy2(JSON_KW_PATH, os.path.join(input_dir, "extractions.json"))
-
-
-def _write_config(run_dir: str, cfg: KGPipelineConfig) -> None:
-    config = {
-        "extractor": {"class": "JsonExtractor", "input_path": JSON_KW_PATH},
-        "linker": {"class": "CooccurrenceLinker", "min_cooccurrence": cfg.min_cooccurrence},
-        "chunks_pkl": CHUNKS_PKL,
-        "meta_pkl": META_PKL,
-        "top_n": cfg.top_n,
-        "timestamp": os.path.basename(run_dir),
-    }
-    with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
-
-
-def _update_latest_symlink(runs_dir: str, run_dir: str) -> None:
-    latest = os.path.join(runs_dir, "latest")
-    if os.path.islink(latest):
-        os.unlink(latest)
-    os.symlink(os.path.abspath(run_dir), latest)
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -130,11 +46,11 @@ def main() -> None:
     logger.info("Loaded config from %s", args.config)
 
     runs_dir = os.path.join(OUTPUT_DIR, "runs")
-    run_dir = _create_run_dir(runs_dir)
+    run_dir = create_run_dir(runs_dir)
     logger.info("Run directory: %s", run_dir)
 
-    _setup_input_dir(run_dir)
-    _write_config(run_dir, cfg)
+    setup_input_dir(run_dir)
+    write_config(run_dir, cfg)
 
     logger.info("Loading chunks from:\n  %s\n  %s", CHUNKS_PKL, META_PKL)
     chunks = load_chunks(CHUNKS_PKL, META_PKL)
@@ -151,7 +67,9 @@ def main() -> None:
         )
 
     c = cfg.canonicalization
+
     canonicalizer = Canonicalizer(
+        embedding_model=c.embed_model,
         corpus_description=cfg.corpus_description,
         api_key=api_key,
         llm_model=c.llm_model,
@@ -159,7 +77,7 @@ def main() -> None:
         max_group_size=c.max_group_size,
         batch_size=c.batch_size,
     )
-
+    # canonicalizer = MockCanonicalizer("debug/canonicalization_cache.json")
     linker = CooccurrenceLinker(min_cooccurrence=cfg.min_cooccurrence)
     persister = NetworkxJsonPersister()
     pipeline = Pipeline(
@@ -182,10 +100,10 @@ def main() -> None:
         logger.info("  %4d %s", count, label)
     logger.info("  Saved: %s", tree_path)
 
-    _update_latest_symlink(runs_dir, run_dir)
+    update_latest_symlink(runs_dir, run_dir)
     logger.info("Updated: %s -> %s", os.path.join(runs_dir, "latest"), run_dir)
 
 
 if __name__ == "__main__":
-    load_dotenv()  # Load environment variables from .env if present
+    load_dotenv()
     main()

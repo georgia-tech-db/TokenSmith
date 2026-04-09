@@ -1,16 +1,15 @@
 import json
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.knowledge_graph.models import ExtractionResult
+from src.embedder import SentenceTransformer
+from src.knowledge_graph.models import ExtractionResult, CanonicalizationResult
 from src.knowledge_graph.openrouter_client import OpenRouterClient
 from src.knowledge_graph.utils.normalizer import Normalizer
 from src.knowledge_graph.utils.prompts import SYNONYM_PROMPT, SYNONYM_SYSTEM_PROMPT
@@ -18,12 +17,6 @@ from src.knowledge_graph.utils.prompts import SYNONYM_PROMPT, SYNONYM_SYSTEM_PRO
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class CanonicalizationResult:
-    synonym_table: dict[str, str]
-    canonical_keywords: list[str]
-    canonical_embeddings: np.ndarray
-    stats: dict[str, Any] = field(default_factory=dict)
 
 
 class Canonicalizer:
@@ -49,7 +42,7 @@ class Canonicalizer:
         self,
         corpus_description: str,
         api_key: str,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str,
         similarity_threshold: float = 0.78,
         max_group_size: int = 30,
         llm_model: str = "openai/gpt-4o-mini",
@@ -65,6 +58,7 @@ class Canonicalizer:
         self.batch_size = batch_size
         self.fallback_threshold = fallback_threshold
         self._normalizer = normalizer or Normalizer()
+        self.retries = retries
         self._client = OpenRouterClient(api_key, retries=retries)
 
         logger.info("Loading embedding model: %s", embedding_model)
@@ -148,12 +142,9 @@ class Canonicalizer:
         )
         return updated, result
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _collect_keywords(extractions: list[ExtractionResult]) -> list[str]:
+        # List preserves stable order for embedding index alignment, set provides dedup.
         seen: set[str] = set()
         keywords: list[str] = []
         for er in extractions:
@@ -273,3 +264,40 @@ class Canonicalizer:
                     seen.add(canonical)
             updated.append(ExtractionResult(chunk_id=er.chunk_id, keywords=canonical_nodes))
         return updated
+
+
+class MockCanonicalizer:
+    """Drop-in replacement for Canonicalizer that replays a pre-saved result.
+
+    Loads a cache file produced by generate_canon_cache.py and returns the
+    stored extractions and CanonicalizationResult without running any model
+    or LLM. Useful for iterating on pipeline stages that follow canonicalization.
+
+    Args:
+        cache_path: Path to the JSON cache file (relative to repo root or absolute).
+    """
+
+    def __init__(self, cache_path: str):
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self._updated_extractions = [
+            ExtractionResult(chunk_id=e["chunk_id"], keywords=e["keywords"])
+            for e in data["updated_extractions"]
+        ]
+        self._result = CanonicalizationResult(
+            synonym_table=data["synonym_table"],
+            canonical_keywords=data["canonical_keywords"],
+            canonical_embeddings=np.array(data["canonical_embeddings"], dtype=np.float32),
+            stats=data.get("stats", {}),
+        )
+        logger.warning("MockCanonicalizer: loaded cache from %s", cache_path)
+
+    def get_config(self) -> dict[str, Any]:
+        return {"class": self.__class__.__name__}
+
+    def canonicalize(
+        self, extractions: list[ExtractionResult]
+    ) -> tuple[list[ExtractionResult], CanonicalizationResult]:
+        logger.warning("MockCanonicalizer: returning cached canonicalization, input ignored")
+        return self._updated_extractions, self._result
