@@ -13,7 +13,7 @@ from src.config import RAGConfig
 from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts, filter_retrieved_chunks
 
 
-class Cache(ABC):
+class BaseResponseCache(ABC):
     @abstractmethod
     def lookup(self, config_key: str, query_embedding: np.ndarray, current_question: str) -> Optional[Dict[str, Any]]:
         pass
@@ -39,8 +39,8 @@ class Cache(ABC):
         pass
 
 
-class SemanticCache(Cache):
-    def __init__(self, bi_encoder_threshold: float = 0.90, cross_encoder_threshold: float = 0.99, max_entries: int = 50):
+class SemanticCache(BaseResponseCache):
+    def __init__(self, bi_encoder_threshold: float, cross_encoder_threshold: float, max_entries: int = 50):
         self.cache: Dict[str, Deque[Dict[str, Any]]] = {}
         self.bi_encoder_threshold = bi_encoder_threshold
         self.cross_encoder_threshold = cross_encoder_threshold
@@ -169,7 +169,7 @@ class SemanticCache(Cache):
         return vec[0]
 
 
-class NoOpCache(Cache):
+class NoOpCache(BaseResponseCache):
     def lookup(self, config_key: str, query_embedding: np.ndarray, current_question: str) -> Optional[Dict[str, Any]]:
         return None
 
@@ -191,11 +191,14 @@ class NoOpCache(Cache):
 
 _GLOBAL_SEMANTIC_CACHE: Optional[SemanticCache] = None
 
-def get_cache(cfg: RAGConfig) -> Cache:
+def get_cache(cfg: RAGConfig) -> BaseResponseCache:
     """Return a configured cache layer, either SemanticCache or NoOpCache depending on config."""
     global _GLOBAL_SEMANTIC_CACHE
     if getattr(cfg, 'semantic_cache_enabled', False):
         if _GLOBAL_SEMANTIC_CACHE is None:
-            _GLOBAL_SEMANTIC_CACHE = SemanticCache()
+            _GLOBAL_SEMANTIC_CACHE = SemanticCache(
+                bi_encoder_threshold=cfg.semantic_cache_bi_encoder_threshold,
+                cross_encoder_threshold=cfg.semantic_cache_cross_encoder_threshold
+            )
         return _GLOBAL_SEMANTIC_CACHE
     return NoOpCache()
