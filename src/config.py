@@ -47,6 +47,8 @@ class RAGConfig:
 
     # cache
     semantic_cache_enabled: bool = False
+    semantic_cache_bi_encoder_threshold: float = 0.90
+    semantic_cache_cross_encoder_threshold: float = 0.99
 
     # conversational memory
     enable_history: bool = True

@@ -40,6 +40,8 @@ def mock_config():
     config.disable_chunks = False
     config.use_golden_chunks = False
     config.semantic_cache_enabled = True
+    config.semantic_cache_bi_encoder_threshold = 0.90
+    config.semantic_cache_cross_encoder_threshold = 0.99
     return config
 
 
