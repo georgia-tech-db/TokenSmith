@@ -109,7 +109,7 @@ class SemanticBoundaryStrategy(ChunkStrategy):
         return f"semantic_boundary({self.threshold})"
 
     def artifact_folder_name(self) -> str:
-        return "semantic_sections"
+        return "sections"
 
     def chunk(self, text: str) -> List[str]:
         if not text.strip():
