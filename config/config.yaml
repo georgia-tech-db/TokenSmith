@@ -28,3 +28,7 @@ kg_pipeline:
     max_group_size: 30
     batch_size: 15
     embed_model: "sentence-transformers/all-MiniLM-L6-v2"
+  summary_tree:
+    summary_model: "openai/gpt-4o-mini"
+    embed_model: "sentence-transformers/all-MiniLM-L6-v2"
+    chunk_window: 3
