@@ -6,7 +6,6 @@ import os
 import yaml
 from dotenv import load_dotenv
 
-from src.knowledge_graph.analysis import analyze_query
 from src.knowledge_graph.build import RUNS_DIR
 from src.knowledge_graph.io import (
     load_canonicalization_data,
@@ -56,22 +55,15 @@ def _grade_with_llm(
     return results
 
 
-def _ideal_metrics(retrieved_ids: list[int], ideal: set[int], top_k: int) -> dict:
-    hits = set(retrieved_ids) & ideal
-    return {
-        "precision_at_k": len(hits) / top_k if top_k > 0 else 0.0,
-        "recall_at_k": len(hits) / len(ideal) if ideal else 0.0,
-        "hits": sorted(hits),
-    }
-
-
 def _llm_metrics(grades: list[dict], top_k: int) -> dict:
     scored = [g["score"] for g in grades if g["score"] >= 0]
     if not scored:
         return {}
     relevant = sum(1 for s in scored if s >= 1)
     return {
+        # Fraction of the top-k chunks judged relevant (score >= 1) by the LLM.
         "precision_at_k": relevant / top_k,
+        # Average raw LLM relevance score across retrieved chunks (0=irrelevant, 1=partial, 2=relevant).
         "mean_relevance_score": sum(scored) / len(scored),
     }
 
@@ -143,24 +135,8 @@ def run_benchmark(
     for q in queries:
         qid = q.get("id", "unknown")
         query_text = q.get("question", q.get("query", ""))
-        ideal = set(q.get("ideal_retrieved_chunks", []))
 
         print(f"\n[{qid}] {query_text}")
-
-        difficulty = None
-        try:
-            analysis = analyze_query(query_text, kg_graph, canonical_lookup)
-            difficulty = {
-                "score": analysis.difficulty.score,
-                "category": analysis.difficulty.category.value,
-                "matched_nodes": analysis.features.query_node_count,
-            }
-            print(
-                f"  Difficulty: {difficulty['category']} "
-                f"(score={difficulty['score']}, nodes={difficulty['matched_nodes']})"
-            )
-        except Exception as e:
-            logger.debug("Difficulty analysis failed for %r: %s", qid, e)
 
         retriever_results: dict[str, dict] = {}
         for retriever in retrievers:
@@ -170,19 +146,8 @@ def run_benchmark(
                 key=lambda x: x[2],
                 reverse=True,
             )[:top_k]
-            retrieved_ids = [cid for cid, _, _ in retrieved]
-
             if not retrieved:
                 print(f"  [{retriever.name}] WARNING: no chunks retrieved")
-
-            ideal_m = _ideal_metrics(retrieved_ids, ideal, top_k) if ideal else None
-            if ideal_m:
-                print(
-                    f"  [{retriever.name}] Ideal "
-                    f"P@{top_k}={ideal_m['precision_at_k']:.2f}  "
-                    f"R@{top_k}={ideal_m['recall_at_k']:.2f}  "
-                    f"hits={ideal_m['hits']}"
-                )
 
             llm_grades = None
             llm_m = None
@@ -207,8 +172,6 @@ def run_benchmark(
                     "score": round(score, 4),
                     "text_preview": text[:200],
                 }
-                if ideal:
-                    entry["in_ideal"] = chunk_id in ideal
                 if llm_grades:
                     grade = next((g for g in llm_grades if g["chunk_id"] == chunk_id), {})
                     entry["llm_score"] = grade.get("score")
@@ -217,7 +180,6 @@ def run_benchmark(
 
             retriever_results[retriever.name] = {
                 "retrieved": retrieved_list,
-                "ideal_metrics": ideal_m,
                 "llm_metrics": llm_m,
             }
 
@@ -225,7 +187,6 @@ def run_benchmark(
             {
                 "id": qid,
                 "query": query_text,
-                "difficulty": difficulty,
                 "retrievers": retriever_results,
             }
         )
@@ -245,89 +206,51 @@ def print_summary(results: list[dict], top_k: int) -> None:
             if name not in retriever_names:
                 retriever_names.append(name)
 
-    has_ideal = any(
-        r.get("retrievers", {}).get(name, {}).get("ideal_metrics")
-        for r in results
-        for name in retriever_names
-    )
-    has_llm = any(
-        r.get("retrievers", {}).get(name, {}).get("llm_metrics")
-        for r in results
-        for name in retriever_names
-    )
-
     col_id = 30
-    cols = [("Query ID", col_id), ("Nodes", 5)]
-    if has_ideal:
-        cols += [(f"P@{top_k}", 6), (f"R@{top_k}", 6)]
-    if has_llm:
-        cols += [(f"LLM P@{top_k}", 8), ("LLM Mean", 8)]
-    cols.append(("Difficulty", 10))
+    col_w = 16  # width per retriever: "P@k  Mean" each 7 chars + spacing
 
-    header = "  ".join(f"{h:<{w}}" for h, w in cols)
-    sep = "  ".join("-" * w for _, w in cols)
-
+    # Header row: Query ID + two sub-columns (P@k, Mean) per retriever
+    header1 = f"{'Query ID':<{col_id}}"
+    header2 = " " * col_id
     for name in retriever_names:
-        print(f"\n{'=' * len(sep)}")
-        print(f"RETRIEVER: {name}")
-        print("=" * len(sep))
-        print(header)
-        print(sep)
+        short = name[:col_w].center(col_w)
+        header1 += f"  {short}"
+        sub = f"{'P@'+str(top_k):>6}  {'Mean':>6}"
+        header2 += f"  {sub}"
 
-        ideal_p, ideal_r, llm_p, llm_mean = [], [], [], []
-        no_results = []
+    sep = "-" * len(header1)
+    print(f"\n{sep}")
+    print(header1)
+    print(header2)
+    print(sep)
 
-        for r in results:
-            rd = r.get("retrievers", {}).get(name, {})
-            if not rd.get("retrieved"):
-                no_results.append(r["id"])
+    # Accumulators for averages
+    agg: dict[str, dict[str, list[float]]] = {n: {"p": [], "m": []} for n in retriever_names}
 
-            nodes = r["difficulty"]["matched_nodes"] if r["difficulty"] else "-"
-            diff = r["difficulty"]["category"] if r["difficulty"] else "-"
-            im = rd.get("ideal_metrics") or {}
-            lm = rd.get("llm_metrics") or {}
+    for r in results:
+        row = f"{r['id'][:col_id]:<{col_id}}"
+        for name in retriever_names:
+            lm = r.get("retrievers", {}).get(name, {}).get("llm_metrics") or {}
+            if lm:
+                p = lm.get("precision_at_k", 0.0)
+                m = lm.get("mean_relevance_score", 0.0)
+                agg[name]["p"].append(p)
+                agg[name]["m"].append(m)
+                row += f"  {p:>6.2f}  {m:>6.2f}"
+            else:
+                row += f"  {'—':>6}  {'—':>6}"
+        print(row)
 
-            row = [(r["id"][:col_id], col_id), (str(nodes), 5)]
-            if has_ideal:
-                row += [
-                    (f"{im.get('precision_at_k', '-'):.2f}" if im else "-", 6),
-                    (f"{im.get('recall_at_k', '-'):.2f}" if im else "-", 6),
-                ]
-                if im:
-                    ideal_p.append(im["precision_at_k"])
-                    ideal_r.append(im["recall_at_k"])
-            if has_llm:
-                row += [
-                    (f"{lm.get('precision_at_k', '-'):.2f}" if lm else "-", 8),
-                    (f"{lm.get('mean_relevance_score', '-'):.2f}" if lm else "-", 8),
-                ]
-                if lm:
-                    llm_p.append(lm["precision_at_k"])
-                    llm_mean.append(lm["mean_relevance_score"])
-            row.append((diff, 10))
-            print("  ".join(f"{v:<{w}}" for v, w in row))
-
-        print(sep)
-        avg_row = [("AVERAGE", col_id), ("", 5)]
-        if has_ideal:
-            avg_p = _avg(ideal_p)
-            avg_r = _avg(ideal_r)
-            avg_row += [
-                (f"{avg_p:.2f}" if avg_p is not None else "-", 6),
-                (f"{avg_r:.2f}" if avg_r is not None else "-", 6),
-            ]
-        if has_llm:
-            a_lp = _avg(llm_p)
-            a_lm = _avg(llm_mean)
-            avg_row += [
-                (f"{a_lp:.2f}" if a_lp is not None else "-", 8),
-                (f"{a_lm:.2f}" if a_lm is not None else "-", 8),
-            ]
-        avg_row.append(("", 10))
-        print("  ".join(f"{v:<{w}}" for v, w in avg_row))
-
-        if no_results:
-            print(f"\nNo chunks retrieved: {', '.join(no_results)}")
+    print(sep)
+    avg_row = f"{'AVERAGE':<{col_id}}"
+    for name in retriever_names:
+        a_p = _avg(agg[name]["p"])
+        a_m = _avg(agg[name]["m"])
+        p_str = f"{a_p:.2f}" if a_p is not None else "—"
+        m_str = f"{a_m:.2f}" if a_m is not None else "—"
+        avg_row += f"  {p_str:>6}  {m_str:>6}"
+    print(avg_row)
+    print(sep)
 
 
 def main() -> None:
