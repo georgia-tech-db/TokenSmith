@@ -30,7 +30,7 @@ class CanonicalLookup:
             no identity entries).
         canonical_keywords: Ordered list of canonical forms (aligned with embeddings).
         canonical_embeddings: Embedding matrix for canonical keywords (shape N × D).
-        embedding_model: Path to the GGUF embedding model (must match the model used
+        embedding_model: Sentence-transformer model name (must match the model used
             during offline canonicalization).
         fallback_threshold: Minimum cosine similarity for the embedding fallback to
             accept a canonical match (default 0.85).
@@ -41,7 +41,7 @@ class CanonicalLookup:
         synonym_table: dict[str, str],
         canonical_keywords: list[str],
         canonical_embeddings: np.ndarray,
-        embedding_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf",
+        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         fallback_threshold: float = 0.85,
     ):
         self.synonym_table = synonym_table
@@ -62,14 +62,16 @@ class CanonicalLookup:
             return self.synonym_table[keyword]
 
         if self._model is None:
-            from src.embedder import SentenceTransformer
+            from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self._model_name)
 
         emb = self._model.encode([keyword])
         sims = cos_sim(emb, self.canonical_embeddings)[0]
         best_idx = int(np.argmax(sims))
         if sims[best_idx] >= self.fallback_threshold:
-            return self.canonical_keywords[best_idx]
+            synonym = self.canonical_keywords[best_idx]
+            print(f"Embedding fallback: '{keyword}' → '{synonym}' (sim={sims[best_idx]:.4f})")
+            return synonym
 
         return keyword
 
@@ -112,10 +114,11 @@ def extract_query_nodes(
         resolved = set(normalized_terms)
 
     matched = [t for t in resolved if graph.has_node(t)]
-    return [
+    filtered = [
         n for n in matched
         if not any(n != m and _tokens_subsumed(n, m) for m in matched)
     ]
+    return filtered
 
 
 class KGNodeRetriever(Retriever):
@@ -351,9 +354,11 @@ if __name__ == "__main__":
         neighbor_weight=args.neighbor_weight,
         num_hops=args.num_hops,
     )
-    _scores = _retriever.get_scores(args.query, args.top_k, list(_chunks.values()))
+    _scores = _retriever.get_scores(
+        args.query, args.top_k, list(_chunks.values()))
     _results = sorted(
-        [(cid, _chunks[cid], score) for cid, score in _scores.items() if cid in _chunks],
+        [(cid, _chunks[cid], score)
+         for cid, score in _scores.items() if cid in _chunks],
         key=lambda x: x[2], reverse=True,
     )[:args.top_k]
 

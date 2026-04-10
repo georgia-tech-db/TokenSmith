@@ -1,6 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Any
 from enum import Enum
+from dataclasses import dataclass, field
+
+import numpy as np
+import yaml
+
+TOP_N = 10  # default keywords extracted per chunk
 
 
 @dataclass
@@ -14,6 +20,14 @@ class Chunk:
 class ExtractionResult:
     chunk_id: int
     keywords: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CanonicalizationResult:
+    synonym_table: dict[str, str]
+    canonical_keywords: list[str]
+    canonical_embeddings: np.ndarray
+    stats: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -106,3 +120,31 @@ class RunMetadata:
             "config": self.config,
             "statistics": self.statistics,
         }
+
+
+@dataclass
+class CanonicalizationConfig:
+    llm_model: str = "openai/gpt-4o-mini"
+    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    similarity_threshold: float = 0.78
+    max_group_size: int = 30
+    batch_size: int = 15
+
+
+@dataclass
+class KGPipelineConfig:
+    corpus_description: str = ""
+    min_cooccurrence: int = 0
+    top_n: int = TOP_N
+    canonicalization: CanonicalizationConfig = field(
+        default_factory=CanonicalizationConfig
+    )
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "KGPipelineConfig":
+        """Load the ``kg_pipeline`` section from a project config YAML file."""
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        kg = dict(data.get("kg_pipeline", {}))
+        canon_data = kg.pop("canonicalization", {})
+        return cls(**kg, canonicalization=CanonicalizationConfig(**canon_data))

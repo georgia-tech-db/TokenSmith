@@ -1,29 +1,20 @@
 import json
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.knowledge_graph.models import ExtractionResult
+from sentence_transformers import SentenceTransformer
+from src.knowledge_graph.models import ExtractionResult, CanonicalizationResult
 from src.knowledge_graph.openrouter_client import OpenRouterClient
 from src.knowledge_graph.utils.normalizer import Normalizer
 from src.knowledge_graph.utils.prompts import SYNONYM_PROMPT, SYNONYM_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class CanonicalizationResult:
-    synonym_table: dict[str, str]
-    canonical_keywords: list[str]
-    canonical_embeddings: np.ndarray
-    stats: dict[str, Any] = field(default_factory=dict)
 
 
 class Canonicalizer:
@@ -49,7 +40,7 @@ class Canonicalizer:
         self,
         corpus_description: str,
         api_key: str,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str,
         similarity_threshold: float = 0.78,
         max_group_size: int = 30,
         llm_model: str = "openai/gpt-4o-mini",
@@ -104,23 +95,28 @@ class Canonicalizer:
         embeddings = self._embed(all_keywords)
 
         # 2b — cluster
-        logger.info("  [2b] Complete-linkage clustering (θ=%.2f)…", self.similarity_threshold)
+        logger.info("  [2b] Complete-linkage clustering (θ=%.2f)…",
+                    self.similarity_threshold)
         groups = self._cluster(all_keywords, embeddings)
         singletons = [g[0] for g in groups if len(g) == 1]
         non_singletons = [g for g in groups if len(g) > 1]
         logger.info(
-            "       %d singletons, %d candidate groups", len(singletons), len(non_singletons)
+            "       %d singletons, %d candidate groups", len(
+                singletons), len(non_singletons)
         )
 
         # 2c — LLM verification
-        logger.info("  [2c] LLM verification (%d groups)…", len(non_singletons))
+        logger.info("  [2c] LLM verification (%d groups)…",
+                    len(non_singletons))
         self._llm_calls = 0
         synonym_table = self._verify_with_llm(non_singletons)
 
         # 2d — build structures
-        canonical_keywords = sorted(set(synonym_table.values()) | set(singletons))
+        canonical_keywords = sorted(
+            set(synonym_table.values()) | set(singletons))
 
-        logger.info("  [2d] Embedding %d canonical keywords…", len(canonical_keywords))
+        logger.info("  [2d] Embedding %d canonical keywords…",
+                    len(canonical_keywords))
         canonical_embeddings = self._embed(canonical_keywords)
 
         counts = Counter(synonym_table.values())
@@ -149,12 +145,9 @@ class Canonicalizer:
         )
         return updated, result
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _collect_keywords(extractions: list[ExtractionResult]) -> list[str]:
+        # List preserves stable order for embedding index alignment, set provides dedup.
         seen: set[str] = set()
         keywords: list[str] = []
         for er in extractions:
@@ -184,7 +177,8 @@ class Canonicalizer:
 
         condensed = squareform(dist, checks=False)
         Z = linkage(condensed, method="complete")
-        labels = fcluster(Z, t=1.0 - self.similarity_threshold, criterion="distance")
+        labels = fcluster(Z, t=1.0 - self.similarity_threshold,
+                          criterion="distance")
 
         raw_groups: dict[int, list[str]] = {}
         for kw, label in zip(keywords, labels):
@@ -196,7 +190,7 @@ class Canonicalizer:
                 result.append(group)
             else:
                 for i in range(0, len(group), self.max_group_size):
-                    result.append(group[i : i + self.max_group_size])
+                    result.append(group[i: i + self.max_group_size])
         return result
 
     def _verify_with_llm(self, groups: list[list[str]]) -> dict[str, str]:
@@ -207,7 +201,7 @@ class Canonicalizer:
         large = [g for g in groups if len(g) > 5]
 
         for i in range(0, len(small), self.batch_size):
-            partial.update(self._llm_call(small[i : i + self.batch_size]))
+            partial.update(self._llm_call(small[i: i + self.batch_size]))
 
         for group in large:
             partial.update(self._llm_call([group]))
@@ -230,7 +224,8 @@ class Canonicalizer:
             f"Group {i + 1}: {json.dumps(g)}" for i, g in enumerate(groups)
         )
 
-        system_prompt = SYNONYM_SYSTEM_PROMPT.format(corpus_description=self.corpus_description)
+        system_prompt = SYNONYM_SYSTEM_PROMPT.format(
+            corpus_description=self.corpus_description)
         user_prompt = SYNONYM_PROMPT.format(groups_text=groups_text)
 
         partial: dict[str, str] = {}
@@ -255,7 +250,8 @@ class Canonicalizer:
                             partial[self._normalize_kw(member)] = canonical
 
         except Exception as e:
-            logger.warning("LLM call failed after all attempts (%s) — batch skipped", e)
+            logger.warning(
+                "LLM call failed after all attempts (%s) — batch skipped", e)
 
         return partial
 
@@ -272,7 +268,8 @@ class Canonicalizer:
                 if canonical not in seen:
                     canonical_nodes.append(canonical)
                     seen.add(canonical)
-            updated.append(ExtractionResult(chunk_id=er.chunk_id, keywords=canonical_nodes))
+            updated.append(ExtractionResult(
+                chunk_id=er.chunk_id, keywords=canonical_nodes))
         return updated
 
 

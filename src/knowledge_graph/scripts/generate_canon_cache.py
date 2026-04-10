@@ -1,13 +1,3 @@
-"""Generate a canonicalization cache by running the full LLM pipeline once.
-
-Saves the full CanonicalizationResult (including updated extractions and
-embeddings) so that MockCanonicalizer can replay it without any model or LLM.
-
-Usage:
-    conda run -n kg_env python -m src.knowledge_graph.scripts.generate_canon_cache
-    conda run -n kg_env python -m src.knowledge_graph.scripts.generate_canon_cache --config config/config.yaml
-"""
-
 import argparse
 import json
 import logging
@@ -69,6 +59,7 @@ def main() -> None:
 
     c = cfg.canonicalization
     canonicalizer = Canonicalizer(
+        embedding_model=c.embed_model,
         corpus_description=cfg.corpus_description,
         api_key=api_key,
         llm_model=c.llm_model,

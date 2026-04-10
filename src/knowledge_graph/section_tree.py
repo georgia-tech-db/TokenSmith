@@ -9,7 +9,12 @@ from typing import Optional
 import networkx as nx
 
 from src.knowledge_graph.models import Chunk
-from src.knowledge_graph.utils import HEADING_PATTERN, KW_PATTERN, Normalizer, extract_ngrams
+from src.knowledge_graph.utils import (
+    HEADING_PATTERN,
+    KW_PATTERN,
+    Normalizer,
+    extract_ngrams,
+)
 
 _NUMBER_RE = re.compile(r"(\d+(?:\.\d+)*)")
 
@@ -58,10 +63,10 @@ def _tokenize_query(query: str) -> set[str]:
 
 @dataclass
 class SectionNode:
-    heading: str                              # e.g. "Section 13.1 Physical Storage Media"
-    level: int                                # 1 = chapter, 2 = section, 3 = subsection
-    chapter: int                              # e.g. 13
-    section_number: str                       # e.g. "13.1"
+    heading: str  # e.g. "Section 13.1 Physical Storage Media"
+    level: int  # 1 = chapter, 2 = section, 3 = subsection
+    chapter: int  # e.g. 13
+    section_number: str  # e.g. "13.1"
     chunk_ids: list[int] = field(default_factory=list)
     keyword_set: set[str] = field(default_factory=set)
     children: list[SectionNode] = field(default_factory=list)
@@ -74,9 +79,11 @@ class SectionTree:
 
     def __init__(self, root: SectionNode) -> None:
         self.root = root
-        self.node_index: dict[str, SectionNode] = {}        # heading → node
-        self._number_index: dict[str, SectionNode] = {}     # section_number → node
-        self.chunk_to_sections: dict[int, list[SectionNode]] = {}  # chunk_id → leaf nodes
+        self.node_index: dict[str, SectionNode] = {}  # heading → node
+        self._number_index: dict[str, SectionNode] = {}  # section_number → node
+        self.chunk_to_sections: dict[
+            int, list[SectionNode]
+        ] = {}  # chunk_id → leaf nodes
 
     # ── Index helpers ─────────────────────────────────────────────────────────
 
@@ -187,7 +194,9 @@ class SectionTree:
 
             if query_tokens and node.heading_keywords:
                 heading_score = self._score_section_heading(node, query_tokens, alpha)
-                own_scores[heading] = heading_alpha * heading_score + (1 - heading_alpha) * kg_score
+                own_scores[heading] = (
+                    heading_alpha * heading_score + (1 - heading_alpha) * kg_score
+                )
             else:
                 own_scores[heading] = kg_score
 
@@ -365,6 +374,7 @@ def build_section_tree(
 
 
 # ── Persist / load ────────────────────────────────────────────────────────────
+
 
 def save_section_tree(tree: SectionTree, run_dir: str) -> str:
     """Serialize *tree* to ``section_tree.json`` inside *run_dir*.

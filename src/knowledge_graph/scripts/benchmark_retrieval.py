@@ -158,7 +158,7 @@ def run_benchmark(
 
         difficulty = None
         try:
-            analysis = analyze_query(query_text, kg_graph)
+            analysis = analyze_query(query_text, kg_graph, canonical_lookup)
             difficulty = {
                 "score": analysis.difficulty.score,
                 "category": analysis.difficulty.category.value,
