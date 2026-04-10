@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import yaml
 
-from src.knowledge_graph.build import TOP_N
+TOP_N = 10  # default keywords extracted per chunk
 
 
 @dataclass
@@ -125,7 +125,7 @@ class RunMetadata:
 @dataclass
 class CanonicalizationConfig:
     llm_model: str = "openai/gpt-4o-mini"
-    embed_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     similarity_threshold: float = 0.78
     max_group_size: int = 30
     batch_size: int = 15

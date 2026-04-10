@@ -30,8 +30,22 @@ Analyze a specific query against a generated knowledge graph to estimate its ret
 python -m src.knowledge_graph.scripts.analyze_query --graph data/knowledge_graph/runs/latest/graph.json --query "What is a shared-nothing architecture?"
 ```
 
-### 5. Analyze Pipeline Runs
-Compare different pipeline runs and visualize statistics (nodes, edges, deleted items).
+### 5. Inspect a Run
+Print graph stats, section tree stats, and cross-signal (KG keyword coverage per section) for a saved run.
 ```bash
-python -m src.knowledge_graph.scripts.analyze_runs --dir data/knowledge_graph
+python -m src.knowledge_graph.scripts.inspect_run
+python -m src.knowledge_graph.scripts.inspect_run --run data/knowledge_graph/runs/2025-01-01_00-00-00
+```
+
+### 6. Generate Canonicalization Cache
+Run LLM canonicalization once and persist the result to a JSON cache file. Use `MockCanonicalizer` in subsequent runs to skip re-calling the LLM.
+```bash
+python -m src.knowledge_graph.scripts.generate_canon_cache
+```
+
+### 7. Benchmark Retrievers
+Evaluate `KGNodeRetriever`, `SectionTreeRetriever`, and optionally FAISS/BM25 retrievers against a query set. Supports optional LLM relevance grading via OpenRouter.
+```bash
+python -m src.knowledge_graph.scripts.benchmark_retrieval --queries tests/benchmarks.yaml
+python -m src.knowledge_graph.scripts.benchmark_retrieval --queries tests/benchmarks.yaml --no-llm --output results.json
 ```

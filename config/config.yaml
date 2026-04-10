@@ -26,3 +26,4 @@ kg_pipeline:
     similarity_threshold: 0.78
     max_group_size: 30
     batch_size: 15
+    embed_model: "sentence-transformers/all-MiniLM-L6-v2"

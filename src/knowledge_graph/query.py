@@ -1,6 +1,5 @@
 import logging
 
-import faiss
 import networkx as nx
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
@@ -29,7 +28,7 @@ class CanonicalLookup:
             no identity entries).
         canonical_keywords: Ordered list of canonical forms (aligned with embeddings).
         canonical_embeddings: Embedding matrix for canonical keywords (shape N × D).
-        embedding_model: Path to the GGUF embedding model (must match the model used
+        embedding_model: Sentence-transformer model name (must match the model used
             during offline canonicalization).
         fallback_threshold: Minimum cosine similarity for the embedding fallback to
             accept a canonical match (default 0.85).
@@ -40,7 +39,7 @@ class CanonicalLookup:
         synonym_table: dict[str, str],
         canonical_keywords: list[str],
         canonical_embeddings: np.ndarray,
-        embedding_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf",
+        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         fallback_threshold: float = 0.85,
     ):
         self.synonym_table = synonym_table
@@ -61,7 +60,7 @@ class CanonicalLookup:
             return self.synonym_table[keyword]
 
         if self._model is None:
-            from src.embedder import SentenceTransformer
+            from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self._model_name)
 
         emb = self._model.encode([keyword])

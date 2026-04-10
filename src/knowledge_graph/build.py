@@ -6,7 +6,7 @@ from time import strftime
 
 import pickle
 
-from src.knowledge_graph.models import Chunk, KGPipelineConfig
+from src.knowledge_graph.models import TOP_N, Chunk, KGPipelineConfig
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,7 +30,6 @@ RUNS_DIR = os.path.join(OUTPUT_DIR, "runs")
 
 RUN_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
-TOP_N = 10  # default keywords extracted per chunk
 
 
 def create_run_dir(runs_dir: str) -> str:
