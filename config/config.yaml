@@ -18,6 +18,7 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+enable_topic_extraction: true
 kg_pipeline:
   corpus_description: "Database System Concepts, 7th edition by Silberschatz et al."
   min_cooccurrence: 0
