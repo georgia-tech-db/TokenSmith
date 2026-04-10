@@ -40,14 +40,12 @@ class SectionRecursiveConfig(ChunkConfig):
 
 # -------------------------- Chunking Strategies --------------------------
 
-# Separator hierarchy: tries the largest natural boundary first,
-# falling back to smaller ones only when a chunk still exceeds chunk_size.
 # The "" fallback guarantees a hard character-level split as a last resort.
 _RECURSIVE_SEPARATORS = [
-    "\n\n",   # paragraph break     — strongest preference
     ". ",     # declarative sentence end
     "? ",     # question end
     "! ",     # exclamation end
+    "",
 ]
 
 
@@ -94,22 +92,7 @@ class SectionRecursiveStrategy(ChunkStrategy):
 
     def chunk(self, text: str) -> List[str]:
         chunks = self._splitter.split_text(text)
-
-        # Post-split validation: the "" separator should prevent this,
-        # but log loudly if anything still slips through.
-        over_limit = [
-            (i, len(c)) for i, c in enumerate(chunks)
-            if len(c) > self.config.recursive_chunk_size
-        ]
-        if over_limit:
-            for idx, length in over_limit:
-                print(
-                    f"[WARNING] Chunk {idx} has {length} chars, "
-                    f"exceeding limit of {self.config.recursive_chunk_size}. "
-                    f"This should not happen with the '' fallback separator — "
-                    f"check for non-standard whitespace or very long tokens."
-                )
-
+        
         # Drop pure-whitespace chunks
         return [c for c in chunks if c.strip()]
 
