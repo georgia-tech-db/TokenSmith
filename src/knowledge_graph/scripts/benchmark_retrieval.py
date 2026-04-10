@@ -360,7 +360,7 @@ def main() -> None:
 
     if args.output:
         with open(args.output, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(results, f, indent=2, default=lambda o: int(o) if hasattr(o, "__index__") else str(o))
         print(f"\nFull results written to {args.output}")
 
 
