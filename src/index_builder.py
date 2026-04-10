@@ -138,8 +138,8 @@ def build_index(
         json.dump(final_map, f, indent=2)
     print(f"Saved page to chunk ID map: {output_file}")
 
-    # Print chunk stats before embedding
-    print_chunk_stats(all_chunks, chunk_size_in_chars=chunk_config.recursive_chunk_size)
+    # Print chunk stats before embedding - TODO: wrap in some verbose cfg param
+    # print_chunk_stats(all_chunks, chunk_size_in_chars=chunk_config.recursive_chunk_size)
 
     # Step 2: Load embedder
     print(f"Loading embedding model (n_ctx={embedding_model_context_window})...")

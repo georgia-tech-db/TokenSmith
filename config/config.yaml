@@ -3,7 +3,7 @@ embedding_model_context_window: 4096
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
-ranker_weights: {"faiss":0.75,"bm25":0.25,"index_keywords":0}
+ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
 rrf_k: 60
 max_gen_tokens: 400
 chunk_mode: "recursive_sections"
