@@ -43,27 +43,6 @@ def main() -> None:
         default=os.path.join(PROJECT_ROOT, "config", "config.yaml"),
         help="Path to project config YAML (default: config/config.yaml)",
     )
-    parser.add_argument(
-        "--summarize",
-        action="store_true",
-        help="Build LLM summary index after the section tree (requires OPENROUTER_API_KEY).",
-    )
-    parser.add_argument(
-        "--summary-model",
-        default="openai/gpt-4o-mini",
-        help="OpenRouter model used for chunk/section summarization.",
-    )
-    parser.add_argument(
-        "--embed-model",
-        default="all-MiniLM-L6-v2",
-        help="SentenceTransformer model for embedding summaries.",
-    )
-    parser.add_argument(
-        "--chunk-window",
-        type=int,
-        default=3,
-        help="Number of adjacent chunks summarized together at the leaf level.",
-    )
     args = parser.parse_args()
 
     cfg = KGPipelineConfig.from_yaml(args.config)
