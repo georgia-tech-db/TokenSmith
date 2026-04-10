@@ -534,16 +534,12 @@ class TestQueryEnhancementAPI:
         """generate_hypothetical_document returns string."""
         from src.query_enhancement import generate_hypothetical_document
         
-        # Note: The function calls .strip() on run_llama_cpp result.
-        # run_llama_cpp returns a dict, so there's an inconsistency in the source.
-        # For API testing, mock to return a string (what the function expects).
-        mock_llm.return_value = "A hypothetical answer about databases."
+        mock_llm.return_value = {"choices": [{"text": "A hypothetical answer about databases."}]}
         
         result = generate_hypothetical_document(
             "What is a transaction?",
             model_path="mock_model",
-            max_tokens=100,
-            temperature=0.5
+            max_tokens=100
         )
         
         assert isinstance(result, str)
@@ -591,6 +587,21 @@ class TestQueryEnhancementAPI:
         )
         
         assert isinstance(result, list)
+
+    @patch('src.query_enhancement.run_llama_cpp')
+    def test_expand_query_with_perspectives(self, mock_llm):
+        """expand_query_with_perspectives returns list of specific perspectives."""
+        from src.query_enhancement import expand_query_with_perspectives
+        
+        mock_llm.return_value = {"choices": [{"text": "1. Database systems from an architecture perspective\n2. Data storage from a hardware perspective"}]}
+        
+        result = expand_query_with_perspectives(
+            "database architecture",
+            model_path="mock_model"
+        )
+        
+        assert isinstance(result, list)
+        assert len(result) > 0
 
 
 # ====================== Load Artifacts Tests ======================

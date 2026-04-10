@@ -4,7 +4,7 @@ num_candidates: 50
 ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
 rrf_k: 60
-max_gen_tokens: 400
+max_gen_tokens: 1024
 chunk_mode : "recursive_sections"
 gen_model: "models/qwen2.5-3b-instruct-q8_0.gguf"
 chunk_size: 2000
@@ -17,3 +17,4 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+use_query_expansion: false

@@ -127,6 +127,47 @@ def expand_query_with_keywords(
     return query_lines
 
 
+def expand_query_with_perspectives(
+    query: str,
+    model_path: str,
+    max_tokens: int = 64,
+    **llm_kwargs
+) -> str:
+    """
+    Query Expansion: Generates queries from different technical perspectives.
+    Provides broader context for retrieval to achieve better performance.
+    """
+    prompt = textwrap.dedent(f"""\
+        <|im_start|>system
+        You are a search optimization expert.
+        Generate 3 alternative versions of the user's query that approach the topic from different technical perspectives or use different specialized terminology.
+        This provides broader context for retrieval. Output the alternative queries separated by newlines. Do not provide explanations or numberings.
+        <|im_end|>
+        <|im_start|>user
+        Query: {query}
+        <|im_end|>
+        <|im_start|>assistant
+        """)
+
+    prompt = text_cleaning(prompt)
+    expansion = run_llama_cpp(
+        prompt,
+        model_path,
+        max_tokens=max_tokens,
+        temperature=0.5,
+        **llm_kwargs
+    )
+
+    # Combine original query with expansion
+    query_lines = [query]
+    query_lines.extend([line.strip() for line in expansion["choices"][0]["text"].split('\n') if line.strip()])
+
+    # Remove numbering if present
+    query_lines = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in query_lines]
+
+    return query_lines
+
+
 def decompose_complex_query(
     query: str,
     model_path: str,

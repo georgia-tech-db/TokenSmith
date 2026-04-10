@@ -17,7 +17,7 @@ from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
-from src.query_enhancement import generate_hypothetical_document, contextualize_query, expand_query_with_keywords
+from src.query_enhancement import generate_hypothetical_document, contextualize_query, expand_query_with_keywords, expand_query_with_perspectives
 from src.retriever import (
     filter_retrieved_chunks, 
     BM25Retriever, 
@@ -139,7 +139,7 @@ def get_answer(
         use_expansion = getattr(args, "use_query_expansion", False) or cfg.use_query_expansion
         
         if use_expansion:
-            queries_to_run = expand_query_with_keywords(question, cfg.gen_model, max_tokens=cfg.query_expansion_max_tokens)
+            queries_to_run = expand_query_with_perspectives(question, cfg.gen_model, max_tokens=cfg.query_expansion_max_tokens)
         elif cfg.use_hyde:
             queries_to_run = [generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)]
         else:
@@ -161,7 +161,11 @@ def get_answer(
                     r_key = f"{retriever.name}_{q_idx}"
                     raw_scores[r_key] = scores
                     if r_key not in ranker.weights:
-                        ranker.weights[r_key] = original_weights.get(retriever.name, 0.0) / len(queries_to_run)
+                        base_weight = original_weights.get(retriever.name, 0.0)
+                        if q_idx == 0:
+                            ranker.weights[r_key] = base_weight * 0.5
+                        else:
+                            ranker.weights[r_key] = (base_weight * 0.5) / (len(queries_to_run) - 1)
                         
         if len(queries_to_run) > 1:
             for retriever in retrievers:
