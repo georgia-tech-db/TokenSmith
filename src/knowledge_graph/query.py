@@ -70,7 +70,7 @@ class CanonicalLookup:
         best_idx = int(np.argmax(sims))
         if sims[best_idx] >= self.fallback_threshold:
             synonym = self.canonical_keywords[best_idx]
-            print(f"Embedding fallback: '{keyword}' → '{synonym}' (sim={sims[best_idx]:.4f})")
+            # print(f"Embedding fallback: '{keyword}' → '{synonym}' (sim={sims[best_idx]:.4f})")
             return synonym
 
         return keyword
