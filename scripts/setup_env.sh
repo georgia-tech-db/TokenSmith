@@ -35,5 +35,7 @@ else
     pip install llama-cpp-python
 fi
 
+python -m spacy download en_core_web_sm
+
 echo "TokenSmith environment setup complete!"
 echo "All dependencies managed by Conda."

@@ -20,7 +20,7 @@ dependencies:
     - tqdm
     - nltk
     - transformers
-    - sentence-transformers
+    - sentence-transformers<3.0.0
     - rank_bm25
     - langchain
     - langchain_text_splitters
@@ -33,3 +33,7 @@ dependencies:
     - pydantic
     - docling
     - markdown
+    - spacy
+    - yake
+    - pytextrank
+    - keybert
