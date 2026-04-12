@@ -54,6 +54,12 @@ class RAGConfig:
     extracted_index_path: os.PathLike = "data/extracted_index.json"
     page_to_chunk_map_path: os.PathLike = "index/sections/textbook_index_page_to_chunk_map.json"
 
+    # semantic cache (QVCache-inspired)
+    use_semantic_cache: bool = False
+    cache_capacity: int = 100
+    cache_deviation: float = 0.30
+    cache_alpha: float = 0.9
+
     # user feedback modeling
     enable_topic_extraction: bool = False
 

@@ -18,3 +18,8 @@ use_double_prompt: false
 enable_history: true
 max_history_turns: 3
 enable_topic_extraction: true
+
+use_semantic_cache: true 
+cache_capacity: 100 # this is the max entry count in the cache
+cache_deviation: 0.30 # this is the D value in the paper
+cache_alpha: 0.9 # this is the alpha value in the paper, how much to weigh the update of threshold

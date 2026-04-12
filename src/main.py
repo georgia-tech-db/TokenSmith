@@ -27,6 +27,7 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.semantic_cache import SemanticCache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -105,11 +106,26 @@ def get_answer(
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False,
-    additional_log_info: Optional[Dict[str, Any]] = None
+    additional_log_info: Optional[Dict[str, Any]] = None,
+    semantic_cache: Optional["SemanticCache"] = None,
 ) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
     """
     Run a single query through the pipeline.
-    """    
+    """
+    # Semantic cache lookup
+    if semantic_cache is not None and cfg.use_semantic_cache and not is_test_mode:
+        cached = semantic_cache.search(question)
+        if cached is not None:
+            stats = semantic_cache.get_stats()
+            if console:
+                console.print(
+                    f"\n[bold green]Cache hit[/bold green] "
+                    f"(ratio {stats['hit_ratio']:.0%}, "
+                    f"size {stats['cache_size']}/{stats['capacity']})\n"
+                )
+                console.print(Markdown(cached.answer))
+            return cached.answer
+
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
@@ -230,6 +246,14 @@ def get_answer(
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
 
+        # reaching this point means lookup missed, so insert the new entry into the cache
+        if semantic_cache is not None and cfg.use_semantic_cache:
+            semantic_cache.insert(
+                query=question,
+                answer=ans,
+                ranked_chunks=ranked_chunks,
+            )
+
         # Logging
         meta = artifacts.get("meta", [])
         page_nums = get_page_numbers(topk_idxs, meta)
@@ -298,6 +322,11 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
 
+    semantic_cache = None
+    if cfg.use_semantic_cache:
+        semantic_cache = SemanticCache(capacity=cfg.cache_capacity, alpha=cfg.cache_alpha, deviation=cfg.cache_deviation, embed_model=cfg.embed_model)
+        print(f"Semantic cache enabled (capacity={cfg.cache_capacity}, alpha={cfg.cache_alpha}, deviation={cfg.cache_deviation}).")
+
     chat_history = []
     additional_log_info = {}
     print("Initialization complete. You can start asking questions!")
@@ -325,8 +354,12 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                     print(f"Warning: Failed to contextualize query: {e}. Using original query.")
                     effective_q = q
             
-            # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
-            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
+            ans = get_answer(
+                effective_q, cfg, args, logger, console,
+                artifacts=artifacts,
+                additional_log_info=additional_log_info,
+                semantic_cache=semantic_cache,
+            )
 
             # Update Chat history (make it atomic for user + assistant turn)
             try:
