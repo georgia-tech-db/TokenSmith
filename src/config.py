@@ -39,7 +39,8 @@ class RAGConfig:
     use_golden_chunks: bool = False
     output_mode: str = "terminal"
     metrics: list = field(default_factory=lambda: ["all"])
-
+    disable_streaming: bool = False
+    
     # query enhancement
     use_hyde: bool = False
     hyde_max_tokens: int = 300
