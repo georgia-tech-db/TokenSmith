@@ -45,36 +45,54 @@ def _encode_batch_worker(texts: List[str]) -> List[List[float]]:
             # Create embedding
             emb = _worker_model.create_embedding(text)['data'][0]['embedding']
             embeddings.append(emb)
-        except Exception:
-            # Return zero vector on failure
-            embeddings.append([0.0] * _worker_embedding_dim)
+        except Exception as e:
+            raise RuntimeError(f"[TokenSmith] Worker embedding failed: {e}")
             
     return embeddings
 
 class SentenceTransformer:
-    def __init__(self, model_path: str, n_ctx: int = 4096, n_threads: int = None):
+    def __init__(self, model_path: str, n_ctx: int = 4096, n_threads: Optional[int] = None, n_gpu_layers: int = 0):
         """
         Initialize with a local GGUF model file path.
-        
+
         Args:
             model_path: Path to your local .gguf file
             n_ctx: Context window size (increased to match Qwen3 training context)
             n_threads: Number of threads to use (None = auto-detect)
+            n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU only)
         """
         self.model_path = model_path
         self.n_ctx = n_ctx
-        
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            embedding=True,
-            verbose=True,
-            use_mmap=True,
-            n_gpu_layers=-1 # use GPU if available
-        )
+        self.n_threads = n_threads
+        self.n_gpu_layers = n_gpu_layers  # stored so encode() can check it for fallback
+
+        try:
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                embedding=True,
+                verbose=True,
+                use_mmap=True,
+                n_gpu_layers=n_gpu_layers,
+            )
+            if n_gpu_layers != 0:
+                print(f"[TokenSmith] Embedder loaded on GPU (n_gpu_layers={n_gpu_layers})")
+        except Exception as e:
+            print(f"[TokenSmith] GPU embedder load failed: {e}. Falling back to CPU-only.")
+            self.n_gpu_layers = 0
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                embedding=True,
+                verbose=True,
+                use_mmap=True,
+                n_gpu_layers=0,
+            )
+
         self._embedding_dimension = None
-        
+
         _ = self.embedding_dimension
 
     @property
@@ -128,10 +146,26 @@ class SentenceTransformer:
                 embeddings.extend(batch_embeddings)
                 
             except Exception as e:
-                print(f"Error encoding batch: {e}")
-                # Fallback: encode one by one if batch fails, or append zeros
-                for _ in batch_texts:
-                    embeddings.append([0.0] * self.embedding_dimension)
+                if self.n_gpu_layers != 0:
+                    print(f"[TokenSmith] Batch encoding failed ({e}). Reloading embedder on CPU and retrying.")
+                    self.model = Llama(
+                        model_path=self.model_path,
+                        n_ctx=self.n_ctx,
+                        n_threads=self.n_threads,
+                        embedding=True,
+                        verbose=True,
+                        use_mmap=True,
+                        n_gpu_layers=0,
+                    )
+                    self.n_gpu_layers = 0
+                    try:
+                        response = self.model.create_embedding(batch_texts)
+                        batch_embeddings = [item["embedding"] for item in response["data"]]
+                        embeddings.extend(batch_embeddings)
+                    except Exception as retry_e:
+                        raise RuntimeError(f"[TokenSmith] Embedding failed even on CPU fallback: {retry_e}")
+                else:
+                    raise RuntimeError(f"[TokenSmith] Embedding failed (already CPU-only): {e}")
                 
         vecs = np.array(embeddings, dtype=np.float32)
         
@@ -259,8 +293,8 @@ class CachedEmbedder:
     Drop-in replacement for SentenceTransformer.
     """
     
-    def __init__(self, model_path: str, **kwargs):
-        self.embedder = SentenceTransformer(model_path, **kwargs)
+    def __init__(self, model_path: str, n_gpu_layers: int = 0, **kwargs):
+        self.embedder = SentenceTransformer(model_path, n_gpu_layers=n_gpu_layers, **kwargs)
         self.cache = EmbeddingCache()
         self.model_path = model_path
     
