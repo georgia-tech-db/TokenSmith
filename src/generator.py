@@ -1,4 +1,5 @@
 import textwrap, re
+from typing import Optional
 from llama_cpp import Llama
 
 ANSWER_START = "<<<ANSWER>>>"
@@ -110,27 +111,52 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
 
 _LLM_CACHE = {}
 
-def get_llama_model(model_path: str, n_ctx: int = 4096):
+def get_llama_model(
+    model_path: str,
+    n_ctx: int = 4096,
+    n_gpu_layers: int = 0,
+    n_threads: Optional[int] = None,
+) -> Llama:
+    """
+    Load and cache a Llama model. Attempts GPU acceleration first; if that
+    fails (e.g. Metal unsupported on this machine), falls back to CPU-only.
+    """
     if model_path not in _LLM_CACHE:
         try:
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False,
-                                       n_gpu_layers=-1)
+            _LLM_CACHE[model_path] = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                verbose=False,
+                n_gpu_layers=n_gpu_layers,
+                n_threads=n_threads,
+            )
+            if n_gpu_layers != 0:
+                print(f"[TokenSmith] Generator loaded on GPU (n_gpu_layers={n_gpu_layers})")
         except Exception as e:
-            print(f"Error loading LLaMA model from {model_path} on GPU: {e}")
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False)
+            print(f"[TokenSmith] GPU model load failed: {e}. Falling back to CPU-only.")
+            _LLM_CACHE[model_path] = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                verbose=False,
+                n_gpu_layers=0,
+                n_threads=n_threads,
+            )
     return _LLM_CACHE[model_path]
 
-def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):
+def stream_llama_cpp(
+    prompt: str,
+    model_path: str,
+    max_tokens: int,
+    temperature: float,
+    n_gpu_layers: int = 0,
+    n_threads: Optional[int] = None,
+):
     """
     Generator that yields incremental text chunks until ANSWER_END or token limit.
     Usage:
         for delta in stream_llama_cpp(...): print(delta, end="", flush=True)
     """
-    model : Llama = get_llama_model(model_path)
+    model: Llama = get_llama_model(model_path, n_gpu_layers=n_gpu_layers, n_threads=n_threads)
     for ev in model.create_completion(
         prompt,
         max_tokens=max_tokens,
@@ -141,8 +167,16 @@ def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature:
         delta = ev["choices"][0]["text"]
         yield delta
 
-def run_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):
-    model: Llama = get_llama_model(model_path)
+
+def run_llama_cpp(
+    prompt: str,
+    model_path: str,
+    max_tokens: int,
+    temperature: float,
+    n_gpu_layers: int = 0,
+    n_threads: Optional[int] = None,
+):
+    model: Llama = get_llama_model(model_path, n_gpu_layers=n_gpu_layers, n_threads=n_threads)
     return model.create_completion(
         prompt,
         max_tokens=max_tokens,
@@ -150,14 +184,37 @@ def run_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: fl
         stop=[ANSWER_END]
     )
 
-def answer(query: str, chunks, model_path: str, max_tokens: int = 300, system_prompt_mode: str = "tutor", temperature: float = 0.2):
-    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
-    return stream_llama_cpp(prompt, model_path, max_tokens=max_tokens, temperature=temperature)
 
-def double_answer(query: str, chunks, model_path: str,
-                  max_tokens: int = 300,
-                  system_prompt_mode: str = "tutor",
-                  temperature: float = 0.2):
+def answer(
+    query: str,
+    chunks,
+    model_path: str,
+    max_tokens: int = 300,
+    system_prompt_mode: str = "tutor",
+    temperature: float = 0.2,
+    n_gpu_layers: int = 0,
+    n_threads: Optional[int] = None,
+):
+    prompt = format_prompt(chunks, query, system_prompt_mode=system_prompt_mode)
+    return stream_llama_cpp(
+        prompt, model_path,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        n_gpu_layers=n_gpu_layers,
+        n_threads=n_threads,
+    )
+
+
+def double_answer(
+    query: str,
+    chunks,
+    model_path: str,
+    max_tokens: int = 300,
+    system_prompt_mode: str = "tutor",
+    temperature: float = 0.2,
+    n_gpu_layers: int = 0,
+    n_threads: Optional[int] = None,
+):
 
     # ---- Pass 1 ----
     base_prompt = format_prompt(
@@ -170,7 +227,9 @@ def double_answer(query: str, chunks, model_path: str,
         base_prompt,
         model_path,
         max_tokens,
-        temperature
+        temperature,
+        n_gpu_layers=n_gpu_layers,
+        n_threads=n_threads,
     )
 
     initial_response = "".join(initial_stream)
@@ -193,7 +252,9 @@ def double_answer(query: str, chunks, model_path: str,
         repeated_prompt,
         model_path,
         max_tokens,
-        temperature
+        temperature,
+        n_gpu_layers=n_gpu_layers,
+        n_threads=n_threads,
     )
 
 def dedupe_generated_text(text: str) -> str:
