@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Optional
 
 import yaml
 import pathlib
@@ -49,6 +49,11 @@ class RAGConfig:
     enable_history: bool = True
     max_history_turns: int = 3
     
+    # hardware acceleration
+    device: str = "auto"           # "auto" | "cpu" | "metal" | "cuda"
+    n_gpu_layers: int = -1         # -1 = all layers on GPU; 0 = CPU only
+    n_threads: Optional[int] = None  # None = auto-detect
+
     # index parameters
     use_indexed_chunks: bool = False
     extracted_index_path: os.PathLike = "data/extracted_index.json"

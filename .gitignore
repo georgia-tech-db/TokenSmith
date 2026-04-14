@@ -252,3 +252,6 @@ marimo/_lsp/
 __marimo__/
 
 tests/results
+
+###
+local_setup_fixes.patch

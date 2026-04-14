@@ -17,3 +17,12 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+
+# Hardware acceleration
+# device: "auto" detects the best backend at startup (recommended)
+# Set to "cpu" to force CPU-only on any machine
+# n_gpu_layers: -1 = all layers on GPU, 0 = CPU only (overridden by device: "auto")
+# n_threads: null = auto-detect CPU thread count
+device: "auto"
+n_gpu_layers: -1
+n_threads: null
