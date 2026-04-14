@@ -1,0 +1,3588 @@
+[
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 28.76,
+    "retriever_latency_ms": {
+      "faiss": 26.85
+    },
+    "rank_latency_ms": 1.91,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6955,
+    "ndcg_at_10": 0.6255,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      209,
+      1385,
+      1116,
+      178,
+      1209,
+      864,
+      65
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 14.45,
+    "retriever_latency_ms": {
+      "bm25": 12.11
+    },
+    "rank_latency_ms": 2.35,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.3852,
+    "ndcg_at_10": 0.3052,
+    "top_k_ids": [
+      1039,
+      1034,
+      1232,
+      54,
+      1149,
+      407,
+      1466,
+      1330,
+      1436,
+      1116
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 33.77,
+    "retriever_latency_ms": {
+      "faiss": 20.36,
+      "bm25": 11.59
+    },
+    "rank_latency_ms": 1.82,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7994,
+    "ndcg_at_10": 0.7294,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      326,
+      1429,
+      865,
+      696,
+      569,
+      318,
+      440
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 49.77,
+    "retriever_latency_ms": {
+      "faiss": 34.99,
+      "bm25": 9.28,
+      "index_keywords": 3.38
+    },
+    "rank_latency_ms": 2.12,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7613,
+    "ndcg_at_10": 0.6913,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      88,
+      1494,
+      940,
+      1098,
+      255,
+      775,
+      161
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 142.08,
+    "retriever_latency_ms": {
+      "faiss": 19.09
+    },
+    "rank_latency_ms": 1.11,
+    "rerank_latency_ms": 121.88,
+    "hit_rate_at_10": 0.6961,
+    "ndcg_at_10": 0.6508,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      93,
+      1354,
+      466,
+      592,
+      163,
+      476,
+      206
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 170.11,
+    "retriever_latency_ms": {
+      "bm25": 5.96
+    },
+    "rank_latency_ms": 1.6,
+    "rerank_latency_ms": 162.55,
+    "hit_rate_at_10": 0.4333,
+    "ndcg_at_10": 0.3889,
+    "top_k_ids": [
+      1039,
+      1040,
+      1437,
+      1399,
+      1327,
+      146,
+      1247,
+      1300,
+      350,
+      1093
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 109.53,
+    "retriever_latency_ms": {
+      "faiss": 23.88,
+      "bm25": 9.77
+    },
+    "rank_latency_ms": 1.7,
+    "rerank_latency_ms": 74.18,
+    "hit_rate_at_10": 0.8614,
+    "ndcg_at_10": 0.802,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      1402,
+      664,
+      114,
+      469,
+      65,
+      646
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "aggregation_grouping",
+    "question": "How do aggregation with grouping work?",
+    "query_type": "semantic",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 177.85,
+    "retriever_latency_ms": {
+      "faiss": 25.59,
+      "bm25": 10.65,
+      "index_keywords": 4.11
+    },
+    "rank_latency_ms": 1.66,
+    "rerank_latency_ms": 135.85,
+    "hit_rate_at_10": 0.7529,
+    "ndcg_at_10": 0.7248,
+    "top_k_ids": [
+      1039,
+      1040,
+      1496,
+      1316,
+      939,
+      292,
+      542,
+      285,
+      505,
+      1149
+    ],
+    "ideal_chunk_ids": [
+      1039,
+      1040,
+      1496,
+      1497,
+      714
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 16.93,
+    "retriever_latency_ms": {
+      "faiss": 15.13
+    },
+    "rank_latency_ms": 1.8,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.4723,
+    "ndcg_at_10": 0.4023,
+    "top_k_ids": [
+      1143,
+      1142,
+      741,
+      449,
+      283,
+      1043,
+      1010,
+      186,
+      96,
+      224
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 13.9,
+    "retriever_latency_ms": {
+      "bm25": 11.73
+    },
+    "rank_latency_ms": 2.17,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6994,
+    "ndcg_at_10": 0.6194,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      1393,
+      864,
+      1221,
+      130,
+      788,
+      781,
+      1220
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 50.7,
+    "retriever_latency_ms": {
+      "faiss": 37.82,
+      "bm25": 9.91
+    },
+    "rank_latency_ms": 2.98,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7056,
+    "ndcg_at_10": 0.6356,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      23,
+      1393,
+      1476,
+      234,
+      1396,
+      1099,
+      546
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 41.26,
+    "retriever_latency_ms": {
+      "faiss": 28.85,
+      "bm25": 7.28,
+      "index_keywords": 2.84
+    },
+    "rank_latency_ms": 2.28,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.804,
+    "ndcg_at_10": 0.734,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1473,
+      539,
+      1025,
+      365,
+      1039,
+      217
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 152.19,
+    "retriever_latency_ms": {
+      "faiss": 28.26
+    },
+    "rank_latency_ms": 2.29,
+    "rerank_latency_ms": 121.64,
+    "hit_rate_at_10": 0.514,
+    "ndcg_at_10": 0.4982,
+    "top_k_ids": [
+      1143,
+      1142,
+      1104,
+      1086,
+      1,
+      1226,
+      663,
+      1000,
+      39,
+      229
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 123.22,
+    "retriever_latency_ms": {
+      "bm25": 6.85
+    },
+    "rank_latency_ms": 2.93,
+    "rerank_latency_ms": 113.45,
+    "hit_rate_at_10": 0.7203,
+    "ndcg_at_10": 0.7083,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      161,
+      175,
+      1498,
+      995,
+      141,
+      1090,
+      257
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 154.39,
+    "retriever_latency_ms": {
+      "faiss": 22.02,
+      "bm25": 12.36
+    },
+    "rank_latency_ms": 2.41,
+    "rerank_latency_ms": 117.6,
+    "hit_rate_at_10": 0.7827,
+    "ndcg_at_10": 0.7,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      433,
+      1104,
+      1494,
+      1412,
+      411,
+      1460,
+      638
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "acid_properties",
+    "question": "What are the ACID properties of transactions?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 153.7,
+    "retriever_latency_ms": {
+      "faiss": 18.38,
+      "bm25": 12.65,
+      "index_keywords": 1.5
+    },
+    "rank_latency_ms": 2.77,
+    "rerank_latency_ms": 118.4,
+    "hit_rate_at_10": 0.7729,
+    "ndcg_at_10": 0.7105,
+    "top_k_ids": [
+      1143,
+      1142,
+      1145,
+      1134,
+      471,
+      1205,
+      451,
+      14,
+      145,
+      1449
+    ],
+    "ideal_chunk_ids": [
+      1143,
+      1142,
+      1145,
+      1146,
+      1148
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 25.82,
+    "retriever_latency_ms": {
+      "faiss": 24.08
+    },
+    "rank_latency_ms": 1.74,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6657,
+    "ndcg_at_10": 0.5857,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      145,
+      1052,
+      487,
+      570,
+      1370,
+      994,
+      438
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 7.89,
+    "retriever_latency_ms": {
+      "bm25": 6.67
+    },
+    "rank_latency_ms": 1.22,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6044,
+    "ndcg_at_10": 0.5344,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      1169,
+      1180,
+      968,
+      497,
+      968,
+      833,
+      389
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 51.88,
+    "retriever_latency_ms": {
+      "faiss": 37.73,
+      "bm25": 12.46
+    },
+    "rank_latency_ms": 1.69,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6926,
+    "ndcg_at_10": 0.6126,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      1493,
+      110,
+      1379,
+      1338,
+      1323,
+      201,
+      124
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 38.81,
+    "retriever_latency_ms": {
+      "faiss": 22.04,
+      "bm25": 11.57,
+      "index_keywords": 3.49
+    },
+    "rank_latency_ms": 1.71,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.696,
+    "ndcg_at_10": 0.616,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      864,
+      375,
+      570,
+      947,
+      511,
+      154,
+      907
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 123.29,
+    "retriever_latency_ms": {
+      "faiss": 36.12
+    },
+    "rank_latency_ms": 2.35,
+    "rerank_latency_ms": 84.82,
+    "hit_rate_at_10": 0.6999,
+    "ndcg_at_10": 0.5985,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      191,
+      484,
+      340,
+      832,
+      994,
+      985,
+      437
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 106.58,
+    "retriever_latency_ms": {
+      "bm25": 12.52
+    },
+    "rank_latency_ms": 2.71,
+    "rerank_latency_ms": 91.36,
+    "hit_rate_at_10": 0.6648,
+    "ndcg_at_10": 0.6462,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      931,
+      584,
+      866,
+      1426,
+      1496,
+      1138,
+      1355
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 156.98,
+    "retriever_latency_ms": {
+      "faiss": 28.45,
+      "bm25": 9.66
+    },
+    "rank_latency_ms": 1.72,
+    "rerank_latency_ms": 117.16,
+    "hit_rate_at_10": 0.8155,
+    "ndcg_at_10": 0.7487,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      937,
+      642,
+      117,
+      102,
+      1196,
+      976,
+      1029
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "bptree",
+    "question": "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access",
+    "query_type": "factual",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 197.86,
+    "retriever_latency_ms": {
+      "faiss": 36.61,
+      "bm25": 8.21,
+      "index_keywords": 4.12
+    },
+    "rank_latency_ms": 2.21,
+    "rerank_latency_ms": 146.72,
+    "hit_rate_at_10": 0.692,
+    "ndcg_at_10": 0.6782,
+    "top_k_ids": [
+      908,
+      909,
+      940,
+      826,
+      245,
+      1166,
+      504,
+      1185,
+      1217,
+      81
+    ],
+    "ideal_chunk_ids": [
+      908,
+      909,
+      940,
+      937,
+      938
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 23.54,
+    "retriever_latency_ms": {
+      "faiss": 21.9
+    },
+    "rank_latency_ms": 1.64,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.4779,
+    "ndcg_at_10": 0.4079,
+    "top_k_ids": [
+      438,
+      439,
+      534,
+      418,
+      1371,
+      1466,
+      643,
+      488,
+      543,
+      810
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 10.66,
+    "retriever_latency_ms": {
+      "bm25": 8.17
+    },
+    "rank_latency_ms": 2.49,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7222,
+    "ndcg_at_10": 0.6422,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      936,
+      647,
+      148,
+      19,
+      938,
+      1272,
+      1153
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 43.18,
+    "retriever_latency_ms": {
+      "faiss": 31.12,
+      "bm25": 9.97
+    },
+    "rank_latency_ms": 2.09,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7506,
+    "ndcg_at_10": 0.6806,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      714,
+      140,
+      500,
+      756,
+      583,
+      323,
+      897
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 42.27,
+    "retriever_latency_ms": {
+      "faiss": 34.27,
+      "bm25": 5.95,
+      "index_keywords": 1.0
+    },
+    "rank_latency_ms": 1.05,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7372,
+    "ndcg_at_10": 0.6672,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      1135,
+      613,
+      1358,
+      212,
+      275,
+      541,
+      236
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 138.24,
+    "retriever_latency_ms": {
+      "faiss": 27.17
+    },
+    "rank_latency_ms": 2.63,
+    "rerank_latency_ms": 108.43,
+    "hit_rate_at_10": 0.5709,
+    "ndcg_at_10": 0.5222,
+    "top_k_ids": [
+      438,
+      439,
+      1407,
+      1298,
+      540,
+      1035,
+      1000,
+      514,
+      104,
+      189
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 111.25,
+    "retriever_latency_ms": {
+      "bm25": 12.02
+    },
+    "rank_latency_ms": 1.38,
+    "rerank_latency_ms": 97.85,
+    "hit_rate_at_10": 0.7425,
+    "ndcg_at_10": 0.7332,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      330,
+      904,
+      1129,
+      1445,
+      875,
+      1148,
+      19
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 182.09,
+    "retriever_latency_ms": {
+      "faiss": 29.97,
+      "bm25": 15.51
+    },
+    "rank_latency_ms": 2.78,
+    "rerank_latency_ms": 133.83,
+    "hit_rate_at_10": 0.721,
+    "ndcg_at_10": 0.6847,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      1131,
+      303,
+      880,
+      261,
+      85,
+      631,
+      746
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "fd_normalization",
+    "question": "What are functional dependencies?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 197.51,
+    "retriever_latency_ms": {
+      "faiss": 39.49,
+      "bm25": 6.83,
+      "index_keywords": 4.37
+    },
+    "rank_latency_ms": 1.18,
+    "rerank_latency_ms": 145.64,
+    "hit_rate_at_10": 0.7955,
+    "ndcg_at_10": 0.784,
+    "top_k_ids": [
+      438,
+      439,
+      463,
+      832,
+      1271,
+      316,
+      484,
+      332,
+      362,
+      844
+    ],
+    "ideal_chunk_ids": [
+      438,
+      439,
+      463,
+      451,
+      484
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 43.04,
+    "retriever_latency_ms": {
+      "faiss": 40.91
+    },
+    "rank_latency_ms": 2.13,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.4744,
+    "ndcg_at_10": 0.4044,
+    "top_k_ids": [
+      1173,
+      1174,
+      1371,
+      508,
+      546,
+      326,
+      1436,
+      221,
+      783,
+      79
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 18.25,
+    "retriever_latency_ms": {
+      "bm25": 16.03
+    },
+    "rank_latency_ms": 2.22,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.658,
+    "ndcg_at_10": 0.578,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      942,
+      716,
+      625,
+      466,
+      456,
+      48,
+      1351
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 45.86,
+    "retriever_latency_ms": {
+      "faiss": 30.5,
+      "bm25": 12.51
+    },
+    "rank_latency_ms": 2.86,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6414,
+    "ndcg_at_10": 0.5714,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      571,
+      719,
+      1313,
+      1043,
+      818,
+      1391,
+      1098
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 42.98,
+    "retriever_latency_ms": {
+      "faiss": 27.08,
+      "bm25": 10.62,
+      "index_keywords": 3.56
+    },
+    "rank_latency_ms": 1.73,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6397,
+    "ndcg_at_10": 0.5697,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      78,
+      222,
+      1221,
+      889,
+      707,
+      1492,
+      642
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 191.18,
+    "retriever_latency_ms": {
+      "faiss": 16.88
+    },
+    "rank_latency_ms": 0.67,
+    "rerank_latency_ms": 173.63,
+    "hit_rate_at_10": 0.6155,
+    "ndcg_at_10": 0.5472,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      893,
+      3,
+      1064,
+      1102,
+      1406,
+      1473,
+      1373
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 186.57,
+    "retriever_latency_ms": {
+      "bm25": 14.27
+    },
+    "rank_latency_ms": 2.17,
+    "rerank_latency_ms": 170.12,
+    "hit_rate_at_10": 0.8229,
+    "ndcg_at_10": 0.7619,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      255,
+      1474,
+      615,
+      1038,
+      633,
+      1365
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 167.61,
+    "retriever_latency_ms": {
+      "faiss": 22.31,
+      "bm25": 7.45
+    },
+    "rank_latency_ms": 2.28,
+    "rerank_latency_ms": 135.57,
+    "hit_rate_at_10": 0.7852,
+    "ndcg_at_10": 0.7658,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      1387,
+      356,
+      1260,
+      1165,
+      616,
+      831,
+      1122
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "sql_isolation",
+    "question": "What isolation guarantees does SQL provide by default?",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 164.76,
+    "retriever_latency_ms": {
+      "faiss": 31.42,
+      "bm25": 7.79,
+      "index_keywords": 3.43
+    },
+    "rank_latency_ms": 2.85,
+    "rerank_latency_ms": 119.26,
+    "hit_rate_at_10": 0.7646,
+    "ndcg_at_10": 0.7254,
+    "top_k_ids": [
+      1173,
+      1174,
+      1142,
+      1046,
+      969,
+      347,
+      1349,
+      173,
+      581,
+      1055
+    ],
+    "ideal_chunk_ids": [
+      1173,
+      1174,
+      1142,
+      1143,
+      1172
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 23.68,
+    "retriever_latency_ms": {
+      "faiss": 22.27
+    },
+    "rank_latency_ms": 1.4,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6021,
+    "ndcg_at_10": 0.5321,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      481,
+      1377,
+      635,
+      460,
+      407,
+      301,
+      50
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 17.47,
+    "retriever_latency_ms": {
+      "bm25": 14.09
+    },
+    "rank_latency_ms": 3.38,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7129,
+    "ndcg_at_10": 0.6329,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      1251,
+      149,
+      932,
+      848,
+      1289,
+      1178,
+      398
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 35.32,
+    "retriever_latency_ms": {
+      "faiss": 26.44,
+      "bm25": 7.11
+    },
+    "rank_latency_ms": 1.77,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7333,
+    "ndcg_at_10": 0.6633,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      1408,
+      11,
+      218,
+      870,
+      448,
+      360,
+      1425
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 41.32,
+    "retriever_latency_ms": {
+      "faiss": 25.45,
+      "bm25": 9.89,
+      "index_keywords": 3.01
+    },
+    "rank_latency_ms": 2.97,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6708,
+    "ndcg_at_10": 0.6008,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      1367,
+      1087,
+      1144,
+      1219,
+      649,
+      906,
+      1254
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 116.22,
+    "retriever_latency_ms": {
+      "faiss": 31.89
+    },
+    "rank_latency_ms": 2.42,
+    "rerank_latency_ms": 81.91,
+    "hit_rate_at_10": 0.4887,
+    "ndcg_at_10": 0.4131,
+    "top_k_ids": [
+      90,
+      91,
+      972,
+      921,
+      530,
+      506,
+      1305,
+      567,
+      1067,
+      992
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 137.44,
+    "retriever_latency_ms": {
+      "bm25": 12.9
+    },
+    "rank_latency_ms": 1.72,
+    "rerank_latency_ms": 122.82,
+    "hit_rate_at_10": 0.7453,
+    "ndcg_at_10": 0.6814,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      1106,
+      165,
+      283,
+      308,
+      473,
+      784,
+      1421
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 161.41,
+    "retriever_latency_ms": {
+      "faiss": 31.07,
+      "bm25": 11.19
+    },
+    "rank_latency_ms": 2.28,
+    "rerank_latency_ms": 116.86,
+    "hit_rate_at_10": 0.7862,
+    "ndcg_at_10": 0.7026,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      860,
+      797,
+      1196,
+      1424,
+      40,
+      1179,
+      779
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "primary_foreign_keys",
+    "question": "Explain primary keys and foreign keys",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 209.58,
+    "retriever_latency_ms": {
+      "faiss": 9.07,
+      "bm25": 11.03,
+      "index_keywords": 2.7
+    },
+    "rank_latency_ms": 2.47,
+    "rerank_latency_ms": 184.31,
+    "hit_rate_at_10": 0.7444,
+    "ndcg_at_10": 0.7036,
+    "top_k_ids": [
+      90,
+      91,
+      119,
+      1235,
+      451,
+      999,
+      449,
+      558,
+      892,
+      994
+    ],
+    "ideal_chunk_ids": [
+      90,
+      91,
+      119,
+      93,
+      94
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 37.2,
+    "retriever_latency_ms": {
+      "faiss": 35.12
+    },
+    "rank_latency_ms": 2.08,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.5025,
+    "ndcg_at_10": 0.4325,
+    "top_k_ids": [
+      49,
+      50,
+      338,
+      957,
+      261,
+      1274,
+      1093,
+      55,
+      806,
+      1212
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 9.14,
+    "retriever_latency_ms": {
+      "bm25": 7.24
+    },
+    "rank_latency_ms": 1.89,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6763,
+    "ndcg_at_10": 0.5963,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      1316,
+      877,
+      277,
+      945,
+      372,
+      102,
+      532
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 37.03,
+    "retriever_latency_ms": {
+      "faiss": 24.0,
+      "bm25": 11.42
+    },
+    "rank_latency_ms": 1.61,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.78,
+    "ndcg_at_10": 0.71,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      776,
+      569,
+      863,
+      516,
+      167,
+      963,
+      39
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 42.58,
+    "retriever_latency_ms": {
+      "faiss": 27.98,
+      "bm25": 9.02,
+      "index_keywords": 3.68
+    },
+    "rank_latency_ms": 1.89,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.8313,
+    "ndcg_at_10": 0.7613,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      250,
+      82,
+      63,
+      506,
+      408,
+      41,
+      1272
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 191.29,
+    "retriever_latency_ms": {
+      "faiss": 36.4
+    },
+    "rank_latency_ms": 2.15,
+    "rerank_latency_ms": 152.74,
+    "hit_rate_at_10": 0.5281,
+    "ndcg_at_10": 0.504,
+    "top_k_ids": [
+      49,
+      50,
+      755,
+      343,
+      1240,
+      1243,
+      1471,
+      234,
+      335,
+      637
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 153.01,
+    "retriever_latency_ms": {
+      "bm25": 6.62
+    },
+    "rank_latency_ms": 2.09,
+    "rerank_latency_ms": 144.3,
+    "hit_rate_at_10": 0.7347,
+    "ndcg_at_10": 0.6349,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      1464,
+      406,
+      155,
+      1212,
+      1414,
+      1284,
+      497
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 219.73,
+    "retriever_latency_ms": {
+      "faiss": 39.13,
+      "bm25": 14.14
+    },
+    "rank_latency_ms": 2.51,
+    "rerank_latency_ms": 163.94,
+    "hit_rate_at_10": 0.7035,
+    "ndcg_at_10": 0.7051,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      84,
+      711,
+      1091,
+      877,
+      1354,
+      758,
+      141
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "database_schema",
+    "question": "What is a database schema",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 236.1,
+    "retriever_latency_ms": {
+      "faiss": 20.7,
+      "bm25": 9.9,
+      "index_keywords": 4.09
+    },
+    "rank_latency_ms": 1.25,
+    "rerank_latency_ms": 200.17,
+    "hit_rate_at_10": 0.8608,
+    "ndcg_at_10": 0.8207,
+    "top_k_ids": [
+      49,
+      50,
+      51,
+      250,
+      1448,
+      313,
+      891,
+      360,
+      1068,
+      1332
+    ],
+    "ideal_chunk_ids": [
+      49,
+      50,
+      51,
+      250,
+      60
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 29.07,
+    "retriever_latency_ms": {
+      "faiss": 26.17
+    },
+    "rank_latency_ms": 2.9,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.4753,
+    "ndcg_at_10": 0.4053,
+    "top_k_ids": [
+      1,
+      2,
+      892,
+      1497,
+      1213,
+      549,
+      660,
+      502,
+      177,
+      571
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 11.46,
+    "retriever_latency_ms": {
+      "bm25": 9.18
+    },
+    "rank_latency_ms": 2.28,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6598,
+    "ndcg_at_10": 0.5798,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      951,
+      1167,
+      1249,
+      1368,
+      776,
+      688,
+      58
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 32.54,
+    "retriever_latency_ms": {
+      "faiss": 20.91,
+      "bm25": 10.1
+    },
+    "rank_latency_ms": 1.53,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7229,
+    "ndcg_at_10": 0.6529,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      529,
+      697,
+      572,
+      1220,
+      1436,
+      565,
+      1138
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 64.66,
+    "retriever_latency_ms": {
+      "faiss": 47.42,
+      "bm25": 10.47,
+      "index_keywords": 4.37
+    },
+    "rank_latency_ms": 2.41,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6728,
+    "ndcg_at_10": 0.6028,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      1414,
+      975,
+      1322,
+      1457,
+      1005,
+      917,
+      35
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 182.98,
+    "retriever_latency_ms": {
+      "faiss": 28.97
+    },
+    "rank_latency_ms": 2.3,
+    "rerank_latency_ms": 151.72,
+    "hit_rate_at_10": 0.5627,
+    "ndcg_at_10": 0.5009,
+    "top_k_ids": [
+      1,
+      2,
+      1087,
+      704,
+      871,
+      1127,
+      677,
+      720,
+      1439,
+      929
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 172.19,
+    "retriever_latency_ms": {
+      "bm25": 7.6
+    },
+    "rank_latency_ms": 1.95,
+    "rerank_latency_ms": 162.63,
+    "hit_rate_at_10": 0.7262,
+    "ndcg_at_10": 0.6865,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      1413,
+      379,
+      392,
+      443,
+      991,
+      566,
+      1483
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 109.76,
+    "retriever_latency_ms": {
+      "faiss": 31.6,
+      "bm25": 5.71
+    },
+    "rank_latency_ms": 1.55,
+    "rerank_latency_ms": 70.9,
+    "hit_rate_at_10": 0.7258,
+    "ndcg_at_10": 0.6366,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      739,
+      367,
+      619,
+      28,
+      1450,
+      1093,
+      259
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "book_authors",
+    "question": "Tell me about the authors of the book",
+    "query_type": "keyword_heavy",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 228.4,
+    "retriever_latency_ms": {
+      "faiss": 24.71,
+      "bm25": 18.02,
+      "index_keywords": 1.54
+    },
+    "rank_latency_ms": 1.75,
+    "rerank_latency_ms": 182.38,
+    "hit_rate_at_10": 0.8469,
+    "ndcg_at_10": 0.8185,
+    "top_k_ids": [
+      1,
+      2,
+      0,
+      3,
+      1175,
+      582,
+      961,
+      980,
+      902,
+      697
+    ],
+    "ideal_chunk_ids": [
+      1,
+      2,
+      0,
+      3,
+      22
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 31.19,
+    "retriever_latency_ms": {
+      "faiss": 29.04
+    },
+    "rank_latency_ms": 2.15,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7425,
+    "ndcg_at_10": 0.6725,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      133,
+      820,
+      1007,
+      151,
+      1181,
+      1289,
+      1405
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 11.03,
+    "retriever_latency_ms": {
+      "bm25": 8.76
+    },
+    "rank_latency_ms": 2.27,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.3875,
+    "ndcg_at_10": 0.3075,
+    "top_k_ids": [
+      1355,
+      1152,
+      622,
+      174,
+      508,
+      242,
+      1142,
+      852,
+      1241,
+      1220
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 38.83,
+    "retriever_latency_ms": {
+      "faiss": 29.45,
+      "bm25": 7.92
+    },
+    "rank_latency_ms": 1.46,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7138,
+    "ndcg_at_10": 0.6438,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      906,
+      608,
+      1205,
+      878,
+      625,
+      1164,
+      1271
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 66.56,
+    "retriever_latency_ms": {
+      "faiss": 46.87,
+      "bm25": 12.81,
+      "index_keywords": 4.38
+    },
+    "rank_latency_ms": 2.5,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7079,
+    "ndcg_at_10": 0.6379,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      166,
+      321,
+      491,
+      355,
+      1130,
+      153,
+      320
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 166.65,
+    "retriever_latency_ms": {
+      "faiss": 23.55
+    },
+    "rank_latency_ms": 2.55,
+    "rerank_latency_ms": 140.55,
+    "hit_rate_at_10": 0.7063,
+    "ndcg_at_10": 0.6819,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      1439,
+      929,
+      145,
+      1407,
+      478,
+      541,
+      1280
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 120.9,
+    "retriever_latency_ms": {
+      "bm25": 8.62
+    },
+    "rank_latency_ms": 1.24,
+    "rerank_latency_ms": 111.04,
+    "hit_rate_at_10": 0.4198,
+    "ndcg_at_10": 0.3468,
+    "top_k_ids": [
+      1355,
+      1356,
+      544,
+      291,
+      146,
+      122,
+      339,
+      629,
+      1218,
+      1165
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 161.27,
+    "retriever_latency_ms": {
+      "faiss": 31.74,
+      "bm25": 12.84
+    },
+    "rank_latency_ms": 1.74,
+    "rerank_latency_ms": 114.95,
+    "hit_rate_at_10": 0.7708,
+    "ndcg_at_10": 0.7057,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      1105,
+      1011,
+      896,
+      164,
+      1224,
+      81,
+      884
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "aries_atomicity",
+    "question": "How does the recovery manager use ARIES to ensure atomicity",
+    "query_type": "semantic",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 151.38,
+    "retriever_latency_ms": {
+      "faiss": 26.94,
+      "bm25": 5.94,
+      "index_keywords": 3.71
+    },
+    "rank_latency_ms": 2.06,
+    "rerank_latency_ms": 112.73,
+    "hit_rate_at_10": 0.7146,
+    "ndcg_at_10": 0.6209,
+    "top_k_ids": [
+      1355,
+      1356,
+      1358,
+      1376,
+      551,
+      1180,
+      82,
+      358,
+      963,
+      1062
+    ],
+    "ideal_chunk_ids": [
+      1355,
+      1356,
+      1358,
+      1353,
+      1359
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 18.76,
+    "retriever_latency_ms": {
+      "faiss": 17.67
+    },
+    "rank_latency_ms": 1.09,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7221,
+    "ndcg_at_10": 0.6521,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      1300,
+      1007,
+      186,
+      962,
+      712,
+      836,
+      682
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 15.52,
+    "retriever_latency_ms": {
+      "bm25": 13.62
+    },
+    "rank_latency_ms": 1.9,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.397,
+    "ndcg_at_10": 0.317,
+    "top_k_ids": [
+      33,
+      329,
+      675,
+      843,
+      1420,
+      1014,
+      590,
+      1356,
+      820,
+      1126
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 43.63,
+    "retriever_latency_ms": {
+      "faiss": 31.34,
+      "bm25": 10.29
+    },
+    "rank_latency_ms": 2.0,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7399,
+    "ndcg_at_10": 0.6699,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      827,
+      1053,
+      2,
+      1346,
+      1111,
+      946,
+      846
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 52.08,
+    "retriever_latency_ms": {
+      "faiss": 37.12,
+      "bm25": 11.21,
+      "index_keywords": 2.16
+    },
+    "rank_latency_ms": 1.59,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7178,
+    "ndcg_at_10": 0.6478,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      546,
+      1124,
+      268,
+      589,
+      897,
+      1430,
+      992
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 227.66,
+    "retriever_latency_ms": {
+      "faiss": 28.93
+    },
+    "rank_latency_ms": 2.97,
+    "rerank_latency_ms": 195.76,
+    "hit_rate_at_10": 0.7066,
+    "ndcg_at_10": 0.6756,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      1131,
+      835,
+      190,
+      460,
+      232,
+      945,
+      240
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 136.54,
+    "retriever_latency_ms": {
+      "bm25": 8.6
+    },
+    "rank_latency_ms": 1.83,
+    "rerank_latency_ms": 126.11,
+    "hit_rate_at_10": 0.4726,
+    "ndcg_at_10": 0.3894,
+    "top_k_ids": [
+      33,
+      34,
+      988,
+      967,
+      499,
+      935,
+      1128,
+      296,
+      785,
+      390
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 223.65,
+    "retriever_latency_ms": {
+      "faiss": 25.27,
+      "bm25": 13.15
+    },
+    "rank_latency_ms": 1.72,
+    "rerank_latency_ms": 183.51,
+    "hit_rate_at_10": 0.7016,
+    "ndcg_at_10": 0.6804,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      849,
+      696,
+      1039,
+      547,
+      5,
+      579,
+      1486
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "oltp_vs_analytics",
+    "question": "Contrast the goals of Online Transaction Processing and data analytics",
+    "query_type": "semantic",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 206.96,
+    "retriever_latency_ms": {
+      "faiss": 24.8,
+      "bm25": 13.81,
+      "index_keywords": 4.16
+    },
+    "rank_latency_ms": 2.0,
+    "rerank_latency_ms": 162.2,
+    "hit_rate_at_10": 0.8107,
+    "ndcg_at_10": 0.7686,
+    "top_k_ids": [
+      33,
+      34,
+      738,
+      739,
+      1112,
+      772,
+      932,
+      659,
+      386,
+      1428
+    ],
+    "ideal_chunk_ids": [
+      33,
+      34,
+      738,
+      739,
+      741
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "faiss_only",
+    "plan_label": "FAISS Only",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 31.04,
+    "retriever_latency_ms": {
+      "faiss": 28.55
+    },
+    "rank_latency_ms": 2.49,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7254,
+    "ndcg_at_10": 0.6554,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      651,
+      968,
+      1444,
+      780,
+      790,
+      1359,
+      1335
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "bm25_only",
+    "plan_label": "BM25 Only",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 10.15,
+    "retriever_latency_ms": {
+      "bm25": 7.57
+    },
+    "rank_latency_ms": 2.58,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.3744,
+    "ndcg_at_10": 0.2944,
+    "top_k_ids": [
+      431,
+      75,
+      258,
+      1028,
+      1208,
+      679,
+      205,
+      901,
+      204,
+      1077
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "faiss_bm25",
+    "plan_label": "FAISS + BM25",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": false,
+    "latency_ms": 41.53,
+    "retriever_latency_ms": {
+      "faiss": 29.19,
+      "bm25": 9.72
+    },
+    "rank_latency_ms": 2.62,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.7837,
+    "ndcg_at_10": 0.7137,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      316,
+      153,
+      961,
+      542,
+      693,
+      1276,
+      1418
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "full_ensemble",
+    "plan_label": "Full Ensemble",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": false,
+    "latency_ms": 41.07,
+    "retriever_latency_ms": {
+      "faiss": 25.38,
+      "bm25": 10.74,
+      "index_keywords": 2.29
+    },
+    "rank_latency_ms": 2.66,
+    "rerank_latency_ms": 0.0,
+    "hit_rate_at_10": 0.6329,
+    "ndcg_at_10": 0.5629,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      1283,
+      1471,
+      999,
+      1108,
+      73,
+      1264,
+      140
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "faiss_only_rerank",
+    "plan_label": "FAISS Only + Rerank",
+    "weights": {
+      "faiss": 1.0,
+      "bm25": 0.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 211.26,
+    "retriever_latency_ms": {
+      "faiss": 23.84
+    },
+    "rank_latency_ms": 2.07,
+    "rerank_latency_ms": 185.35,
+    "hit_rate_at_10": 0.7187,
+    "ndcg_at_10": 0.7218,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      1297,
+      1441,
+      205,
+      908,
+      340,
+      1421,
+      613
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "bm25_only_rerank",
+    "plan_label": "BM25 Only + Rerank",
+    "weights": {
+      "faiss": 0.0,
+      "bm25": 1.0,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 148.97,
+    "retriever_latency_ms": {
+      "bm25": 12.1
+    },
+    "rank_latency_ms": 2.13,
+    "rerank_latency_ms": 134.75,
+    "hit_rate_at_10": 0.432,
+    "ndcg_at_10": 0.3497,
+    "top_k_ids": [
+      431,
+      430,
+      1087,
+      843,
+      1159,
+      1396,
+      368,
+      348,
+      358,
+      161
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "faiss_bm25_rerank",
+    "plan_label": "FAISS + BM25 + Rerank",
+    "weights": {
+      "faiss": 0.5,
+      "bm25": 0.5,
+      "index_keywords": 0.0
+    },
+    "rerank": true,
+    "latency_ms": 156.67,
+    "retriever_latency_ms": {
+      "faiss": 21.61,
+      "bm25": 7.72
+    },
+    "rank_latency_ms": 1.69,
+    "rerank_latency_ms": 125.64,
+    "hit_rate_at_10": 0.7321,
+    "ndcg_at_10": 0.6534,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      1306,
+      520,
+      941,
+      522,
+      1365,
+      19,
+      952
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  },
+  {
+    "query_id": "lossy_decomposition",
+    "question": "Show me what happens during a lossy decomposition",
+    "query_type": "semantic",
+    "plan": "full_ensemble_rerank",
+    "plan_label": "Full Ensemble + Rerank",
+    "weights": {
+      "faiss": 0.4,
+      "bm25": 0.4,
+      "index_keywords": 0.2
+    },
+    "rerank": true,
+    "latency_ms": 168.65,
+    "retriever_latency_ms": {
+      "faiss": 37.79,
+      "bm25": 7.37,
+      "index_keywords": 3.59
+    },
+    "rank_latency_ms": 2.45,
+    "rerank_latency_ms": 117.44,
+    "hit_rate_at_10": 0.8323,
+    "ndcg_at_10": 0.7636,
+    "top_k_ids": [
+      431,
+      430,
+      432,
+      433,
+      512,
+      935,
+      618,
+      407,
+      787,
+      989
+    ],
+    "ideal_chunk_ids": [
+      431,
+      430,
+      432,
+      433,
+      440
+    ]
+  }
+]

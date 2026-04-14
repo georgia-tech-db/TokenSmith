@@ -1,0 +1,152 @@
+{
+  "semantic": {
+    "faiss_only": {
+      "label": "FAISS Only",
+      "avg_latency_ms": 27.44,
+      "avg_hit_rate": 0.7214,
+      "avg_ndcg": 0.6514
+    },
+    "bm25_only": {
+      "label": "BM25 Only",
+      "avg_latency_ms": 12.79,
+      "avg_hit_rate": 0.386,
+      "avg_ndcg": 0.306
+    },
+    "faiss_bm25": {
+      "label": "FAISS + BM25",
+      "avg_latency_ms": 39.44,
+      "avg_hit_rate": 0.7592,
+      "avg_ndcg": 0.6892
+    },
+    "full_ensemble": {
+      "label": "Full Ensemble",
+      "avg_latency_ms": 52.37,
+      "avg_hit_rate": 0.705,
+      "avg_ndcg": 0.635
+    },
+    "faiss_only_rerank": {
+      "label": "FAISS Only + Rerank",
+      "avg_latency_ms": 186.91,
+      "avg_hit_rate": 0.7069,
+      "avg_ndcg": 0.6825
+    },
+    "bm25_only_rerank": {
+      "label": "BM25 Only + Rerank",
+      "avg_latency_ms": 144.13,
+      "avg_hit_rate": 0.4394,
+      "avg_ndcg": 0.3687
+    },
+    "faiss_bm25_rerank": {
+      "label": "FAISS + BM25 + Rerank",
+      "avg_latency_ms": 162.78,
+      "avg_hit_rate": 0.7665,
+      "avg_ndcg": 0.7104
+    },
+    "full_ensemble_rerank": {
+      "label": "Full Ensemble + Rerank",
+      "avg_latency_ms": 176.21,
+      "avg_hit_rate": 0.7776,
+      "avg_ndcg": 0.7195
+    }
+  },
+  "keyword_heavy": {
+    "faiss_only": {
+      "label": "FAISS Only",
+      "avg_latency_ms": 28.91,
+      "avg_hit_rate": 0.5007,
+      "avg_ndcg": 0.4307
+    },
+    "bm25_only": {
+      "label": "BM25 Only",
+      "avg_latency_ms": 13.48,
+      "avg_hit_rate": 0.6881,
+      "avg_ndcg": 0.6081
+    },
+    "faiss_bm25": {
+      "label": "FAISS + BM25",
+      "avg_latency_ms": 40.77,
+      "avg_hit_rate": 0.7223,
+      "avg_ndcg": 0.6523
+    },
+    "full_ensemble": {
+      "label": "Full Ensemble",
+      "avg_latency_ms": 45.84,
+      "avg_hit_rate": 0.726,
+      "avg_ndcg": 0.656
+    },
+    "faiss_only_rerank": {
+      "label": "FAISS Only + Rerank",
+      "avg_latency_ms": 162.02,
+      "avg_hit_rate": 0.5466,
+      "avg_ndcg": 0.4976
+    },
+    "bm25_only_rerank": {
+      "label": "BM25 Only + Rerank",
+      "avg_latency_ms": 147.28,
+      "avg_hit_rate": 0.7487,
+      "avg_ndcg": 0.701
+    },
+    "faiss_bm25_rerank": {
+      "label": "FAISS + BM25 + Rerank",
+      "avg_latency_ms": 165.83,
+      "avg_hit_rate": 0.7507,
+      "avg_ndcg": 0.6991
+    },
+    "full_ensemble_rerank": {
+      "label": "Full Ensemble + Rerank",
+      "avg_latency_ms": 198.34,
+      "avg_hit_rate": 0.7975,
+      "avg_ndcg": 0.7604
+    }
+  },
+  "factual": {
+    "faiss_only": {
+      "label": "FAISS Only",
+      "avg_latency_ms": 25.82,
+      "avg_hit_rate": 0.6657,
+      "avg_ndcg": 0.5857
+    },
+    "bm25_only": {
+      "label": "BM25 Only",
+      "avg_latency_ms": 7.89,
+      "avg_hit_rate": 0.6044,
+      "avg_ndcg": 0.5344
+    },
+    "faiss_bm25": {
+      "label": "FAISS + BM25",
+      "avg_latency_ms": 51.88,
+      "avg_hit_rate": 0.6926,
+      "avg_ndcg": 0.6126
+    },
+    "full_ensemble": {
+      "label": "Full Ensemble",
+      "avg_latency_ms": 38.81,
+      "avg_hit_rate": 0.696,
+      "avg_ndcg": 0.616
+    },
+    "faiss_only_rerank": {
+      "label": "FAISS Only + Rerank",
+      "avg_latency_ms": 123.29,
+      "avg_hit_rate": 0.6999,
+      "avg_ndcg": 0.5985
+    },
+    "bm25_only_rerank": {
+      "label": "BM25 Only + Rerank",
+      "avg_latency_ms": 106.58,
+      "avg_hit_rate": 0.6648,
+      "avg_ndcg": 0.6462
+    },
+    "faiss_bm25_rerank": {
+      "label": "FAISS + BM25 + Rerank",
+      "avg_latency_ms": 156.98,
+      "avg_hit_rate": 0.8155,
+      "avg_ndcg": 0.7487
+    },
+    "full_ensemble_rerank": {
+      "label": "Full Ensemble + Rerank",
+      "avg_latency_ms": 197.86,
+      "avg_hit_rate": 0.692,
+      "avg_ndcg": 0.6782
+    }
+  }
+}

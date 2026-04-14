@@ -1,0 +1,74 @@
+{
+  "faiss_only": {
+    "label": "FAISS Only",
+    "avg_latency_ms": 28.09,
+    "p50_latency_ms": 28.76,
+    "p95_latency_ms": 43.04,
+    "avg_hit_rate": 0.596,
+    "avg_ndcg": 0.5251,
+    "n_queries": 11
+  },
+  "bm25_only": {
+    "label": "BM25 Only",
+    "avg_latency_ms": 12.72,
+    "p50_latency_ms": 11.46,
+    "p95_latency_ms": 18.25,
+    "avg_hit_rate": 0.5706,
+    "avg_ndcg": 0.4916,
+    "n_queries": 11
+  },
+  "faiss_bm25": {
+    "label": "FAISS + BM25",
+    "avg_latency_ms": 41.3,
+    "p50_latency_ms": 41.53,
+    "p95_latency_ms": 51.88,
+    "avg_hit_rate": 0.733,
+    "avg_ndcg": 0.6621,
+    "n_queries": 11
+  },
+  "full_ensemble": {
+    "label": "Full Ensemble",
+    "avg_latency_ms": 47.58,
+    "p50_latency_ms": 42.58,
+    "p95_latency_ms": 66.56,
+    "avg_hit_rate": 0.7156,
+    "avg_ndcg": 0.6447,
+    "n_queries": 11
+  },
+  "faiss_only_rerank": {
+    "label": "FAISS Only + Rerank",
+    "avg_latency_ms": 167.55,
+    "p50_latency_ms": 166.65,
+    "p95_latency_ms": 227.66,
+    "avg_hit_rate": 0.6189,
+    "avg_ndcg": 0.574,
+    "n_queries": 11
+  },
+  "bm25_only_rerank": {
+    "label": "BM25 Only + Rerank",
+    "avg_latency_ms": 142.43,
+    "p50_latency_ms": 137.44,
+    "p95_latency_ms": 186.57,
+    "avg_hit_rate": 0.6286,
+    "avg_ndcg": 0.5752,
+    "n_queries": 11
+  },
+  "faiss_bm25_rerank": {
+    "label": "FAISS + BM25 + Rerank",
+    "avg_latency_ms": 163.92,
+    "p50_latency_ms": 161.27,
+    "p95_latency_ms": 223.65,
+    "avg_hit_rate": 0.7623,
+    "avg_ndcg": 0.7077,
+    "n_queries": 11
+  },
+  "full_ensemble_rerank": {
+    "label": "Full Ensemble + Rerank",
+    "avg_latency_ms": 190.25,
+    "p50_latency_ms": 197.51,
+    "p95_latency_ms": 236.1,
+    "avg_hit_rate": 0.7807,
+    "avg_ndcg": 0.7381,
+    "n_queries": 11
+  }
+}

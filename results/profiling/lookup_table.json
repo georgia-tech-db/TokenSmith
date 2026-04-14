@@ -1,0 +1,5 @@
+{
+  "semantic": "faiss_bm25",
+  "keyword_heavy": "full_ensemble_rerank",
+  "factual": "faiss_bm25_rerank"
+}
