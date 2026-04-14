@@ -571,22 +571,23 @@ class TestRetrieveAndRank:
             setattr(api_module, key, value)
 
     def test_retrieve_and_rank_returns_scores_and_indices(self, mock_server_state):
-        """_retrieve_and_rank returns raw_scores and topk_idxs."""
+        """_retrieve_and_rank returns ordered_ids, ordered_scores, raw_scores."""
         from src.api_server import _retrieve_and_rank
 
-        topk_idxs, ordered_scores = _retrieve_and_rank("test query")
+        # Now returns 3-tuple
+        topk_idxs, ordered_scores, raw_scores = _retrieve_and_rank("test query")
 
-        assert isinstance(ordered_scores, list)
         assert isinstance(topk_idxs, list)
+        assert isinstance(ordered_scores, list)
+        assert isinstance(raw_scores, dict)
+
 
     def test_retrieve_and_rank_custom_top_k(self, mock_server_state):
         """_retrieve_and_rank respects custom top_k."""
         from src.api_server import _retrieve_and_rank
-        import src.api_server as api_module
 
-        topk_idxs, ordered_scores = _retrieve_and_rank("test query", top_k=3)
+        topk_idxs, ordered_scores, raw_scores = _retrieve_and_rank("test query", top_k=3)
 
-        # Should have called filter with top_k=3
         assert len(topk_idxs) <= 3
 
 
