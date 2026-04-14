@@ -179,7 +179,7 @@ class SentenceTransformer:
         """Get the dimension of embeddings (compatibility method)."""
         return self.embedding_dimension
 
-    def start_multi_process_pool(self, num_workers: int = None) -> multiprocessing.pool.Pool:
+    def start_multi_process_pool(self, num_workers: Optional[int] = None) -> multiprocessing.pool.Pool:
         """
         Starts a pool of worker processes.
         """

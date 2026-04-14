@@ -101,7 +101,7 @@ class RAGConfig:
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
     
-    def get_config_state(self) -> None:
+    def get_config_state(self) -> dict:
         """Returns dict of all config parameters except chunk_config """
         state = self.__dict__.copy()
         state.pop("chunk_config", None) # remove chunk_config to avoid serialization issues
