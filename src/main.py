@@ -19,14 +19,15 @@ from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.query_enhancement import generate_hypothetical_document, contextualize_query
 from src.retriever import (
-    filter_retrieved_chunks, 
-    BM25Retriever, 
-    FAISSRetriever, 
-    IndexKeywordRetriever, 
-    get_page_numbers, 
+    filter_retrieved_chunks,
+    BM25Retriever,
+    FAISSRetriever,
+    IndexKeywordRetriever,
+    get_page_numbers,
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.query_optimizer import QueryOptimizer
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -46,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         "--double_prompt",
         action="store_true",
         help="enable double prompting for higher quality answers"
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="enable cost-based query optimizer to select the cheapest retrieval plan per query"
     )
 
     return parser.parse_args()
@@ -105,11 +111,15 @@ def get_answer(
     artifacts: Optional[Dict] = None,
     golden_chunks: Optional[list] = None,
     is_test_mode: bool = False,
-    additional_log_info: Optional[Dict[str, Any]] = None
+    additional_log_info: Optional[Dict[str, Any]] = None,
+    optimizer: Optional[QueryOptimizer] = None,
 ) -> Union[str, Tuple[str, List[Dict[str, Any]], Optional[str]]]:
     """
     Run a single query through the pipeline.
-    """    
+
+    When an optimizer is provided (--fast mode), it selects a retrieval plan
+    per query instead of using the default full retriever set.
+    """
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
@@ -138,16 +148,29 @@ def get_answer(
         
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
+        # When --fast mode is enabled, the optimizer selects which
+        # retrievers to run and what weights to use per query.
+        if optimizer is not None:
+            plan = optimizer.select_plan(question)
+            active_names = set(plan.active_retrievers())
+            active_retrievers = [r for r in retrievers if r.name in active_names]
+            plan_ranker = EnsembleRanker(
+                ensemble_method=cfg.ensemble_method,
+                weights={k: v for k, v in plan.weights.items() if v > 0},
+                rrf_k=int(cfg.rrf_k),
+            )
+            plan_rerank_mode = "cross_encoder" if plan.rerank else ""
+        else:
+            active_retrievers = retrievers
+            plan_ranker = ranker
+            plan_rerank_mode = cfg.rerank_mode
+
+        for retriever in active_retrievers:
+            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+
         # Step 2: Ranking
-        ordered, scores = ranker.rank(raw_scores=raw_scores)
+        ordered, scores = plan_ranker.rank(raw_scores=raw_scores)
         # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
         # print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
@@ -186,8 +209,8 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
 
-        # Step 3: Final re-ranking
-        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+        # Step 3: Final re-ranking (mode may be overridden by optimizer)
+        ranked_chunks = rerank(question, ranked_chunks, mode=plan_rerank_mode, top_n=cfg.rerank_top_k)
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
@@ -287,16 +310,23 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         artifacts_dir = cfg.get_artifacts_directory()
         faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
         print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
+        # In --fast mode, load ALL retrievers so the optimizer can pick subsets
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
-        if cfg.ranker_weights.get("index_keywords", 0) > 0:
+        if cfg.ranker_weights.get("index_keywords", 0) > 0 or getattr(args, "fast", False):
             retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
-        
+
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
         print("Loaded retrievers and initialized ranker.")
         artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
+
+    # Initialize query optimizer for --fast mode
+    optimizer = None
+    if getattr(args, "fast", False):
+        optimizer = QueryOptimizer()
+        print("Fast mode enabled: query optimizer will select retrieval plans per query.")
 
     chat_history = []
     additional_log_info = {}
@@ -326,7 +356,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                     effective_q = q
             
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
-            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
+            ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info, optimizer=optimizer)
 
             # Update Chat history (make it atomic for user + assistant turn)
             try:
