@@ -242,8 +242,8 @@ def get_answer(
                 "max_tokens": cfg.max_gen_tokens
             },
             top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
+            chunks=[chunks[i] for i in topk_idxs],
+            sources=[sources[i] for i in topk_idxs],
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),
