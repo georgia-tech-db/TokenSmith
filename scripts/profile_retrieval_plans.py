@@ -404,21 +404,35 @@ def compute_per_query_type_summary(results: List[Dict]) -> Dict[str, Dict]:
 
 def build_lookup_table(per_type_summary: Dict) -> Dict[str, str]:
     """
-    For each query type, select the plan that minimizes latency while
-    keeping hit_rate within 5% of the best plan's hit_rate.
+    For each query type, select the fastest non-reranked plan whose
+    hit_rate is within 5% of the best non-reranked plan's hit_rate.
+
+    The --fast flag is about reducing latency, so we exclude reranked
+    plans (which add 100-200ms of cross-encoder overhead). This mirrors
+    a database optimizer choosing a cheaper access path when the quality
+    difference is negligible.
 
     Returns: {query_type: recommended_plan_name}
     """
     lookup = {}
 
     for qtype, plans in per_type_summary.items():
-        # Find best quality (hit_rate) across all plans for this query type
-        best_hr = max(p["avg_hit_rate"] for p in plans.values())
+        # Only consider non-reranked plans for the fast lookup
+        no_rerank = {
+            pname: pstats for pname, pstats in plans.items()
+            if "rerank" not in pname
+        }
+
+        if not no_rerank:
+            no_rerank = plans  # fallback
+
+        # Find best quality among non-reranked plans
+        best_hr = max(p["avg_hit_rate"] for p in no_rerank.values())
         quality_threshold = best_hr * 0.95  # within 5%
 
         # Among plans meeting quality threshold, pick lowest latency
         eligible = [
-            (pname, pstats) for pname, pstats in plans.items()
+            (pname, pstats) for pname, pstats in no_rerank.items()
             if pstats["avg_hit_rate"] >= quality_threshold
         ]
 
@@ -426,8 +440,8 @@ def build_lookup_table(per_type_summary: Dict) -> Dict[str, str]:
             best_plan = min(eligible, key=lambda x: x[1]["avg_latency_ms"])
             lookup[qtype] = best_plan[0]
         else:
-            # Fallback: pick highest quality
-            best_plan = max(plans.items(), key=lambda x: x[1]["avg_hit_rate"])
+            # Fallback: pick highest quality non-reranked
+            best_plan = max(no_rerank.items(), key=lambda x: x[1]["avg_hit_rate"])
             lookup[qtype] = best_plan[0]
 
     return lookup

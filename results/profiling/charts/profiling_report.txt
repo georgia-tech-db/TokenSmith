@@ -1,0 +1,68 @@
+========================================================================
+  TokenSmith Retrieval Plan Profiling Report
+========================================================================
+
+1. PLAN COMPARISON (averaged across all benchmark queries)
+------------------------------------------------------------------------
+  Plan                             Avg Lat     P50     P95    HR@10     NDCG
+------------------------------------------------------------------------
+  FAISS Only                        28.1ms  28.8ms  43.0ms  0.5960  0.5251
+  BM25 Only                         12.7ms  11.5ms  18.2ms  0.5706  0.4916
+  FAISS + BM25                      41.3ms  41.5ms  51.9ms  0.7330  0.6621
+  Full Ensemble                     47.6ms  42.6ms  66.6ms  0.7156  0.6447
+  FAISS Only + Rerank              167.6ms  166.7ms  227.7ms  0.6189  0.5740
+  BM25 Only + Rerank               142.4ms  137.4ms  186.6ms  0.6286  0.5752
+  FAISS + BM25 + Rerank            163.9ms  161.3ms  223.7ms  0.7623  0.7077
+  Full Ensemble + Rerank           190.2ms  197.5ms  236.1ms  0.7807  0.7381
+
+2. PER-QUERY-TYPE BREAKDOWN
+------------------------------------------------------------------------
+
+  Query Type: semantic
+  Plan                             Avg Lat    HR@10     NDCG
+  FAISS Only                        27.4ms  0.7214  0.6514
+  BM25 Only                         12.8ms  0.3860  0.3060
+  FAISS + BM25                      39.4ms  0.7592  0.6892
+  Full Ensemble                     52.4ms  0.7050  0.6350
+  FAISS Only + Rerank              186.9ms  0.7069  0.6825
+  BM25 Only + Rerank               144.1ms  0.4394  0.3687
+  FAISS + BM25 + Rerank            162.8ms  0.7665  0.7104
+  Full Ensemble + Rerank           176.2ms  0.7776  0.7195
+
+  Query Type: keyword_heavy
+  Plan                             Avg Lat    HR@10     NDCG
+  FAISS Only                        28.9ms  0.5007  0.4307
+  BM25 Only                         13.5ms  0.6881  0.6081
+  FAISS + BM25                      40.8ms  0.7223  0.6523
+  Full Ensemble                     45.8ms  0.7260  0.6560
+  FAISS Only + Rerank              162.0ms  0.5466  0.4976
+  BM25 Only + Rerank               147.3ms  0.7487  0.7010
+  FAISS + BM25 + Rerank            165.8ms  0.7507  0.6991
+  Full Ensemble + Rerank           198.3ms  0.7975  0.7604
+
+  Query Type: factual
+  Plan                             Avg Lat    HR@10     NDCG
+  FAISS Only                        25.8ms  0.6657  0.5857
+  BM25 Only                          7.9ms  0.6044  0.5344
+  FAISS + BM25                      51.9ms  0.6926  0.6126
+  Full Ensemble                     38.8ms  0.6960  0.6160
+  FAISS Only + Rerank              123.3ms  0.6999  0.5985
+  BM25 Only + Rerank               106.6ms  0.6648  0.6462
+  FAISS + BM25 + Rerank            157.0ms  0.8155  0.7487
+  Full Ensemble + Rerank           197.9ms  0.6920  0.6782
+
+3. RECOMMENDED PLAN LOOKUP TABLE
+------------------------------------------------------------------------
+  Query Type            Recommended Plan              
+  ──────────────────────────────────────────────────
+  semantic              FAISS Only                    
+  keyword_heavy         FAISS + BM25                  
+  factual               FAISS Only                    
+
+4. ESTIMATED LATENCY SAVINGS (--fast mode)
+------------------------------------------------------------------------
+  Baseline (FAISS Only + Rerank):  167.6ms
+  --fast mode estimated avg:       34.6ms
+  Estimated latency reduction:     79.4%
+
+========================================================================
