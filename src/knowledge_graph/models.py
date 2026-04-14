@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any
-from enum import Enum
+import yaml
 
 
 @dataclass
@@ -28,3 +28,18 @@ class RunMetadata:
             "config": self.config,
             "statistics": self.statistics,
         }
+
+
+@dataclass
+class KGPipelineConfig:
+    corpus_description: str = ""
+    min_cooccurrence: int = 0
+    top_n: int = 10
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "KGPipelineConfig":
+        """Load the ``kg_pipeline`` section from a project config YAML file."""
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        kg = dict(data.get("kg_pipeline", {}))
+        return cls(**kg)

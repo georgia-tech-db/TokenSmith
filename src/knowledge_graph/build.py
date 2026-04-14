@@ -27,8 +27,6 @@ JSON_KW_PATH = os.path.join(
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data", "knowledge_graph")
 RUNS_DIR = os.path.join(OUTPUT_DIR, "runs")
 
-TOP_N = 10  # default keywords extracted per chunk
-
 # ---------------------------------------------------------------------------
 # Chunk loader (build-time: reads pickle files from index_builder)
 # ---------------------------------------------------------------------------

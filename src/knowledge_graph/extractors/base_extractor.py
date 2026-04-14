@@ -1,10 +1,9 @@
 from abc import abstractmethod
 
-from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import Chunk, ExtractionResult
 
 
-class BaseExtractor(BasePipelineComponent):
+class BaseExtractor:
     """Extract keywords from each chunk."""
 
     @abstractmethod

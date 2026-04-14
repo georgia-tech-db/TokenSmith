@@ -3,10 +3,8 @@ import json
 import logging
 import os
 import shutil
-from dataclasses import dataclass, field
 from time import strftime
 
-import yaml
 from dotenv import load_dotenv
 
 from src.knowledge_graph.build import (
@@ -15,32 +13,16 @@ from src.knowledge_graph.build import (
     META_PKL,
     OUTPUT_DIR,
     PROJECT_ROOT,
-    TOP_N,
-    load_chunks,
 )
-from src.knowledge_graph.extractors import BaseExtractor, JsonExtractor
+from src.knowledge_graph.extractors import JsonExtractor
 from src.knowledge_graph.linkers import CooccurrenceLinker
-from src.knowledge_graph.persisters import NetworkxJsonPersister
-from src.knowledge_graph.pipeline import Pipeline
+from src.knowledge_graph.pipeline import build_kg
+from src.knowledge_graph.models import KGPipelineConfig
+
 
 logger = logging.getLogger(__name__)
 
 _RUN_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
-
-
-@dataclass
-class KGPipelineConfig:
-    corpus_description: str = ""
-    min_cooccurrence: int = 0
-    top_n: int = TOP_N
-
-    @classmethod
-    def from_yaml(cls, path: str) -> "KGPipelineConfig":
-        """Load the ``kg_pipeline`` section from a project config YAML file."""
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        kg = dict(data.get("kg_pipeline", {}))
-        return cls(**kg)
 
 
 def _create_run_dir(runs_dir: str) -> str:
@@ -108,22 +90,10 @@ def main() -> None:
     _setup_input_dir(run_dir)
     _write_config(run_dir, cfg)
 
-    logger.info("Loading chunks from:\n  %s\n  %s", CHUNKS_PKL, META_PKL)
-    chunks = load_chunks(CHUNKS_PKL, META_PKL)
-    logger.info("Loaded %d chunks", len(chunks))
-
-    extractor: BaseExtractor = JsonExtractor(input_path=JSON_KW_PATH)
-    # To switch extractors, replace the line above with e.g.:
-    # extractor = CompositeExtractor([YakeExtractor(top_n=cfg.top_n), TfidfExtractor(top_n=cfg.top_n)])
-
+    extractor = JsonExtractor(input_path=JSON_KW_PATH)
     linker = CooccurrenceLinker(min_cooccurrence=cfg.min_cooccurrence)
-    persister = NetworkxJsonPersister()
-    pipeline = Pipeline(
-        extractor=extractor,
-        linker=linker,
-        persister=persister,
-    )
-    pipeline.run(chunks=chunks, output_dir=run_dir)
+
+    build_kg(output_dir=run_dir, extractor=extractor, linker=linker)
 
     _update_latest_symlink(runs_dir, run_dir)
     logger.info("Updated: %s -> %s", os.path.join(runs_dir, "latest"), run_dir)

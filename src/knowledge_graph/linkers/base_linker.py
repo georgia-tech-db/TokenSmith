@@ -2,11 +2,10 @@ from abc import abstractmethod
 
 import networkx as nx
 
-from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import ExtractionResult
 
 
-class BaseLinker(BasePipelineComponent):
+class BaseLinker:
     """Build a graph by creating edges between co-occurring nodes."""
 
     @abstractmethod
