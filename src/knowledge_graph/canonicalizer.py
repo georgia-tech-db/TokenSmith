@@ -11,8 +11,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 from src.knowledge_graph.models import ExtractionResult, CanonicalizationResult
 from src.knowledge_graph.openrouter_client import OpenRouterClient
-from src.knowledge_graph.utils.normalizer import Normalizer
-from src.knowledge_graph.utils.prompts import SYNONYM_PROMPT, SYNONYM_SYSTEM_PROMPT
+from src.knowledge_graph.normalizer import Normalizer
+from src.knowledge_graph.prompts import SYNONYM_PROMPT, SYNONYM_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 

@@ -72,12 +72,12 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
+        embedding_model_context_window=cfg.embedding_model_context_window,
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
     )
-
 def use_indexed_chunks(question: str, chunks: list) -> list:
     # Logic for keyword matching from textbook index
     try:
@@ -244,8 +244,8 @@ def get_answer(
                 "max_tokens": cfg.max_gen_tokens
             },
             top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
+            chunks=[chunks[i] for i in topk_idxs],
+            sources=[sources[i] for i in topk_idxs],
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),

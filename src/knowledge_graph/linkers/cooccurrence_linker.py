@@ -4,10 +4,10 @@ from typing import Any
 
 import networkx as nx
 
-logger = logging.getLogger(__name__)
-
-from src.knowledge_graph.linkers import BaseLinker
 from src.knowledge_graph.models import ExtractionResult
+from src.knowledge_graph.linkers import BaseLinker
+
+logger = logging.getLogger(__name__)
 
 
 class CooccurrenceLinker(BaseLinker):
@@ -70,7 +70,8 @@ class CooccurrenceLinker(BaseLinker):
                 if data["weight"] < self.min_cooccurrence
             ]
             self.metadata["deleted_edges"] = len(edges_to_remove)
-            logger.info("Pruning %d edges below threshold %s", len(edges_to_remove), self.min_cooccurrence)
+            logger.info("Pruning %d edges below threshold %s",
+                        len(edges_to_remove), self.min_cooccurrence)
             graph.remove_edges_from(edges_to_remove)
 
             # Remove isolated nodes left after pruning

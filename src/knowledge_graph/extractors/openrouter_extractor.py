@@ -7,7 +7,7 @@ from typing import Any
 from src.knowledge_graph.extractors.base_extractor import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
 from src.knowledge_graph.openrouter_client import OpenRouterClient
-from src.knowledge_graph.utils.prompts import OPENROUTER_KEYWORD_EXTRACTION_PROMPT
+from src.knowledge_graph.prompts import OPENROUTER_KEYWORD_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 

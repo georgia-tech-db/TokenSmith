@@ -6,7 +6,7 @@ from llama_cpp import Llama
 
 from src.knowledge_graph.extractors import BaseExtractor
 from src.knowledge_graph.models import Chunk, ExtractionResult
-from src.knowledge_graph.utils.prompts import KEYWORD_EXTRACTION_PROMPT
+from src.knowledge_graph.prompts import KEYWORD_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
