@@ -27,39 +27,141 @@ Chunks (from index_builder)
 
 ---
 
+## LLM extractor cache workflow
+
+Running cloud LLM extraction (OpenRouter) is expensive. You can cache the extraction results following the next steps:
+
+**Step 1 — Extract keywords and cache them:**
+```bash
+python -m src.knowledge_graph.llm_extract_keywords \
+  --model google/gemini-flash-1.5 \
+  --chapter 3 \
+  --adaptive_top_n
+```
+This writes to `data/knowledge_graph/extractions/` and updates the `latest.json` symlink.
+
+**Step 2 — Build the graph from cached extractions:**
+```bash
+python -m src.knowledge_graph.run_kg_pipeline --extractor json
+```
+This resolves `extractions/latest.json` automatically.
+
+For local extractors (KeyBERT, SLM), extraction and graph building happen in a single step via `run_kg_pipeline.py`.
+
+---
+
 ## Running the Pipeline
 
 ```bash
+conda activate tokensmith
 python -m src.knowledge_graph.run_kg_pipeline
 ```
 
-Or with a custom config:
+### Extractor selection
 
 ```bash
-python -m src.knowledge_graph.run_kg_pipeline --config path/to/config.yaml
+# Use cached extractions (default) — resolves extractions/latest.json
+python -m src.knowledge_graph.run_kg_pipeline --extractor json
+
+# Point at a specific extractions file instead of latest
+python -m src.knowledge_graph.run_kg_pipeline --extractor json \
+  --extractions data/knowledge_graph/extractions/all__gemini__extractions.json
+
+# Extract inline with OpenRouter (no separate extraction step needed)
+python -m src.knowledge_graph.run_kg_pipeline --extractor openrouter \
+  --model google/gemini-flash-1.5 \
+  --adaptive_top_n
+
+# Extract inline with KeyBERT (local, no API key)
+python -m src.knowledge_graph.run_kg_pipeline --extractor keybert
+
+# Extract inline with a local GGUF model
+python -m src.knowledge_graph.run_kg_pipeline --extractor slm \
+  --slm_model_path models/qwen2.5-1.5b-instruct-q5_k_m.gguf
 ```
 
-> Use the `kg_env` conda environment, not `tokensmith`.
-> ```bash
-> conda activate kg_env
-> python -m src.knowledge_graph.run_kg_pipeline
-> ```
+### Chunk filtering
+
+```bash
+# Only build the graph for chapter 3
+python -m src.knowledge_graph.run_kg_pipeline --chapter 3
+
+# Exclude chapters 1 and 2
+python -m src.knowledge_graph.run_kg_pipeline --exclude_chapters 1 2
+```
+
+### All arguments
+
+| Argument | Applies to | Default | Description |
+|---|---|---|---|
+| `--config` | all | `config/config.yaml` | Path to project config YAML |
+| `--extractor` | all | `json` | Extractor to use: `json`, `openrouter`, `keybert`, `slm` |
+| `--chapter` | all | none | Only include chunks from this chapter |
+| `--exclude_chapters` | all | none | Exclude chunks from these chapters |
+| `--extractions` | `json` | `extractions/latest.json` | Path to a specific extractions JSON |
+| `--api_key` | `openrouter` | `$OPENROUTER_API_KEY` | OpenRouter API key |
+| `--model` | `openrouter` | `qwen/qwen3-next-80b-a3b-instruct` | OpenRouter model name |
+| `--adaptive_top_n` | `openrouter` | off | Scale `top_n` as `√(chunk_length)` per chunk |
+| `--keybert_model` | `keybert` | `all-MiniLM-L6-v2` | Sentence-transformer model name |
+| `--slm_model_path` | `slm` | `models/qwen2.5-1.5b-instruct-q5_k_m.gguf` | Path to GGUF model |
+| `--slm_threads` | `slm` | `8` | Number of CPU threads |
+| `--top_n` | `openrouter`, `keybert`, `slm` | `cfg.top_n` | Keywords per chunk |
 
 Each run creates a timestamped directory and updates a `latest/` symlink:
 
 ```
-data/knowledge_graph/runs/
-├── 2025-06-10_14-32-01/
-│   ├── input/
-│   │   ├── chunks.pkl        (symlink)
-│   │   ├── meta.pkl          (symlink)
-│   │   └── extractions.json  (copy, if using JsonExtractor)
-│   ├── config.json
-│   ├── graph.json
-│   ├── chunks.json
-│   └── run_metadata.json
-└── latest/                   (symlink → most recent run)
+data/knowledge_graph/
+├── extractions/                          ← keyword extraction cache
+│   ├── all__gemini-flash__extractions.json
+│   ├── 3__qwen3__extractions.json
+│   └── latest.json                       (symlink → most recent extraction)
+└── runs/
+    ├── 2025-06-10_14-32-01/
+    │   ├── input/
+    │   │   ├── chunks.pkl                (symlink)
+    │   │   ├── meta.pkl                  (symlink)
+    │   │   └── extractions.json          (copy, if using JsonExtractor)
+    │   ├── config.json
+    │   ├── graph.json
+    │   ├── chunks.json
+    │   └── run_metadata.json
+    └── latest/                           (symlink → most recent run)
 ```
+
+---
+
+## Extracting Keywords (standalone)
+
+`llm_extract_keywords.py` runs keyword extraction independently from graph building. Use it when you want to pre-compute extractions with a cloud LLM before running the pipeline.
+
+```bash
+python -m src.knowledge_graph.llm_extract_keywords \
+  --model google/gemini-flash-1.5 \
+  --chapter 3 \
+  --top_n 10
+
+# Adaptive top_n: scales keywords per chunk by √(chunk_length)
+python -m src.knowledge_graph.llm_extract_keywords \
+  --model qwen/qwen3-next-80b-a3b-instruct \
+  --adaptive_top_n
+
+# Process all chapters except 1 and 2
+python -m src.knowledge_graph.llm_extract_keywords \
+  --exclude_chapters 1 2
+```
+
+After a successful run the output is written to `data/knowledge_graph/extractions/` and `extractions/latest.json` is updated automatically.
+
+| Argument | Default | Description |
+|---|---|---|
+| `--api_key` | `$OPENROUTER_API_KEY` | OpenRouter API key |
+| `--model` | `qwen/qwen3-next-80b-a3b-instruct` | OpenRouter model |
+| `--chapter` | all | Only process this chapter |
+| `--exclude_chapters` | none | Skip these chapters |
+| `--top_n` | `10` | Keywords per chunk (fixed) |
+| `--adaptive_top_n` | off | Scale `top_n` as `√(chunk_length)` — overrides `--top_n` |
+| `--limit` | none | Cap number of chunks (for testing) |
+| `--chunk_ids` | none | Process only these chunk IDs |
 
 ---
 
@@ -71,16 +173,14 @@ The pipeline reads from the `kg_pipeline` section of `config/config.yaml`:
 kg_pipeline:
   corpus_description: "Database System Concepts, 7th edition by Silberschatz et al."
   min_cooccurrence: 0   # Prune edges with fewer co-occurrences than this
-  top_n: 10             # Max keywords to extract per chunk
+  top_n: 10             # Default keywords per chunk (used when --top_n is not passed)
 ```
 
 | Field | Description |
 |---|---|
 | `corpus_description` | Informational label stored in run metadata |
 | `min_cooccurrence` | Minimum edge weight to keep. `0` keeps all edges; `2+` prunes weak connections |
-| `top_n` | Target number of keywords per chunk (some extractors scale this adaptively) |
-
-The extractor and linker are configured directly in `run_kg_pipeline.py`.
+| `top_n` | Default keyword count; overridden by `--top_n` on the CLI |
 
 ---
 
@@ -101,7 +201,7 @@ def extract(self, chunks: list[Chunk]) -> list[ExtractionResult]
 
 ### JsonExtractor (default)
 
-Reads a JSON file of pre-computed extractions. The file format is:
+Reads a JSON file of pre-computed extractions. Resolves `extractions/latest.json` automatically when used via the pipeline CLI.
 
 ```json
 [
@@ -112,15 +212,14 @@ Reads a JSON file of pre-computed extractions. The file format is:
 
 ```python
 from src.knowledge_graph.extractors.json_extractor import JsonExtractor
+from src.knowledge_graph.build import get_latest_extractions_path
 
-extractor = JsonExtractor(
-    input_path="data/knowledge_graph/all__google_gemini-3-flash-preview__extractions__2.json"
-)
+extractor = JsonExtractor(input_path=get_latest_extractions_path())
 ```
 
 ### KeyBERTExtractor
 
-Uses [KeyBERT](https://github.com/MaartenGr/KeyBERT) with a sentence-transformer model (all-MiniLM-L6-v2). No API key required.
+Uses [KeyBERT](https://github.com/MaartenGr/KeyBERT) with a sentence-transformer model. No API key required.
 
 ```python
 from src.knowledge_graph.extractors.keybert_extractor import KeyBERTExtractor
@@ -249,9 +348,10 @@ Records the configuration used and graph statistics for reproducibility.
 
 ```
 src/knowledge_graph/
-├── run_kg_pipeline.py        # CLI entry point
+├── run_kg_pipeline.py        # CLI entry point for graph building
+├── llm_extract_keywords.py   # Standalone CLI for cloud LLM keyword extraction
 ├── pipeline.py               # Core build_kg() orchestration
-├── build.py                  # load_chunks(), path constants
+├── build.py                  # load_chunks(), path constants, get_latest_extractions_path()
 ├── models.py                 # Chunk, ExtractionResult, KGPipelineConfig, RunMetadata
 ├── openrouter_client.py      # HTTP client for OpenRouter API
 ├── prompts.py                # Prompt templates for SLM and OpenRouter extractors

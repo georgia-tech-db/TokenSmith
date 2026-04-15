@@ -21,8 +21,17 @@ def build_kg(
     output_dir: str,
     extractor: BaseExtractor,
     linker: BaseLinker,
+    chapter_filter: str | None = None,
+    exclude_chapters: list[str] | None = None,
+    chunk_ids: list[int] | None = None,
 ) -> nx.Graph:
-    chunks = load_chunks(CHUNKS_PKL, META_PKL)
+    chunks = load_chunks(
+        CHUNKS_PKL,
+        META_PKL,
+        chapter_filter=chapter_filter,
+        exclude_chapters=exclude_chapters,
+        chunk_ids=chunk_ids,
+    )
     logger.info("Loaded %d chunks", len(chunks))
 
     logger.info("Extracting keywords...")

@@ -17,15 +17,24 @@ CHUNKS_PKL = os.path.join(
 META_PKL = os.path.join(
     PROJECT_ROOT, "index", "sections", "textbook_index_meta.pkl"
 )
-# TODO: Update this path to point to the actual extractions JSON after running the extractor
-JSON_KW_PATH = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "knowledge_graph",
-    "all__google_gemini-3-flash-preview__extractions__2.json",
-)
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data", "knowledge_graph")
 RUNS_DIR = os.path.join(OUTPUT_DIR, "runs")
+EXTRACTIONS_DIR = os.path.join(OUTPUT_DIR, "extractions")
+LATEST_EXTRACTIONS = os.path.join(EXTRACTIONS_DIR, "latest.json")
+
+
+def get_latest_extractions_path() -> str:
+    """Return the real path behind the ``extractions/latest.json`` symlink.
+
+    Raises:
+        FileNotFoundError: If no extraction has been written yet.
+    """
+    if not os.path.exists(LATEST_EXTRACTIONS):
+        raise FileNotFoundError(
+            "No extractions found. Run llm_extract_keywords.py first, or pass "
+            "--extractions <path> to point at an existing file."
+        )
+    return os.path.realpath(LATEST_EXTRACTIONS)
 
 # ---------------------------------------------------------------------------
 # Chunk loader (build-time: reads pickle files from index_builder)
