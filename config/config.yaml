@@ -18,4 +18,7 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+enable_topic_extraction: true
+# Optional: log each chat query + retrieval hits to SQLite (see src/catalog/workload_store.py).
+# workload_db_path: "data/tokensmith_workload.db"
 enable_topic_extraction: false

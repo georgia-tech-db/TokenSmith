@@ -247,7 +247,8 @@ def get_answer(
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),
-            additional_log_info=additional_log_info
+            additional_log_info=additional_log_info,
+            workload_db_path=(cfg.workload_db_path or None),
         )
         return ans
 

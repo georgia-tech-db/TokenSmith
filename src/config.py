@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Optional
 
 import yaml
 import pathlib
@@ -54,6 +54,9 @@ class RAGConfig:
     use_indexed_chunks: bool = False
     extracted_index_path: os.PathLike = "data/extracted_index.json"
     page_to_chunk_map_path: os.PathLike = "index/sections/textbook_index_page_to_chunk_map.json"
+
+    # SQLite workload store (optional). Set to e.g. "data/tokensmith_workload.db" to enable.
+    workload_db_path: Optional[str] = None
 
     # user feedback modeling
     enable_topic_extraction: bool = False
