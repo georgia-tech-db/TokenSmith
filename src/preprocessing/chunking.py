@@ -41,14 +41,15 @@ class SectionRecursiveConfig(ChunkConfig):
 @dataclass
 class SemanticBoundaryConfig(ChunkConfig):
     """Configuration for NLP-driven semantic chunking."""
-    similarity_threshold: float = 0.5
+    similarity_threshold: float = 0.55
     min_chunk_size: int = 100  # Prevent absurdly small chunks
     
     def to_string(self) -> str:
-        return f"chunk_mode=semantic_boundary, threshold={self.similarity_threshold}"
+        return f"chunk_mode=semantic_boundary, threshold={self.similarity_threshold}, min_chunk_size={self.min_chunk_size}"
 
     def validate(self):
         assert 0.0 < self.similarity_threshold < 1.0, "Threshold must be between 0 and 1"
+        assert self.min_chunk_size > 0, "min_chunk_size must be > 0"
 
 # -------------------------- Chunking Strategies --------------------------
 
@@ -106,7 +107,7 @@ class SemanticBoundaryStrategy(ChunkStrategy):
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
 
     def name(self) -> str:
-        return f"semantic_boundary({self.threshold})"
+        return f"semantic+boundary({self.threshold}, {self.min_chunk_size})"
 
     def artifact_folder_name(self) -> str:
         return "sections"

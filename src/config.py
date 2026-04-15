@@ -17,6 +17,7 @@ class RAGConfig:
     chunk_size: int = 2000
     chunk_overlap: int = 200
     semantic_threshold: float = 0.55
+    min_chunk_size: int = 100
 
     # retrieval + ranking
     top_k: int = 10
@@ -87,7 +88,8 @@ class RAGConfig:
             )
         elif self.chunk_mode == "semantic_boundary":
             return SemanticBoundaryConfig(
-                similarity_threshold=self.semantic_threshold
+                similarity_threshold=self.semantic_threshold,
+                min_chunk_size=self.min_chunk_size
             )
         else:
             raise ValueError(f"Unknown chunk_mode: {self.chunk_mode}. Supported: recursive_sections, semantic_boundary")

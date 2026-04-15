@@ -7,6 +7,7 @@ rrf_k: 60
 max_gen_tokens: 400
 chunk_mode: "semantic_boundary"
 semantic_threshold: 0.55
+min_chunk_size: 100
 gen_model: "models/qwen2.5-3b-instruct-q8_0.gguf"
 chunk_size: 2000
 chunk_overlap: 200
