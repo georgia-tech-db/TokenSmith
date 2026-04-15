@@ -57,17 +57,23 @@ class RAGConfig:
     # user feedback modeling
     enable_topic_extraction: bool = False
 
+    # retrieval context cache
+    enable_context_chunk_cache: bool = False
+    retrieval_cache_path: str = "index/cache/retrieval_cache.db"
+    retrieval_cache_max_entries: int = 5000
+
     # ---------- factory + validation ----------
     @classmethod
     def from_yaml(cls, path: os.PathLike) -> RAGConfig:
         with open(path, 'r') as f:
-            data = yaml.safe_load(open(path))
+            data = yaml.safe_load(f)
         return cls(**data)
     
     def __post_init__(self):
         """Validation logic runs automatically after initialization."""
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
+        assert self.retrieval_cache_max_entries > 0, "retrieval_cache_max_entries must be > 0"
         assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
         if self.ensemble_method.lower() in {"linear","weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0

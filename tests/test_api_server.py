@@ -540,6 +540,8 @@ class TestRetrieveAndRank:
 
         mock_artifacts = {
             "chunks": ["c0", "c1", "c2", "c3", "c4"],
+            "sources": ["s0", "s1", "s2", "s3", "s4"],
+            "meta": [{"page_numbers": [1]} for _ in range(5)],
         }
 
         mock_faiss = Mock()

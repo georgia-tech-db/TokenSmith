@@ -1,5 +1,6 @@
 import json
 import pytest
+import time
 from pathlib import Path
 from datetime import datetime
 from tests.metrics import SimilarityScorer
@@ -87,11 +88,13 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Get answer from TokenSmith
     try:
-        retrieved_answer, chunks_info, hyde_query = get_tokensmith_answer(
+        query_start = time.perf_counter()
+        retrieved_answer, chunks_info, hyde_query, retrieval_profile = get_tokensmith_answer(
             question=question,
             config=config,
             golden_chunks=golden_chunks if config["use_golden_chunks"] else None
         )
+        total_runtime_ms = round((time.perf_counter() - query_start) * 1000.0, 3)
     except Exception as e:
         import logging, traceback
         error_msg = f"Error running TokenSmith: {e}"
@@ -139,6 +142,8 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         "metric_weights": get_metric_weights(scorer, scores.get("active_metrics", [])),
         "chunks_info": chunks_info if chunks_info else [],
         "hyde_query": hyde_query if hyde_query else None,
+        "retrieval_profile": retrieval_profile if retrieval_profile else {},
+        "total_runtime_ms": total_runtime_ms,
         "timestamp": datetime.now().isoformat(),
         "config": {
             "model_path": config["model_path"],
@@ -255,6 +260,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         "metadata": metadata,
     }
 
+    additional_log_info = {}
     result = get_answer(
         question=question,
         cfg=cfg,
@@ -263,7 +269,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         artifacts=artifacts,
         console=None,
         golden_chunks=golden_chunks,
-        is_test_mode=True
+        is_test_mode=True,
+        additional_log_info=additional_log_info,
     )
     
     # Handle return value (answer, chunks_info, hyde_query) or just answer
@@ -275,7 +282,8 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     # Clean answer - extract up to end token if present
     generated = clean_answer(generated)
     
-    return generated, chunks_info, hyde_query
+    retrieval_profile = additional_log_info.get("retrieval_profile")
+    return generated, chunks_info, hyde_query, retrieval_profile
 
 
 def clean_answer(text):

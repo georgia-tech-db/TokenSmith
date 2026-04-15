@@ -18,3 +18,6 @@ use_double_prompt: false
 enable_history: true
 max_history_turns: 3
 enable_topic_extraction: true
+enable_context_chunk_cache: false
+retrieval_cache_path: "index/cache/retrieval_cache.db"
+retrieval_cache_max_entries: 5000

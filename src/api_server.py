@@ -5,13 +5,11 @@ Provides REST API endpoints for the React frontend.
 
 import sys
 import pathlib
-import re, json
+import json
 import traceback
 from uuid import uuid4
-from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
-import traceback
 import os
 
 # Add project root to Python path to allow imports when run directly
@@ -35,8 +33,16 @@ from src.feedback_store import (
 )
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
+from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
 from src.user_feedback_model import TopicExtractor, estimate_difficulty
+from src.retrieval_cache import (
+    RetrievalCacheRecord,
+    RetrievalContextCache,
+    build_cache_key,
+    build_index_fingerprint,
+    build_retrieval_signature,
+    normalize_query,
+)
 
 # Constants
 INDEX_PREFIX = "textbook_index"
@@ -49,6 +55,7 @@ _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
 _topic_extractor: Optional[TopicExtractor] = None
+_retrieval_context_cache: Optional[RetrievalContextCache] = None
 
 
 class SourceItem(BaseModel):
@@ -138,7 +145,7 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
             sources=log_sources,
             page_map=page_nums,
             full_response="".join(full_response_accumulator),
-            top_k=max_chunks
+            top_k=max_chunks,
         )
 
         return True
@@ -148,9 +155,21 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
 
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
+    sources = _artifacts["sources"]
+    metadata = _artifacts.get("meta", [])
     effective_top_k = top_k if top_k is not None else _config.top_k
     pool_n = max(_config.num_candidates, effective_top_k + 10)
     raw_scores: Dict[str, Dict[int, float]] = {}
+
+    cache_key = None
+    if _retrieval_context_cache and _config.enable_context_chunk_cache:
+        retrieval_signature = build_retrieval_signature(_config)
+        retrieval_signature["top_k_override"] = int(effective_top_k)
+        index_fingerprint = build_index_fingerprint(chunks, sources, metadata)
+        cache_key = build_cache_key(normalize_query(query), retrieval_signature, index_fingerprint)
+        cached = _retrieval_context_cache.get(cache_key)
+        if cached:
+            return cached.topk_idxs[:effective_top_k], cached.ordered_scores[:effective_top_k]
 
     for retriever in _retrievers:
         raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
@@ -164,12 +183,25 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
         ordered_ids = ordered_ids[:_config.top_k]
         ordered_scores = ordered_scores[:_config.top_k]
 
+    if _retrieval_context_cache and _config.enable_context_chunk_cache and cache_key:
+        _retrieval_context_cache.set(
+            cache_key=cache_key,
+            normalized_query=normalize_query(query),
+            retrieval_signature=retrieval_signature,
+            index_fingerprint=index_fingerprint,
+            record=RetrievalCacheRecord(
+                topk_idxs=ordered_ids,
+                ranked_chunks=[chunks[i] for i in ordered_ids],
+                ordered_scores=ordered_scores,
+            ),
+        )
+
     return ordered_ids, ordered_scores
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor
+    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor, _retrieval_context_cache
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -207,6 +239,14 @@ async def lifespan(app: FastAPI):
             weights=_config.ranker_weights,
             rrf_k=int(_config.rrf_k),
         )
+
+        if _config.enable_context_chunk_cache:
+            _retrieval_context_cache = RetrievalContextCache(
+                db_path=_config.retrieval_cache_path,
+                max_entries=_config.retrieval_cache_max_entries,
+            )
+        else:
+            _retrieval_context_cache = None
 
         init_feedback_db()
         if _config.enable_topic_extraction:
@@ -380,6 +420,7 @@ async def chat_stream(request: ChatRequest):
     
     if disable_chunks:
         ranked_chunks, topk_idxs = [], []
+        ordered_ranked_scores = []
     else:
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
@@ -508,7 +549,7 @@ async def chat(request: ChatRequest):
                 request.query, top_k=max_chunks
             )
 
-            # 🔒 Safe unpacking for unit tests where ranker is mocked
+            # Safe unpacking for unit tests where ranker is mocked
             if (
                 not retrieval_result
                 or not isinstance(retrieval_result, (list, tuple))

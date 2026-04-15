@@ -5,6 +5,7 @@ import argparse
 import json
 import pathlib
 import sys
+import time
 from typing import Dict, Optional, List, Tuple, Union, Any
 
 from rich.live import Live
@@ -27,8 +28,40 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.retrieval_cache import (
+    RetrievalCacheRecord,
+    RetrievalContextCache,
+    build_cache_key,
+    build_index_fingerprint,
+    build_retrieval_signature,
+    normalize_query,
+)
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
+_RETRIEVAL_CONTEXT_CACHES: Dict[str, RetrievalContextCache] = {}
+
+
+def _get_retrieval_context_cache(cfg: RAGConfig) -> RetrievalContextCache:
+    cache_path = str(cfg.retrieval_cache_path)
+    if cache_path not in _RETRIEVAL_CONTEXT_CACHES:
+        _RETRIEVAL_CONTEXT_CACHES[cache_path] = RetrievalContextCache(
+            db_path=cache_path,
+            max_entries=cfg.retrieval_cache_max_entries,
+        )
+    return _RETRIEVAL_CONTEXT_CACHES[cache_path]
+
+
+def _chunks_to_text_list(chunks_like: List[Any]) -> List[str]:
+    """
+    Normalize reranker outputs (which may be tuples) into plain text chunks.
+    """
+    normalized: List[str] = []
+    for item in chunks_like or []:
+        if isinstance(item, tuple):
+            normalized.append(str(item[0]))
+        else:
+            normalized.append(str(item))
+    return normalized
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
@@ -118,6 +151,13 @@ def get_answer(
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
     scores = []
+    retrieval_profile: Dict[str, Any] = {
+        "cache_enabled": bool(cfg.enable_context_chunk_cache),
+        "cache_hit": False,
+        "cache_lookup_ms": 0.0,
+        "retrieval_ms": 0.0,
+        "cache_store_ms": 0.0,
+    }
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
@@ -130,71 +170,126 @@ def get_answer(
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
+        ranked_chunks = _chunks_to_text_list(ranked_chunks)
     else:
-        retrieval_query = question
-        # print(f"Retrieval query: {retrieval_query}")
-        if cfg.use_hyde:
-            retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
-        pool_n = max(cfg.num_candidates, cfg.top_k + 10)
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
+        cache_key = None
+        cache_record = None
+        can_use_context_cache = bool(cfg.enable_context_chunk_cache)
+        normalized_query = ""
+        retrieval_signature: Dict[str, Any] = {}
+        index_fingerprint = ""
+        if can_use_context_cache:
+            try:
+                normalized_query = normalize_query(question)
+                retrieval_signature = build_retrieval_signature(cfg)
+                index_fingerprint = build_index_fingerprint(chunks, sources, artifacts.get("meta", []))
+                cache_key = build_cache_key(normalized_query, retrieval_signature, index_fingerprint)
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
-        # Step 2: Ranking
-        ordered, scores = ranker.rank(raw_scores=raw_scores)
-        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
-        ranked_chunks = [chunks[i] for i in topk_idxs]
-        # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
-        # print("Len Ranked chunks:", len(ranked_chunks))
-        # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
-        
-        
-        # Capture chunk info if in test mode
-        if is_test_mode:
-            # Compute individual ranker ranks
-            faiss_scores = raw_scores.get("faiss", {})
-            bm25_scores = raw_scores.get("bm25", {})
-            index_scores = raw_scores.get("index_keywords", {})
-            
-            faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
-            bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
-            index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
-            
-            faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
-            bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
-            index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
-            
-            chunks_info = []
-            for rank, idx in enumerate(topk_idxs, 1):
-                chunks_info.append({
-                    "rank": rank,
-                    "chunk_id": idx,
-                    "content": chunks[idx],
-                    "faiss_score": faiss_scores.get(idx, 0),
-                    "faiss_rank": faiss_ranks.get(idx, 0),
-                    "bm25_score": bm25_scores.get(idx, 0),
-                    "bm25_rank": bm25_ranks.get(idx, 0),
-                    "index_score": index_scores.get(idx, 0),
-                    "index_rank": index_ranks.get(idx, 0),
-                })
+                lookup_start = time.perf_counter()
+                cache_record = _get_retrieval_context_cache(cfg).get(cache_key)
+                retrieval_profile["cache_lookup_ms"] = round((time.perf_counter() - lookup_start) * 1000.0, 3)
+                if cache_record:
+                    retrieval_profile["cache_hit"] = True
+                    topk_idxs = cache_record.topk_idxs
+                    ranked_chunks = cache_record.ranked_chunks
+                    scores = cache_record.ordered_scores
+            except Exception:
+                # Cache failures should never block normal retrieval.
+                cache_record = None
 
-        # Step 3: Final re-ranking
-        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
-        # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
-        # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
+        if cache_record:
+            if is_test_mode:
+                chunks_info = []
+                for rank, idx in enumerate(topk_idxs, 1):
+                    if 0 <= idx < len(chunks):
+                        chunks_info.append(
+                            {
+                                "rank": rank,
+                                "chunk_id": idx,
+                                "content": chunks[idx],
+                                "faiss_score": None,
+                                "faiss_rank": None,
+                                "bm25_score": None,
+                                "bm25_rank": None,
+                                "index_score": None,
+                                "index_rank": None,
+                            }
+                        )
+        else:
+            retrieval_start = time.perf_counter()
+            retrieval_query = question
+            if cfg.use_hyde:
+                retrieval_query = generate_hypothetical_document(
+                    question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens
+                )
+
+            pool_n = max(cfg.num_candidates, cfg.top_k + 10)
+            raw_scores: Dict[str, Dict[int, float]] = {}
+            for retriever in retrievers:
+                raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+
+            ordered, scores = ranker.rank(raw_scores=raw_scores)
+            topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+            ranked_chunks = [chunks[i] for i in topk_idxs]
+
+            if is_test_mode:
+                faiss_scores = raw_scores.get("faiss", {})
+                bm25_scores = raw_scores.get("bm25", {})
+                index_scores = raw_scores.get("index_keywords", {})
+
+                faiss_ranked = sorted(faiss_scores.keys(), key=lambda i: faiss_scores[i], reverse=True)
+                bm25_ranked = sorted(bm25_scores.keys(), key=lambda i: bm25_scores[i], reverse=True)
+                index_ranked = sorted(index_scores.keys(), key=lambda i: index_scores[i], reverse=True)
+
+                faiss_ranks = {idx: rank + 1 for rank, idx in enumerate(faiss_ranked)}
+                bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+                index_ranks = {idx: rank + 1 for rank, idx in enumerate(index_ranked)}
+
+                chunks_info = []
+                for rank, idx in enumerate(topk_idxs, 1):
+                    chunks_info.append(
+                        {
+                            "rank": rank,
+                            "chunk_id": idx,
+                            "content": chunks[idx],
+                            "faiss_score": faiss_scores.get(idx, 0),
+                            "faiss_rank": faiss_ranks.get(idx, 0),
+                            "bm25_score": bm25_scores.get(idx, 0),
+                            "bm25_rank": bm25_ranks.get(idx, 0),
+                            "index_score": index_scores.get(idx, 0),
+                            "index_rank": index_ranks.get(idx, 0),
+                        }
+                    )
+
+            ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+            ranked_chunks = _chunks_to_text_list(ranked_chunks)
+            retrieval_profile["retrieval_ms"] = round((time.perf_counter() - retrieval_start) * 1000.0, 3)
+
+            if can_use_context_cache and cache_key:
+                try:
+                    store_start = time.perf_counter()
+                    _get_retrieval_context_cache(cfg).set(
+                        cache_key=cache_key,
+                        normalized_query=normalized_query,
+                        retrieval_signature=retrieval_signature,
+                        index_fingerprint=index_fingerprint,
+                        record=RetrievalCacheRecord(
+                            topk_idxs=topk_idxs,
+                            ranked_chunks=ranked_chunks,
+                            ordered_scores=scores[: len(topk_idxs)],
+                        ),
+                    )
+                    retrieval_profile["cache_store_ms"] = round((time.perf_counter() - store_start) * 1000.0, 3)
+                except Exception:
+                    pass
 
     if not ranked_chunks and not cfg.disable_chunks:
         if console:
             console.print(f"\n{ANSWER_NOT_FOUND}\n")
         return ANSWER_NOT_FOUND
+
+    if additional_log_info is not None:
+        additional_log_info["retrieval_profile"] = retrieval_profile
 
     # Step 4: Generation
     model_path = cfg.gen_model
@@ -299,7 +394,6 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         sys.exit(1)
 
     chat_history = []
-    additional_log_info = {}
     print("Initialization complete. You can start asking questions!")
     print("Type 'exit' or 'quit' to end the session.")
     while True:
@@ -313,6 +407,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                 break
             
             effective_q = q
+            additional_log_info = {}
             if cfg.enable_history and chat_history:
                 try:
                     effective_q = contextualize_query(q, chat_history, cfg.gen_model)
@@ -357,6 +452,8 @@ def main():
     config_path = pathlib.Path("config/config.yaml")
     if not config_path.exists(): raise FileNotFoundError("config/config.yaml not found.")
     cfg = RAGConfig.from_yaml(config_path)
+    if args.model_path:
+        cfg.gen_model = args.model_path
     print(f"Loaded configuration from {config_path.resolve()}.")
     if args.mode == "index":
         run_index_mode(args, cfg)

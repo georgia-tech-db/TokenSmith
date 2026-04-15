@@ -1,0 +1,40 @@
+cases:
+  - id: "acid_style_shift_tutor_to_concise"
+    question: "What are the ACID properties of transactions?"
+    first_prompt_mode: "tutor"
+    second_prompt_mode: "concise"
+
+  - id: "bptree_style_shift_concise_to_detailed"
+    question: "How does a B+ tree support efficient disk-based access?"
+    first_prompt_mode: "concise"
+    second_prompt_mode: "detailed"
+
+  - id: "normalization_style_shift_tutor_to_concise"
+    question: "What is a lossy decomposition and why is it bad?"
+    first_prompt_mode: "tutor"
+    second_prompt_mode: "concise"
+
+  - id: "fd_definition_tutor_to_detailed"
+    question: "What are functional dependencies?"
+    first_prompt_mode: "tutor"
+    second_prompt_mode: "detailed"
+
+  - id: "sql_isolation_concise_to_tutor"
+    question: "What isolation guarantees does SQL provide by default?"
+    first_prompt_mode: "concise"
+    second_prompt_mode: "tutor"
+
+  - id: "keys_detailed_to_concise"
+    question: "Explain primary keys and foreign keys."
+    first_prompt_mode: "detailed"
+    second_prompt_mode: "concise"
+
+  - id: "schema_tutor_to_concise"
+    question: "What is a database schema?"
+    first_prompt_mode: "tutor"
+    second_prompt_mode: "concise"
+
+  - id: "aries_recovery_tutor_to_detailed"
+    question: "How does ARIES help ensure transaction atomicity during crash recovery?"
+    first_prompt_mode: "tutor"
+    second_prompt_mode: "detailed"
