@@ -5,25 +5,36 @@ import logging
 
 from dotenv import load_dotenv
 
-from src.knowledge_graph.build import PROJECT_ROOT, load_chunks
+from src.knowledge_graph.build import (
+    PROJECT_ROOT,
+    EXTRACTIONS_DIR,
+    LATEST_EXTRACTIONS,
+    load_chunks,
+)
 from src.knowledge_graph.extractors.openrouter_extractor import OpenRouterExtractor
 
 logger = logging.getLogger(__name__)
+
+
+def _update_latest_symlink(target: str) -> None:
+    """Point ``extractions/latest.json`` at *target* (absolute path)."""
+    if os.path.islink(LATEST_EXTRACTIONS):
+        os.unlink(LATEST_EXTRACTIONS)
+    os.symlink(os.path.abspath(target), LATEST_EXTRACTIONS)
 
 
 def main():
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
-    # Use paths from run_kg_pipeline if possible, otherwise hardcode defaults or use args
     default_chunks_pkl = os.path.join(
         PROJECT_ROOT, "index", "sections", "textbook_index_chunks.pkl"
     )
     default_meta_pkl = os.path.join(
         PROJECT_ROOT, "index", "sections", "textbook_index_meta.pkl"
     )
-    output_path = os.path.join(
-        PROJECT_ROOT, "data", "knowledge_graph", "{chapter}__{model}__extractions.json"
+    output_path_template = os.path.join(
+        EXTRACTIONS_DIR, "{chapter}__{model}__extractions.json"
     )
 
     parser = argparse.ArgumentParser(
@@ -53,7 +64,13 @@ def main():
         "--top_n",
         type=int,
         default=10,
-        help="Number of keywords to extract per chunk",
+        help="Number of keywords to extract per chunk (ignored when --adaptive_top_n is set)",
+    )
+    parser.add_argument(
+        "--adaptive_top_n",
+        action="store_true",
+        default=False,
+        help="Scale top_n per chunk as int(sqrt(len(chunk.text))) instead of a fixed value",
     )
     parser.add_argument(
         "--model",
@@ -72,7 +89,8 @@ def main():
         type=int,
         nargs="+",
         default=None,
-        help="Specific chunk IDs to extract. If provided, other filters still apply but only these IDs will be considered.",
+        help="Specific chunk IDs to extract. If provided, other filters still apply but only these"
+        " IDs will be considered.",
     )
 
     args = parser.parse_args()
@@ -80,7 +98,8 @@ def main():
     api_key = args.api_key or os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError(
-            "OpenRouter API key not provided. Set it via --api_key or in the OPENROUTER_API_KEY environment variable."
+            "OpenRouter API key not provided. Set it via --api_key or in the OPENROUTER_API_KEY"
+            " environment variable."
         )
 
     chapter_str = f"{args.chapter}" if args.chapter else "all"
@@ -92,7 +111,7 @@ def main():
             ids_label = f"{len(args.chunk_ids)}ids"
         chapter_str += f"_ids_{ids_label}"
 
-    output_path = output_path.format(
+    output_path = output_path_template.format(
         chapter=chapter_str, model=args.model.replace("/", "_")
     )
 
@@ -122,27 +141,30 @@ def main():
     logger.info(
         f"Starting extraction for {len(chunks)} chunks using OpenRouterExtractor..."
     )
-    extractor = OpenRouterExtractor(api_key=api_key, model=args.model)
+    extractor = OpenRouterExtractor(
+        api_key=api_key,
+        model=args.model,
+        top_n=args.top_n,
+        adaptive_top_n=args.adaptive_top_n,
+    )
 
-    # Process extraction
     results = extractor.extract(chunks)
 
-    # Format for JSON storage
-    output_data = []
-    for res in results:
-        # Finding the original chunk to include some context if needed, but the request asked to store output.
-        # Minimal storage: chunk_id and keywords.
-        output_data.append({"chunk_id": res.chunk_id, "keywords": res.keywords})
+    output_data = [
+        {"chunk_id": res.chunk_id, "keywords": res.keywords} for res in results
+    ]
 
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(EXTRACTIONS_DIR, exist_ok=True)
 
     with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2)
 
     logger.info(f"Extraction complete. Results saved to {output_path}")
 
+    _update_latest_symlink(output_path)
+    logger.info(f"Updated: {LATEST_EXTRACTIONS} -> {output_path}")
+
 
 if __name__ == "__main__":
-    load_dotenv()  # Load environment variables from .env file if present
+    load_dotenv()
     main()

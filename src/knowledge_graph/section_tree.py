@@ -9,12 +9,8 @@ from typing import Optional
 import networkx as nx
 
 from src.knowledge_graph.models import Chunk
-from src.knowledge_graph.utils import (
-    HEADING_PATTERN,
-    KW_PATTERN,
-    Normalizer,
-    extract_ngrams,
-)
+from src.knowledge_graph.normalizer import Normalizer
+from src.knowledge_graph.ngrams import extract_ngrams, HEADING_PATTERN, KW_PATTERN
 
 _NUMBER_RE = re.compile(r"(\d+(?:\.\d+)*)")
 
@@ -366,7 +362,6 @@ def build_section_tree(
     _aggregate(root)
 
     # ── Step 6: Extract heading keywords for each section ─────────────────────
-    normalizer = Normalizer()
     for node in seen.values():
         node.heading_keywords = _build_heading_keywords(node.heading)
 

@@ -1,6 +1,8 @@
 KEYWORD_EXTRACTION_PROMPT = """<|im_start|>system
-You are a linguistic analysis expert. Analyze the provided text and identify the {top_n} most relevant and descriptive keywords or short phrases (1-3 words).
-Focus on terms that carry the most information density, such as technical terms, proper nouns, and central concepts.
+You are a linguistic analysis expert. Analyze the provided text and identify the {top_n} most
+relevant and descriptive keywords or short phrases (1-3 words).
+Focus on terms that carry the most information density, such as technical terms, proper nouns,
+and central concepts.
 Return the result as a raw JSON list of strings.
 Example: ["keyword1", "phrase two", "keyword3"]
 Do not include any other text or explanation in your response.<|im_end|>
@@ -35,17 +37,17 @@ Respond in JSON only:
 }}
 """
 
-SYNONYM_SYSTEM_PROMPT = """You are a terminology expert analyzing keywords extracted from: {corpus_description}.
-Identify keywords that refer to exactly the same concept and should be merged. \
-Be conservative, prefer keeping terms separate over incorrectly merging distinct concepts.
+SYNONYM_SYSTEM_PROMPT = """You are a terminology expert analyzing keywords extracted from:
+{corpus_description}. Identify keywords that refer to exactly the same concept and should
+be merged. Be conservative, prefer keeping terms separate over incorrectly merging distinct
+concepts.
 """
 
-OPENROUTER_KEYWORD_EXTRACTION_PROMPT = """You are a linguistic analysis expert. Analyze the provided text
-and identify the {top_n} most relevant and descriptive keywords
-or short phrases (1-3 words). Focus on terms that carry the most
-information density, such as technical terms, proper nouns, and
-central concepts. Return the result as a raw JSON list of strings.
-Do not include any other text or explanation in your response.
+OPENROUTER_KEYWORD_EXTRACTION_PROMPT = """You are a linguistic analysis expert. Analyze the
+provided text and identify the {top_n} most relevant and descriptive keywords or short phrases
+(1-3 words). Focus on terms that carry the most information density, such as technical terms,
+proper nouns, and central concepts. Return the result as a raw JSON list of strings. Do not
+include any other text or explanation in your response.
 """
 
 SUMMARY_SYSTEM_PROMPT = """\

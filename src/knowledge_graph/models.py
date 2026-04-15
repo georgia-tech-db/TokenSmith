@@ -1,12 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any
 from enum import Enum
-from dataclasses import dataclass, field
 
 import numpy as np
 import yaml
-
-TOP_N = 10  # default keywords extracted per chunk
 
 
 @dataclass
@@ -135,7 +132,7 @@ class CanonicalizationConfig:
 class KGPipelineConfig:
     corpus_description: str = ""
     min_cooccurrence: int = 0
-    top_n: int = TOP_N
+    top_n: int = 10
     canonicalization: CanonicalizationConfig = field(
         default_factory=CanonicalizationConfig
     )

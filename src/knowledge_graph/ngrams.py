@@ -1,5 +1,3 @@
-"""Shared n-gram extraction and normalization helpers."""
-
 import re
 
 from nltk.util import ngrams

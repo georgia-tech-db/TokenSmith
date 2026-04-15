@@ -1,13 +1,23 @@
 from abc import abstractmethod
-
+from typing import Any
 import networkx as nx
 
-from src.knowledge_graph.base import BasePipelineComponent
 from src.knowledge_graph.models import ExtractionResult
 
 
-class BaseLinker(BasePipelineComponent):
+class BaseLinker:
     """Build a graph by creating edges between co-occurring nodes."""
+
+    def __init__(self):
+        self.metadata: dict[str, Any] = {}
+
+    def get_config(self) -> dict[str, Any]:
+        """Return a dict describing this component's configuration.
+
+        Subclasses should call ``super().get_config()`` and update the result
+        with their own parameters.
+        """
+        return {"class": self.__class__.__name__}
 
     @abstractmethod
     def link(self, extractions: list[ExtractionResult]) -> nx.Graph:
