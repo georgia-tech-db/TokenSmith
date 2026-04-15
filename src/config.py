@@ -14,15 +14,16 @@ class RAGConfig:
     # chunking
     chunk_config: ChunkConfig = field(init=False)
     chunk_mode: str = "recursive_sections"
-    chunk_size: int = 2000
-    chunk_overlap: int = 200
+    chunk_size_in_chars: int = 2000
+    chunk_overlap: int = 300
 
     # retrieval + ranking
     top_k: int = 10
     num_candidates: int = 60
     embed_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+    embedding_model_context_window: int = 4096
     ensemble_method: str = "rrf"
-    rrf_k: int  = 60
+    rrf_k: int = 60
     ranker_weights: Dict[str, float] = field(
         default_factory=lambda: {"faiss": 1.0, "bm25": 0.0, "index_keywords": 0.0}
     )
@@ -32,7 +33,7 @@ class RAGConfig:
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
-    
+
     # testing
     system_prompt_mode: str = "baseline"
     disable_chunks: bool = False
@@ -48,7 +49,7 @@ class RAGConfig:
     # conversational memory
     enable_history: bool = True
     max_history_turns: int = 3
-    
+
     # index parameters
     use_indexed_chunks: bool = False
     extracted_index_path: os.PathLike = "data/extracted_index.json"
@@ -64,17 +65,18 @@ class RAGConfig:
     @classmethod
     def from_yaml(cls, path: os.PathLike) -> RAGConfig:
         with open(path, 'r') as f:
-            data = yaml.safe_load(open(path))
+            data = yaml.safe_load(f)
         return cls(**data)
-    
+
     def __post_init__(self):
         """Validation logic runs automatically after initialization."""
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
-        assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
-        if self.ensemble_method.lower() in {"linear","weighted"}:
+        assert self.ensemble_method.lower() in {"linear", "weighted", "rrf"}
+        assert self.embedding_model_context_window > 0, "embedding_model_context_window must be > 0"
+        if self.ensemble_method.lower() in {"linear", "weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
-            self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
+            self.ranker_weights = {k: v / s for k, v in self.ranker_weights.items()}
         self.chunk_config = self.get_chunk_config()
         self.chunk_config.validate()
 
@@ -84,8 +86,8 @@ class RAGConfig:
         """Parse chunk configuration from YAML."""
         if self.chunk_mode == "recursive_sections":
             return SectionRecursiveConfig(
-                recursive_chunk_size=self.chunk_size,
-                recursive_overlap=self.chunk_overlap
+                recursive_chunk_size=self.chunk_size_in_chars,
+                recursive_overlap=self.chunk_overlap,
             )
         else:
             raise ValueError(f"Unknown chunk_mode: {self.chunk_mode}. Supported: recursive_sections")
@@ -101,14 +103,12 @@ class RAGConfig:
         strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
-    
-    def get_config_state(self) -> None:
-        """Returns dict of all config parameters except chunk_config """
+
+    def get_config_state(self) -> dict:
+        """Returns dict of all config parameters except chunk_config."""
         state = self.__dict__.copy()
-        state.pop("chunk_config", None) # remove chunk_config to avoid serialization issues
-        # also pop any non-serializable fields if needed
+        state.pop("chunk_config", None)
         for key in list(state.keys()):
             if not isinstance(state[key], (int, float, str, bool, list, dict, type(None))):
                 state.pop(key)
         return state
-        
