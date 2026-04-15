@@ -29,6 +29,9 @@ class RAGConfig:
     )
     rerank_mode: str = ""
     rerank_top_k: int = 5
+    enable_l1_cache: bool = True
+    l1_cache_max_entries: int = 256
+    l1_cache_ttl_seconds: int = 600
 
     # generation
     max_gen_tokens: int = 400
@@ -69,6 +72,8 @@ class RAGConfig:
         """Validation logic runs automatically after initialization."""
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
+        assert self.l1_cache_max_entries > 0, "l1_cache_max_entries must be > 0"
+        assert self.l1_cache_ttl_seconds > 0, "l1_cache_ttl_seconds must be > 0"
         assert self.ensemble_method.lower() in {"linear", "weighted", "rrf"}
         assert self.embedding_model_context_window > 0, "embedding_model_context_window must be > 0"
         if self.ensemble_method.lower() in {"linear", "weighted"}:

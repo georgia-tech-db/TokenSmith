@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from src.config import RAGConfig
+from src.l1_cache import L1RetrievalCache
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
@@ -122,6 +123,7 @@ def get_answer(
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
+    cache_meta: Dict[str, Any] = {}
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
@@ -136,21 +138,60 @@ def get_answer(
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
         
-        pool_n = max(cfg.num_candidates, cfg.top_k + 10)
-        raw_scores: Dict[str, Dict[int, float]] = {}
-        for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
-            raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
+        l1_cache: Optional[L1RetrievalCache] = artifacts.get("l1_cache")
+        retriever_names = [r.name for r in retrievers]
+        retrieval_params = {
+            "top_k": cfg.top_k,
+            "num_candidates": cfg.num_candidates,
+            "ensemble_method": cfg.ensemble_method,
+            "rrf_k": cfg.rrf_k,
+            "ranker_weights": tuple(sorted(cfg.ranker_weights.items())),
+            "retrievers": tuple(sorted(retriever_names)),
+            "use_hyde": cfg.use_hyde,
+            "retrieval_query": retrieval_query,
+        }
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
-        # Step 2: Ranking
-        ordered, scores = ranker.rank(raw_scores=raw_scores)
-        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+        cache_entry = None
+        if cfg.enable_l1_cache and l1_cache is not None:
+            cache_entry = l1_cache.get(
+                query=retrieval_query,
+                embed_model=cfg.embed_model,
+                embedding_context_window=cfg.embedding_model_context_window,
+                params=retrieval_params,
+            )
+
+        if cache_entry is not None:
+            topk_idxs = cache_entry.top_chunk_ids
+            scores = cache_entry.top_chunk_scores
+            cache_meta = {
+                "l1_cache": {
+                    "hit": True,
+                    "normalized_query_text": cache_entry.normalized_query_text,
+                    "last_access_at": cache_entry.last_access_at,
+                    "expires_at": cache_entry.expires_at,
+                    "access_count": cache_entry.access_count,
+                }
+            }
+        else:
+            pool_n = max(cfg.num_candidates, cfg.top_k + 10)
+            raw_scores: Dict[str, Dict[int, float]] = {}
+            for retriever in retrievers:
+                raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
+
+            ordered, scores = ranker.rank(raw_scores=raw_scores)
+            topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+
+            if cfg.enable_l1_cache and l1_cache is not None:
+                l1_cache.set(
+                    query=retrieval_query,
+                    embed_model=cfg.embed_model,
+                    embedding_context_window=cfg.embedding_model_context_window,
+                    top_chunk_ids=topk_idxs,
+                    top_chunk_scores=scores[:len(topk_idxs)],
+                    params=retrieval_params,
+                )
+                cache_meta = {"l1_cache": {"hit": False}}
+
         ranked_chunks = [chunks[i] for i in topk_idxs]
         # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
         # print("Len Ranked chunks:", len(ranked_chunks))
@@ -247,7 +288,7 @@ def get_answer(
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),
-            additional_log_info=additional_log_info
+            additional_log_info={**(additional_log_info or {}), **cache_meta}
         )
         return ans
 
@@ -292,8 +333,19 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
         
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
+        l1_cache = L1RetrievalCache(
+            max_entries=cfg.l1_cache_max_entries,
+            ttl_seconds=cfg.l1_cache_ttl_seconds,
+        )
         print("Loaded retrievers and initialized ranker.")
-        artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
+        artifacts = {
+            "chunks": chunks,
+            "sources": sources,
+            "retrievers": retrievers,
+            "ranker": ranker,
+            "meta": meta,
+            "l1_cache": l1_cache,
+        }
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
