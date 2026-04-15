@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from src.config import RAGConfig
 from src.generator import answer
+from src.l1_cache import L1RetrievalCache
 from src.feedback_store import (
     init_feedback_db,
     save_answer,
@@ -49,6 +50,7 @@ _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
 _topic_extractor: Optional[TopicExtractor] = None
+_l1_cache: Optional[L1RetrievalCache] = None
 
 
 class SourceItem(BaseModel):
@@ -149,6 +151,38 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
+
+    # L1 cache lookup (additive path; falls back to existing retrieval flow on miss)
+    cache_entry = None
+    if getattr(_config, "enable_l1_cache", False) and _l1_cache is not None:
+        retriever_names = [r.name for r in _retrievers]
+        retrieval_params = {
+            "top_k": effective_top_k,
+            "num_candidates": _config.num_candidates,
+            "ensemble_method": _config.ensemble_method,
+            "rrf_k": _config.rrf_k,
+            "ranker_weights": tuple(sorted(_config.ranker_weights.items())),
+            "retrievers": tuple(sorted(retriever_names)),
+            "query": query,
+        }
+        cache_entry = _l1_cache.get(
+            query=query,
+            embed_model=_config.embed_model,
+            embedding_context_window=getattr(_config, "embedding_model_context_window", 4096),
+            params=retrieval_params,
+        )
+
+    if cache_entry is not None:
+        ordered_ids = cache_entry.top_chunk_ids
+        ordered_scores = cache_entry.top_chunk_scores
+        if top_k is not None:
+            ordered_ids = ordered_ids[:top_k]
+            ordered_scores = ordered_scores[:top_k]
+        else:
+            ordered_ids = ordered_ids[:_config.top_k]
+            ordered_scores = ordered_scores[:_config.top_k]
+        return ordered_ids, ordered_scores
+
     pool_n = max(_config.num_candidates, effective_top_k + 10)
     raw_scores: Dict[str, Dict[int, float]] = {}
 
@@ -156,6 +190,27 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
         raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
 
     ordered_ids, ordered_scores = _ranker.rank(raw_scores=raw_scores)
+
+    # L1 cache write-back after successful retrieval + ranking.
+    if getattr(_config, "enable_l1_cache", False) and _l1_cache is not None:
+        retriever_names = [r.name for r in _retrievers]
+        retrieval_params = {
+            "top_k": effective_top_k,
+            "num_candidates": _config.num_candidates,
+            "ensemble_method": _config.ensemble_method,
+            "rrf_k": _config.rrf_k,
+            "ranker_weights": tuple(sorted(_config.ranker_weights.items())),
+            "retrievers": tuple(sorted(retriever_names)),
+            "query": query,
+        }
+        _l1_cache.set(
+            query=query,
+            embed_model=_config.embed_model,
+            embedding_context_window=getattr(_config, "embedding_model_context_window", 4096),
+            top_chunk_ids=ordered_ids[:effective_top_k],
+            top_chunk_scores=ordered_scores[:effective_top_k],
+            params=retrieval_params,
+        )
 
     if top_k is not None:
         ordered_ids = ordered_ids[:top_k]
@@ -169,7 +224,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor
+    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor, _l1_cache
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -207,6 +262,15 @@ async def lifespan(app: FastAPI):
             weights=_config.ranker_weights,
             rrf_k=int(_config.rrf_k),
         )
+
+        # Initialize L1 cache for retrieval/ranking outputs.
+        if getattr(_config, "enable_l1_cache", False):
+            _l1_cache = L1RetrievalCache(
+                max_entries=getattr(_config, "l1_cache_max_entries", 256),
+                ttl_seconds=getattr(_config, "l1_cache_ttl_seconds", 600),
+            )
+        else:
+            _l1_cache = None
 
         init_feedback_db()
         if _config.enable_topic_extraction:
