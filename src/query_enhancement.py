@@ -5,7 +5,7 @@ Query enhancement techniques for improved retrieval (use only one):
 """
 
 import textwrap
-from typing import Optional
+
 from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
 
 
@@ -24,9 +24,9 @@ def generate_hypothetical_document(
         <|im_start|>system
         You are a database systems expert. Generate a concise, technical answer using precise database terminology.
         Write in the formal academic style of Database System Concepts (Silberschatz, Korth, Sudarshan).
-        Use specific terms for: relational model concepts (relations, tuples, attributes, keys, schemas), 
-        SQL and query languages, transactions (ACID properties, concurrency control, recovery), 
-        storage structures (indexes, B+ trees), normalization (functional dependencies, normal forms), 
+        Use specific terms for: relational model concepts (relations, tuples, attributes, keys, schemas),
+        SQL and query languages, transactions (ACID properties, concurrency control, recovery),
+        storage structures (indexes, B+ trees), normalization (functional dependencies, normal forms),
         and database design (E-R model, decomposition).
         Focus on definitions, mechanisms, and technical accuracy rather than examples.
         <|im_end|>
@@ -40,14 +40,17 @@ def generate_hypothetical_document(
         """)
     
     prompt = text_cleaning(prompt)
-    hypothetical = run_llama_cpp(
-        prompt,
-        model_path,
-        max_tokens=max_tokens,
-        **llm_kwargs
-    )
-    
-    return hypothetical.strip()
+    try:
+        hypothetical = run_llama_cpp(
+            prompt,
+            model_path,
+            max_tokens=max_tokens,
+            **llm_kwargs
+        )
+    except Exception:
+        return query
+
+    return hypothetical.strip() or query
 
 def correct_query_grammar(
     query: str,
@@ -70,13 +73,16 @@ def correct_query_grammar(
         """)
 
     prompt = text_cleaning(prompt)
-    corrected_query = run_llama_cpp(
-        prompt,
-        model_path,
-        max_tokens=len(query.split()) * 2,
-        temperature=0,
-        **llm_kwargs
-    )
+    try:
+        corrected_query = run_llama_cpp(
+            prompt,
+            model_path,
+            max_tokens=len(query.split()) * 2,
+            temperature=0,
+            **llm_kwargs
+        )
+    except Exception:
+        return query
 
     # If model returns empty or hallucinated long text, return original
     cleaned = corrected_query["choices"][0]["text"].strip()
@@ -108,13 +114,16 @@ def expand_query_with_keywords(
         """)
 
     prompt = text_cleaning(prompt)
-    expansion = run_llama_cpp(
-        prompt,
-        model_path,
-        max_tokens=max_tokens,
-        temperature=0.5,
-        **llm_kwargs
-    )
+    try:
+        expansion = run_llama_cpp(
+            prompt,
+            model_path,
+            max_tokens=max_tokens,
+            temperature=0.5,
+            **llm_kwargs
+        )
+    except Exception:
+        return [query]
 
     # Combine original query with expansion
     query_lines = [query]
@@ -148,13 +157,16 @@ def decompose_complex_query(
         """)
 
     prompt = text_cleaning(prompt)
-    output = run_llama_cpp(
-        prompt,
-        model_path,
-        max_tokens=128,
-        temperature=0.0,
-        **llm_kwargs
-    )
+    try:
+        output = run_llama_cpp(
+            prompt,
+            model_path,
+            max_tokens=128,
+            temperature=0.0,
+            **llm_kwargs
+        )
+    except Exception:
+        return [query]
 
     sub_questions = [line.strip() for line in output["choices"][0]["text"].split('\n') if line.strip()]
 
@@ -189,7 +201,7 @@ def contextualize_query(
         You are a query rewriting assistant. Your task is to rewrite the user's "Follow Up Input" to be a standalone question by replacing pronouns (it, they, this, that) with specific nouns from the "Chat History".
         
         Examples:
-        History: 
+        History:
         User: What is BCNF?
         Assistant: It is a normal form used in database normalization.
         Input: Why is it useful?
@@ -219,13 +231,16 @@ def contextualize_query(
         """)
 
     prompt = text_cleaning(prompt)
-    output = run_llama_cpp(
-        prompt,
-        model_path,
-        max_tokens=max_tokens,
-        temperature=0.1,
-        **llm_kwargs
-    )
+    try:
+        output = run_llama_cpp(
+            prompt,
+            model_path,
+            max_tokens=max_tokens,
+            temperature=0.1,
+            **llm_kwargs
+        )
+    except Exception:
+        return query
 
     rewritten = output["choices"][0]["text"].strip()
     

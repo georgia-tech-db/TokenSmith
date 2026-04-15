@@ -1,4 +1,5 @@
-import textwrap, re
+import re
+import textwrap
 from llama_cpp import Llama
 
 ANSWER_START = "<<<ANSWER>>>"
@@ -110,18 +111,43 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
 
 _LLM_CACHE = {}
 
+
+def _candidate_contexts(n_ctx: int):
+    candidates = []
+    for candidate in [n_ctx, min(n_ctx, 2048), min(n_ctx, 1024), 512]:
+        candidate = int(candidate)
+        if candidate > 0 and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
 def get_llama_model(model_path: str, n_ctx: int = 4096):
     if model_path not in _LLM_CACHE:
-        try:
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False,
-                                       n_gpu_layers=-1)
-        except Exception as e:
-            print(f"Error loading LLaMA model from {model_path} on GPU: {e}")
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False)
+        last_error = None
+        for candidate_n_ctx in _candidate_contexts(n_ctx):
+            try:
+                _LLM_CACHE[model_path] = Llama(
+                    model_path=model_path,
+                    n_ctx=candidate_n_ctx,
+                    verbose=False,
+                    n_gpu_layers=-1,
+                )
+                break
+            except Exception as gpu_exc:
+                last_error = gpu_exc
+                try:
+                    _LLM_CACHE[model_path] = Llama(
+                        model_path=model_path,
+                        n_ctx=candidate_n_ctx,
+                        verbose=False,
+                    )
+                    break
+                except Exception as cpu_exc:
+                    last_error = cpu_exc
+        else:
+            raise ValueError(
+                f"Failed to create generation llama_context for {model_path} "
+                f"after trying n_ctx values {_candidate_contexts(n_ctx)}"
+            ) from last_error
     return _LLM_CACHE[model_path]
 
 def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):

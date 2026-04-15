@@ -1,11 +1,9 @@
 from pathlib import Path
+from contextlib import suppress
 import re
 import json
 from typing import List, Dict
 import sys
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
-from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 
 def extract_sections_from_markdown(
     file_path: str,
@@ -23,7 +21,7 @@ def extract_sections_from_markdown(
               section with 'heading' and 'content' keys.
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
         print(f"Error: The file '{file_path}' was not found.")
@@ -61,9 +59,10 @@ def extract_sections_from_markdown(
             heading = f"Section {heading}"
 
             # Exclude sections based on keywords if provided
-            if exclusion_keywords is not None:
-                if any(keyword.lower() in heading.lower() for keyword in exclusion_keywords):
-                    continue
+            if exclusion_keywords is not None and any(
+                keyword.lower() in heading.lower() for keyword in exclusion_keywords
+            ):
+                continue
 
             section_content = parts[1].strip() if len(parts) > 1 else ''
             
@@ -104,6 +103,85 @@ def extract_sections_from_markdown(
             })
 
     return sections
+
+
+def extract_sections_from_json(
+    file_path: str,
+    exclusion_keywords: List[str] = None,
+) -> List[Dict]:
+    """
+    Loads already-extracted textbook sections from JSON and normalizes them for indexing.
+    """
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            raw_sections = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+        return []
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return []
+
+    if not isinstance(raw_sections, list):
+        print(f"Error: Expected a list of sections in '{file_path}'.")
+        return []
+
+    numbering_pattern = re.compile(r"(\d+(?:\.\d+)*)")
+    sections: List[Dict] = []
+
+    for raw_section in raw_sections:
+        if not isinstance(raw_section, dict):
+            continue
+
+        heading = str(raw_section.get("heading", "")).strip() or "Untitled Section"
+        content = str(raw_section.get("content", "")).strip()
+        if not content:
+            continue
+
+        if exclusion_keywords is not None and any(
+            keyword.lower() in heading.lower() for keyword in exclusion_keywords
+        ):
+            continue
+
+        level = raw_section.get("level")
+        chapter = raw_section.get("chapter")
+
+        if level is None or chapter is None:
+            match = numbering_pattern.search(heading)
+            if match:
+                section_number = match.group(1)
+                level = section_number.count(".") + 1
+                try:
+                    chapter = int(section_number.split(".")[0])
+                except ValueError:
+                    chapter = 0
+            else:
+                level = 1
+                chapter = 0
+
+        sections.append(
+            {
+                "heading": heading,
+                "content": preprocess_extracted_section(content),
+                "level": int(level),
+                "chapter": int(chapter),
+            }
+        )
+
+    return sections
+
+
+def load_extracted_sections(
+    file_path: str,
+    exclusion_keywords: List[str] = None,
+) -> List[Dict]:
+    """
+    Load sections from either a docling markdown export or a previously extracted JSON file.
+    """
+    source_path = Path(file_path)
+    if source_path.suffix.lower() == ".json":
+        return extract_sections_from_json(str(source_path), exclusion_keywords=exclusion_keywords)
+    return extract_sections_from_markdown(str(source_path), exclusion_keywords=exclusion_keywords)
 
 def extract_index_with_range_expansion(text_content):
     """
@@ -148,14 +226,11 @@ def extract_index_with_range_expansion(text_content):
                     pages.extend(range(start, end + 1))
                 except ValueError:
                     # Handle cases where a part with a hyphen isn't a valid range
-                    pass 
+                    pass
             else:
-                try:
+                with suppress(ValueError):
                     # It's a single page number
                     pages.append(int(part))
-                except ValueError:
-                    # Handle cases where a part is not a valid number
-                    pass
         
         if keyword and pages:
             # Add the parsed pages to the dictionary
@@ -182,6 +257,10 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
     if not source.exists():
         print(f"Error: Input file not found at {input_file_path}", file=sys.stderr)
         return
+
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
+    from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 
     # Disable OCR and table structure extraction for faster processing
     pipeline_options = PdfPipelineOptions()
@@ -219,7 +298,7 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
             with open(output_file_path, "w", encoding="utf-8") as f:
                 f.write(doc.export_to_markdown())
             print(f"Successfully saved (fallback, no page numbers) to {output_file_path}")
-        except IOError as e_io:
+        except OSError as e_io:
             print(f"Error writing fallback file: {e_io}", file=sys.stderr)
         return
 
@@ -245,7 +324,7 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         with open(output_file_path, "w", encoding="utf-8") as f:
             f.write("".join(final_output_chunks))
         print(f"Successfully converted and saved to {output_file_path}")
-    except IOError as e:
+    except OSError as e:
         print(f"Error writing to file {output_file_path}: {e}", file=sys.stderr)
     except Exception as e:
         print(f"An unexpected error occurred: {e}", file=sys.stderr)

@@ -20,6 +20,10 @@ mkdir -p "$BUILD_DIR"
 # --- Ensure required tools exist ---
 command -v git >/dev/null 2>&1 || die "git not found. Install git."
 command -v cmake >/dev/null 2>&1 || die "cmake not found. Install cmake (>=3.21)."
+SYSTEM_MAKE="/usr/bin/make"
+if [[ ! -x "$SYSTEM_MAKE" ]]; then
+  SYSTEM_MAKE="$(command -v make || true)"
+fi
 
 # --- Get or update llama.cpp ---
 if [[ ! -d "$LLAMA_DIR/.git" ]]; then
@@ -69,8 +73,8 @@ CORES="$(
 
 # --- Configure & build ---
 log "Building with options: ${CMAKE_OPTS[*]}"
-cmake -S "$LLAMA_DIR" -B "$LLAMA_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release "${CMAKE_OPTS[@]}"
-cmake --build "$LLAMA_BUILD_DIR" --target llama-cli -- -j"$CORES"
+cmake -S "$LLAMA_DIR" -B "$LLAMA_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM="$SYSTEM_MAKE" "${CMAKE_OPTS[@]}"
+cmake --build "$LLAMA_BUILD_DIR" --target llama-cli --parallel "$CORES"
 
 # --- Locate the resulting binary ---
 if [[ -x "$LLAMA_BUILD_DIR/bin/llama-cli" ]]; then

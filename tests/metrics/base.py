@@ -14,6 +14,11 @@ class MetricBase(ABC):
     def weight(self) -> float:
         """Default weight for this metric in combined scoring."""
         return 1.0
+
+    @property
+    def metric_group(self) -> str:
+        """Metric group used by the scorer to route inputs."""
+        return "answer"
     
     @abstractmethod
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:

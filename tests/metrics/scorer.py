@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 from tests.metrics.registry import MetricRegistry
 
 
@@ -11,21 +11,28 @@ class SimilarityScorer:
     
     def _get_active_metrics(self) -> Dict[str, Any]:
         """Get metrics that should be used for scoring."""
-        available = self.registry.get_available_metrics()
-        
         if "all" in self.enabled_metrics:
-            return available
-        
+            return self.registry.get_available_metrics()
+
         active = {}
         for name in self.enabled_metrics:
-            if name in available:
-                active[name] = available[name]
+            metric = self.registry.get_metric(name)
+            if metric and metric.is_available():
+                active[name] = metric
             else:
                 print(f"ERROR: Metric '{name}' not available")
-        
+
         return active
     
-    def calculate_scores(self, answer: str, expected: str, keywords: Optional[List[str]] = None, question: Optional[str] = None, ideal_retrieved_chunks: Optional[List[int]] = None, actual_retrieved_chunks: Optional[List[int]] = None) -> Dict[str, Any]:
+    def calculate_scores(
+        self,
+        answer: str,
+        expected: str,
+        keywords: Optional[List[str]] = None,
+        question: Optional[str] = None,
+        retrieval_gold: Optional[Dict[str, Any]] = None,
+        actual_retrieved_chunks: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Calculate scores using active metrics."""
         active_metrics = self._get_active_metrics()
         
@@ -35,15 +42,22 @@ class SimilarityScorer:
         scores = {}
         total_weighted_score = 0.0
         total_weight = 0.0
+        answer_metric_names = []
+        retrieval_metric_names = []
         
         for name, metric in active_metrics.items():
-            # For LLM judge metrics, pass question instead of expected answer
-            if name in ("llm_judge", "async_llm_judge") and question:
-                score = metric.calculate(answer, question, keywords)
-            elif name == "chunk_retrieval":
-                score = metric.calculate(ideal_retrieved_chunks, actual_retrieved_chunks)
+            if metric.metric_group == "retrieval":
+                score = metric.calculate(
+                    retrieval_gold=retrieval_gold,
+                    actual_retrieved_chunks=actual_retrieved_chunks,
+                )
+                retrieval_metric_names.append(name)
             else:
-                score = metric.calculate(answer, expected, keywords)
+                if name in ("llm_judge", "async_llm_judge") and question:
+                    score = metric.calculate(answer, question, keywords)
+                else:
+                    score = metric.calculate(answer, expected, keywords)
+                answer_metric_names.append(name)
             scores[f"{name}_similarity"] = score
             
             weight = metric.weight
@@ -64,5 +78,7 @@ class SimilarityScorer:
             **scores,
             "final_score": final_score,
             "keywords_matched": keywords_matched,
-            "active_metrics": list(active_metrics.keys())
+            "active_metrics": list(active_metrics.keys()),
+            "answer_metrics": answer_metric_names,
+            "retrieval_metrics": retrieval_metric_names,
         }

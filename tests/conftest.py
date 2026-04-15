@@ -144,24 +144,32 @@ def config(pytestconfig):
     
     # Merge CLI arguments (higher priority)
     merged_config = {
-        # Retrieval        
+        # Retrieval
         "top_k": cfg.get("top_k", 10),
-        "pool_size": cfg.get("pool_size", 60),
+        "num_candidates": cfg.get("num_candidates", cfg.get("pool_size", 60)),
         "ensemble_method": cfg.get("ensemble_method", "rrf"),
         "rrf_k": cfg.get("rrf_k", 60),
-        "ranker_weights": cfg.get("ranker_weights", {"faiss":0.6,"bm25":0.4}),
+        "ranker_weights": cfg.get("ranker_weights", {"faiss":0.6,"bm25":0.3,"index_keywords":0.1}),
         "rerank_mode": cfg.get("rerank_mode", "none"),
         "rerank_top_k": cfg.get("rerank_top_k", 5),
-        "seg_filter": cfg.get("seg_filter", None),
-        "chunk_mode": cfg.get("chunk_mode", "sections"),
-        "recursive_chunk_size": cfg.get("recursive_chunk_size", 1000),
-        "recursive_overlap": cfg.get("recursive_overlap", 0),
+        "seg_filter": cfg.get("seg_filter"),
+        "chunk_mode": cfg.get("chunk_mode", "recursive_sections"),
+        "chunk_size": cfg.get("chunk_size", cfg.get("recursive_chunk_size", 1000)),
+        "chunk_overlap": cfg.get("chunk_overlap", cfg.get("recursive_overlap", 0)),
+        "section_top_k": cfg.get("section_top_k", 4),
+        "page_rerank_window": cfg.get("page_rerank_window", 20),
+        "decomposition_max_subqueries": cfg.get("decomposition_max_subqueries", 4),
 
         # Output
         "output_mode": pytestconfig.getoption("--output-mode") or cfg.get("output_mode", "terminal"),
         
         # Models
-        "model_path": pytestconfig.getoption("--model-path") or cfg.get("model_path", "models/qwen2.5-3b-instruct-q8_0.gguf"),
+        "model_path": (
+            pytestconfig.getoption("--model-path")
+            or cfg.get("model_path")
+            or cfg.get("gen_model")
+            or "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+        ),
         "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", os.path.join(Path(__file__).parent.parent, "models", "Qwen3-Embedding-4B-Q8_0.gguf")),
         
         # Generator
@@ -169,10 +177,10 @@ def config(pytestconfig):
         "max_gen_tokens": cfg.get("max_gen_tokens", 400),
         
         # Testing
-        "artifacts_dir": pytestconfig.getoption("--artifacts_dir") or "index/tokens-200",
+        "artifacts_dir": pytestconfig.getoption("--artifacts_dir") or "index/sections",
         "index_prefix": pytestconfig.getoption("--index-prefix") or cfg.get("index_prefix", "textbook_index"),
-        "metrics": pytestconfig.getoption("--metrics") or cfg.get("metrics", ["all"]),
-        "threshold_override": pytestconfig.getoption("--threshold") or cfg.get("threshold_override", None),
+        "metrics": pytestconfig.getoption("metrics_list") or cfg.get("metrics", ["all"]),
+        "threshold_override": pytestconfig.getoption("--threshold") or cfg.get("threshold_override"),
         
         # Query Enhancement (HyDE)
         "use_hyde": cfg.get("use_hyde", False),
@@ -213,7 +221,7 @@ def benchmarks(pytestconfig, config):
     # Filter by selected IDs if provided
     selected_ids = pytestconfig.getoption("--benchmark-ids")
     if selected_ids:
-        id_set = set(id.strip() for id in selected_ids.split(','))
+        id_set = {benchmark_id.strip() for benchmark_id in selected_ids.split(',')}
         filtered = [b for b in all_benchmarks if b['id'] in id_set]
         print(f"\n📋 Running {len(filtered)} selected benchmarks: {', '.join(id_set)}")
         return filtered

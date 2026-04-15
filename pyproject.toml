@@ -32,3 +32,10 @@ target-version = ['py39']
 
 [tool.isort]
 profile = "black"
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "C4", "SIM"]

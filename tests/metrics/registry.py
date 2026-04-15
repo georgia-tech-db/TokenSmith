@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Dict, List, Optional
 from tests.metrics.base import MetricBase
 
@@ -7,41 +8,68 @@ class MetricRegistry:
     
     def __init__(self):
         self._metrics: Dict[str, MetricBase] = {}
+        self._factories: Dict[str, Callable[[], MetricBase]] = {}
         self._auto_register()
     
     def _auto_register(self):
-        """Automatically register all available metrics."""
+        """Register metric factories without instantiating heavyweight models eagerly."""
         from tests.metrics import (
             SemanticSimilarityMetric,
             KeywordMatchMetric,
             NLIEntailmentMetric,
             AsyncLLMJudgeMetric,
-            ChunkRetrievalMetric
+            ChunkMAPAt10Metric,
+            ChunkMRRAt10Metric,
+            ChunkNDCGAt10Metric,
+            ChunkRecallAt5Metric,
+            ChunkRecallAt10Metric,
+            DirectPageHitAt10Metric,
+            PageHitAt5Metric,
+            PageHitAt10Metric,
         )
 
-        self.register(SemanticSimilarityMetric())
-        self.register(KeywordMatchMetric())
-        self.register(NLIEntailmentMetric())
-        self.register(AsyncLLMJudgeMetric())
-        self.register(ChunkRetrievalMetric())
+        self.register_factory("semantic", SemanticSimilarityMetric)
+        self.register_factory("keyword_match", KeywordMatchMetric)
+        self.register_factory("nli", NLIEntailmentMetric)
+        self.register_factory("async_llm_judge", AsyncLLMJudgeMetric)
+        self.register_factory("chunk_ndcg_10", ChunkNDCGAt10Metric)
+        self.register_factory("chunk_recall_5", ChunkRecallAt5Metric)
+        self.register_factory("chunk_recall_10", ChunkRecallAt10Metric)
+        self.register_factory("chunk_mrr_10", ChunkMRRAt10Metric)
+        self.register_factory("chunk_map_10", ChunkMAPAt10Metric)
+        self.register_factory("page_hit_5", PageHitAt5Metric)
+        self.register_factory("page_hit_10", PageHitAt10Metric)
+        self.register_factory("direct_page_hit_10", DirectPageHitAt10Metric)
 
     def register(self, metric: MetricBase):
         """Register a new metric."""
         self._metrics[metric.name] = metric
-        print(f"Registered metric: {metric}")
+
+    def register_factory(self, name: str, factory: Callable[[], MetricBase]):
+        """Register a lazy metric factory by name."""
+        self._factories[name] = factory
+
+    def _ensure_metric(self, name: str) -> Optional[MetricBase]:
+        if name not in self._metrics and name in self._factories:
+            self._metrics[name] = self._factories[name]()
+        return self._metrics.get(name)
     
     def get_metric(self, name: str) -> Optional[MetricBase]:
         """Get a metric by name."""
-        return self._metrics.get(name)
+        return self._ensure_metric(name)
     
     def get_available_metrics(self) -> Dict[str, MetricBase]:
         """Get all available metrics that can be used."""
-        return {name: metric for name, metric in self._metrics.items() 
-                if metric.is_available()}
+        available = {}
+        for name in self.list_all_metric_names():
+            metric = self._ensure_metric(name)
+            if metric and metric.is_available():
+                available[name] = metric
+        return available
     
     def get_all_metrics(self) -> Dict[str, MetricBase]:
         """Get all registered metrics (including unavailable ones)."""
-        return self._metrics.copy()
+        return {name: self._ensure_metric(name) for name in self.list_all_metric_names()}
     
     def list_metric_names(self) -> List[str]:
         """List all available metric names."""
@@ -49,4 +77,4 @@ class MetricRegistry:
     
     def list_all_metric_names(self) -> List[str]:
         """List all registered metric names (including unavailable)."""
-        return list(self._metrics.keys())
+        return list(dict.fromkeys([*self._factories.keys(), *self._metrics.keys()]))

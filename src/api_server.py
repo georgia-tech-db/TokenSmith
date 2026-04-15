@@ -1,33 +1,22 @@
-"""
-FastAPI server for TokenSmith chat functionality.
-Provides REST API endpoints for the React frontend.
-"""
+"""FastAPI server for TokenSmith chat functionality."""
 
-import sys
+import json
 import pathlib
-import re, json
 import traceback
-from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
-import traceback
-import os
-
-# Add project root to Python path to allow imports when run directly
-_project_root = pathlib.Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.config import RAGConfig
 from src.generator import answer
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
-from src.retriever import filter_retrieved_chunks, BM25Retriever, FAISSRetriever, IndexKeywordRetriever, get_page_numbers, load_artifacts
+from src.retrieval_pipeline import build_runtime_retrievers, execute_retrieval_plan, trace_to_dict
+from src.retriever import get_page_numbers, load_artifact_bundle
 
 # Constants
 INDEX_PREFIX = "textbook_index"
@@ -35,7 +24,9 @@ INDEX_PREFIX = "textbook_index"
 
 # Global state populated during app lifespan
 _artifacts: Optional[Dict[str, List[str]]] = None
+_artifact_bundle = None
 _retrievers: Optional[List] = None
+_runtime_retrievers = None
 _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
@@ -44,9 +35,8 @@ _logger = None
 class SourceItem(BaseModel):
     page: int
     text: str
-    
-    class Config:
-        frozen = True  # Makes the model hashable so it can be used in sets
+
+    model_config = ConfigDict(frozen=True)
 
 
 class ChatRequest(BaseModel):
@@ -72,14 +62,15 @@ def _resolve_config_path() -> pathlib.Path:
 
 
 def _ensure_initialized():
-    if not all([_config, _artifacts, _retrievers, _ranker]):
+    retrieval_ready = _runtime_retrievers or (_retrievers and _ranker)
+    if not all([_config, _artifacts, retrieval_ready]):
         raise HTTPException(
             status_code=503,
             detail="Artifacts not loaded. Please run indexing first."
         )
 
 def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
-                 enable_chunks, prompt_type, max_chunks, temperature):
+                 enable_chunks, prompt_type, max_chunks, temperature, retrieval_trace=None):
     try:
         # Capture the actual strings used for the log file
         log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
@@ -113,15 +104,27 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
             sources=log_sources,
             page_map=page_nums,
             full_response="".join(full_response_accumulator),
-            top_k=max_chunks
+            top_k=max_chunks,
+            additional_log_info={"retrieval_trace": trace_to_dict(retrieval_trace)} if retrieval_trace else None,
         )
 
         return True
 
-    except Exception as log_exc:
+    except Exception:
         return False
 
 def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
+    if _artifact_bundle and _runtime_retrievers:
+        _, topk_idxs, retrieval_trace = execute_retrieval_plan(
+            query=query,
+            cfg=_config,
+            bundle=_artifact_bundle,
+            retrievers=_runtime_retrievers,
+            history=None,
+        )
+        limit = top_k if top_k is not None else _config.top_k
+        return topk_idxs[:limit], retrieval_trace.fused_chunk_scores[:limit]
+
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
     pool_n = max(_config.num_candidates, effective_top_k + 10)
@@ -144,38 +147,30 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger
+    global _artifacts, _artifact_bundle, _retrievers, _runtime_retrievers, _ranker, _config, _logger
 
     config_path = _resolve_config_path()
     if not config_path.exists():
         raise FileNotFoundError(f"No config file found at {config_path}")
 
-    _config = RAGConfig.from_yaml(config_path)    
+    _config = RAGConfig.from_yaml(config_path)
     _logger = get_logger()
 
     try:
         artifacts_dir = _config.get_artifacts_directory()
-        faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
+        _artifact_bundle = load_artifact_bundle(
             artifacts_dir=artifacts_dir,
-            index_prefix=INDEX_PREFIX
+            index_prefix=INDEX_PREFIX,
         )
 
         _artifacts = {
-            "chunks": chunks,
-            "sources": sources,
-            "meta": metadata,
+            "chunks": _artifact_bundle.chunks,
+            "sources": _artifact_bundle.sources,
+            "meta": _artifact_bundle.metadata,
         }
 
-        _retrievers = [
-            FAISSRetriever(faiss_index, _config.embed_model),
-            BM25Retriever(bm25_index),
-        ]
-        
-        # Add index keyword retriever if weight > 0
-        if _config.ranker_weights.get("index_keywords", 0) > 0:
-            _retrievers.append(
-                IndexKeywordRetriever(_config.extracted_index_path, _config.page_to_chunk_map_path)
-            )
+        _runtime_retrievers = build_runtime_retrievers(_artifact_bundle, _config)
+        _retrievers = _runtime_retrievers["chunk"]
 
         _ranker = EnsembleRanker(
             ensemble_method=_config.ensemble_method,
@@ -291,7 +286,6 @@ async def test_chat(request: ChatRequest):
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Streaming chat endpoint using Server-Sent Events."""
-    import json
     _ensure_initialized()
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -305,8 +299,18 @@ async def chat_stream(request: ChatRequest):
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
     
+    retrieval_trace = None
     if disable_chunks:
-        ranked_chunks, topk_idxs = [], []
+        ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], []
+    elif _artifact_bundle and _runtime_retrievers:
+        ranked_chunks, topk_idxs, retrieval_trace = execute_retrieval_plan(
+            query=request.query,
+            cfg=_config,
+            bundle=_artifact_bundle,
+            retrievers=_runtime_retrievers,
+            history=None,
+        )
+        ordered_ranked_scores = retrieval_trace.fused_chunk_scores
     else:
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
@@ -332,7 +336,7 @@ async def chat_stream(request: ChatRequest):
                     chunks_by_page.setdefault(page, []).append(chunks[i])
                     sources_used.add(SourceItem(page=page, text=source_text))
             
-            yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
+            yield f"data: {json.dumps({'type': 'sources', 'content': [s.model_dump() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
             # Stream generation token by token
@@ -344,11 +348,11 @@ async def chat_stream(request: ChatRequest):
             
             if _logger:
                 success_log = _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
-                            enable_chunks, prompt_type, max_chunks, temperature)
+                            enable_chunks, prompt_type, max_chunks, temperature, retrieval_trace=retrieval_trace)
                 if not success_log:
                     print("Logging failed for this request.")
 
-            yield f"data: {json.dumps({'type': 'done', 'sources': [s.dict() for s in sources_used]})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'sources': [s.model_dump() for s in sources_used]})}\n\n"
         except Exception as e:
             # Using print here so you can see crashes in the terminal while debugging
             print(f"Backend error: {e}")
@@ -393,15 +397,21 @@ async def chat(request: ChatRequest):
     sources = _artifacts["sources"]
 
     try:
-        # 2. Retrieval & Ranking (SAFE against mocked None return)
+        retrieval_trace = None
         if disable_chunks:
             ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], {}
-        else:
-            retrieval_result = _retrieve_and_rank(
-                request.query, top_k=max_chunks
+        elif _artifact_bundle and _runtime_retrievers:
+            ranked_chunks, topk_idxs, retrieval_trace = execute_retrieval_plan(
+                query=request.query,
+                cfg=_config,
+                bundle=_artifact_bundle,
+                retrievers=_runtime_retrievers,
+                history=None,
             )
+            ordered_ranked_scores = retrieval_trace.fused_chunk_scores
+        else:
+            retrieval_result = _retrieve_and_rank(request.query, top_k=max_chunks)
 
-            # 🔒 Safe unpacking for unit tests where ranker is mocked
             if (
                 not retrieval_result
                 or not isinstance(retrieval_result, (list, tuple))
@@ -413,7 +423,6 @@ async def chat(request: ChatRequest):
 
             topk_idxs = [int(i) for i in (topk_idxs or [])]
             ordered_ranked_scores = ordered_ranked_scores or {}
-
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
 
         if not _config.gen_model:
@@ -472,6 +481,7 @@ async def chat(request: ChatRequest):
                 prompt_type,
                 max_chunks,
                 temperature,
+                retrieval_trace=retrieval_trace,
             )
             if not success_log:
                 print("Logging failed for this request.")
@@ -491,7 +501,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error processing query: {str(e)}",
-        )
+        ) from e
 
 
 if __name__ == "__main__":

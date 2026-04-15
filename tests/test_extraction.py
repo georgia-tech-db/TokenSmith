@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import src.preprocessing.extraction as extraction
 import pytest
 
@@ -83,3 +84,21 @@ def test_extract_multiple_pdfs_creates_matching_mds(tmp_path, monkeypatch):
     out_names = sorted(p.name for p in out_mds)
     expected_names = sorted(p.name for p in expected)
     assert out_names == expected_names
+
+
+def test_load_extracted_sections_from_json_infers_level_and_chapter(tmp_path):
+    payload = [
+        {
+            "heading": "Section 19.3.2 ARIES Recovery",
+            "content": "ARIES repeats history during REDO.",
+        }
+    ]
+    source = tmp_path / "sections.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    sections = extraction.load_extracted_sections(str(source))
+
+    assert len(sections) == 1
+    assert sections[0]["heading"] == "Section 19.3.2 ARIES Recovery"
+    assert sections[0]["level"] == 3
+    assert sections[0]["chapter"] == 19

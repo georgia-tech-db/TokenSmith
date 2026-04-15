@@ -1,77 +1,417 @@
 benchmarks:
-  - id: "aggregation_grouping"
-    question: "How do aggregation with grouping work?"
-    expected_answer: "Aggregation partitions tuples by grouping attributes and applies functions like sum, avg, min, max to each group, producing one result per group."
-    keywords: ["aggregation", "grouping", "generalized projection", "ignore nulls", "attribute renaming", "duplicates"]
-    similarity_threshold: 0.8
-    ideal_retrieved_chunks: [1039, 1040, 1496, 1497, 714]
-    
+  - id: "aries_recovery_goal"
+    question: "What problem does ARIES solve in crash recovery?"
+    expected_answer: "ARIES restores the database to a correct state after a crash by identifying incomplete transactions, redoing logged actions needed to reconstruct the pre-crash state, and undoing the effects of transactions that did not finish."
+    keywords: ["ARIES", "crash recovery", "analysis", "redo", "undo", "incomplete transactions"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 1247
+          grade: 3
+        - id: 1248
+          grade: 2
+      pages:
+        - page: 1461
+          grade: 3
+        - page: 1462
+          grade: 2
+    query_type: procedural
+    history: []
+
+  - id: "aries_redo_start"
+    question: "How does ARIES determine where the REDO phase starts?"
+    expected_answer: "During the analysis pass, ARIES finds the last complete checkpoint, reads its dirty-page table, and sets RedoLSN to the minimum RecLSN among dirty pages; if there are no dirty pages, RedoLSN is the checkpoint LSN."
+    keywords: ["analysis pass", "RedoLSN", "RecLSN", "checkpoint", "dirty-page table"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 1248
+          grade: 3
+        - id: 1247
+          grade: 2
+      pages:
+        - page: 1462
+          grade: 3
+        - page: 1463
+          grade: 2
+    query_type: procedural
+    history: []
+
+  - id: "aries_redo_phase"
+    question: "How does ARIES perform the REDO phase?"
+    expected_answer: "ARIES repeats history during REDO: it scans forward from RedoLSN and reapplies an update only if the page is dirty, the log record is not older than the page's RecLSN, and the page's PageLSN shows that the update is not already reflected on disk."
+    keywords: ["redo pass", "repeats history", "RedoLSN", "RecLSN", "PageLSN"]
+    similarity_threshold: 0.76
+    retrieval_gold:
+      chunks:
+        - id: 1249
+          grade: 3
+        - id: 1248
+          grade: 2
+      pages:
+        - page: 1463
+          grade: 3
+        - page: 1462
+          grade: 2
+    query_type: procedural
+    history: []
+
+  - id: "aries_undo_phase"
+    question: "When and why does ARIES perform UNDO?"
+    expected_answer: "ARIES performs UNDO after REDO for transactions that were incomplete at the time of the crash, so that partial effects of those uncommitted transactions are rolled back and atomicity is preserved."
+    keywords: ["undo pass", "incomplete transactions", "atomicity", "rollback", "crash"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 1250
+          grade: 3
+        - id: 1251
+          grade: 2
+      pages:
+        - page: 1463
+          grade: 3
+        - page: 1465
+          grade: 2
+    query_type: procedural
+    history: []
+
+  - id: "write_ahead_logging_rule"
+    question: "What does the write-ahead logging rule require before a modified page can be written to disk?"
+    expected_answer: "Write-ahead logging requires the relevant log record, including the undo information, to reach stable storage before the corresponding modified database page is written to disk."
+    keywords: ["write-ahead logging", "stable storage", "undo information", "modified page", "disk"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 1217
+          grade: 3
+        - id: 1219
+          grade: 2
+      pages:
+        - page: 1433
+          grade: 3
+        - page: 1434
+          grade: 2
+    query_type: explanatory
+    history: []
+
   - id: "acid_properties"
     question: "What are the ACID properties of transactions?"
-    expected_answer: "Atomicity ensures a transaction's actions are all-or-nothing, enforced by abort/rollback and recovery that can undo partial effects; consistency requires each transaction to preserve database integrity when run alone and relies on the scheduler to admit serializable, recoverable, and preferably cascadeless schedules; isolation makes concurrent executions equivalent to some serial order, commonly achieved with two-phase locking variants that prevent reads of uncommitted data; durability guarantees committed effects persist across crashes via logging to stable storage and redo on restart;"
-    keywords: ["atomicity", "consistency", "isolation", "durability", "recoverable", "checkpoints", "two-phase locking", "two-phase commit"]
-    similarity_threshold: 0.82
-    ideal_retrieved_chunks: [1143, 1142, 1145, 1146, 1148]
+    expected_answer: "The ACID properties are atomicity, consistency, isolation, and durability: transactions must execute all-or-nothing, preserve consistency, behave as if isolated from concurrent transactions, and persist after successful completion even if the system crashes."
+    keywords: ["atomicity", "consistency", "isolation", "durability", "ACID"]
+    similarity_threshold: 0.76
+    retrieval_gold:
+      chunks:
+        - id: 1047
+          grade: 3
+        - id: 1049
+          grade: 2
+        - id: 1046
+          grade: 1
+      pages:
+        - page: 1232
+          grade: 3
+        - page: 1233
+          grade: 2
+        - page: 1231
+          grade: 1
+    query_type: definition
+    history: []
 
-  - id: "bptree"
-    question: "How does a B+ tree index organize keys and support search, insert, and delete, and why is it preferred over binary trees for disk-based access"
-    expected_answer: "B+-trees match node size to a disk page, giving very high fan-out and a shallow, height-balanced tree, so searches/updates require few page I/Os."
-    keywords: ["fan-out", "leaf linkage", "merge", "balanced height", "reduced height"]
-    similarity_threshold: 0.78
-    ideal_retrieved_chunks: [908, 909, 940, 937, 938]
-
-  - id: "fd_normalization"
-    question: "What are functional dependencies?"
-    expected_answer: "A functional dependency X -> Y asserts that tuples agreeing on X must agree on Y."
-    keywords: ["common key", "lossless join", "dependency preservation", "normalization", "superkey"]
-    similarity_threshold: 0.7
-    ideal_retrieved_chunks: [438, 439, 463, 451, 484]
-
-  - id: "sql_isolation"
-    question: "What isolation guarantees does SQL provide by default?"
-    expected_answer: "Serializable. In the SQL standard, the default isolation level is Serializable, which guarantees that the outcome of concurrently executing transactions is equivalent to some serial (one-at-a-time) order of those transactions—thereby preventing dirty reads, nonrepeatable reads, and phantoms."
-    keywords: ["serializable", "read committed", "repeatable read", "dirty read", "nonrepeatable read", "phantom", "two-phase locking", "predicate locking"]
-    similarity_threshold: 0.7
-    ideal_retrieved_chunks: [1173, 1174, 1142, 1143, 1172]
-
-  - id: "primary_foreign_keys"
-    question: "Explain primary keys and foreign keys"
-    expected_answer: "A primary key is a set of one or more attributes that uniquely identifies each tuple in a relation, chosen from candidate keys which are minimal superkeys; primary key attributes are underlined in schema diagrams and cannot have null values. A foreign key is a set of attributes in one relation (the referencing relation) that references the primary key of another relation (the referenced relation), establishing a referential integrity constraint that requires values in the foreign key to match values in the referenced primary key, thereby linking related data across tables."
-    keywords: ["primary key", "foreign key", "unique identifier", "referential integrity", "candidate key", "superkey"]
+  - id: "durability_follow_up"
+    question: "Why is the last one important after a crash?"
+    expected_answer: "The last ACID property is durability, which matters because once a transaction commits, its effects must remain in the database even if the system later fails."
+    keywords: ["durability", "commit", "crash", "persist", "ACID"]
     similarity_threshold: 0.72
-    ideal_retrieved_chunks: [90, 91, 119, 93, 94]
+    retrieval_gold:
+      chunks:
+        - id: 1047
+          grade: 3
+        - id: 1046
+          grade: 2
+      pages:
+        - page: 1232
+          grade: 3
+        - page: 1231
+          grade: 2
+    query_type: follow_up
+    history:
+      - role: user
+        content: "What are the ACID properties of transactions?"
+      - role: assistant
+        content: "The ACID properties are atomicity, consistency, isolation, and durability."
 
-  - id: "database_schema"
-    question: "What is a database schema"
-    expected_answer: "A database schema is the overall logical design and structure of the database, analogous to variable declarations in a program, defining the relations, their attributes, data types, and constraints including primary keys and foreign keys. The schema remains relatively stable over time, while a database instance represents the actual collection of data stored at a particular moment, with values that change as information is inserted, deleted, or modified."
-    keywords: ["database schema", "logical design", "structure", "database instance", "relations", "attributes", "constraints"]
-    similarity_threshold: 0.70
-    ideal_retrieved_chunks: [49, 50, 51, 250, 60]
+  - id: "transaction_isolation"
+    question: "What is transaction isolation?"
+    expected_answer: "Transaction isolation requires that concurrently executing transactions behave as though they were executed serially, so each transaction is unaware of the partial effects of others."
+    keywords: ["isolation", "concurrent transactions", "serial", "transaction"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 1063
+          grade: 3
+        - id: 1046
+          grade: 2
+      pages:
+        - page: 1251
+          grade: 3
+        - page: 1231
+          grade: 2
+    query_type: definition
+    history: []
 
-  - id: "book_authors"
-    question: "Tell me about the authors of the book"
-    expected_answer: "The authors of Database System Concepts Seventh Edition are Abraham Silberschatz, a Professor at Yale University and former Bell Labs vice president who is an ACM and IEEE fellow; Henry F. Korth, a Professor at Lehigh University who previously worked at Bell Labs and is also an ACM and IEEE fellow; and S. Sudarshan, the Subrao M. Nilekani Chair Professor at the Indian Institute of Technology Bombay who received his Ph.D. from the University of Wisconsin and is an ACM fellow, with research focusing on query processing and optimization."
-    keywords: ["Abraham Silberschatz", "Henry Korth", "Sudarshan", "Yale", "Lehigh", "IIT Bombay", "Bell Labs"]
-    similarity_threshold: 0.65
-    ideal_retrieved_chunks: [1, 2, 0, 3, 22]
+  - id: "conflict_serializable"
+    question: "What makes a schedule conflict serializable?"
+    expected_answer: "A schedule is conflict serializable if it is conflict equivalent to some serial schedule, meaning it can be transformed into a serial order by swapping only nonconflicting operations."
+    keywords: ["conflict serializable", "conflict equivalent", "serial schedule", "nonconflicting operations"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 1067
+          grade: 3
+        - id: 1068
+          grade: 2
+      pages:
+        - page: 1255
+          grade: 3
+        - page: 1257
+          grade: 2
+    query_type: explanatory
+    history: []
 
-  - id: "aries_atomicity"
-    question: "How does the recovery manager use ARIES to ensure atomicity"
-    expected_answer: "The ARIES recovery algorithm ensures atomicity by maintaining a write-ahead log where all updates are recorded before being applied to the database, with each log record containing transaction ID, data item, old value, and new value. During normal operation, log records are written to stable storage before the transaction commits; if a transaction aborts or the system crashes, the recovery manager uses the log to undo uncommitted transactions by applying the old values in reverse order, ensuring that partial effects of incomplete transactions are completely rolled back and the all-or-nothing property of atomicity is preserved."
-    keywords: ["ARIES", "write-ahead log", "log records", "undo", "rollback", "stable storage", "atomicity", "recovery"]
-    similarity_threshold: 0.75
-    ideal_retrieved_chunks: [1355, 1356, 1358, 1353, 1359]
+  - id: "snapshot_isolation_definition"
+    question: "What is snapshot isolation?"
+    expected_answer: "Snapshot isolation is a multiversion concurrency-control scheme where a transaction reads from a consistent snapshot taken at its start, while update transactions are validated so conflicting concurrent updates do not both commit."
+    keywords: ["snapshot isolation", "multiversion", "consistent snapshot", "concurrent updates"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 1143
+          grade: 3
+        - id: 1144
+          grade: 2
+      pages:
+        - page: 1345
+          grade: 3
+        - page: 1346
+          grade: 2
+    query_type: definition
+    history: []
 
-  - id: "oltp_vs_analytics"
-    question: "Contrast the goals of Online Transaction Processing and data analytics"
-    expected_answer: "Online Transaction Processing (OLTP) supports a large number of concurrent users performing small, fast transactions that retrieve and update relatively small amounts of data with requirements for high throughput, low latency, and immediate consistency, typically using normalized schemas optimized for transactional integrity. Data analytics, in contrast, processes large volumes of historical data to draw conclusions and infer patterns for business intelligence and decision support, involving complex queries that scan and aggregate data across many records, often using denormalized schemas like star schemas in data warehouses optimized for read-heavy analytical workloads rather than transactional updates."
-    keywords: ["OLTP", "online transaction processing", "data analytics", "business intelligence", "decision support", "throughput", "data warehouse", "transactional", "analytical"]
-    similarity_threshold: 0.73
-    ideal_retrieved_chunks: [33, 34, 738, 739, 741]
+  - id: "snapshot_isolation_anomaly"
+    question: "What anomaly can snapshot isolation still allow?"
+    expected_answer: "Snapshot isolation can still allow nonserializable executions such as write skew, because transactions may read an old snapshot and commit updates that are individually valid but jointly inconsistent."
+    keywords: ["snapshot isolation", "serializability", "write skew", "anomaly", "nonserializable"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 1148
+          grade: 3
+        - id: 1083
+          grade: 2
+      pages:
+        - page: 1349
+          grade: 3
+        - page: 1271
+          grade: 2
+    query_type: explanatory
+    history: []
+
+  - id: "functional_dependencies"
+    question: "What are functional dependencies?"
+    expected_answer: "A functional dependency α → β means that whenever two tuples agree on attributes α, they must also agree on attributes β, allowing integrity constraints that go beyond keys to be expressed formally."
+    keywords: ["functional dependency", "agree", "tuples", "attributes", "constraint"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 379
+          grade: 3
+        - id: 378
+          grade: 2
+        - id: 380
+          grade: 1
+      pages:
+        - page: 482
+          grade: 3
+        - page: 481
+          grade: 2
+        - page: 484
+          grade: 1
+    query_type: definition
+    history: []
+
+  - id: "lossless_decomposition"
+    question: "When is a decomposition lossless?"
+    expected_answer: "For a decomposition of R into R1 and R2 to be lossless, the shared attributes R1 ∩ R2 must functionally determine either R1 or R2, so the common attributes form a superkey of one of the decomposed relations."
+    keywords: ["lossless decomposition", "superkey", "functional dependency", "intersection", "R1", "R2"]
+    similarity_threshold: 0.76
+    retrieval_gold:
+      chunks:
+        - id: 382
+          grade: 3
+        - id: 383
+          grade: 2
+      pages:
+        - page: 485
+          grade: 3
+        - page: 486
+          grade: 2
+    query_type: explanatory
+    history: []
 
   - id: "lossy_decomposition"
-    question: "Show me what happens during a lossy decomposition"
-    expected_answer: "A lossy decomposition occurs when a relation R is decomposed into smaller relations R1 and R2 such that joining them back together produces spurious tuples not present in the original relation, resulting in loss of information about which attribute combinations actually existed. This happens when the intersection of R1 and R2 does not form a superkey for either relation, violating the lossless-join condition; the natural join of the decomposed relations generates extra tuples from invalid combinations, making it impossible to reconstruct the original data accurately, which is why database design insists that all decompositions must be lossless."
-    keywords: ["lossy decomposition", "spurious tuples", "lossless join", "superkey", "natural join", "information loss", "functional dependency"]
-    similarity_threshold: 0.70
-    ideal_retrieved_chunks: [431, 430, 432, 433, 440]
+    question: "What is a lossy decomposition?"
+    expected_answer: "A lossy decomposition is a decomposition that loses information, so joining the decomposed relations cannot faithfully reconstruct the original relation and may introduce spurious combinations."
+    keywords: ["lossy decomposition", "loss of information", "spurious tuples", "join"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 373
+          grade: 3
+        - id: 382
+          grade: 2
+      pages:
+        - page: 476
+          grade: 3
+        - page: 485
+          grade: 2
+    query_type: definition
+    history: []
+
+  - id: "lossless_follow_up"
+    question: "When does such a decomposition remain lossless instead?"
+    expected_answer: "A decomposition remains lossless when the common attributes functionally determine one of the decomposed relations, making the intersection a superkey for one side of the decomposition."
+    keywords: ["lossless", "decomposition", "superkey", "functional dependency", "intersection"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 382
+          grade: 3
+        - id: 383
+          grade: 2
+      pages:
+        - page: 485
+          grade: 3
+        - page: 486
+          grade: 2
+    query_type: follow_up
+    history:
+      - role: user
+        content: "What is a lossy decomposition?"
+      - role: assistant
+        content: "A lossy decomposition loses information and can create spurious tuples when the decomposed relations are joined back together."
+
+  - id: "primary_key"
+    question: "What is a primary key?"
+    expected_answer: "A primary key is the candidate key chosen as the principal way to identify tuples in a relation; no two tuples may share the same primary-key value."
+    keywords: ["primary key", "candidate key", "identify tuples", "relation"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 56
+          grade: 3
+        - id: 57
+          grade: 2
+      pages:
+        - page: 111
+          grade: 3
+        - page: 112
+          grade: 2
+    query_type: definition
+    history: []
+
+  - id: "foreign_key"
+    question: "What is a foreign key constraint?"
+    expected_answer: "A foreign-key constraint requires values of specified attributes in one relation to match the primary-key values of a referenced relation, enforcing referential integrity across relations."
+    keywords: ["foreign key", "referential integrity", "referenced relation", "primary key"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 58
+          grade: 3
+        - id: 59
+          grade: 2
+      pages:
+        - page: 113
+          grade: 3
+        - page: 114
+          grade: 2
+    query_type: definition
+    history: []
+
+  - id: "compare_primary_and_foreign_keys"
+    question: "Compare primary keys and foreign keys."
+    expected_answer: "A primary key uniquely identifies tuples within its own relation, while a foreign key links tuples in one relation to primary-key values in another relation to enforce referential integrity."
+    keywords: ["primary key", "foreign key", "identify", "referential integrity", "relation"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 56
+          grade: 3
+        - id: 58
+          grade: 3
+        - id: 60
+          grade: 2
+      pages:
+        - page: 111
+          grade: 3
+        - page: 113
+          grade: 3
+        - page: 114
+          grade: 2
+    query_type: multi_part
+    history: []
+
+  - id: "schema_vs_instance"
+    question: "What is a database schema, and how is it different from a database instance?"
+    expected_answer: "A database schema is the overall design of the database, whereas an instance is the actual collection of values stored at a particular moment; the schema is relatively stable while instances change over time."
+    keywords: ["database schema", "instance", "overall design", "values", "change over time"]
+    similarity_threshold: 0.74
+    retrieval_gold:
+      chunks:
+        - id: 18
+          grade: 3
+        - id: 19
+          grade: 2
+      pages:
+        - page: 63
+          grade: 3
+        - page: 64
+          grade: 2
+    query_type: multi_part
+    history: []
+
+  - id: "schema_diagram_purpose"
+    question: "What does a schema diagram show?"
+    expected_answer: "A schema diagram shows relations and their attributes, highlights primary-key attributes, and represents foreign-key constraints as arrows between referencing and referenced relations."
+    keywords: ["schema diagram", "relations", "attributes", "primary key", "foreign key"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 60
+          grade: 3
+      pages:
+        - page: 114
+          grade: 3
+        - page: 115
+          grade: 2
+    query_type: definition
+    history: []
+
+  - id: "oltp_vs_decision_support"
+    question: "How do OLTP and decision-support workloads differ?"
+    expected_answer: "OLTP focuses on high-throughput update transactions with high concurrency, while decision-support workloads emphasize analytical queries, complex evaluation, and optimization over large amounts of data."
+    keywords: ["OLTP", "decision support", "high concurrency", "update transactions", "query optimization"]
+    similarity_threshold: 0.72
+    retrieval_gold:
+      chunks:
+        - id: 1661
+          grade: 3
+        - id: 665
+          grade: 2
+      pages:
+        - page: 1921
+          grade: 3
+        - page: 796
+          grade: 2
+    query_type: multi_part
+    history: []

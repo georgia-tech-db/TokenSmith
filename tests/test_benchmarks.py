@@ -74,9 +74,11 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     question = benchmark["question"]
     expected_answer = benchmark["expected_answer"]
     keywords = benchmark.get("keywords", [])
-    threshold = config["threshold_override"] or benchmark["similarity_threshold"] or 0.6 
+    threshold = config["threshold_override"] or benchmark["similarity_threshold"] or 0.6
     golden_chunks = benchmark.get("golden_chunks", None)
-    ideal_retrieved_chunks = benchmark.get("ideal_retrieved_chunks", None)
+    retrieval_gold = benchmark.get("retrieval_gold", None)
+    history = benchmark.get("history", [])
+    expected_query_type = benchmark.get("query_type")
 
     # Print header
     print(f"\n{'─'*60}")
@@ -87,13 +89,15 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Get answer from TokenSmith
     try:
-        retrieved_answer, chunks_info, hyde_query = get_tokensmith_answer(
+        retrieved_answer, chunks_info, retrieval_trace = get_tokensmith_answer(
             question=question,
             config=config,
-            golden_chunks=golden_chunks if config["use_golden_chunks"] else None
+            golden_chunks=golden_chunks if config["use_golden_chunks"] else None,
+            history=history,
         )
     except Exception as e:
-        import logging, traceback
+        import logging
+        import traceback
         error_msg = f"Error running TokenSmith: {e}"
         print(f"  ❌ FAILED: {error_msg}")
         log_failure(results_dir, benchmark_id, error_msg)
@@ -111,7 +115,14 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     
     # Calculate scores
     try:
-        scores = scorer.calculate_scores(retrieved_answer, expected_answer, keywords, question=question, ideal_retrieved_chunks=ideal_retrieved_chunks, actual_retrieved_chunks=chunks_info)
+        scores = scorer.calculate_scores(
+            retrieved_answer,
+            expected_answer,
+            keywords,
+            question=question,
+            retrieval_gold=retrieval_gold,
+            actual_retrieved_chunks=chunks_info,
+        )
     except Exception as e:
         error_msg = f"Scoring error: {e}"
         print(f"  ❌ FAILED: {error_msg}")
@@ -138,7 +149,10 @@ def run_benchmark(benchmark, config, results_dir, scorer):
         "active_metrics": scores.get("active_metrics", []),
         "metric_weights": get_metric_weights(scorer, scores.get("active_metrics", [])),
         "chunks_info": chunks_info if chunks_info else [],
-        "hyde_query": hyde_query if hyde_query else None,
+        "retrieval_gold": retrieval_gold,
+        "retrieval_trace": retrieval_trace if retrieval_trace else None,
+        "history": history,
+        "expected_query_type": expected_query_type,
         "timestamp": datetime.now().isoformat(),
         "config": {
             "model_path": config["model_path"],
@@ -161,7 +175,7 @@ def run_benchmark(benchmark, config, results_dir, scorer):
     return result_data
 
 
-def get_tokensmith_answer(question, config, golden_chunks=None):
+def get_tokensmith_answer(question, config, golden_chunks=None, history=None):
     """
     Get answer from TokenSmith system.
     
@@ -171,12 +185,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         golden_chunks: Optional list of golden chunks to use instead of retrieval
     
     Returns:
-        tuple: (Generated answer, chunks_info list, hyde_query)
+        tuple: (Generated answer, chunks_info list, retrieval trace)
     """
     from src.main import get_answer
     from src.instrumentation.logging import get_logger
     from src.config import RAGConfig
-    from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
+    from src.retrieval_pipeline import build_runtime_retrievers
+    from src.retriever import load_artifact_bundle
     from src.ranking.ranker import EnsembleRanker
     import argparse
     
@@ -192,6 +207,7 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         chunk_mode=config.get("chunk_mode", "recursive_sections"),
         top_k=config.get("top_k", 10),
         embed_model=config.get("embed_model"),
+        model_path=config.get("model_path"),
         ensemble_method=config.get("retrieval_method", "rrf"),
         rrf_k=60,
         ranker_weights=config.get("ranker_weights", {"faiss": 1, "bm25": 0}),
@@ -208,38 +224,30 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         use_indexed_chunks=config.get("use_indexed_chunks", False),
         extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
         page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
+        section_top_k=config.get("section_top_k", 4),
+        page_rerank_window=config.get("page_rerank_window", 20),
+        decomposition_max_subqueries=config.get("decomposition_max_subqueries", 4),
     )
     
     # Print status
     if golden_chunks and config["use_golden_chunks"]:
         print(f"  📌 Using {len(golden_chunks)} golden chunks")
     elif config["disable_chunks"]:
-        print(f"  📭 No chunks (baseline mode)")
+        print("  📭 No chunks (baseline mode)")
     else:
         if config.get("use_hyde", False):
-            print(f"  🔬 HyDE enabled - generating hypothetical document...")
-        print(f"  🔍 Retrieving chunks...")
+            print("  🔬 HyDE enabled - generating hypothetical document...")
+        print("  🔍 Retrieving chunks...")
     
     logger = get_logger()
 
     # Run the query through the main pipeline
     artifacts_dir = cfg.get_artifacts_directory()
-    faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
-        artifacts_dir=artifacts_dir, 
+    bundle = load_artifact_bundle(
+        artifacts_dir=artifacts_dir,
         index_prefix=config["index_prefix"]
     )
-
-    retrievers = [
-        FAISSRetriever(faiss_index, cfg.embed_model),
-        BM25Retriever(bm25_index)
-    ]
-    
-    # Add index keyword retriever if weight > 0
-    if cfg.ranker_weights.get("index_keywords", 0) > 0:
-        retrievers.append(
-            IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path)
-        )
-    
+    runtime_retrievers = build_runtime_retrievers(bundle, cfg)
     ranker = EnsembleRanker(
         ensemble_method=cfg.ensemble_method,
         weights=cfg.ranker_weights,
@@ -248,11 +256,13 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     
     # Package artifacts for reuse
     artifacts = {
-        "chunks": chunks,
-        "sources": sources,
-        "retrievers": retrievers,
+        "bundle": bundle,
+        "runtime_retrievers": runtime_retrievers,
+        "chunks": bundle.chunks,
+        "sources": bundle.sources,
+        "meta": bundle.metadata,
+        "retrievers": runtime_retrievers["chunk"],
         "ranker": ranker,
-        "metadata": metadata,
     }
 
     result = get_answer(
@@ -263,19 +273,20 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         artifacts=artifacts,
         console=None,
         golden_chunks=golden_chunks,
-        is_test_mode=True
+        is_test_mode=True,
+        history=history,
     )
     
     # Handle return value (answer, chunks_info, hyde_query) or just answer
     if isinstance(result, tuple):
-        generated, chunks_info, hyde_query = result
+        generated, chunks_info, retrieval_trace = result
     else:
-        generated, chunks_info, hyde_query = result, None, None
+        generated, chunks_info, retrieval_trace = result, None, None
     
     # Clean answer - extract up to end token if present
     generated = clean_answer(generated)
     
-    return generated, chunks_info, hyde_query
+    return generated, chunks_info, retrieval_trace
 
 
 def clean_answer(text):
@@ -320,7 +331,7 @@ def print_result(benchmark_id, passed, final_score, threshold, scores, output_mo
         # Show metric breakdown
         active_metrics = scores.get("active_metrics", [])
         if len(active_metrics) > 1:
-            print(f"  Metric Breakdown:")
+            print("  Metric Breakdown:")
             for metric in active_metrics:
                 metric_score = scores.get(f"{metric}_similarity", 0)
                 print(f"    • {metric:12} : {metric_score:.3f}")
@@ -332,7 +343,7 @@ def print_result(benchmark_id, passed, final_score, threshold, scores, output_mo
         
         # Display retrieved answer
         if retrieved_answer:
-            print(f"\n  📝 Retrieved Answer:")
+            print("\n  📝 Retrieved Answer:")
             print(f"  {'-'*58}")
             for line in retrieved_answer.split('\n'):
                 print(f"  {line}")
@@ -376,17 +387,17 @@ def format_failure_message(question, expected, retrieved, final_score, threshold
     """Create detailed failure message."""
     lines = [
         f"Question: {question}",
-        f"",
-        f"Expected Answer:",
+        "",
+        "Expected Answer:",
         f"{expected}",
-        f"",
-        f"Retrieved Answer:",
+        "",
+        "Retrieved Answer:",
         f"{retrieved}",
-        f"",
+        "",
         f"Final Score: {final_score:.3f} (threshold: {threshold:.3f})",
         f"Active Metrics: {', '.join(scores.get('active_metrics', []))}",
-        f"",
-        f"Individual Metric Scores:",
+        "",
+        "Individual Metric Scores:",
     ]
     
     for metric in scores.get("active_metrics", []):

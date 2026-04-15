@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from copy import deepcopy
 
 from src.config import RAGConfig
@@ -27,8 +27,7 @@ class QueryPlanner(ABC):
         """
 
     # ---- helper for subclasses ----
-    def _log_decision(self, new_cfg: RAGConfig) -> None:
+    def _log_decision(self, new_cfg: RAGConfig, extra_info: Optional[Dict[str, Any]] = None) -> None:
         base_dict = self.base_cfg.to_dict()
         new_dict = new_cfg.to_dict()
-        # TO DO - fix this
-        # get_logger().log_planner(self.name, base_dict, new_dict)
+        get_logger().log_planner(self.name, base_dict, new_dict, extra_info=extra_info)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Optional
 
 import yaml
 import pathlib
@@ -11,6 +11,13 @@ from src.preprocessing.chunking import ChunkStrategy, SectionRecursiveStrategy, 
 
 @dataclass
 class RAGConfig:
+    """Central configuration dataclass for the RAG pipeline.
+
+    Holds all tunable parameters for chunking, retrieval, ranking, generation,
+    query enhancement, conversational memory, and adaptive retrieval.  Instances
+    are typically created from a YAML file via ``from_yaml``.
+    """
+
     # chunking
     chunk_config: ChunkConfig = field(init=False)
     chunk_mode: str = "recursive_sections"
@@ -32,6 +39,7 @@ class RAGConfig:
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
+    model_path: Optional[str] = None
     
     # testing
     system_prompt_mode: str = "baseline"
@@ -54,17 +62,39 @@ class RAGConfig:
     extracted_index_path: os.PathLike = "data/extracted_index.json"
     page_to_chunk_map_path: os.PathLike = "index/sections/textbook_index_page_to_chunk_map.json"
 
+    # adaptive retrieval
+    section_top_k: int = 4
+    page_rerank_window: int = 20
+    decomposition_max_subqueries: int = 4
+    enable_adaptive_routing: bool = True
+    enable_hierarchical_retrieval: bool = True
+
     # ---------- factory + validation ----------
     @classmethod
     def from_yaml(cls, path: os.PathLike) -> RAGConfig:
-        with open(path, 'r') as f:
-            data = yaml.safe_load(open(path))
+        """Create a RAGConfig from a YAML file.
+
+        Args:
+            path: Path to the YAML configuration file.
+
+        Returns:
+            A fully validated RAGConfig instance.
+        """
+        with open(path) as f:
+            data = yaml.safe_load(f)
         return cls(**data)
     
     def __post_init__(self):
         """Validation logic runs automatically after initialization."""
+        # Support README/CLI naming that uses model_path for the generation model.
+        if self.model_path:
+            self.gen_model = self.model_path
+
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
+        assert self.section_top_k > 0, "section_top_k must be > 0"
+        assert self.page_rerank_window >= self.top_k, "page_rerank_window must be >= top_k"
+        assert self.decomposition_max_subqueries > 0, "decomposition_max_subqueries must be > 0"
         assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
         if self.ensemble_method.lower() in {"linear","weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
@@ -85,6 +115,7 @@ class RAGConfig:
             raise ValueError(f"Unknown chunk_mode: {self.chunk_mode}. Supported: recursive_sections")
 
     def get_chunk_strategy(self) -> ChunkStrategy:
+        """Return the ChunkStrategy corresponding to the current chunk config."""
         if isinstance(self.chunk_config, SectionRecursiveConfig):
             return SectionRecursiveStrategy(self.chunk_config)
         raise ValueError(f"Unknown chunk config type: {self.chunk_config.__class__.__name__}")
@@ -96,8 +127,8 @@ class RAGConfig:
         strategy_dir.mkdir(parents=True, exist_ok=True)
         return strategy_dir
     
-    def get_config_state(self) -> None:
-        """Returns dict of all config parameters except chunk_config """
+    def get_config_state(self) -> Dict[str, object]:
+        """Return a serializable dict of all config parameters except chunk_config."""
         state = self.__dict__.copy()
         state.pop("chunk_config", None) # remove chunk_config to avoid serialization issues
         # also pop any non-serializable fields if needed
@@ -105,4 +136,7 @@ class RAGConfig:
             if not isinstance(state[key], (int, float, str, bool, list, dict, type(None))):
                 state.pop(key)
         return state
-        
+
+    def to_dict(self) -> Dict[str, object]:
+        """Alias for ``get_config_state()``; returns the config as a plain dict."""
+        return self.get_config_state()

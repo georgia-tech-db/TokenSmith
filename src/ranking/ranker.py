@@ -25,7 +25,7 @@ class EnsembleRanker:
 
         # Validate that weights for the provided retrievers sum to 1.0
         active_weights = sum(self.weights.values())
-        if active_weights != 1.0:
+        if abs(active_weights - 1.0) > 1e-6:
             raise ValueError(f"Weights for active retrivers must sum to 1.0. Current sum: {active_weights}")
 
     def rank(self, raw_scores: Dict[str, Dict[Candidate, float]]) -> Tuple[List[int], List[float]]:
@@ -84,7 +84,7 @@ class EnsembleRanker:
         """Performs Weighted Linear Fusion."""
         fused_scores = defaultdict(float)
 
-        # normalize vals per retriever 
+        # normalize vals per retriever
         for name, scores in per_retriever_scores.items():
             normalized = self.normalize(scores)
             per_retriever_scores[name] = normalized
@@ -124,5 +124,5 @@ class EnsembleRanker:
         vals = list(scores.values())
         min_val, max_val = min(vals), max(vals)
         if max_val <= min_val:
-            return {i: 0.0 for i in scores}
+            return dict.fromkeys(scores, 0.0)
         return {i: (v - min_val) / (max_val - min_val) for i, v in scores.items()}
