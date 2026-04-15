@@ -26,6 +26,8 @@ from pydantic import BaseModel
 
 from src.config import RAGConfig
 from src.generator import answer
+from src.query_enhancement import generate_hypothetical_document
+from src.retrieval.retrieval_strategy_selector import RetrievalStrategySelector
 from src.feedback_store import (
     init_feedback_db,
     save_answer,
@@ -49,6 +51,7 @@ _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
 _topic_extractor: Optional[TopicExtractor] = None
+_strategy_selector: Optional[RetrievalStrategySelector] = None
 
 
 class SourceItem(BaseModel):
@@ -150,12 +153,30 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
     pool_n = max(_config.num_candidates, effective_top_k + 10)
+
+    # --- Adaptive strategy selection -----------------------------------
+    effective_ranker = _ranker
+    retrieval_query = query
+    if _strategy_selector is not None:
+        decision = _strategy_selector.select(query)
+        effective_cfg = decision.modified_cfg
+        effective_ranker = EnsembleRanker(
+            ensemble_method=effective_cfg.ensemble_method,
+            weights=effective_cfg.ranker_weights,
+            rrf_k=int(effective_cfg.rrf_k),
+        )
+        print(f"[AdaptiveRetrieval] strategy={decision.strategy.value} | {decision.reason}")
+        if effective_cfg.use_hyde:
+            retrieval_query = generate_hypothetical_document(
+                query, effective_cfg.gen_model, max_tokens=effective_cfg.hyde_max_tokens
+            )
+    # -------------------------------------------------------------------
+
     raw_scores: Dict[str, Dict[int, float]] = {}
-
     for retriever in _retrievers:
-        raw_scores[retriever.name] = retriever.get_scores(query, pool_n, chunks)
+        raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
 
-    ordered_ids, ordered_scores = _ranker.rank(raw_scores=raw_scores)
+    ordered_ids, ordered_scores = effective_ranker.rank(raw_scores=raw_scores)
 
     if top_k is not None:
         ordered_ids = ordered_ids[:top_k]
@@ -169,7 +190,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor
+    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor, _strategy_selector
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -207,6 +228,8 @@ async def lifespan(app: FastAPI):
             weights=_config.ranker_weights,
             rrf_k=int(_config.rrf_k),
         )
+
+        _strategy_selector = RetrievalStrategySelector(_config)
 
         init_feedback_db()
         if _config.enable_topic_extraction:

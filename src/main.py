@@ -27,6 +27,7 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.retrieval.retrieval_strategy_selector import RetrievalStrategySelector
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -132,25 +133,41 @@ def get_answer(
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
         retrieval_query = question
-        # print(f"Retrieval query: {retrieval_query}")
-        if cfg.use_hyde:
-            retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
-        pool_n = max(cfg.num_candidates, cfg.top_k + 10)
+
+        # --- Adaptive strategy selection -----------------------------------
+        effective_cfg = cfg
+        effective_ranker = ranker
+        if "strategy_selector" in artifacts:
+            decision = artifacts["strategy_selector"].select(question)
+            effective_cfg = decision.modified_cfg
+            effective_ranker = EnsembleRanker(
+                ensemble_method=effective_cfg.ensemble_method,
+                weights=effective_cfg.ranker_weights,
+                rrf_k=int(effective_cfg.rrf_k),
+            )
+            print(f"[AdaptiveRetrieval] strategy={decision.strategy.value} | {decision.reason}")
+            if additional_log_info is not None:
+                additional_log_info["retrieval_strategy"] = {
+                    "strategy": decision.strategy.value,
+                    "reason": decision.reason,
+                    "ranker_weights": effective_cfg.ranker_weights,
+                    "use_hyde": effective_cfg.use_hyde,
+                }
+        # -------------------------------------------------------------------
+
+        if effective_cfg.use_hyde:
+            retrieval_query = generate_hypothetical_document(
+                question, effective_cfg.gen_model, max_tokens=effective_cfg.hyde_max_tokens
+            )
+
+        pool_n = max(effective_cfg.num_candidates, effective_cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
-            # print(f"Getting scores from retriever: {retriever.name}...")
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
 
-        # print("Raw scores from retrievers:")
-        # for retriever_name, score_dict in raw_scores.items():
-        #     print(f"  {retriever_name}: {list(score_dict.values())}")
         # Step 2: Ranking
-        ordered, scores = ranker.rank(raw_scores=raw_scores)
-        # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
-        # print(f"Corresponding scores: {scores[:cfg.top_k]}")
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+        ordered, scores = effective_ranker.rank(raw_scores=raw_scores)
+        topk_idxs = filter_retrieved_chunks(effective_cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
         # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
         # print("Len Ranked chunks:", len(ranked_chunks))
@@ -292,8 +309,16 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
         
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
+        strategy_selector = RetrievalStrategySelector(cfg)
         print("Loaded retrievers and initialized ranker.")
-        artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
+        artifacts = {
+            "chunks": chunks,
+            "sources": sources,
+            "retrievers": retrievers,
+            "ranker": ranker,
+            "meta": meta,
+            "strategy_selector": strategy_selector,
+        }
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
