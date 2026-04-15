@@ -34,7 +34,7 @@ Running cloud LLM extraction (OpenRouter) is expensive. You can cache the extrac
 **Step 1 — Extract keywords and cache them:**
 ```bash
 python -m src.knowledge_graph.llm_extract_keywords \
-  --model google/gemini-flash-1.5 \
+  --model google/gemini-1.5-flash \
   --chapter 3 \
   --adaptive_top_n
 ```
@@ -69,7 +69,7 @@ python -m src.knowledge_graph.run_kg_pipeline --extractor json \
 
 # Extract inline with OpenRouter (no separate extraction step needed)
 python -m src.knowledge_graph.run_kg_pipeline --extractor openrouter \
-  --model google/gemini-flash-1.5 \
+  --model google/gemini-1.5-flash \
   --adaptive_top_n
 
 # Extract inline with KeyBERT (local, no API key)
@@ -136,7 +136,7 @@ data/knowledge_graph/
 
 ```bash
 python -m src.knowledge_graph.llm_extract_keywords \
-  --model google/gemini-flash-1.5 \
+  --model google/gemini-1.5-flash \
   --chapter 3 \
   --top_n 10
 
@@ -255,7 +255,7 @@ from src.knowledge_graph.extractors.openrouter_extractor import OpenRouterExtrac
 
 extractor = OpenRouterExtractor(
     api_key=os.getenv("OPENROUTER_API_KEY"),
-    model="google/gemini-flash-1.5",
+    model="google/gemini-1.5-flash",
     top_n=10,
     adaptive_top_n=True
 )
