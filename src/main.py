@@ -26,7 +26,7 @@ from src.retriever import (
     get_page_numbers, 
     load_artifacts
 )
-from src.ranking.reranker import rerank
+from src.ranking.reranker import rerank_indices
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -118,6 +118,7 @@ def get_answer(
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
     scores = []
+    retrieval_scores: List[float] = []
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
@@ -186,8 +187,21 @@ def get_answer(
                     "index_rank": index_ranks.get(idx, 0),
                 })
 
-        # Step 3: Final re-ranking
-        ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+        # Step 3: Final re-ranking (preserve chunk ids so sources reflect reranker order)
+        retrieval_scores = [float(s) for s in scores[:len(topk_idxs)]]
+        meta = artifacts.get("meta", [])
+        page_nums = get_page_numbers(topk_idxs, meta)
+        local_reranked = rerank_indices(
+            question,
+            ranked_chunks,
+            mode=cfg.rerank_mode,
+            top_n=cfg.rerank_top_k,
+        )
+        if local_reranked:
+            topk_idxs = [topk_idxs[i] for i in local_reranked]
+            ranked_chunks = [ranked_chunks[i] for i in local_reranked]
+            if retrieval_scores:
+                retrieval_scores = [retrieval_scores[i] for i in local_reranked if i < len(retrieval_scores)]
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
@@ -230,20 +244,37 @@ def get_answer(
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
 
-        # Logging
+        # Logging + citation display
         meta = artifacts.get("meta", [])
         page_nums = get_page_numbers(topk_idxs, meta)
+        retrieved_chunks = [chunks[i] for i in topk_idxs]
+        retrieved_sources = [sources[i] for i in topk_idxs]
+        if retrieval_scores:
+            retrieved_scores = retrieval_scores[:len(topk_idxs)]
+        else:
+            retrieved_scores = [0.0] * len(topk_idxs)
+
+        if console and topk_idxs:
+            console.print("\n[bold cyan]=== SOURCES ===[/bold cyan]")
+            for rank, chunk_idx in enumerate(topk_idxs, start=1):
+                pages = page_nums.get(chunk_idx, [1]) or [1]
+                if isinstance(pages, int):
+                    pages = [pages]
+                pages_str = ", ".join(str(p) for p in pages)
+                source_label = retrieved_sources[rank - 1]
+                console.print(f"[{rank}] chunk={chunk_idx} | pages={pages_str} | source={source_label}")
+
         logger.save_chat_log(
             query=question,
             config_state=cfg.get_config_state(),
-            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+            ordered_scores=retrieved_scores,
             chat_request_params={
                 "system_prompt": system_prompt,
                 "max_tokens": cfg.max_gen_tokens
             },
             top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
+            chunks=retrieved_chunks,
+            sources=retrieved_sources,
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),

@@ -510,18 +510,135 @@ class TestRerankerAPI:
     
     @patch('src.ranking.reranker.get_cross_encoder')
     def test_rerank_cross_encoder_interface(self, mock_get_ce):
-        """rerank_with_cross_encoder uses CrossEncoder correctly."""
-        from src.ranking.reranker import rerank_with_cross_encoder
+        """cross-encoder rerank path uses CrossEncoder correctly."""
+        from src.ranking.reranker import rerank
         
         mock_model = Mock()
         mock_model.predict = Mock(return_value=np.array([0.9, 0.5, 0.7]))
         mock_get_ce.return_value = mock_model
         
         chunks = ["chunk1", "chunk2", "chunk3"]
-        result = rerank_with_cross_encoder("query", chunks, top_n=2)
+        result = rerank("query", chunks, mode="cross_encoder", top_n=2)
         
         assert isinstance(result, list)
         mock_model.predict.assert_called_once()
+
+    @patch('src.ranking.reranker._rank_indices_with_cross_encoder')
+    def test_rerank_indices_cross_encoder(self, mock_rank):
+        """rerank_indices should return local order for cross-encoder mode."""
+        from src.ranking.reranker import rerank_indices
+
+        mock_rank.return_value = [2, 0, 1]
+        out = rerank_indices("query", ["a", "b", "c"], mode="cross_encoder", top_n=2)
+        assert out == [2, 0]
+
+    def test_rerank_indices_passthrough_unknown_mode(self):
+        """Unknown rerank mode should preserve original local ordering."""
+        from src.ranking.reranker import rerank_indices
+
+        out = rerank_indices("query", ["a", "b", "c"], mode="none", top_n=1)
+        assert out == [0, 1, 2]
+
+    def test_split_subqueries_for_multi_hop(self):
+        """Subquery splitter extracts multiple clauses for multi-hop prompts."""
+        from src.ranking.reranker import _split_subqueries
+
+        q = "Compare strict 2PL and timestamp ordering and explain recoverability impacts"
+        parts = _split_subqueries(q)
+
+        assert isinstance(parts, list)
+        assert len(parts) >= 2
+
+    def test_split_subqueries_structured_cartesian(self):
+        """Structured splitter should create complete cross-product subqueries."""
+        from src.ranking.reranker import _split_subqueries
+
+        q = (
+            "In distributed databases, how do partitioning and replication "
+            "influence distributed commit/concurrency protocols and distributed query optimization?"
+        )
+        parts = _split_subqueries(q)
+
+        assert "In distributed databases, how does partitioning influence distributed commit/concurrency protocols" in parts
+        assert "In distributed databases, how does partitioning influence distributed query optimization" in parts
+        assert "In distributed databases, how does replication influence distributed commit/concurrency protocols" in parts
+        assert "In distributed databases, how does replication influence distributed query optimization" in parts
+        assert len(parts) == 4
+
+    def test_split_subqueries_compare_on_dimensions(self):
+        """Compare-on pattern should expand items x dimensions."""
+        from src.ranking.reranker import _split_subqueries
+
+        q = "Compare strict 2PL and timestamp ordering on conflict serializability, deadlocks, and recoverability."
+        parts = _split_subqueries(q)
+
+        assert "For strict 2PL, conflict serializability" in parts
+        assert "For strict 2PL, deadlocks" in parts
+        assert "For strict 2PL, recoverability" in parts
+        assert "For timestamp ordering, conflict serializability" in parts
+        assert "For timestamp ordering, deadlocks" in parts
+        assert "For timestamp ordering, recoverability" in parts
+        assert len(parts) == 6
+
+    def test_split_subqueries_if_prioritized_pattern(self):
+        """If-context + prioritized should split into one subquery per target item."""
+        from src.ranking.reranker import _split_subqueries
+
+        q = (
+            "If a schema has redundancy and update anomalies, how should normalization, "
+            "decomposition, and key selection be prioritized?"
+        )
+        parts = _split_subqueries(q)
+
+        assert "If a schema has redundancy and update anomalies, how should normalization be prioritized?" in parts
+        assert "If a schema has redundancy and update anomalies, how should decomposition be prioritized?" in parts
+        assert "If a schema has redundancy and update anomalies, how should key selection be prioritized?" in parts
+        assert len(parts) == 3
+
+    def test_split_subqueries_binary_choice(self):
+        """Binary choice should split into one criterion query per option."""
+        from src.ranking.reranker import _split_subqueries
+
+        q = "Is two phase locking or tree protocol better as a deadlock prevention protocol?"
+        parts = _split_subqueries(q)
+
+        assert "How good is two phase locking as a deadlock prevention protocol?" in parts
+        assert "How good is tree protocol as a deadlock prevention protocol?" in parts
+        assert len(parts) == 2
+
+    @patch("src.ranking.reranker._rank_indices_with_cross_encoder")
+    @patch("src.ranking.reranker._is_multi_hop_query", return_value=False)
+    def test_adaptive_multi_hop_simple_route(self, _mock_is_multi_hop, mock_rank):
+        """Adaptive mode falls back to current reranker for simple queries."""
+        from src.ranking.reranker import rerank_indices
+
+        mock_rank.return_value = [1, 0]
+        chunks = ["chunk1", "chunk2"]
+        out = rerank_indices("What is two-phase locking?", chunks, mode="adaptive_multi_hop", top_n=2)
+
+        assert out == [1, 0]
+        mock_rank.assert_called_once()
+
+    @patch("src.ranking.reranker._constrained_post_select")
+    @patch("src.ranking.reranker._rank_indices_with_subquery_coverage_details")
+    @patch("src.ranking.reranker._is_multi_hop_query", return_value=True)
+    def test_adaptive_multi_hop_multi_route(self, _mock_is_multi_hop, mock_details, mock_constrained):
+        """Adaptive mode uses coverage reranking for multi-hop queries."""
+        from src.ranking.reranker import rerank_indices
+
+        mock_details.return_value = ([2, 0, 1], [0.9, 0.7, 0.5], [[0.8, 0.3, 0.2], [0.2, 0.9, 0.4]])
+        mock_constrained.return_value = [2, 0]
+        chunks = ["chunk1", "chunk2", "chunk3"]
+        out = rerank_indices(
+            "Compare strict 2PL and timestamp ordering and discuss recoverability",
+            chunks,
+            mode="adaptive_multi_hop",
+            top_n=2,
+        )
+
+        assert out == [2, 0]
+        mock_details.assert_called_once()
+        mock_constrained.assert_called_once()
 
 
 # ====================== Query Enhancement Tests ======================
