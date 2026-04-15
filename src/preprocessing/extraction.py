@@ -305,16 +305,16 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
     # Split the full markdown by our unique placeholder.
     # This gives us a list where each item is one page's content.
     markdown_pages = full_markdown.split(UNIQUE_PLACEHOLDER)
-    
+
     final_output_chunks = []
-    
+
     # Iterate through the pages, adding our custom footer.
     # We use enumerate to get a 1-based page number.
     num_pages = len(markdown_pages)
     for i, page_content in enumerate(markdown_pages, 1):
         # Add the content for the current page
         final_output_chunks.append(page_content)
-        
+
         # Add our custom footer, but not after the very last page
         if i < num_pages:
             final_output_chunks.append(f"\n\n--- Page {i} ---\n\n")

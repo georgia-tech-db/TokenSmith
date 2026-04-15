@@ -3,6 +3,7 @@
 import json
 import pathlib
 import traceback
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -13,10 +14,18 @@ from pydantic import BaseModel, ConfigDict
 
 from src.config import RAGConfig
 from src.generator import answer
+from src.feedback_store import (
+    init_feedback_db,
+    save_answer,
+    save_feedback,
+    get_answer_question,
+    update_user_topic_state,
+)
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.retrieval_pipeline import build_runtime_retrievers, execute_retrieval_plan, trace_to_dict
 from src.retriever import get_page_numbers, load_artifact_bundle
+from src.user_feedback_model import TopicExtractor, estimate_difficulty
 
 # Constants
 INDEX_PREFIX = "textbook_index"
@@ -30,6 +39,7 @@ _runtime_retrievers = None
 _ranker: Optional[EnsembleRanker] = None
 _config: Optional[RAGConfig] = None
 _logger = None
+_topic_extractor: Optional[TopicExtractor] = None
 
 
 class SourceItem(BaseModel):
@@ -46,9 +56,24 @@ class ChatRequest(BaseModel):
     max_chunks: Optional[int] = None  # Maps to top_k for retrieval
     temperature: Optional[float] = None
     top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
+    session_id: Optional[str] = None
+
+
+class FeedbackRequest(BaseModel):
+    answer_id: str
+    vote: int
+    reason: Optional[str] = None
+    session_id: str
+
+
+class FeedbackResponse(BaseModel):
+    ok: bool
+    message: str
 
 
 class ChatResponse(BaseModel):
+    answer_id: str
+    session_id: str
     answer: str
     sources: List[SourceItem]
     chunks_used: List[int]
@@ -75,7 +100,7 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
         # Capture the actual strings used for the log file
         log_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
         log_sources = [sources[i] for i in topk_idxs[:max_chunks]]
-        
+
         # Just Logging
         _logger.save_chat_log(
             query=request.query,
@@ -147,7 +172,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _artifact_bundle, _retrievers, _runtime_retrievers, _ranker, _config, _logger
+    global _artifacts, _artifact_bundle, _retrievers, _runtime_retrievers, _ranker, _config, _logger, _topic_extractor
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -178,6 +203,15 @@ async def lifespan(app: FastAPI):
             rrf_k=int(_config.rrf_k),
         )
 
+        init_feedback_db()
+        if _config.enable_topic_extraction:
+            _topic_extractor = TopicExtractor(
+                extracted_index_path=_config.extracted_index_path,
+                page_to_chunk_map_path=_config.page_to_chunk_map_path,
+            )
+        else:
+            _topic_extractor = None
+
         print("TokenSmith API initialized successfully")
     except Exception as exc:
         print(f"Warning: Could not load artifacts: {exc}")
@@ -185,7 +219,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    print("🔄 Shutting down TokenSmith API...")
+    print("Shutting down TokenSmith API...")
 
 
 # Create FastAPI app
@@ -218,6 +252,45 @@ app.add_middleware(
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "message": "TokenSmith API is running"}
+
+
+@app.post("/api/feedback", response_model=FeedbackResponse)
+async def feedback(request: FeedbackRequest):
+    """Store user feedback on an answer."""
+    if request.vote not in (1, -1):
+        raise HTTPException(status_code=400, detail="vote must be 1 or -1")
+
+    save_feedback(
+        answer_id=request.answer_id,
+        session_id=request.session_id,
+        vote=request.vote,
+        reason=request.reason,
+    )
+
+    question = get_answer_question(request.answer_id)
+    if question and _topic_extractor:
+        topics = _topic_extractor.extract_topics(question)
+        base_difficulty = estimate_difficulty(question)
+        difficulty = "hard" if request.vote == -1 else base_difficulty
+        delta = -0.2 if request.vote == -1 else 0.1
+        for topic in topics:
+            update_user_topic_state(
+                session_id=request.session_id,
+                topic=topic,
+                difficulty=difficulty,
+                delta_confidence=delta,
+                evidence={
+                    "type": "feedback",
+                    "answer_id": request.answer_id,
+                    "vote": request.vote,
+                    "reason": request.reason,
+                },
+            )
+        return FeedbackResponse(ok=True, message="Feedback stored.")
+    if not question:
+        return FeedbackResponse(ok=True, message="Feedback stored; unknown answer_id.")
+    return FeedbackResponse(ok=True, message="Feedback stored; topic extractor disabled.")
+
 
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
@@ -252,7 +325,7 @@ async def test_chat(request: ChatRequest):
         }
 
     try:
-        # ✅ Correct order (matches /api/chat)
+        # Correct order (matches /api/chat)
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(
             request.query, top_k=max_chunks
         )
@@ -289,16 +362,16 @@ async def chat_stream(request: ChatRequest):
     _ensure_initialized()
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    
+
     enable_chunks = request.enable_chunks if request.enable_chunks is not None else not _config.disable_chunks
     disable_chunks = not enable_chunks
     prompt_type = request.prompt_type if request.prompt_type is not None else _config.system_prompt_mode
     max_chunks = request.top_k if request.top_k is not None else (request.max_chunks if request.max_chunks is not None else _config.top_k)
     temperature = request.temperature if request.temperature is not None else 0.7
-    
+
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
-    
+
     retrieval_trace = None
     if disable_chunks:
         ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], []
@@ -315,11 +388,13 @@ async def chat_stream(request: ChatRequest):
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
         ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-    
+
     if not _config.gen_model:
         raise HTTPException(status_code=500, detail="Model path not configured.")
 
-    # Streaming generator function
+    answer_id = str(uuid4())
+    session_id = request.session_id or str(uuid4())
+
     async def event_generator():
         full_response_accumulator = []
         try:
@@ -335,7 +410,7 @@ async def chat_stream(request: ChatRequest):
                 for page in pages:
                     chunks_by_page.setdefault(page, []).append(chunks[i])
                     sources_used.add(SourceItem(page=page, text=source_text))
-            
+
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.model_dump() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
@@ -345,20 +420,51 @@ async def chat_stream(request: ChatRequest):
                 if delta:
                     full_response_accumulator.append(delta) # Capture for log
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
-            
+
             if _logger:
                 success_log = _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
                             enable_chunks, prompt_type, max_chunks, temperature, retrieval_trace=retrieval_trace)
                 if not success_log:
                     print("Logging failed for this request.")
 
-            yield f"data: {json.dumps({'type': 'done', 'sources': [s.model_dump() for s in sources_used]})}\n\n"
+            retrieval_info = {
+                "chunks_used": [int(i) for i in topk_idxs[:max_chunks]],
+                "page_numbers": page_nums,
+                "index_prefix": INDEX_PREFIX,
+            }
+            save_answer(
+                answer_id=answer_id,
+                session_id=session_id,
+                question=request.query,
+                answer="".join(full_response_accumulator),
+                retrieval_info=retrieval_info,
+                model=_config.gen_model,
+                prompt_mode=prompt_type,
+            )
+
+            if _topic_extractor:
+                topics = _topic_extractor.extract_topics(request.query)
+                difficulty = estimate_difficulty(request.query)
+                for topic in topics:
+                    update_user_topic_state(
+                        session_id=session_id,
+                        topic=topic,
+                        difficulty=difficulty,
+                        delta_confidence=0.0,
+                        evidence={
+                            "type": "question",
+                            "question": request.query,
+                            "answer_id": answer_id,
+                        },
+                    )
+
+            yield f"data: {json.dumps({'type': 'done', 'answer_id': answer_id, 'session_id': session_id, 'sources': [s.model_dump() for s in sources_used]})}\n\n"
         except Exception as e:
             # Using print here so you can see crashes in the terminal while debugging
             print(f"Backend error: {e}")
             traceback.print_exc()
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-    
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -486,10 +592,44 @@ async def chat(request: ChatRequest):
             if not success_log:
                 print("Logging failed for this request.")
 
+
+        answer_id = str(uuid4())
+        session_id = request.session_id or str(uuid4())
+        retrieval_info = {
+            "chunks_used": topk_idxs[:max_chunks],
+            "page_numbers": get_page_numbers(topk_idxs, _artifacts["meta"]),
+            "index_prefix": INDEX_PREFIX,
+        }
+        save_answer(
+            answer_id=answer_id,
+            session_id=session_id,
+            question=request.query,
+            answer=answer_text,
+            retrieval_info=retrieval_info,
+            model=_config.gen_model,
+            prompt_mode=prompt_type,
+        )
+
+        if _topic_extractor:
+            topics = _topic_extractor.extract_topics(request.query)
+            difficulty = estimate_difficulty(request.query)
+            for topic in topics:
+                update_user_topic_state(
+                    session_id=session_id,
+                    topic=topic,
+                    difficulty=difficulty,
+                    delta_confidence=0.0,
+                    evidence={
+                        "type": "question",
+                        "question": request.query,
+                        "answer_id": answer_id,
+                    },
+                )
+
         return ChatResponse(
-            answer=answer_text.strip()
-            if answer_text.strip()
-            else "No response generated",
+            answer_id=answer_id,
+            session_id=session_id,
+            answer=answer_text.strip() if answer_text and answer_text.strip() else "No response generated",
             sources=list(sources_used),
             chunks_used=topk_idxs,
             chunks_by_page=chunks_by_page,

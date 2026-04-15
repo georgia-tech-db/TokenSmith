@@ -1,6 +1,6 @@
 import re
 import textwrap
-from llama_cpp import Llama
+from llama_cpp import Llama, LlamaRAMCache
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -130,6 +130,7 @@ def get_llama_model(model_path: str, n_ctx: int = 4096):
                     n_ctx=candidate_n_ctx,
                     verbose=False,
                     n_gpu_layers=-1,
+                    flash_attn=True,
                 )
                 break
             except Exception as gpu_exc:
@@ -148,6 +149,9 @@ def get_llama_model(model_path: str, n_ctx: int = 4096):
                 f"Failed to create generation llama_context for {model_path} "
                 f"after trying n_ctx values {_candidate_contexts(n_ctx)}"
             ) from last_error
+
+        cache = LlamaRAMCache()
+        _LLM_CACHE[model_path].set_cache(cache)
     return _LLM_CACHE[model_path]
 
 def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):

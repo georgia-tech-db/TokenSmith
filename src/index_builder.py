@@ -353,6 +353,7 @@ def build_index(
     chunker: DocumentChunker,
     chunk_config: ChunkConfig,
     embedding_model_path: str,
+    embedding_model_context_window: int,
     artifacts_dir: os.PathLike,
     index_prefix: str,
     use_multiprocessing: bool = False,
