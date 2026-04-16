@@ -34,19 +34,18 @@ git clone https://github.com/georgia-tech-db/TokenSmith.git
 cd TokenSmith
 ```
 
-Create the model directory and put in the appropriate models in it.
+Create the model directories and put in the appropriate models in them.
 ```shell
-mkdir models
-cd models
+mkdir -p models/generators models/embedders
 ```
 
 Now, let's say config.yaml has following configs:
 ```yaml
-embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
-model_path: "models/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+embed_model: "models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf"
+model_path: "models/generators/qwen2.5-1.5b-instruct-q5_k_m.gguf"
 ```
 For above config file, download appropriate files from the below link 
-and put them in the `models/` folder with the expected file name.
+and put them in the `models/embedders/` and `models/generators/` folders with the expected file name.
 - https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/tree/main
 - https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/main
 
@@ -131,14 +130,14 @@ Priority (highest → lowest):
 ### Example
 
 ```yaml
-embed_model: "sentence-transformers/all-MiniLM-L6-v2"
+embed_model: "models/embedders/all-MiniLM-L6-v2"
 top_k: 5
 max_gen_tokens: 400
 halo_mode: "none"
 seg_filter: null
 
 # Model settings
-model_path: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
+model_path: "models/generators/qwen2.5-0.5b-instruct-q5_k_m.gguf"
 
 # Indexing settings
 chunk_mode: "tokens" # or "chars"
