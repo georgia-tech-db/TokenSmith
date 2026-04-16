@@ -93,7 +93,7 @@ rrf_k: 50
         from src.config import RAGConfig
         from src.preprocessing.chunking import SectionRecursiveConfig
         
-        cfg = RAGConfig(chunk_mode="recursive_sections", chunk_size=1000, chunk_overlap=100)
+        cfg = RAGConfig(chunk_mode="recursive_sections", chunk_size_in_chars=1000, chunk_overlap=100)
         
         assert isinstance(cfg.chunk_config, SectionRecursiveConfig)
         assert cfg.chunk_config.recursive_chunk_size == 1000
@@ -737,7 +737,7 @@ class TestEndToEndAPIContracts:
         from src.config import RAGConfig
         from src.preprocessing.chunking import SectionRecursiveStrategy
         
-        cfg = RAGConfig(chunk_mode="recursive_sections", chunk_size=500, chunk_overlap=50)
+        cfg = RAGConfig(chunk_mode="recursive_sections", chunk_size_in_chars=500, chunk_overlap=50)
         strategy = cfg.get_chunk_strategy()
         
         assert isinstance(strategy, SectionRecursiveStrategy)
