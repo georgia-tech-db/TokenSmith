@@ -6,10 +6,10 @@ from dataclasses import asdict, dataclass
 from typing import Callable
 
 import faiss
-import numpy as np
 
+from src.knowledge_graph.openrouter_client import OpenRouterClient
 from src.knowledge_graph.section_tree import SectionNode, SectionTree
-from src.knowledge_graph.utils.prompts import (
+from src.knowledge_graph.prompts import (
     CHUNK_SUMMARY_PROMPT,
     SECTION_SUMMARY_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
@@ -26,9 +26,10 @@ class SummaryEntry:
     chunk_ids: list[int]
     summary_text: str
 
+
 def _windowed(items: list[int], window: int) -> list[list[int]]:
     """Split *items* into consecutive non-overlapping groups of size *window*."""
-    return [items[i : i + window] for i in range(0, len(items), window)]
+    return [items[i: i + window] for i in range(0, len(items), window)]
 
 
 def _all_chunk_ids(node: SectionNode) -> list[int]:
@@ -111,10 +112,12 @@ def _collect_entries(
             ))
             section_summary_cache[node.section_number] = section_summary
 
+
 def build_summary_index(
+    client: OpenRouterClient,
+    summary_model: str,
     section_tree: SectionTree,
     chunks: dict[int, str],
-    summarize_fn: Callable[[list[dict]], str],
     embed_model: str,
     chunk_window: int,
     run_dir: str,
@@ -124,10 +127,7 @@ def build_summary_index(
     Args:
         section_tree:  Pre-built ``SectionTree`` for the corpus.
         chunks:        Mapping of chunk ID → raw text.
-        summarize_fn:  Callable ``(messages) -> str`` wrapping any LLM backend.
-                       ``messages`` is a list of ``{"role": ..., "content": ...}``
-                       dicts (OpenAI-style).  Curry ``client.chat(model, ...)``
-                       to satisfy this interface.
+
         embed_model:   SentenceTransformer model name for embedding summaries.
         chunk_window:  Number of adjacent chunks summarized together at the
                        leaf level (level=0).  Larger values → fewer LLM calls
@@ -141,6 +141,7 @@ def build_summary_index(
     """
     entries: list[SummaryEntry] = []
     section_summary_cache: dict[str, str] = {}
+    def summarize_fn(messages): return client.chat(summary_model, messages)
 
     for top_level_node in section_tree.root.children:
         _collect_entries(

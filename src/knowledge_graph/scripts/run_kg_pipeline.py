@@ -1,12 +1,3 @@
-from src.knowledge_graph.models import KGPipelineConfig
-from src.knowledge_graph.pipeline import build_kg
-from src.knowledge_graph.summary_tree import build_summary_index
-from src.knowledge_graph.openrouter_client import OpenRouterClient
-from src.knowledge_graph.io import load_run_chunks
-from src.knowledge_graph.pipeline import Pipeline
-from src.knowledge_graph.persisters import NetworkxJsonPersister
-from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
-from src.knowledge_graph.canonicalizer import Canonicalizer
 import argparse
 import logging
 import os
@@ -25,11 +16,14 @@ from src.knowledge_graph.build import (
     META_PKL,
     CHUNKS_PKL,
 )
-
+from src.knowledge_graph.models import KGPipelineConfig
+from src.knowledge_graph.pipeline import build_kg
+from src.knowledge_graph.summary_tree import build_summary_index
+from src.knowledge_graph.openrouter_client import OpenRouterClient
+from src.knowledge_graph.io import load_run_chunks
+from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
+from src.knowledge_graph.canonicalizer import Canonicalizer
 from src.knowledge_graph.linkers import CooccurrenceLinker
-<< << << < HEAD
-== == == =
->>>>>> > kg-enhancement
 
 
 logger = logging.getLogger(__name__)
@@ -200,9 +194,10 @@ def main() -> None:
     chunk_texts = load_run_chunks(os.path.join(run_dir, "chunks.json"))
     client = OpenRouterClient(args.api_key, retries=2)
     build_summary_index(
+        client=client,
+        summary_model=st.summary_model,
         section_tree=tree,
         chunks=chunk_texts,
-        summarize_fn=lambda messages: client.chat(st.summary_model, messages),
         embed_model=st.embed_model,
         chunk_window=st.chunk_window,
         run_dir=run_dir,
