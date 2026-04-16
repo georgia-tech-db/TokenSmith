@@ -1,14 +1,16 @@
-embed_model: "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+embed_model: "models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf"
+embedding_model_context_window: 4096
+
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
 rrf_k: 60
 max_gen_tokens: 400
-chunk_mode : "recursive_sections"
-gen_model: "models/qwen2.5-3b-instruct-q8_0.gguf"
-chunk_size: 2000
-chunk_overlap: 200
+chunk_mode: "recursive_sections"
+gen_model: "models/generators/qwen2.5-3b-instruct-q8_0.gguf"
+chunk_size_in_chars: 2000
+chunk_overlap: 300
 use_hyde: false
 hyde_max_tokens: 300
 use_indexed_chunks: false
@@ -20,5 +22,4 @@ max_history_turns: 3
 semantic_cache_enabled: false
 semantic_cache_bi_encoder_threshold: 0.90
 semantic_cache_cross_encoder_threshold: 0.99
-enable_topic_extraction: true
-
+enable_topic_extraction: false

@@ -57,7 +57,7 @@ pytest tests/ --output-mode=html
 
 ```yaml
 # Embedding Configuration
-embed_model: "/path/to/Qwen3-Embedding-4B-Q8_0.gguf"
+embed_model: "/path/to/models/embedders/Qwen3-Embedding-4B-Q8_0.gguf"
 
 # Retrieval Configuration
 top_k: 5
@@ -69,7 +69,7 @@ ranker_weights:
 rrf_k: 60
 
 # Generator Configuration
-model_path: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
+model_path: "models/generators/qwen2.5-0.5b-instruct-q5_k_m.gguf"
 max_gen_tokens: 400
 system_prompt_mode: "tutor"  # Options: baseline, tutor, concise, detailed
 
