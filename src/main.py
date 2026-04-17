@@ -27,6 +27,7 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.cache import get_cache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -114,11 +115,30 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
+
     # Ensure these locals exist for all control flows to avoid UnboundLocalError
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
     scores = []
+
+    cache = get_cache(cfg)
+    normalized_question = cache.normalize_question(question)
+    config_cache_key = cache.make_config_key(cfg, args, golden_chunks)
+    question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
     
+    semantic_hit = cache.lookup(config_cache_key, question_embedding, normalized_question)
+
+    # Return cached answer if found
+    if semantic_hit is not None:
+
+        ans = semantic_hit.get("answer", "")
+
+        if is_test_mode:
+            return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+        console.print("Using cached answer")
+        render_final_answer(console, ans)
+        return ans
+
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -135,7 +155,7 @@ def get_answer(
         # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
+
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
@@ -201,7 +221,6 @@ def get_answer(
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
     use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
-
     if use_double:
         stream_iter = double_answer(
             question,
@@ -220,12 +239,7 @@ def get_answer(
         )
 
     if is_test_mode:
-        # We do not render MD in the test mode
-        ans = ""
-        for delta in stream_iter:
-            ans += delta
-        ans = dedupe_generated_text(ans)
-        return ans, chunks_info, hyde_query
+        ans = dedupe_generated_text("".join(stream_iter))
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
@@ -249,7 +263,27 @@ def get_answer(
             top_k=len(topk_idxs),
             additional_log_info=additional_log_info
         )
-        return ans
+
+    # Step 5: Store in semantic cache
+    cache_payload = {
+        "answer": ans,
+        "chunks_info": chunks_info,
+        "hyde_query": hyde_query,
+        "chunk_indices": topk_idxs,
+    }
+    if question_embedding is None:
+        question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
+    cache.store(
+        config_cache_key,
+        normalized_question,
+        question_embedding,
+        cache_payload
+    )
+
+    if is_test_mode:
+        return ans, chunks_info, hyde_query
+    
+    return ans
 
 def render_streaming_ans(console, stream_iter):
     ans = ""
@@ -265,6 +299,18 @@ def render_streaming_ans(console, stream_iter):
     live.update(Markdown(ans))
     console.print("\n[bold cyan]=== END OF ANSWER ===[/bold cyan]\n")
     return ans
+
+# Fully generated answer without streaming (Usage: cache hits)
+def render_final_answer(console, ans):
+    if not console:
+        raise ValueError("Console must be non null for rendering.")
+    console.print(
+        "\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n"
+    )
+    console.print(Markdown(ans))
+    console.print(
+        "\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n"
+    )
 
 def get_keywords(question: str) -> list:
     """
