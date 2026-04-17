@@ -46,6 +46,11 @@ class RAGConfig:
     hyde_max_tokens: int = 300
     use_double_prompt: bool = False
 
+    # cache
+    semantic_cache_enabled: bool = False
+    semantic_cache_bi_encoder_threshold: float = 0.90
+    semantic_cache_cross_encoder_threshold: float = 0.99
+
     # conversational memory
     enable_history: bool = True
     max_history_turns: int = 3
