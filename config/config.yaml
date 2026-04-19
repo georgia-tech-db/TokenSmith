@@ -4,7 +4,7 @@ embedding_model_context_window: 4096
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
-ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
+ranker_weights: {"faiss":0.8,"bm25":0,"index_keywords":0, "kg":0.2}
 rrf_k: 60
 max_gen_tokens: 400
 chunk_mode: "recursive_sections"
@@ -19,7 +19,13 @@ rerank_top_k: 5
 use_double_prompt: false
 enable_history: true
 max_history_turns: 3
+enable_topic_extraction: false
 semantic_cache_enabled: false
 semantic_cache_bi_encoder_threshold: 0.90
 semantic_cache_cross_encoder_threshold: 0.99
 enable_topic_extraction: false
+kg_pipeline:
+  corpus_description: "Database System Concepts, 7th edition by Silberschatz et al."
+  min_cooccurrence: 0
+  top_n: 10
+
