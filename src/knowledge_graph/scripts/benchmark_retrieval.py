@@ -10,12 +10,14 @@ from src.knowledge_graph.build import RUNS_DIR
 from src.knowledge_graph.io import (
     load_canonicalization_data,
     load_graph_chunks_and_tree,
+    load_summary_data,
     resolve_run_dir,
 )
 from src.knowledge_graph.openrouter_client import OpenRouterClient
 from src.knowledge_graph.query import (
     CanonicalLookup,
     KGNodeRetriever,
+    SectionSummaryRetriever,
     SectionTreeRetriever,
 )
 from src.knowledge_graph.prompts import GRADE_PROMPT
@@ -90,6 +92,7 @@ def run_benchmark(
     canonical_lookup = (
         CanonicalLookup(syn_table, can_kw, can_emb) if syn_table is not None else None
     )
+    index, entries = load_summary_data(resolved)
 
     # Unified chunk lookup: RAG list takes precedence (dict-wrapped), KG dict as fallback.
     chunks: dict[int, str] = kg_chunks
@@ -130,6 +133,12 @@ def run_benchmark(
         logger.info("SectionTreeRetriever enabled.")
     else:
         logger.info("No section tree found — SectionTreeRetriever skipped.")
+
+    if index is not None:
+        retrievers.append(SectionSummaryRetriever(index, entries))
+        logger.info("SectionSummaryRetriever enabled (%d entries).", len(entries))
+    else:
+        logger.info("No summary index found — SectionSummaryRetriever skipped.")
 
     results = []
     for q in queries:

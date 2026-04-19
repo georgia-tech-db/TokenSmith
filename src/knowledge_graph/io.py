@@ -1,11 +1,13 @@
 import json
 import os
 
+import faiss
 import networkx as nx
 import numpy as np
 
 from src.knowledge_graph.build import RUNS_DIR  # re-exported for callers  # noqa: F401
 from src.knowledge_graph.section_tree import SectionTree, load_section_tree
+from src.knowledge_graph.summary_tree import SummaryEntry, load_summary_index as _load_summary_index
 
 
 def load_graph(path: str) -> nx.Graph:
@@ -81,6 +83,21 @@ def load_graph_chunks_and_tree(
     except FileNotFoundError:
         tree = None
     return graph, chunks, tree
+
+
+def load_summary_data(
+    output_dir: str,
+) -> tuple[faiss.Index, list[SummaryEntry]] | tuple[None, None]:
+    """Load the summary FAISS index and metadata from *output_dir*.
+
+    Returns:
+        ``(index, entries)`` when both artifacts exist, ``(None, None)`` otherwise.
+    """
+    try:
+        run_dir = resolve_run_dir(output_dir)
+        return _load_summary_index(run_dir)
+    except FileNotFoundError:
+        return None, None
 
 
 def load_canonicalization_data(

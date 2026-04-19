@@ -4,7 +4,8 @@ embedding_model_context_window: 4096
 top_k: 10
 num_candidates: 50
 ensemble_method: "rrf"
-ranker_weights: {"faiss":0.8,"bm25":0,"index_keywords":0, "kg":0.2}
+ranker_weights: {"faiss":0.7,"bm25":0,"index_keywords":0,"kg_node":0.1,"section_tree":0.1,"section_summary":0.1}
+kg_graph_dir: "data/knowledge_graph/runs"
 rrf_k: 60
 max_gen_tokens: 400
 chunk_mode: "recursive_sections"
@@ -34,3 +35,7 @@ kg_pipeline:
     max_group_size: 30
     batch_size: 15
     embed_model: "sentence-transformers/all-MiniLM-L6-v2"
+  summary_tree:
+    summary_model: "openai/gpt-4o-mini"
+    embed_model: "sentence-transformers/all-MiniLM-L6-v2"
+    chunk_window: 3

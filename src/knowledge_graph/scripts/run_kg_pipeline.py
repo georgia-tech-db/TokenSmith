@@ -1,5 +1,3 @@
-from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
-from src.knowledge_graph.canonicalizer import Canonicalizer
 import argparse
 import logging
 import os
@@ -18,10 +16,14 @@ from src.knowledge_graph.build import (
     META_PKL,
     CHUNKS_PKL,
 )
-
-from src.knowledge_graph.linkers import CooccurrenceLinker
-from src.knowledge_graph.pipeline import build_kg
 from src.knowledge_graph.models import KGPipelineConfig
+from src.knowledge_graph.pipeline import build_kg
+from src.knowledge_graph.summary_tree import build_summary_index
+from src.knowledge_graph.openrouter_client import OpenRouterClient
+from src.knowledge_graph.io import load_run_chunks
+from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
+from src.knowledge_graph.canonicalizer import Canonicalizer
+from src.knowledge_graph.linkers import CooccurrenceLinker
 
 
 logger = logging.getLogger(__name__)
@@ -144,7 +146,6 @@ def main() -> None:
     exclude_chapters = [f"Chapter {c} " for c in args.exclude_chapters]
 
     c = cfg.canonicalization
-
     canonicalizer = Canonicalizer(
         embedding_model=c.embed_model,
         corpus_description=cfg.corpus_description,
@@ -183,6 +184,25 @@ def main() -> None:
         label = level_labels.get(level, f"level-{level} nodes")
         logger.info("  %4d %s", count, label)
     logger.info("  Saved: %s", tree_path)
+
+    st = cfg.summary_tree
+    logger.info(
+        "Building summary index (model=%s, chunk_window=%d)...",
+        st.summary_model,
+        st.chunk_window,
+    )
+    chunk_texts = load_run_chunks(os.path.join(run_dir, "chunks.json"))
+    client = OpenRouterClient(args.api_key, retries=2)
+    build_summary_index(
+        client=client,
+        summary_model=st.summary_model,
+        section_tree=tree,
+        chunks=chunk_texts,
+        embed_model=st.embed_model,
+        chunk_window=st.chunk_window,
+        run_dir=run_dir,
+    )
+    logger.info("Summary index saved to %s", run_dir)
 
     update_latest_symlink(run_dir)
     logger.info("Updated: %s -> %s", os.path.join(RUNS_DIR, "latest"), run_dir)

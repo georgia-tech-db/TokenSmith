@@ -27,8 +27,18 @@ from src.retriever import (
     get_page_numbers, 
     load_artifacts
 )
-from src.knowledge_graph.io import load_graph_chunks_and_tree
-from src.knowledge_graph.query import KGRetriever
+from src.knowledge_graph.io import (
+    load_canonicalization_data,
+    load_graph_chunks_and_tree,
+    load_summary_data,
+    resolve_run_dir,
+)
+from src.knowledge_graph.query import (
+    CanonicalLookup,
+    KGNodeRetriever,
+    SectionSummaryRetriever,
+    SectionTreeRetriever,
+)
 from src.ranking.reranker import rerank
 from src.cache import get_cache
 
@@ -386,16 +396,32 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
         if cfg.ranker_weights.get("index_keywords", 0) > 0:
             retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
-                # Add knowledge graph retriever if weight > 0 and graph dir is configured
-        if cfg.ranker_weights.get("kg", 0) > 0 and cfg.kg_graph_dir:
+
+        kg_retriever_names = ("kg_node", "section_tree", "section_summary")
+        if any(cfg.ranker_weights.get(n, 0) > 0 for n in kg_retriever_names) and cfg.kg_graph_dir:
             kg_graph, kg_chunks, kg_tree = load_graph_chunks_and_tree(cfg.kg_graph_dir)
-            retrievers.append(KGRetriever(
-                kg_graph, kg_chunks,
-                section_tree=kg_tree,
-                beta=cfg.kg_beta,
-                heading_alpha=cfg.kg_heading_alpha,
-                inheritance_decay=cfg.kg_inheritance_decay,
-            ))
+
+            resolved_kg = resolve_run_dir(cfg.kg_graph_dir)
+            syn_table, can_kw, can_emb = load_canonicalization_data(resolved_kg)
+            canonical_lookup = (
+                CanonicalLookup(syn_table, can_kw, can_emb) if syn_table is not None else None
+            )
+
+            if cfg.ranker_weights.get("kg_node", 0) > 0:
+                retrievers.append(KGNodeRetriever(kg_graph, kg_chunks, canonical_lookup=canonical_lookup))
+
+            if cfg.ranker_weights.get("section_tree", 0) > 0 and kg_tree is not None:
+                retrievers.append(SectionTreeRetriever(
+                    kg_tree, kg_graph,
+                    canonical_lookup=canonical_lookup,
+                    heading_alpha=cfg.kg_heading_alpha,
+                    inheritance_decay=cfg.kg_inheritance_decay,
+                ))
+
+            if cfg.ranker_weights.get("section_summary", 0) > 0:
+                kg_index, kg_entries = load_summary_data(cfg.kg_graph_dir)
+                if kg_index is not None:
+                    retrievers.append(SectionSummaryRetriever(kg_index, kg_entries))
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
         print("Loaded retrievers and initialized ranker.")
         artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}

@@ -295,8 +295,7 @@ class MockCanonicalizer:
         self._result = CanonicalizationResult(
             synonym_table=data["synonym_table"],
             canonical_keywords=data["canonical_keywords"],
-            canonical_embeddings=np.array(
-                data["canonical_embeddings"], dtype=np.float32),
+            canonical_embeddings=np.array(data["canonical_embeddings"], dtype=np.float32),
             stats=data.get("stats", {}),
         )
         logger.warning("MockCanonicalizer: loaded cache from %s", cache_path)
@@ -307,6 +306,5 @@ class MockCanonicalizer:
     def canonicalize(
         self, extractions: list[ExtractionResult]
     ) -> tuple[list[ExtractionResult], CanonicalizationResult]:
-        logger.warning(
-            "MockCanonicalizer: returning cached canonicalization, input ignored")
+        logger.warning("MockCanonicalizer: returning cached canonicalization, input ignored")
         return self._updated_extractions, self._result

@@ -129,12 +129,22 @@ class CanonicalizationConfig:
 
 
 @dataclass
+class SummaryTreeConfig:
+    summary_model: str = "openai/gpt-4o-mini"
+    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    chunk_window: int = 3
+
+
+@dataclass
 class KGPipelineConfig:
     corpus_description: str = ""
     min_cooccurrence: int = 0
     top_n: int = 10
     canonicalization: CanonicalizationConfig = field(
         default_factory=CanonicalizationConfig
+    )
+    summary_tree: SummaryTreeConfig = field(
+        default_factory=SummaryTreeConfig
     )
 
     @classmethod
@@ -144,4 +154,9 @@ class KGPipelineConfig:
             data = yaml.safe_load(f)
         kg = dict(data.get("kg_pipeline", {}))
         canon_data = kg.pop("canonicalization", {})
-        return cls(**kg, canonicalization=CanonicalizationConfig(**canon_data))
+        summary_tree_data = kg.pop("summary_tree", {})
+        return cls(
+            **kg,
+            canonicalization=CanonicalizationConfig(**canon_data),
+            summary_tree=SummaryTreeConfig(**summary_tree_data),
+        )
