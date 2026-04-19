@@ -27,6 +27,8 @@ from src.retriever import (
     get_page_numbers, 
     load_artifacts
 )
+from src.knowledge_graph.io import load_graph_chunks_and_tree
+from src.knowledge_graph.query import KGRetriever
 from src.ranking.reranker import rerank
 from src.cache import get_cache
 
@@ -384,7 +386,16 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
         if cfg.ranker_weights.get("index_keywords", 0) > 0:
             retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
-        
+                # Add knowledge graph retriever if weight > 0 and graph dir is configured
+        if cfg.ranker_weights.get("kg", 0) > 0 and cfg.kg_graph_dir:
+            kg_graph, kg_chunks, kg_tree = load_graph_chunks_and_tree(cfg.kg_graph_dir)
+            retrievers.append(KGRetriever(
+                kg_graph, kg_chunks,
+                section_tree=kg_tree,
+                beta=cfg.kg_beta,
+                heading_alpha=cfg.kg_heading_alpha,
+                inheritance_decay=cfg.kg_inheritance_decay,
+            ))
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
         print("Loaded retrievers and initialized ranker.")
         artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}

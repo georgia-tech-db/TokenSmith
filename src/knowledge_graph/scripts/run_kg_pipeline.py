@@ -1,3 +1,5 @@
+from src.knowledge_graph.section_tree import build_section_tree, save_section_tree
+from src.knowledge_graph.canonicalizer import Canonicalizer
 import argparse
 import logging
 import os
@@ -12,6 +14,9 @@ from src.knowledge_graph.build import (
     setup_input_dir,
     write_config,
     update_latest_symlink,
+    load_chunks,
+    META_PKL,
+    CHUNKS_PKL,
 )
 
 from src.knowledge_graph.linkers import CooccurrenceLinker
@@ -138,14 +143,46 @@ def main() -> None:
     chapter_filter = f"Chapter {args.chapter} " if args.chapter else None
     exclude_chapters = [f"Chapter {c} " for c in args.exclude_chapters]
 
+    c = cfg.canonicalization
+
+    canonicalizer = Canonicalizer(
+        embedding_model=c.embed_model,
+        corpus_description=cfg.corpus_description,
+        api_key=args.api_key or os.environ.get("OPENROUTER_API_KEY", ""),
+        llm_model=c.llm_model,
+        similarity_threshold=c.similarity_threshold,
+        max_group_size=c.max_group_size,
+        batch_size=c.batch_size,
+    )
+
     linker = CooccurrenceLinker(min_cooccurrence=cfg.min_cooccurrence)
-    build_kg(
+
+    chunks = load_chunks(
+        CHUNKS_PKL,
+        META_PKL,
+        chapter_filter=chapter_filter,
+        exclude_chapters=exclude_chapters,
+    )
+    logger.info("Loaded %d chunks", len(chunks))
+    graph = build_kg(
         output_dir=run_dir,
+        chunks=chunks,
         extractor=extractor,
         linker=linker,
-        chapter_filter=chapter_filter,
-        exclude_chapters=exclude_chapters or None,
+        canonicalizer=canonicalizer,
     )
+
+    logger.info("Building section tree...")
+    tree = build_section_tree(chunks, graph)
+    tree_path = save_section_tree(tree, run_dir)
+    level_counts: dict[int, int] = {}
+    for node in tree.node_index.values():
+        level_counts[node.level] = level_counts.get(node.level, 0) + 1
+    level_labels = {1: "chapters", 2: "sections", 3: "subsections"}
+    for level, count in sorted(level_counts.items()):
+        label = level_labels.get(level, f"level-{level} nodes")
+        logger.info("  %4d %s", count, label)
+    logger.info("  Saved: %s", tree_path)
 
     update_latest_symlink(run_dir)
     logger.info("Updated: %s -> %s", os.path.join(RUNS_DIR, "latest"), run_dir)

@@ -1,8 +1,8 @@
 import os
-import pickle
-import argparse
 import json
 import shutil
+import pickle
+import argparse
 from time import strftime
 
 from src.knowledge_graph.models import Chunk
