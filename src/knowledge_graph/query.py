@@ -7,8 +7,8 @@ from sklearn.metrics.pairwise import cosine_similarity as cos_sim
 from src.retriever import Retriever
 from src.knowledge_graph.io import RUNS_DIR, load_graph_and_chunks
 from src.knowledge_graph.section_tree import SectionTree
-from src.knowledge_graph.utils import KW_PATTERN, Normalizer, extract_ngrams
-
+from src.knowledge_graph.ngrams import KW_PATTERN, extract_ngrams
+from src.knowledge_graph.normalizer import Normalizer
 
 logger = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@ from src.knowledge_graph.query import (
     KGNodeRetriever,
     SectionTreeRetriever,
 )
-from src.knowledge_graph.utils.prompts import GRADE_PROMPT
+from src.knowledge_graph.prompts import GRADE_PROMPT
 from src.retriever import BM25Retriever, FAISSRetriever, IndexKeywordRetriever, load_artifacts
 
 logger = logging.getLogger(__name__)
