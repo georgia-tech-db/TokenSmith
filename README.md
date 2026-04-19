@@ -102,13 +102,37 @@ make run-index
 With custom parameters:
 
 ```shell
-make run-index ARGS="--pdf_range 1-10 --chunk_mode chars --visualize"
+make run-index ARGS="--chunk_mode chars --visualize"
+```
+
+If you want to index a portion of the textbook:
+
+```shell
+make run-index-partial CHAPTERS="1 2"
+```
+
+If you want to add chapters to the index later:
+
+```shell
+make run-add-chapters-partial CHAPTERS="3"
 ```
 
 ### 7) Chat
 
 ```shell
 python -m src.main chat
+```
+
+Note: if you only indexed a portion of your documents, use
+
+```shell
+python -m src.main chat --partial
+```
+
+or
+
+```shell
+make run-chat-partial
 ```
 
 > If you see a missing-model error, download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into `llama.cpp/models`.
@@ -151,6 +175,18 @@ chunk_size_char: 20000
 
 ```shell
 make run-index
+```
+
+### Partial indexing
+
+```shell
+make run-index-partial CHAPTERS="1 2"
+```
+
+Adding to the index:
+
+```shell
+make run-add-chapters-partial CHAPTERS="3"
 ```
 
 ### Index a specific PDF range
@@ -201,6 +237,7 @@ make show-deps
 * `--pdf_dir`: directory with PDFs
 * `--index_prefix`: prefix for index files
 * `--model_path`: path to GGUF model
+* `--partial`: instantiate chat based on partial index
 
 ### Indexing
 
