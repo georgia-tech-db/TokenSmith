@@ -1,4 +1,4 @@
-.PHONY: help env build-llama clean test run-index run-chat install update-env
+.PHONY: help env build-llama clean test run-index run-chat run-index-partial run-add-chapters-partial run-chat-partial install update-env
 
 help:
 	@echo "TokenSmith - RAG Application (Conda Dependencies)"
@@ -11,6 +11,9 @@ help:
 	@echo "  clean       - Clean build artifacts"
 	@echo "  show-deps   - Show installed conda packages"
 	@echo "  export-env  - Export current environment"
+	@echo "  run-index-partial - Create a partial index (e.g., make run-index-partial CHAPTERS=\"1 2\")"
+	@echo "  run-add-chapters-partial - Add chapters to partial index (e.g., make run-add-chapters-partial CHAPTERS=\"3\")"
+	@echo "  run-chat-partial - Chat using partial index"
 
 # Environment setup - installs all dependencies via conda
 env:
@@ -73,3 +76,15 @@ run-chat:
 	@echo "Note: Chat mode requires interactive terminal. If this fails, use:"
 	@echo "  conda activate tokensmith && python -m src.main chat $(ARGS)"
 	conda run --no-capture-output -n tokensmith --no-capture-output python -m src.main chat $(ARGS)
+
+run-index-partial:
+	@echo "Running TokenSmith partial index mode with chapters: $(CHAPTERS) $(ARGS)"
+	conda run --no-capture-output -n tokensmith python -m src.main index --partial --chapters $(CHAPTERS) $(ARGS)
+
+run-add-chapters-partial:
+	@echo "Adding chapters $(CHAPTERS) to partial index with ARGS: $(ARGS)"
+	conda run --no-capture-output -n tokensmith python -m src.main add-chapters --partial --chapters $(CHAPTERS) $(ARGS)
+
+run-chat-partial:
+	@echo "Running TokenSmith chat mode (partial index) with additional CLI args: $(ARGS)"
+	conda run --no-capture-output -n tokensmith --no-capture-output python -m src.main chat --partial $(ARGS)
