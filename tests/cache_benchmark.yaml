@@ -1,0 +1,449 @@
+- id: q1
+  question: "What is a database management system?"
+  variations:
+    - "Can you explain what a database management system is?"
+    - "How would you define a database management system?"
+    - "Please tell me what a database management system is."
+    - "What exactly is a database management system?"
+    - "What is the definition of a database management system?"
+  adversarial_queries:
+    - "What is a file management system?"                          # semantic: file vs database
+    - "What is an operating system?"                              # semantic: OS vs DBMS
+    - "What is a spreadsheet application?"                        # semantic: adjacent tool, different thing
+    - "What is the management style of a data scientist?"         # syntactic: plays on "management" and "data"
+    - "What does it mean to manage a system database in Windows?" # syntactic: "manage" + "database" in different order/context
+
+- id: q2
+  question: "What is the relational model?"
+  variations:
+    - "Can you explain what the relational model is?"
+    - "How would you define the relational model?"
+    - "Please tell me what the relational model is."
+    - "What exactly is the relational model?"
+    - "What is the definition of the relational model?"
+  adversarial_queries:
+    - "What is the hierarchical model?"                                    # semantic: sibling data model
+    - "What is the network model in databases?"                            # semantic: sibling data model
+    - "What is the object-oriented data model?"                            # semantic: sibling data model
+    - "What is the relationship between a model and a tokenizer?"          # syntactic: relational → relationship, model stays
+    - "What is a relational conflict in psychology?"                       # syntactic: relational used in a completely different domain
+
+- id: q3
+  question: "What is SQL?"
+  variations:
+    - "Can you explain what SQL is?"
+    - "How would you define SQL?"
+    - "Please tell me what SQL is."
+    - "What exactly is SQL?"
+    - "What is the definition of SQL?"
+  adversarial_queries:
+    - "What is NoSQL?"                                             # semantic: directly contrasted technology
+    - "What are some alternatives to SQL?"                        # semantic: adjacent but asking for different things
+    - "What is the sequel to a popular movie franchise?"          # syntactic: SQL is pronounced "sequel"
+    - "What is a skill queue list in project management?"         # syntactic: S-Q-L letters reinterpreted
+    - "What is MySQL?"                                            # semantic: MySQL is a DBMS, not the language itself
+
+- id: q4
+  question: "What is a primary key?"
+  variations:
+    - "Can you explain what a primary key is?"
+    - "How would you define a primary key?"
+    - "Please tell me what a primary key is."
+    - "What exactly is a primary key?"
+    - "What is the definition of a primary key?"
+  adversarial_queries:
+    - "What is a foreign key?"                                    # semantic: sibling key concept
+    - "What is a candidate key?"                                  # semantic: sibling key concept
+    - "What is a composite key?"                                  # semantic: sibling key concept
+    - "What is a master key used for in physical security?"       # syntactic: primary/master are synonyms, but in a different domain
+    - "What is the primary responsibility of a database lock?"    # syntactic: "primary" + "key" split apart into different meaning
+
+- id: q5
+  question: "What is a foreign key?"
+  variations:
+    - "Can you explain what a foreign key is?"
+    - "How would you define a foreign key?"
+    - "Please tell me what a foreign key is."
+    - "What exactly is a foreign key?"
+    - "What is the definition of a foreign key?"
+  adversarial_queries:
+    - "What is a primary key?"                                    # semantic: sibling key concept
+    - "What is a surrogate key?"                                  # semantic: sibling key concept
+    - "What is a join in SQL?"                                    # semantic: joins use FKs but are a different concept
+    - "What is a key used in foreign language translation?"       # syntactic: "foreign" + "key" in a non-database context
+    - "What is an alien data type in a database column?"          # syntactic: alien is a synonym for foreign, reframed
+
+- id: q6
+  question: "What is an Entity-Relationship model?"
+  variations:
+    - "Can you explain what an Entity-Relationship model is?"
+    - "How would you define an Entity-Relationship model?"
+    - "Please tell me what an Entity-Relationship model is."
+    - "What exactly is an Entity-Relationship model?"
+    - "What is the definition of an Entity-Relationship model?"
+  adversarial_queries:
+    - "What is the relational model?"                             # semantic: different model
+    - "What is a UML class diagram?"                              # semantic: different modeling notation
+    - "What is a data flow diagram?"                              # semantic: different diagram type
+    - "What is the relationship between an entity and its manager in HR?" # syntactic: entity + relationship in HR context
+    - "What is entity authentication in network security?"        # syntactic: entity reused in a security context
+
+- id: q7
+  question: "What is normalization?"
+  variations:
+    - "Can you explain what normalization is?"
+    - "How would you define normalization?"
+    - "Please tell me what normalization is."
+    - "What exactly is normalization?"
+    - "What is the definition of normalization?"
+  adversarial_queries:
+    - "What is denormalization?"                                  # semantic: direct opposite concept
+    - "What is normalization in machine learning?"                # syntactic: same word, entirely different domain
+    - "What is normalization in signal processing?"               # syntactic: same word, entirely different domain
+    - "What is data cleaning?"                                    # semantic: adjacent preprocessing concept, different meaning
+    - "What is normal distribution in statistics?"                # syntactic: "normal" shared but normalization in stats is not DB normalization
+
+- id: q8
+  question: "What is a transaction?"
+  variations:
+    - "Can you explain what a transaction is?"
+    - "How would you define a transaction?"
+    - "Please tell me what a transaction is."
+    - "What exactly is a transaction?"
+    - "What is the definition of a transaction?"
+  adversarial_queries:
+    - "What is a stored procedure?"                               # semantic: different DB construct
+    - "What is a SQL query?"                                      # semantic: a query is not a transaction
+    - "What is a financial transaction in banking?"               # syntactic: same word, entirely different domain
+    - "What is a transaction fee on a credit card?"               # syntactic: transaction reused in payments context
+    - "What is a batch job in data processing?"                   # semantic: similar in feel but different concept
+
+- id: q9
+  question: "What are ACID properties?"
+  variations:
+    - "Can you explain what ACID properties are?"
+    - "How would you define ACID properties?"
+    - "Please tell me what ACID properties are."
+    - "What exactly are ACID properties?"
+    - "What is the definition of ACID properties?"
+  adversarial_queries:
+    - "What are BASE properties in NoSQL databases?"              # semantic: directly contrasted acronym
+    - "What is the CAP theorem?"                                  # semantic: related distributed systems theory
+    - "What are the chemical properties of an acid?"              # syntactic: ACID is also a chemistry term
+    - "What are SOLID principles in software engineering?"        # syntactic: SOLID is another well-known acronym, similar phrasing
+    - "What are database constraints?"                            # semantic: constraints enforce rules but are not ACID
+
+- id: q10
+  question: "What is concurrency control?"
+  variations:
+    - "Can you explain what concurrency control is?"
+    - "How would you define concurrency control?"
+    - "Please tell me what concurrency control is."
+    - "What exactly is concurrency control?"
+    - "What is the definition of concurrency control?"
+  adversarial_queries:
+    - "What is deadlock?"                                         # semantic: a problem concurrency control solves, not the concept itself
+    - "What is two-phase locking?"                                # semantic: a mechanism used in concurrency control, not the concept
+    - "What is parallel query processing?"                        # semantic: related to concurrency but different concept
+    - "What is currency control in international finance?"        # syntactic: con-currency → currency, control stays
+    - "What is access control in operating systems?"              # syntactic: "control" shared but access control is not concurrency control
+
+- id: q11
+  question: "What involves indexing in databases?"
+  variations:
+    - "Can you explain what involves indexing in databases?"
+    - "Please describe what involves indexing in databases."
+    - "What exactly involves indexing in databases?"
+    - "I would like to know what involves indexing in databases."
+    - "Could you clarify what involves indexing in databases?"
+  adversarial_queries:
+    - "What is query optimization?"                               # semantic: indexing helps but query opt is broader
+    - "What is database partitioning?"                            # semantic: adjacent storage concept
+    - "What is indexing a book in a library catalog?"             # syntactic: indexing in publishing, not databases
+    - "What is the stock market index?"                           # syntactic: index in finance domain
+    - "What is a database schema design?"                         # semantic: schema design is not indexing
+
+- id: q12
+  question: "What is a B+ tree?"
+  variations:
+    - "Can you explain what a B+ tree is?"
+    - "How would you define a B+ tree?"
+    - "Please tell me what a B+ tree is."
+    - "What exactly is a B+ tree?"
+    - "What is the definition of a B+ tree?"
+  adversarial_queries:
+    - "What is a B-tree?"                                         # semantic: sibling structure, different in important ways
+    - "What is a binary search tree?"                             # semantic: different tree structure
+    - "What is an AVL tree?"                                      # semantic: different self-balancing tree
+    - "What are the health benefits of vitamin B complex?"        # syntactic: B+ reads like a grade or vitamin "B plus"
+    - "What is a family tree in genealogy?"                       # syntactic: tree as a concept in a different domain
+
+- id: q13
+  question: "What is hashing?"
+  variations:
+    - "Can you explain what hashing is?"
+    - "How would you define hashing?"
+    - "Please tell me what hashing is."
+    - "What exactly is hashing?"
+    - "What is the definition of hashing?"
+  adversarial_queries:
+    - "What is encryption?"                                       # semantic: often conflated with hashing but different
+    - "What is a digital signature?"                              # semantic: uses hashing but is a different concept
+    - "What is a hashtag on social media?"                        # syntactic: hash in a completely different context
+    - "What is hash brown preparation in cooking?"                # syntactic: hash as a culinary term
+    - "What is checksum verification?"                            # semantic: similar purpose but different mechanism
+
+- id: q14
+  question: "What is query optimization?"
+  variations:
+    - "Can you explain what query optimization is?"
+    - "How would you define query optimization?"
+    - "Please tell me what query optimization is."
+    - "What exactly is query optimization?"
+    - "What is the definition of query optimization?"
+  adversarial_queries:
+    - "What is query parsing?"                                    # semantic: a step before optimization, not optimization itself
+    - "What is query execution?"                                  # semantic: what happens after optimization
+    - "What is optimization in machine learning?"                 # syntactic: optimization as a term in a different domain
+    - "What is search engine query optimization?"                 # syntactic: SEO query optimization means something totally different
+    - "What is database indexing?"                                # semantic: a tool that aids optimization, not optimization itself
+
+- id: q15
+  question: "What is Big Data?"
+  variations:
+    - "Can you explain what Big Data is?"
+    - "How would you define Big Data?"
+    - "Please tell me what Big Data is."
+    - "What exactly is Big Data?"
+    - "What is the definition of Big Data?"
+  adversarial_queries:
+    - "What is a data warehouse?"                                 # semantic: related but a specific storage architecture
+    - "What is data mining?"                                      # semantic: a technique applied to data, not a paradigm
+    - "What does it mean to have a big database?"                 # syntactic: "big" + "database" literally, not the coined term
+    - "What is a large file in cloud storage?"                    # syntactic: big data as in physically large files
+    - "What is cloud computing?"                                  # semantic: often mentioned with Big Data but different concept
+
+- id: q16
+  question: "What is MapReduce?"
+  variations:
+    - "Can you explain what MapReduce is?"
+    - "How would you define MapReduce?"
+    - "Please tell me what MapReduce is."
+    - "What exactly is MapReduce?"
+    - "What is the definition of MapReduce?"
+  adversarial_queries:
+    - "What is Apache Spark?"                                     # semantic: successor/alternative, different concept
+    - "What is a distributed file system?"                        # semantic: infrastructure MapReduce runs on
+    - "What is the map data structure in programming?"            # syntactic: map() as a programming concept
+    - "What does it mean to reduce a fraction in mathematics?"    # syntactic: reduce as a math operation
+    - "What is a Google Maps route reduction algorithm?"          # syntactic: map + reduce individually repurposed
+
+- id: q17
+  question: "What is NoSQL?"
+  variations:
+    - "Can you explain what NoSQL is?"
+    - "How would you define NoSQL?"
+    - "Please tell me what NoSQL is."
+    - "What exactly is NoSQL?"
+    - "What is the definition of NoSQL?"
+  adversarial_queries:
+    - "What is SQL?"                                              # semantic: the thing NoSQL is named after
+    - "What is NewSQL?"                                           # semantic: similar-sounding but distinct category
+    - "What is a distributed database?"                           # semantic: NoSQL is often distributed but they are not the same
+    - "What is the SQL NOT operator in a query?"                  # syntactic: No as a negation of SQL
+    - "What does it mean to say no to a database request?"        # syntactic: No + SQL interpreted literally
+
+- id: q18
+  question: "What is data mining?"
+  variations:
+    - "Can you explain what data mining is?"
+    - "How would you define data mining?"
+    - "Please tell me what data mining is."
+    - "What exactly is data mining?"
+    - "What is the definition of data mining?"
+  adversarial_queries:
+    - "What is a data warehouse?"                                 # semantic: where data mining data often lives
+    - "What is machine learning?"                                 # semantic: related field but different concept
+    - "What is cryptocurrency mining?"                            # syntactic: mining in the blockchain domain
+    - "What is coal mining and how does it work?"                 # syntactic: mining as a physical activity
+    - "What is ETL in data engineering?"                          # semantic: moving data, not extracting patterns
+
+- id: q19
+  question: "What is a data warehouse?"
+  variations:
+    - "Can you explain what a data warehouse is?"
+    - "How would you define a data warehouse?"
+    - "Please tell me what a data warehouse is."
+    - "What exactly is a data warehouse?"
+    - "What is the definition of a data warehouse?"
+  adversarial_queries:
+    - "What is a data lake?"                                      # semantic: sibling storage concept
+    - "What is a data mart?"                                      # semantic: a subset of a warehouse, different concept
+    - "What is an operational database?"                          # semantic: contrasted with analytical warehouse
+    - "What is a physical warehouse management system?"           # syntactic: warehouse as a building/logistics term
+    - "What is data storage in a cold storage facility?"          # syntactic: warehouse → cold storage, data stays
+
+- id: q20
+  question: "What is distributed database?"
+  variations:
+    - "Can you explain what distributed database is?"
+    - "How would you define distributed database?"
+    - "Please tell me what distributed database is."
+    - "What exactly is distributed database?"
+    - "What is the definition of distributed database?"
+  adversarial_queries:
+    - "What is a cloud database?"                                 # semantic: often confused, but different concept
+    - "What is a parallel database?"                              # semantic: parallel is not distributed
+    - "What is a peer-to-peer network?"                           # semantic: similar topology but different concept
+    - "What is a distributed team in remote work management?"     # syntactic: distributed used in an HR/org context
+    - "What is network latency in telecommunications?"            # semantic: a challenge for distributed DBs, not the concept itself
+
+- id: q21
+  question: "What is database security?"
+  variations:
+    - "Can you explain what database security is?"
+    - "How would you define database security?"
+    - "Please tell me what database security is."
+    - "What exactly is database security?"
+    - "What is the definition of database security?"
+  adversarial_queries:
+    - "What is network security?"                                 # semantic: different security domain
+    - "What is database backup and recovery?"                     # semantic: backup is operational, not security
+    - "What is national security policy?"                         # syntactic: security reused in political context
+    - "What is a security guard database used for?"               # syntactic: "database" + "security" swapped in meaning
+    - "What is data privacy regulation?"                          # semantic: related but policy/legal, not technical security
+
+- id: q22
+  question: "What is RAID?"
+  variations:
+    - "Can you explain what RAID is?"
+    - "How would you define RAID?"
+    - "Please tell me what RAID is."
+    - "What exactly is RAID?"
+    - "What is the definition of RAID?"
+  adversarial_queries:
+    - "What is database replication?"                             # semantic: similar redundancy goal, different mechanism
+    - "What is database backup?"                                  # semantic: related to durability but different concept
+    - "What is a police raid operation?"                          # syntactic: RAID as a law enforcement action
+    - "What is RAID insect spray and how does it work?"           # syntactic: RAID as a brand name
+    - "What is a solid state drive?"                              # semantic: storage hardware, not a storage strategy
+
+- id: q23
+  question: "What is a view in SQL?"
+  variations:
+    - "Can you explain what a view in SQL is?"
+    - "How would you define a view in SQL?"
+    - "Please tell me what a view in SQL is."
+    - "What exactly is a view in SQL?"
+    - "What is the definition of a view in SQL?"
+  adversarial_queries:
+    - "What is a stored procedure in SQL?"                        # semantic: different SQL construct
+    - "What is a SQL index?"                                      # semantic: different SQL construct
+    - "What is a scenic view from a mountain?"                    # syntactic: view as a visual/landscape concept
+    - "What is a view in the MVC software architecture pattern?"  # syntactic: view as a UI layer in MVC
+    - "What is a database trigger?"                               # semantic: different DB automation construct
+
+- id: q24
+  question: "What is a trigger?"
+  variations:
+    - "Can you explain what a trigger is?"
+    - "How would you define a trigger?"
+    - "Please tell me what a trigger is."
+    - "What exactly is a trigger?"
+    - "What is the definition of a trigger?"
+  adversarial_queries:
+    - "What is a stored procedure?"                               # semantic: often confused with triggers
+    - "What is a database constraint?"                            # semantic: constraints enforce rules, triggers react to events
+    - "What is a trigger warning in psychology?"                  # syntactic: trigger in mental health context
+    - "What is the trigger mechanism on a firearm?"               # syntactic: trigger as a physical gun component
+    - "What is a user-defined function in SQL?"                   # semantic: different programmable DB construct
+
+- id: q25
+  question: "What is two-phase locking?"
+  variations:
+    - "Can you explain what two-phase locking is?"
+    - "How would you define two-phase locking?"
+    - "Please tell me what two-phase locking is."
+    - "What exactly is two-phase locking?"
+    - "What is the definition of two-phase locking?"
+  adversarial_queries:
+    - "What is two-phase commit?"                                 # syntactic: two-phase is shared, commit is not locking
+    - "What is optimistic locking?"                               # semantic: sibling locking strategy
+    - "What is timestamp-based concurrency control?"              # semantic: alternative to locking
+    - "What is a two-phase electrical power system?"              # syntactic: two-phase in an electrical engineering context
+    - "What is locking in a hairstyling technique?"               # syntactic: locking as in dreadlocks
+
+- id: q26
+  question: "What is deadlock?"
+  variations:
+    - "Can you explain what deadlock is?"
+    - "How would you define deadlock?"
+    - "Please tell me what deadlock is."
+    - "What exactly is deadlock?"
+    - "What is the definition of deadlock?"
+  adversarial_queries:
+    - "What is livelock?"                                         # semantic: counterpart concept to deadlock
+    - "What is starvation in database scheduling?"                # semantic: related scheduling problem, different cause
+    - "What is a deadlock in labor union negotiations?"           # syntactic: deadlock as a political/negotiation standoff
+    - "What is a dead lock on a door?"                            # syntactic: dead + lock as separate physical words
+    - "What is a race condition in concurrent programming?"       # semantic: related concurrency bug, different mechanism
+
+- id: q27
+  question: "What is write-ahead logging?"
+  variations:
+    - "Can you explain what write-ahead logging is?"
+    - "How would you define write-ahead logging?"
+    - "Please tell me what write-ahead logging is."
+    - "What exactly is write-ahead logging?"
+    - "What is the definition of write-ahead logging?"
+  adversarial_queries:
+    - "What is database checkpointing?"                           # semantic: used alongside WAL but different mechanism
+    - "What is database backup?"                                  # semantic: backup vs logging for recovery
+    - "What does it mean to write ahead in an academic outline?"  # syntactic: write-ahead as a planning metaphor
+    - "What is activity logging in web server access logs?"       # syntactic: logging in a completely different IT context
+    - "What is undo logging in database recovery?"                # semantic: sibling logging strategy with different behavior
+
+- id: q28
+  question: "What is a stored procedure?"
+  variations:
+    - "Can you explain what a stored procedure is?"
+    - "How would you define a stored procedure?"
+    - "Please tell me what a stored procedure is."
+    - "What exactly is a stored procedure?"
+    - "What is the definition of a stored procedure?"
+  adversarial_queries:
+    - "What is a database trigger?"                               # semantic: often confused with stored procedures
+    - "What is a prepared statement?"                             # semantic: similar in purpose, different in nature
+    - "What is a storage procedure in a hospital supply room?"    # syntactic: stored + procedure in a medical context
+    - "What is a procedure in a legal court case?"                # syntactic: procedure as a legal term
+    - "What is a database cursor?"                                # semantic: different DB programmatic construct
+
+- id: q29
+  question: "What is database recovery?"
+  variations:
+    - "Can you explain what database recovery is?"
+    - "How would you define database recovery?"
+    - "Please tell me what database recovery is."
+    - "What exactly is database recovery?"
+    - "What is the definition of database recovery?"
+  adversarial_queries:
+    - "What is database backup?"                                  # semantic: backup enables recovery but is not recovery itself
+    - "What is RAID?"                                             # semantic: RAID provides redundancy, not recovery protocols
+    - "What is addiction recovery and how does it work?"          # syntactic: recovery in a medical/social context
+    - "What is economic recovery after a recession?"              # syntactic: recovery as a macroeconomic term
+    - "What is disaster recovery planning in IT?"                 # semantic: broader IT concept, not database-specific
+
+- id: q30
+  question: "What is XML?"
+  variations:
+    - "Can you explain what XML is?"
+    - "How would you define XML?"
+    - "Please tell me what XML is."
+    - "What exactly is XML?"
+    - "What is the definition of XML?"
+  adversarial_queries:
+    - "What is JSON?"                                             # semantic: sibling data serialization format
+    - "What is HTML?"                                             # semantic: XML sibling, different purpose
+    - "What is YAML?"                                             # semantic: sibling serialization format
+    - "What is an X-ray and how does it work in medicine?"        # syntactic: X as in XML's first letter, completely different domain
+    - "What does XML stand for in the military or government?"    # syntactic: XML as a potential government acronym

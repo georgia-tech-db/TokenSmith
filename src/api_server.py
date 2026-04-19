@@ -67,6 +67,7 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = None
     top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
     session_id: Optional[str] = None
+    gen_model: Optional[str] = None  # Optional generator model override (must exist under models/generators/)
 
 
 class FeedbackRequest(BaseModel):
@@ -102,6 +103,28 @@ def _ensure_initialized():
             status_code=503,
             detail="Artifacts not loaded. Please run indexing first."
         )
+
+def _get_available_gen_models() -> List[str]:
+    """Return generator model paths derived from the local models/generators/ directory."""
+    models_dir = _project_root / "models" / "generators"
+    if not models_dir.exists():
+        return []
+    return sorted(
+        str(pathlib.Path("models") / "generators" / p.name)
+        for p in models_dir.iterdir()
+        if p.is_file() and p.suffix == ".gguf"
+    )
+
+def _resolve_gen_model(requested_model: Optional[str]) -> str:
+    """Pick generator model, validating membership if an override is provided."""
+    if not _config or not _config.gen_model:
+        raise HTTPException(status_code=500, detail="Model path not configured.")
+    if not requested_model:
+        return _config.gen_model
+    available = _get_available_gen_models()
+    if requested_model not in available:
+        raise HTTPException(status_code=400, detail="Unknown generator model.")
+    return requested_model
 
 def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
                  enable_chunks, prompt_type, max_chunks, temperature):
@@ -296,6 +319,14 @@ async def feedback(request: FeedbackRequest):
         return FeedbackResponse(ok=True, message="Feedback stored; unknown answer_id.")
     return FeedbackResponse(ok=True, message="Feedback stored; topic extractor disabled.")
 
+@app.get("/api/models/generators")
+async def list_generator_models():
+    """List available generator models from the local models/ directory."""
+    _ensure_initialized()
+    return {
+        "available": _get_available_gen_models(),
+        "default": _config.gen_model if _config else None,
+    }
 
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
@@ -385,8 +416,7 @@ async def chat_stream(request: ChatRequest):
         topk_idxs = [int(i) for i in topk_idxs]
         ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
     
-    if not _config.gen_model:
-        raise HTTPException(status_code=500, detail="Model path not configured.")
+    model_path = _resolve_gen_model(request.gen_model)
 
     answer_id = str(uuid4())
     session_id = request.session_id or str(uuid4())
@@ -411,7 +441,7 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
             # Stream generation token by token
-            for delta in answer(request.query, ranked_chunks, _config.gen_model,
+            for delta in answer(request.query, ranked_chunks, model_path,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
                     full_response_accumulator.append(delta) # Capture for log
@@ -523,8 +553,7 @@ async def chat(request: ChatRequest):
 
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
 
-        if not _config.gen_model:
-            raise HTTPException(status_code=500, detail="Model path not configured.")
+        model_path = _resolve_gen_model(request.gen_model)
 
         # 3. Full Generation
         try:
@@ -532,7 +561,7 @@ async def chat(request: ChatRequest):
                 answer(
                     request.query,
                     ranked_chunks,
-                    _config.gen_model,
+                    model_path,
                     _config.max_gen_tokens,
                     system_prompt_mode=prompt_type,
                     temperature=temperature,
