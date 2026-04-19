@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 from src.config import RAGConfig
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
+from src.index_updater import add_to_index
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
@@ -29,14 +30,18 @@ from src.retriever import (
 from src.knowledge_graph.io import load_graph_chunks_and_tree
 from src.knowledge_graph.query import KGRetriever
 from src.ranking.reranker import rerank
+from src.cache import get_cache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
-    parser.add_argument("mode", choices=["index", "chat"], help="operation mode")
+    parser.add_argument("mode", choices=["index", "chat", "add-chapters"], help="operation mode")
     parser.add_argument("--pdf_dir", default="data/chapters/", help="directory containing PDF files")
     parser.add_argument("--index_prefix", default="textbook_index", help="prefix for generated index files")
+    parser.add_argument("--partial", action="store_true",
+        help="use a partial index stored in 'index/partial_sections' instead of 'index/sections'"
+    )
     parser.add_argument("--model_path", help="path to generation model")
     parser.add_argument("--system_prompt_mode", choices=["baseline", "tutor", "concise", "detailed"], default="baseline")
     
@@ -44,6 +49,12 @@ def parse_args() -> argparse.Namespace:
     indexing_group.add_argument("--keep_tables", action="store_true")
     indexing_group.add_argument("--multiproc_indexing", action="store_true")
     indexing_group.add_argument("--embed_with_headings", action="store_true")
+    indexing_group.add_argument(
+        "--chapters",
+        nargs='+',
+        type=int,
+        help="a list of chapter numbers to index (e.g., --chapters 3 4 5)"
+    )
     parser.add_argument(
         "--double_prompt",
         action="store_true",
@@ -55,7 +66,7 @@ def parse_args() -> argparse.Namespace:
 def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    artifacts_dir = cfg.get_artifacts_directory()
+    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
 
     data_dir = pathlib.Path("data")
     print(f"Looking for markdown files in {data_dir.resolve()}...")
@@ -77,11 +88,48 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
+        chapters_to_index=args.chapters,
     )
-def use_indexed_chunks(question: str, chunks: list) -> list:
+
+def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
+    """Handles the logic for adding chapters to an existing index."""
+    if not args.chapters:
+        print("Please provide a list of chapters to add using the --chapters argument.")
+        return
+
+    strategy = cfg.get_chunk_strategy()
+    chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
+    artifacts_dir = cfg.get_artifacts_directory(partial=True)
+
+    data_dir = pathlib.Path("data")
+    print(f"Looking for markdown files in {data_dir.resolve()}...")
+    md_files = sorted(data_dir.glob("*.md"))
+    print(f"Found {len(md_files)} markdown files.")
+    print(f"First 5 markdown files: {[str(f) for f in md_files[:5]]}")
+
+    if not md_files:
+        print("ERROR: No markdown files found in data/.", file=sys.stderr)
+        sys.exit(1)
+
+    add_to_index(
+        markdown_file=str(md_files[0]),
+        chunker=chunker,
+        chunk_config=cfg.chunk_config,
+        embedding_model_path=cfg.embed_model,
+        embedding_model_context_window=cfg.embedding_model_context_window,
+        artifacts_dir=artifacts_dir,
+        index_prefix=args.index_prefix,
+        chapters_to_add=args.chapters,
+        use_headings=args.embed_with_headings,
+    )
+    print("Successfully added chapters to the index.")
+
+def use_indexed_chunks(question: str, chunks: list, cfg: RAGConfig, args: argparse.Namespace) -> list:
     # Logic for keyword matching from textbook index
     try:
-        with open('index/sections/textbook_index_page_to_chunk_map.json', 'r') as f:
+        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+        map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
+        with open(map_path, 'r') as f:
             page_to_chunk_map = json.load(f)
         with open('data/extracted_index.json', 'r') as f:
             extracted_index = json.load(f)
@@ -116,11 +164,30 @@ def get_answer(
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
     ranker = artifacts["ranker"]
+
     # Ensure these locals exist for all control flows to avoid UnboundLocalError
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
     scores = []
+
+    cache = get_cache(cfg)
+    normalized_question = cache.normalize_question(question)
+    config_cache_key = cache.make_config_key(cfg, args, golden_chunks)
+    question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
     
+    semantic_hit = cache.lookup(config_cache_key, question_embedding, normalized_question)
+
+    # Return cached answer if found
+    if semantic_hit is not None:
+
+        ans = semantic_hit.get("answer", "")
+
+        if is_test_mode:
+            return ans, semantic_hit.get("chunks_info"), semantic_hit.get("hyde_query")
+        console.print("Using cached answer")
+        render_final_answer(console, ans)
+        return ans
+
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -131,13 +198,13 @@ def get_answer(
         # No chunks - baseline mode
         ranked_chunks = []
     elif cfg.use_indexed_chunks:
-        ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
+        ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks, cfg, args)
     else:
         retrieval_query = question
         # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
+
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
@@ -203,7 +270,6 @@ def get_answer(
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
 
     use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
-
     if use_double:
         stream_iter = double_answer(
             question,
@@ -222,12 +288,7 @@ def get_answer(
         )
 
     if is_test_mode:
-        # We do not render MD in the test mode
-        ans = ""
-        for delta in stream_iter:
-            ans += delta
-        ans = dedupe_generated_text(ans)
-        return ans, chunks_info, hyde_query
+        ans = dedupe_generated_text("".join(stream_iter))
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
@@ -251,7 +312,27 @@ def get_answer(
             top_k=len(topk_idxs),
             additional_log_info=additional_log_info
         )
-        return ans
+
+    # Step 5: Store in semantic cache
+    cache_payload = {
+        "answer": ans,
+        "chunks_info": chunks_info,
+        "hyde_query": hyde_query,
+        "chunk_indices": topk_idxs,
+    }
+    if question_embedding is None:
+        question_embedding = cache.compute_embedding(normalized_question, retrievers, cfg.embed_model)
+    cache.store(
+        config_cache_key,
+        normalized_question,
+        question_embedding,
+        cache_payload
+    )
+
+    if is_test_mode:
+        return ans, chunks_info, hyde_query
+    
+    return ans
 
 def render_streaming_ans(console, stream_iter):
     ans = ""
@@ -267,6 +348,18 @@ def render_streaming_ans(console, stream_iter):
     live.update(Markdown(ans))
     console.print("\n[bold cyan]=== END OF ANSWER ===[/bold cyan]\n")
     return ans
+
+# Fully generated answer without streaming (Usage: cache hits)
+def render_final_answer(console, ans):
+    if not console:
+        raise ValueError("Console must be non null for rendering.")
+    console.print(
+        "\n[bold cyan]==================== START OF ANSWER ===================[/bold cyan]\n"
+    )
+    console.print(Markdown(ans))
+    console.print(
+        "\n[bold cyan]===================== END OF ANSWER ====================[/bold cyan]\n"
+    )
 
 def get_keywords(question: str) -> list:
     """
@@ -286,7 +379,8 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
 
     print("Initializing TokenSmith Chat...")
     try:
-        artifacts_dir = cfg.get_artifacts_directory()
+        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+        cfg.page_to_chunk_map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
         faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
         print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
@@ -373,6 +467,8 @@ def main():
         run_index_mode(args, cfg)
     elif args.mode == "chat":
         run_chat_session(args, cfg)
+    elif args.mode == "add-chapters":
+        run_add_chapters_mode(args, cfg)
 
 if __name__ == "__main__":
     main()
