@@ -144,6 +144,24 @@ model_path: "models/qwen2.5-0.5b-instruct-q5_k_m.gguf"
 chunk_mode: "tokens" # or "chars"
 chunk_tokens: 500
 chunk_size_char: 20000
+# Optional SQLite stores
+workload_db_path: "data/tokensmith_workload.db"   # query/retrieval logging
+catalog_db_path: "data/tokensmith_catalog.db"     # indexed chunk metadata catalog
+```
+
+### SQLite metadata catalog (optional)
+
+Set `catalog_db_path` in `config/config.yaml` to enable dual-write of indexed chunk metadata to SQLite during `index` mode.
+
+- If set, `src.index_builder` writes chunk metadata to catalog on each build.
+- On startup, `load_artifacts()` tries catalog metadata first and falls back to `*_meta.pkl`/`*_chunks.pkl`/`*_sources.pkl`.
+- This keeps backward compatibility while enabling metadata reads from SQLite.
+
+Benchmark startup load time:
+
+```shell
+conda run -n tokensmith python scripts/eval_catalog_loading.py --index_prefix textbook_index --iterations 5
+conda run -n tokensmith python scripts/eval_catalog_loading.py --index_prefix textbook_index --catalog_db_path data/tokensmith_catalog.db --iterations 5
 ```
 
 ## Usage
