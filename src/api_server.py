@@ -183,7 +183,8 @@ async def lifespan(app: FastAPI):
         artifacts_dir = _config.get_artifacts_directory()
         faiss_index, bm25_index, chunks, sources, metadata = load_artifacts(
             artifacts_dir=artifacts_dir,
-            index_prefix=INDEX_PREFIX
+            index_prefix=INDEX_PREFIX,
+            catalog_db_path=_config.catalog_db_path,
         )
 
         _artifacts = {

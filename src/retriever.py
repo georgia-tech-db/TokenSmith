@@ -18,6 +18,7 @@ from nltk.stem import WordNetLemmatizer
 import faiss
 import numpy as np
 from src.embedder import CachedEmbedder
+from src.catalog.index_catalog import IndexCatalog
 
 from src.config import RAGConfig
 from src.index_builder import preprocess_for_bm25
@@ -36,7 +37,11 @@ def _get_embedder(model_name: str) -> CachedEmbedder:
 
 # -------------------------- Read artifacts -------------------------------
 
-def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str], Any]:
+def load_artifacts(
+    artifacts_dir: os.PathLike,
+    index_prefix: str,
+    catalog_db_path: Optional[os.PathLike] = None,
+) -> Tuple[faiss.Index, Any, List[str], List[str], Any]:
     """
     Loads:
       - FAISS index: {index_prefix}.faiss
@@ -46,9 +51,21 @@ def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss
     artifacts_dir = pathlib.Path(artifacts_dir)
     faiss_index = faiss.read_index(str(artifacts_dir / f"{index_prefix}.faiss"))
     bm25_index  = pickle.load(open(artifacts_dir / f"{index_prefix}_bm25.pkl", "rb"))
-    chunks      = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
-    sources     = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
-    metadata = pickle.load(open(artifacts_dir / f"{index_prefix}_meta.pkl", "rb"))
+
+    chunks = None
+    sources = None
+    metadata = None
+    if catalog_db_path:
+        loaded = IndexCatalog(pathlib.Path(catalog_db_path)).load_latest_build(
+            index_prefix=index_prefix
+        )
+        if loaded is not None:
+            chunks, sources, metadata = loaded
+
+    if chunks is None or sources is None or metadata is None:
+        chunks = pickle.load(open(artifacts_dir / f"{index_prefix}_chunks.pkl", "rb"))
+        sources = pickle.load(open(artifacts_dir / f"{index_prefix}_sources.pkl", "rb"))
+        metadata = pickle.load(open(artifacts_dir / f"{index_prefix}_meta.pkl", "rb"))
 
     return faiss_index, bm25_index, chunks, sources, metadata
 

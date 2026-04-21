@@ -15,6 +15,7 @@ import numpy as np
 import faiss
 from rank_bm25 import BM25Okapi
 from src.embedder import SentenceTransformer
+from src.catalog.index_catalog import IndexCatalog
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig, print_chunk_stats
 from src.preprocessing.extraction import extract_sections_from_markdown
@@ -39,6 +40,7 @@ def build_index(
     embedding_model_context_window: int,
     artifacts_dir: os.PathLike,
     index_prefix: str,
+    catalog_db_path: str | None = None,
     use_multiprocessing: bool = False,
     use_headings: bool = False,
 ) -> None:
@@ -191,6 +193,21 @@ def build_index(
         pickle.dump(metadata, f)
     print(f"Saved all index artifacts with prefix: {index_prefix}")
 
+    # Optional dual-write to SQLite catalog for metadata/chunk loading at startup.
+    if catalog_db_path:
+        catalog = IndexCatalog(pathlib.Path(catalog_db_path))
+        build_id = catalog.write_build(
+            index_prefix=index_prefix,
+            artifacts_dir=pathlib.Path(artifacts_dir),
+            source_markdown=markdown_file,
+            chunks=all_chunks,
+            sources=sources,
+            metadata=metadata,
+        )
+        print(f"Saved index metadata in SQLite catalog (build_id={build_id})")
+
+
+# ------------------------ Helper functions ------------------------------
 
 def preprocess_for_bm25(text: str) -> list[str]:
     """Lowercase and tokenize text for BM25 indexing."""

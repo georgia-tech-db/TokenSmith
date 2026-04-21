@@ -57,6 +57,8 @@ class RAGConfig:
 
     # SQLite workload store (optional). Set to e.g. "data/tokensmith_workload.db" to enable.
     workload_db_path: Optional[str] = None
+    # SQLite index catalog (optional). If set, index metadata is dual-written and can be read on startup.
+    catalog_db_path: Optional[str] = None
 
     # user feedback modeling
     enable_topic_extraction: bool = False

@@ -22,3 +22,5 @@ enable_topic_extraction: true
 # Optional: log each chat query + retrieval hits to SQLite (see src/catalog/workload_store.py).
 # workload_db_path: "data/tokensmith_workload.db"
 enable_topic_extraction: false
+# Optional: dual-write and load indexed chunk metadata via SQLite catalog.
+# catalog_db_path: "data/tokensmith_catalog.db"

@@ -73,6 +73,7 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         embedding_model_context_window=cfg.embedding_model_context_window,
         artifacts_dir=artifacts_dir,
         index_prefix=args.index_prefix,
+        catalog_db_path=cfg.catalog_db_path,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
     )
@@ -286,7 +287,11 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     print("Initializing TokenSmith Chat...")
     try:
         artifacts_dir = cfg.get_artifacts_directory()
-        faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
+        faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(
+            artifacts_dir,
+            args.index_prefix,
+            catalog_db_path=cfg.catalog_db_path,
+        )
         print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
         if cfg.ranker_weights.get("index_keywords", 0) > 0:
