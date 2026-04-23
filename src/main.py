@@ -10,11 +10,13 @@ from typing import Dict, Optional, List, Tuple, Union, Any
 from rich.live import Live
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.table import Table
 
 from src.config import RAGConfig
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.index_updater import add_to_index
+from src.index_manager import IndexManager
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
@@ -34,12 +36,9 @@ ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer tha
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
-    parser.add_argument("mode", choices=["index", "chat", "add-chapters"], help="operation mode")
+    parser.add_argument("mode", choices=["index", "chat", "add-chapters", "list-indexes"], help="operation mode")
     parser.add_argument("--pdf_dir", default="data/chapters/", help="directory containing PDF files")
-    parser.add_argument("--index_prefix", default="textbook_index", help="prefix for generated index files")
-    parser.add_argument("--partial", action="store_true",
-        help="use a partial index stored in 'index/partial_sections' instead of 'index/sections'"
-    )
+    parser.add_argument("--index_name", default="sections", help="name of the index to use/create")
     parser.add_argument("--model_path", help="path to generation model")
     parser.add_argument("--system_prompt_mode", choices=["baseline", "tutor", "concise", "detailed"], default="baseline")
     
@@ -61,10 +60,33 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
+def run_list_indexes(manager: IndexManager):
+    indexes = manager.list_indexes()
+    if not indexes:
+        print("No indexes found.")
+        return
+
+    console = Console()
+    table = Table(title="Available TokenSmith Indexes")
+    table.add_column("Name", style="cyan")
+    table.add_column("Chapters", style="green")
+    table.add_column("Model", style="magenta")
+    table.add_column("Last Updated", style="yellow")
+
+    for idx in indexes:
+        chapters_str = ", ".join(map(str, idx.get("chapters", [])))
+        table.add_row(
+            idx.get("name", "N/A"),
+            chapters_str if chapters_str else "All",
+            idx.get("embedding_model", "Unknown").split("/")[-1],
+            idx.get("last_updated", "Unknown").split("T")[0]
+        )
+    console.print(table)
+
+def run_index_mode(args: argparse.Namespace, cfg: RAGConfig, manager: IndexManager):
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
+    artifacts_dir = cfg.get_artifacts_directory(args.index_name)
 
     data_dir = pathlib.Path("data")
     print(f"Looking for markdown files in {data_dir.resolve()}...")
@@ -76,20 +98,22 @@ def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
         print("ERROR: No markdown files found in data/.", file=sys.stderr)
         sys.exit(1)
 
+    source_file = str(md_files[0])
     build_index(
-        markdown_file=str(md_files[0]),
+        markdown_file=source_file,
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
         embedding_model_context_window=cfg.embedding_model_context_window,
         artifacts_dir=artifacts_dir,
-        index_prefix=args.index_prefix,
         use_multiprocessing=args.multiproc_indexing,
         use_headings=args.embed_with_headings,
         chapters_to_index=args.chapters,
     )
+    manager.write_manifest(args.index_name, cfg, args.chapters, source_file)
+    print(f"Index '{args.index_name}' built successfully.")
 
-def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
+def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig, manager: IndexManager):
     """Handles the logic for adding chapters to an existing index."""
     if not args.chapters:
         print("Please provide a list of chapters to add using the --chapters argument.")
@@ -97,7 +121,7 @@ def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
 
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
-    artifacts_dir = cfg.get_artifacts_directory(partial=True)
+    artifacts_dir = cfg.get_artifacts_directory(args.index_name)
 
     data_dir = pathlib.Path("data")
     print(f"Looking for markdown files in {data_dir.resolve()}...")
@@ -109,24 +133,25 @@ def run_add_chapters_mode(args: argparse.Namespace, cfg: RAGConfig):
         print("ERROR: No markdown files found in data/.", file=sys.stderr)
         sys.exit(1)
 
+    source_file = str(md_files[0])
     add_to_index(
-        markdown_file=str(md_files[0]),
+        markdown_file=source_file,
         chunker=chunker,
         chunk_config=cfg.chunk_config,
         embedding_model_path=cfg.embed_model,
         embedding_model_context_window=cfg.embedding_model_context_window,
         artifacts_dir=artifacts_dir,
-        index_prefix=args.index_prefix,
         chapters_to_add=args.chapters,
         use_headings=args.embed_with_headings,
     )
-    print("Successfully added chapters to the index.")
+    manager.write_manifest(args.index_name, cfg, args.chapters, source_file)
+    print(f"Successfully updated index '{args.index_name}'.")
 
 def use_indexed_chunks(question: str, chunks: list, cfg: RAGConfig, args: argparse.Namespace) -> list:
     # Logic for keyword matching from textbook index
     try:
-        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
-        map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
+        artifacts_dir = cfg.get_artifacts_directory(args.index_name)
+        map_path = cfg.get_page_to_chunk_map_path(artifacts_dir)
         with open(map_path, 'r') as f:
             page_to_chunk_map = json.load(f)
         with open('data/extracted_index.json', 'r') as f:
@@ -208,7 +233,6 @@ def get_answer(
         for retriever in retrievers:
             # print(f"Getting scores from retriever: {retriever.name}...")
             raw_scores[retriever.name] = retriever.get_scores(retrieval_query, pool_n, chunks)
-        # TODO: Fix retrieval logging.
 
         # print("Raw scores from retrievers:")
         # for retriever_name, score_dict in raw_scores.items():
@@ -371,15 +395,18 @@ def get_keywords(question: str) -> list:
     keywords = [word.strip('.,!?()[]') for word in words if word not in stopwords]
     return keywords
 
-def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
+def run_chat_session(args: argparse.Namespace, cfg: RAGConfig, manager: IndexManager):
     logger = get_logger()
     console = Console()
 
-    print("Initializing TokenSmith Chat...")
+    if not manager.validate_index(args.index_name, cfg):
+        sys.exit(1)
+
+    print(f"Initializing TokenSmith Chat with index '{args.index_name}'...")
     try:
-        artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
-        cfg.page_to_chunk_map_path = cfg.get_page_to_chunk_map_path(artifacts_dir, args.index_prefix)
-        faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir, args.index_prefix)
+        artifacts_dir = cfg.get_artifacts_directory(args.index_name)
+        cfg.page_to_chunk_map_path = cfg.get_page_to_chunk_map_path(artifacts_dir)
+        faiss_idx, bm25_idx, chunks, sources, meta = load_artifacts(artifacts_dir)
         print(f"Loaded {len(chunks)} chunks and {len(sources)} sources from artifacts.")
         retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx)]
         if cfg.ranker_weights.get("index_keywords", 0) > 0:
@@ -389,7 +416,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         print("Loaded retrievers and initialized ranker.")
         artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
     except Exception as e:
-        print(f"ERROR: {e}. Run 'index' mode first.")
+        print(f"ERROR: {e}. Run 'index' mode first for index '{args.index_name}'.")
         sys.exit(1)
 
     chat_history = []
@@ -444,20 +471,23 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             traceback.print_exc()
             break
 
-
-
 def main():
     args = parse_args()
     config_path = pathlib.Path("config/config.yaml")
     if not config_path.exists(): raise FileNotFoundError("config/config.yaml not found.")
     cfg = RAGConfig.from_yaml(config_path)
     print(f"Loaded configuration from {config_path.resolve()}.")
+    
+    manager = IndexManager()
+    
     if args.mode == "index":
-        run_index_mode(args, cfg)
+        run_index_mode(args, cfg, manager)
     elif args.mode == "chat":
-        run_chat_session(args, cfg)
+        run_chat_session(args, cfg, manager)
     elif args.mode == "add-chapters":
-        run_add_chapters_mode(args, cfg)
+        run_add_chapters_mode(args, cfg, manager)
+    elif args.mode == "list-indexes":
+        run_list_indexes(manager)
 
 if __name__ == "__main__":
     main()

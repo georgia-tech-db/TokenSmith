@@ -38,7 +38,6 @@ def build_index(
     embedding_model_path: str,
     embedding_model_context_window: int,
     artifacts_dir: os.PathLike,
-    index_prefix: str,
     use_multiprocessing: bool = False,
     use_headings: bool = False,
     chapters_to_index: Optional[List[int]] = None
@@ -47,12 +46,12 @@ def build_index(
     Extract sections, chunk, embed, and build both FAISS and BM25 indexes.
 
     Persists:
-        - {prefix}.faiss
-        - {prefix}_bm25.pkl
-        - {prefix}_chunks.pkl
-        - {prefix}_sources.pkl
-        - {prefix}_meta.pkl
-        - {prefix}_page_to_chunk_map.json
+        - index.faiss
+        - bm25.pkl
+        - chunks.pkl
+        - sources.pkl
+        - meta.pkl
+        - page_to_chunk_map.json
     """
     all_chunks: List[str] = []
     sources: List[str] = []
@@ -137,7 +136,7 @@ def build_index(
 
     # Save page-to-chunk map
     final_map = {page: sorted(list(ids)) for page, ids in page_to_chunk_ids.items()}
-    output_file = artifacts_dir / f"{index_prefix}_page_to_chunk_map.json"
+    output_file = artifacts_dir / "page_to_chunk_map.json"
     with open(output_file, "w") as f:
         json.dump(final_map, f, indent=2)
     print(f"Saved page to chunk ID map: {output_file}")
@@ -175,39 +174,26 @@ def build_index(
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
-    faiss.write_index(index, str(artifacts_dir / f"{index_prefix}.faiss"))
-    print(f"FAISS index built: {index_prefix}.faiss")
+    faiss.write_index(index, str(artifacts_dir / "index.faiss"))
+    print("FAISS index built: index.faiss")
 
     # Step 4: Build BM25 index
     print(f"Building BM25 index for {len(all_chunks):,} chunks...")
     tokenized_chunks = [preprocess_for_bm25(chunk) for chunk in all_chunks]
     bm25_index = BM25Okapi(tokenized_chunks)
-    with open(artifacts_dir / f"{index_prefix}_bm25.pkl", "wb") as f:
+    with open(artifacts_dir / "bm25.pkl", "wb") as f:
         pickle.dump(bm25_index, f)
-    print(f"BM25 index built: {index_prefix}_bm25.pkl")
+    print("BM25 index built: bm25.pkl")
 
     # Step 5: Persist remaining artifacts
-    with open(artifacts_dir / f"{index_prefix}_chunks.pkl", "wb") as f:
+    with open(artifacts_dir / "chunks.pkl", "wb") as f:
         pickle.dump(all_chunks, f)
-    with open(artifacts_dir / f"{index_prefix}_sources.pkl", "wb") as f:
+    with open(artifacts_dir / "sources.pkl", "wb") as f:
         pickle.dump(sources, f)
-    with open(artifacts_dir / f"{index_prefix}_meta.pkl", "wb") as f:
+    with open(artifacts_dir / "meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
-    print(f"Saved all index artifacts with prefix: {index_prefix}")
+    print(f"Saved all index artifacts to: {artifacts_dir}")
 
-    output_file = artifacts_dir / f"{index_prefix}_info.json"
-    index_info = {
-        "textbooks": [
-            {
-                "markdown_file": markdown_file,
-                "chapters": chapters_to_index if chapters_to_index else ["all"],
-                "status": "partial" if chapters_to_index else "full"
-            }
-        ]
-    }
-    with open(output_file, "w") as f:
-        json.dump(index_info, f, indent=2)
-    print(f"Saved index information: {output_file}")
 
 # ------------------------ Helper functions ------------------------------
 

@@ -99,38 +99,15 @@ class RAGConfig:
             return SectionRecursiveStrategy(self.chunk_config)
         raise ValueError(f"Unknown chunk config type: {self.chunk_config.__class__.__name__}")
 
-    def get_artifacts_directory(self, partial: bool = False) -> os.PathLike:
-        """
-        Returns the path prefix for index artifacts.
-        If partial=True, strictly returns the partial directory.
-        If partial=False, returns the main directory if it exists, 
-        otherwise falls back to the partial directory.
-        """
-        strategy = self.get_chunk_strategy()
-        base_folder = strategy.artifact_folder_name()
-        
-        main_dir = pathlib.Path("index", base_folder)
-        partial_dir = pathlib.Path("index", f"partial_{base_folder}")
-
-        if partial:
-            target_dir = partial_dir
-            print("Using partial directory (change partial to false in config.yaml to use full directory)")
-        else:
-            # Fallback logic: use main if it exists, otherwise use partial if it exists
-            if main_dir.exists():
-                target_dir = main_dir
-            elif partial_dir.exists():
-                target_dir = partial_dir
-                print("Using partial directory (unable to find full directory)")
-            else:
-                target_dir = main_dir
-
+    def get_artifacts_directory(self, index_name: str) -> pathlib.Path:
+        """Returns the path to the specified index directory."""
+        target_dir = pathlib.Path("index") / index_name
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir
 
-    def get_page_to_chunk_map_path(self, artifacts_dir: os.PathLike, index_prefix: str) -> os.PathLike:
+    def get_page_to_chunk_map_path(self, artifacts_dir: os.PathLike) -> os.PathLike:
         """Returns the path to the page-to-chunk map file."""
-        return pathlib.Path(artifacts_dir) / f"{index_prefix}_page_to_chunk_map.json"
+        return pathlib.Path(artifacts_dir) / "page_to_chunk_map.json"
     
     def get_config_state(self) -> None:
         """Returns dict of all config parameters except chunk_config """
