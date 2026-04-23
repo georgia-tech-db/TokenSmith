@@ -605,38 +605,37 @@ class TestLoadArtifacts:
         import faiss
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = "test_index"
             
             # Create mock FAISS index
             dim = 64
             index = faiss.IndexFlatL2(dim)
             index.add(np.random.random((10, dim)).astype('float32'))
-            faiss.write_index(index, f"{tmpdir}/{prefix}.faiss")
+            faiss.write_index(index, f"{tmpdir}/index.faiss")
             
             # Use a dict as a simple picklable BM25-like stand-in
             # (actual BM25 from rank_bm25 is picklable)
             bm25_obj = {"type": "bm25_placeholder"}
-            with open(f"{tmpdir}/{prefix}_bm25.pkl", "wb") as f:
+            with open(f"{tmpdir}/bm25.pkl", "wb") as f:
                 pickle.dump(bm25_obj, f)
             
             # Create mock chunks
             chunks = ["chunk1", "chunk2", "chunk3"]
-            with open(f"{tmpdir}/{prefix}_chunks.pkl", "wb") as f:
+            with open(f"{tmpdir}/chunks.pkl", "wb") as f:
                 pickle.dump(chunks, f)
             
             # Create mock sources
             sources = ["source1", "source2", "source3"]
-            with open(f"{tmpdir}/{prefix}_sources.pkl", "wb") as f:
+            with open(f"{tmpdir}/sources.pkl", "wb") as f:
                 pickle.dump(sources, f)
             
             # Create mock metadata
             meta = [{"page": 1}, {"page": 2}, {"page": 3}]
-            with open(f"{tmpdir}/{prefix}_meta.pkl", "wb") as f:
+            with open(f"{tmpdir}/meta.pkl", "wb") as f:
                 pickle.dump(meta, f)
             
             # Load and verify
             faiss_idx, bm25_idx, loaded_chunks, loaded_sources, loaded_meta = load_artifacts(
-                tmpdir, prefix
+                tmpdir
             )
             
             assert faiss_idx is not None
