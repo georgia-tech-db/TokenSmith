@@ -17,7 +17,7 @@ from src.embedder import SentenceTransformer
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
-from src.index_builder import build_index, preprocess_for_bm25
+from src.indexing.index_builder import build_index, preprocess_for_bm25
 
 DEFAULT_EXCLUSION_KEYWORDS = ['questions', 'exercises', 'summary', 'references']
 
@@ -29,7 +29,6 @@ def add_to_index(
     embedding_model_path: str,
     embedding_model_context_window: int,
     artifacts_dir: os.PathLike,
-    index_prefix: str,
     chapters_to_add: List[int],
     use_multiprocessing: bool = False,
     use_headings: bool = False,
@@ -39,28 +38,15 @@ def add_to_index(
     If an index does not exist, it creates a new one.
     """
     artifacts_dir = pathlib.Path(artifacts_dir)
-    faiss_index_path = artifacts_dir / f"{index_prefix}.faiss"
-    bm25_index_path = artifacts_dir / f"{index_prefix}_bm25.pkl"
-    chunks_path = artifacts_dir / f"{index_prefix}_chunks.pkl"
-    sources_path = artifacts_dir / f"{index_prefix}_sources.pkl"
-    meta_path = artifacts_dir / f"{index_prefix}_meta.pkl"
-    info_path = artifacts_dir / f"{index_prefix}_info.json"
-    map_path = artifacts_dir / f"{index_prefix}_page_to_chunk_map.json"
+    faiss_index_path = artifacts_dir / "index.faiss"
+    bm25_index_path = artifacts_dir / "bm25.pkl"
+    chunks_path = artifacts_dir / "chunks.pkl"
+    sources_path = artifacts_dir / "sources.pkl"
+    meta_path = artifacts_dir / "meta.pkl"
+    map_path = artifacts_dir / "page_to_chunk_map.json"
 
     if not faiss_index_path.exists():
-        print("No existing index found. Building a new one...")
-        build_index(
-            markdown_file=markdown_file,
-            chunker=chunker,
-            chunk_config=chunk_config,
-            embedding_model_path=embedding_model_path,
-            embedding_model_context_window=embedding_model_context_window,
-            artifacts_dir=artifacts_dir,
-            index_prefix=index_prefix,
-            use_multiprocessing=use_multiprocessing,
-            use_headings=use_headings,
-            chapters_to_index=chapters_to_add,
-        )
+        print("No existing index found. Please build a new one with `python -m src.main index --index_name <INDEX-NAME> --chapters <CHAPTERS>`")
         return
 
     print(f"Adding chapters {chapters_to_add} to existing index...")
@@ -72,8 +58,6 @@ def add_to_index(
         existing_sources = pickle.load(f)
     with open(meta_path, "rb") as f:
         existing_metadata = pickle.load(f)
-    with open(info_path, "r") as f:
-        index_info = json.load(f)
 
     if map_path.exists():
         with open(map_path, "r") as f:
@@ -81,18 +65,10 @@ def add_to_index(
     else:
         page_to_chunk_ids = {}
 
-    target_textbook = next((t for t in index_info["textbooks"] if t["markdown_file"] == markdown_file), None)
-
-    if target_textbook:
-        existing_chapters = target_textbook.get("chapters", [])
-    else:
-        existing_chapters = []
-
-    if "all" in existing_chapters:
-        print("Index contains all chapters. No new chapters to add.")
-        return
-
-    chapters_to_index = list(set(chapters_to_add) - set(existing_chapters))
+    # The IndexManager will handle chapter checks
+    # Only add chapters that aren't already represented in metadata.
+    existing_chapters = set(m.get('chapter', 0) for m in existing_metadata)
+    chapters_to_index = list(set(chapters_to_add) - existing_chapters)
 
     if not chapters_to_index:
         print("All requested chapters are already in the index.")
@@ -222,20 +198,5 @@ def add_to_index(
     with open(map_path, "w") as f:
         json.dump(final_map, f, indent=2)
     print(f"Updated page to chunk ID map: {map_path}")
-
-    # Update index info
-    updated_chapters = sorted(list(set(existing_chapters + chapters_to_index)))
-    if target_textbook:
-        target_textbook["chapters"] = updated_chapters
-        target_textbook["status"] = "partial" if "all" not in updated_chapters else "full"
-    else:
-        index_info["textbooks"].append({
-            "markdown_file": markdown_file,
-            "chapters": updated_chapters,
-            "status": "partial" if "all" not in updated_chapters else "full"
-        })
-
-    with open(info_path, "w") as f:
-        json.dump(index_info, f, indent=2)
 
     print(f"Successfully added {len(new_chunks)} new chunks for chapters {chapters_to_index}.")
