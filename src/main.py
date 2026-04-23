@@ -14,9 +14,9 @@ from rich.table import Table
 
 from src.config import RAGConfig
 from src.generator import answer, double_answer, dedupe_generated_text
-from src.index_builder import build_index
-from src.index_updater import add_to_index
-from src.index_manager import IndexManager
+from src.indexing.index_builder import build_index
+from src.indexing.index_updater import add_to_index
+from src.indexing.index_manager import IndexManager
 from src.instrumentation.logging import get_logger
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker

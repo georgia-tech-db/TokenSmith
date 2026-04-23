@@ -17,7 +17,7 @@ from src.embedder import SentenceTransformer
 
 from src.preprocessing.chunking import DocumentChunker, ChunkConfig
 from src.preprocessing.extraction import extract_sections_from_markdown
-from src.index_builder import build_index, preprocess_for_bm25
+from src.indexing.index_builder import build_index, preprocess_for_bm25
 
 DEFAULT_EXCLUSION_KEYWORDS = ['questions', 'exercises', 'summary', 'references']
 

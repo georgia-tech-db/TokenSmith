@@ -20,7 +20,7 @@ import numpy as np
 from src.embedder import CachedEmbedder
 
 from src.config import RAGConfig
-from src.index_builder import preprocess_for_bm25
+from src.indexing.index_builder import preprocess_for_bm25
 
 
 # -------------------------- Embedder cache ------------------------------
