@@ -7,6 +7,8 @@ ensemble_method: "rrf"
 ranker_weights: {"faiss":1,"bm25":0,"index_keywords":0}
 rrf_k: 60
 max_gen_tokens: 400
+semantic_threshold: 0.55
+min_chunk_size: 100
 chunk_mode: "recursive_sections"
 gen_model: "models/generators/qwen2.5-3b-instruct-q8_0.gguf"
 chunk_size_in_chars: 2000
