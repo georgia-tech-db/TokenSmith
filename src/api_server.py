@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from src.config import RAGConfig
 from src.generator import answer
 from src.l1_cache import L1RetrievalCache
+from src.l2_cache import L2AnswerCache
 from src.feedback_store import (
     init_feedback_db,
     save_answer,
@@ -51,6 +52,7 @@ _config: Optional[RAGConfig] = None
 _logger = None
 _topic_extractor: Optional[TopicExtractor] = None
 _l1_cache: Optional[L1RetrievalCache] = None
+_l2_cache: Optional[L2AnswerCache] = None
 
 
 class SourceItem(BaseModel):
@@ -221,10 +223,26 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 
     return ordered_ids, ordered_scores
 
+
+def _l2_generation_params(
+    prompt_type: str,
+    max_chunks: int,
+    temperature: float,
+    enable_chunks: bool,
+) -> Dict[str, object]:
+    return {
+        "gen_model": _config.gen_model,
+        "system_prompt_mode": prompt_type,
+        "max_gen_tokens": _config.max_gen_tokens,
+        "max_chunks": int(max_chunks),
+        "temperature": float(temperature),
+        "enable_chunks": bool(enable_chunks),
+    }
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize artifacts on startup."""
-    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor, _l1_cache
+    global _artifacts, _retrievers, _ranker, _config, _logger, _topic_extractor, _l1_cache, _l2_cache
 
     config_path = _resolve_config_path()
     if not config_path.exists():
@@ -271,6 +289,14 @@ async def lifespan(app: FastAPI):
             )
         else:
             _l1_cache = None
+
+        if getattr(_config, "enable_l2_cache", False):
+            _l2_cache = L2AnswerCache(
+                max_entries=getattr(_config, "l2_cache_max_entries", 256),
+                ttl_seconds=getattr(_config, "l2_cache_ttl_seconds", 600),
+            )
+        else:
+            _l2_cache = None
 
         init_feedback_db()
         if _config.enable_topic_extraction:
@@ -441,9 +467,22 @@ async def chat_stream(request: ChatRequest):
     
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
+
+    l2_params = _l2_generation_params(
+        prompt_type=prompt_type,
+        max_chunks=max_chunks,
+        temperature=temperature,
+        enable_chunks=enable_chunks,
+    )
+    l2_entry = None
+    if getattr(_config, "enable_l2_cache", False) and _l2_cache is not None:
+        l2_entry = _l2_cache.get(request.query, params=l2_params)
     
-    if disable_chunks:
+    if l2_entry is not None:
+        ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], {}
+    elif disable_chunks:
         ranked_chunks, topk_idxs = [], []
+        ordered_ranked_scores = {}
     else:
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
@@ -474,12 +513,20 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'sources', 'content': [s.dict() for s in sources_used]})}\n\n"
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
-            # Stream generation token by token
-            for delta in answer(request.query, ranked_chunks, _config.gen_model,
-                              _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
-                if delta:
-                    full_response_accumulator.append(delta) # Capture for log
-                    yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
+            if l2_entry is not None:
+                full_response_accumulator = [l2_entry.answer_text]
+                yield f"data: {json.dumps({'type': 'token', 'content': l2_entry.answer_text})}\n\n"
+            else:
+                # Stream generation token by token
+                for delta in answer(request.query, ranked_chunks, _config.gen_model,
+                                  _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
+                    if delta:
+                        full_response_accumulator.append(delta) # Capture for log
+                        yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
+
+                final_answer = "".join(full_response_accumulator)
+                if getattr(_config, "enable_l2_cache", False) and _l2_cache is not None and final_answer.strip():
+                    _l2_cache.set(request.query, final_answer, params=l2_params)
             
             if _logger:
                 success_log = _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
@@ -562,10 +609,24 @@ async def chat(request: ChatRequest):
 
     chunks = _artifacts["chunks"]
     sources = _artifacts["sources"]
+    l2_params = _l2_generation_params(
+        prompt_type=prompt_type,
+        max_chunks=max_chunks,
+        temperature=temperature,
+        enable_chunks=enable_chunks,
+    )
 
     try:
+        # 2. L2 Cache fast path for exact query + generation params
+        l2_entry = None
+        if getattr(_config, "enable_l2_cache", False) and _l2_cache is not None:
+            l2_entry = _l2_cache.get(request.query, params=l2_params)
+
         # 2. Retrieval & Ranking (SAFE against mocked None return)
-        if disable_chunks:
+        if l2_entry is not None:
+            ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], {}
+            answer_text = l2_entry.answer_text
+        elif disable_chunks:
             ranked_chunks, topk_idxs, ordered_ranked_scores = [], [], {}
         else:
             retrieval_result = _retrieve_and_rank(
@@ -591,22 +652,25 @@ async def chat(request: ChatRequest):
             raise HTTPException(status_code=500, detail="Model path not configured.")
 
         # 3. Full Generation
-        try:
-            answer_text = "".join(
-                answer(
-                    request.query,
-                    ranked_chunks,
-                    _config.gen_model,
-                    _config.max_gen_tokens,
-                    system_prompt_mode=prompt_type,
-                    temperature=temperature,
+        if l2_entry is None:
+            try:
+                answer_text = "".join(
+                    answer(
+                        request.query,
+                        ranked_chunks,
+                        _config.gen_model,
+                        _config.max_gen_tokens,
+                        system_prompt_mode=prompt_type,
+                        temperature=temperature,
+                    )
                 )
-            )
-        except Exception as gen_error:
-            print(f"Generation failed: {str(gen_error)}")
-            answer_text = (
-                "I'm sorry, but I couldn't generate a response due to an internal error."
-            )
+                if getattr(_config, "enable_l2_cache", False) and _l2_cache is not None and answer_text.strip():
+                    _l2_cache.set(request.query, answer_text, params=l2_params)
+            except Exception as gen_error:
+                print(f"Generation failed: {str(gen_error)}")
+                answer_text = (
+                    "I'm sorry, but I couldn't generate a response due to an internal error."
+                )
 
         # 4. Post-processing (Metadata & Pages)
         page_nums = get_page_numbers(topk_idxs, _artifacts["meta"]) or {}

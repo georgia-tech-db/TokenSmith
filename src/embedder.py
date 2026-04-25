@@ -60,15 +60,26 @@ class SentenceTransformer:
         self.model_path = model_path
         self.n_ctx = n_ctx
 
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            embedding=True,
-            verbose=False,
-            use_mmap=True,
-            n_gpu_layers=-1,
-        )
+        try:
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                embedding=True,
+                verbose=False,
+                use_mmap=True,
+                n_gpu_layers=-1,
+            )
+        except Exception as e:
+            print(f"Error loading embedding model from {model_path} on GPU: {e}")
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                embedding=True,
+                verbose=False,
+                use_mmap=True,
+            )
         self._embedding_dimension = None
 
         # Warm up — also caches embedding dimension

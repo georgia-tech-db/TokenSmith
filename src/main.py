@@ -13,6 +13,7 @@ from rich.markdown import Markdown
 
 from src.config import RAGConfig
 from src.l1_cache import L1RetrievalCache
+from src.l2_cache import L2AnswerCache
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
@@ -124,6 +125,50 @@ def get_answer(
     chunks_info = None
     hyde_query = None
     cache_meta: Dict[str, Any] = {}
+    l2_cache: Optional[L2AnswerCache] = artifacts.get("l2_cache")
+    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+    use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
+    generation_params = {
+        "gen_model": cfg.gen_model,
+        "system_prompt_mode": system_prompt,
+        "max_gen_tokens": cfg.max_gen_tokens,
+        "use_double_prompt": use_double,
+    }
+
+    if not is_test_mode and cfg.enable_l2_cache and l2_cache is not None:
+        l2_entry = l2_cache.get(question, params=generation_params)
+        if l2_entry is not None:
+            cache_meta = {
+                "l2_cache": {
+                    "hit": True,
+                    "normalized_query_text": l2_entry.normalized_query_text,
+                    "last_access_at": l2_entry.last_access_at,
+                    "expires_at": l2_entry.expires_at,
+                    "access_count": l2_entry.access_count,
+                }
+            }
+            if console:
+                console.print("\n[bold cyan]=== START OF ANSWER ===[/bold cyan]\n")
+                console.print(Markdown(l2_entry.answer_text))
+                console.print("\n[bold cyan]=== END OF ANSWER ===[/bold cyan]\n")
+
+            logger.save_chat_log(
+                query=question,
+                config_state=cfg.get_config_state(),
+                ordered_scores=[],
+                chat_request_params={
+                    "system_prompt": system_prompt,
+                    "max_tokens": cfg.max_gen_tokens,
+                },
+                top_idxs=[],
+                chunks=[],
+                sources=[],
+                page_map={},
+                full_response=l2_entry.answer_text,
+                top_k=0,
+                additional_log_info={**(additional_log_info or {}), **cache_meta},
+            )
+            return l2_entry.answer_text
     if golden_chunks and cfg.use_golden_chunks:
         # Use provided golden chunks
         ranked_chunks = golden_chunks
@@ -239,9 +284,6 @@ def get_answer(
 
     # Step 4: Generation
     model_path = cfg.gen_model
-    system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-
-    use_double = getattr(args, "double_prompt", False) or cfg.use_double_prompt
 
     if use_double:
         stream_iter = double_answer(
@@ -270,6 +312,10 @@ def get_answer(
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
         ans = render_streaming_ans(console, stream_iter)
+
+        if cfg.enable_l2_cache and l2_cache is not None and ans.strip():
+            l2_cache.set(question, ans, params=generation_params)
+            cache_meta["l2_cache"] = {"hit": False}
 
         # Logging
         meta = artifacts.get("meta", [])
@@ -337,6 +383,12 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             max_entries=cfg.l1_cache_max_entries,
             ttl_seconds=cfg.l1_cache_ttl_seconds,
         )
+        l2_cache = None
+        if cfg.enable_l2_cache:
+            l2_cache = L2AnswerCache(
+                max_entries=cfg.l2_cache_max_entries,
+                ttl_seconds=cfg.l2_cache_ttl_seconds,
+            )
         print("Loaded retrievers and initialized ranker.")
         artifacts = {
             "chunks": chunks,
@@ -345,6 +397,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             "ranker": ranker,
             "meta": meta,
             "l1_cache": l1_cache,
+            "l2_cache": l2_cache,
         }
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")

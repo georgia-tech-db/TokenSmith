@@ -19,3 +19,6 @@ use_double_prompt: false
 enable_history: true
 max_history_turns: 3
 enable_topic_extraction: false
+enable_l2_cache: true
+l2_cache_max_entries: 256
+l2_cache_ttl_seconds: 600
