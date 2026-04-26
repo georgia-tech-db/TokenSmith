@@ -9,6 +9,16 @@ import textwrap
 from src.generator import ANSWER_END, ANSWER_START, run_llama_cpp, text_cleaning
 
 
+def _completion_text(output) -> str:
+    """Extract text from llama.cpp completion output, tolerating string test doubles."""
+    if isinstance(output, str):
+        return output
+    try:
+        return output["choices"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
 def generate_hypothetical_document(
     query: str,
     model_path: str,
@@ -50,7 +60,7 @@ def generate_hypothetical_document(
     except Exception:
         return query
 
-    return hypothetical.strip() or query
+    return _completion_text(hypothetical).strip() or query
 
 def correct_query_grammar(
     query: str,
@@ -85,7 +95,7 @@ def correct_query_grammar(
         return query
 
     # If model returns empty or hallucinated long text, return original
-    cleaned = corrected_query["choices"][0]["text"].strip()
+    cleaned = _completion_text(corrected_query).strip()
     if not cleaned or len(cleaned) > len(query) * 2:
         return query
 
@@ -127,7 +137,7 @@ def expand_query_with_keywords(
 
     # Combine original query with expansion
     query_lines = [query]
-    query_lines.extend([line.strip() for line in expansion["choices"][0]["text"].split('\n') if line.strip()])
+    query_lines.extend([line.strip() for line in _completion_text(expansion).split('\n') if line.strip()])
 
     # Remove numbering if present
     query_lines = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in query_lines]
@@ -168,7 +178,7 @@ def decompose_complex_query(
     except Exception:
         return [query]
 
-    sub_questions = [line.strip() for line in output["choices"][0]["text"].split('\n') if line.strip()]
+    sub_questions = [line.strip() for line in _completion_text(output).split('\n') if line.strip()]
 
     # Remove numbering if present
     sub_questions = [line.split('.', 1)[-1].strip() if '.' in line[:3] else line for line in sub_questions]
@@ -242,7 +252,7 @@ def contextualize_query(
     except Exception:
         return query
 
-    rewritten = output["choices"][0]["text"].strip()
+    rewritten = _completion_text(output).strip()
     
     # If model hallucinates or errors, fall back to original query
     if not rewritten or len(rewritten) > len(query) * 2:

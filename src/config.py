@@ -27,7 +27,7 @@ class RAGConfig:
     # retrieval + ranking
     top_k: int = 10
     num_candidates: int = 60
-    embed_model: str = "models/Qwen3-Embedding-4B-Q5_K_M.gguf"
+    embed_model: str = "models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf"
     embedding_model_context_window: int = 4096
     ensemble_method: str = "rrf"
     rrf_k: int = 60
@@ -39,9 +39,8 @@ class RAGConfig:
 
     # generation
     max_gen_tokens: int = 400
-    gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
+    gen_model: str = "models/generators/qwen2.5-3b-instruct-q8_0.gguf"
     model_path: Optional[str] = None
-
     # testing
     system_prompt_mode: str = "baseline"
     disable_chunks: bool = False
@@ -53,6 +52,11 @@ class RAGConfig:
     use_hyde: bool = False
     hyde_max_tokens: int = 300
     use_double_prompt: bool = False
+
+    # cache
+    semantic_cache_enabled: bool = False
+    semantic_cache_bi_encoder_threshold: float = 0.90
+    semantic_cache_cross_encoder_threshold: float = 0.99
 
     # conversational memory
     enable_history: bool = True
@@ -69,6 +73,8 @@ class RAGConfig:
     decomposition_max_subqueries: int = 4
     enable_adaptive_routing: bool = True
     enable_hierarchical_retrieval: bool = True
+    retrieval_confidence_threshold: float = 0.03
+    fallback_candidate_multiplier: int = 2
 
     # user feedback modeling
     enable_topic_extraction: bool = False
@@ -99,6 +105,8 @@ class RAGConfig:
         assert self.section_top_k > 0, "section_top_k must be > 0"
         assert self.page_rerank_window >= self.top_k, "page_rerank_window must be >= top_k"
         assert self.decomposition_max_subqueries > 0, "decomposition_max_subqueries must be > 0"
+        assert self.retrieval_confidence_threshold >= 0, "retrieval_confidence_threshold must be >= 0"
+        assert self.fallback_candidate_multiplier >= 1, "fallback_candidate_multiplier must be >= 1"
         assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
         assert self.embedding_model_context_window > 0, "embedding_model_context_window must be > 0"
         if self.ensemble_method.lower() in {"linear","weighted"}:
@@ -125,13 +133,39 @@ class RAGConfig:
             return SectionRecursiveStrategy(self.chunk_config)
         raise ValueError(f"Unknown chunk config type: {self.chunk_config.__class__.__name__}")
 
-    def get_artifacts_directory(self) -> os.PathLike:
-        """Returns the path prefix for index artifacts."""
+    def get_artifacts_directory(self, partial: bool = False) -> os.PathLike:
+        """
+        Returns the path prefix for index artifacts.
+        If partial=True, strictly returns the partial directory.
+        If partial=False, returns the main directory if it exists, 
+        otherwise falls back to the partial directory.
+        """
         strategy = self.get_chunk_strategy()
-        strategy_dir = pathlib.Path("index", strategy.artifact_folder_name())
-        strategy_dir.mkdir(parents=True, exist_ok=True)
-        return strategy_dir
+        base_folder = strategy.artifact_folder_name()
+        
+        main_dir = pathlib.Path("index", base_folder)
+        partial_dir = pathlib.Path("index", f"partial_{base_folder}")
 
+        if partial:
+            target_dir = partial_dir
+            print("Using partial directory (change partial to false in config.yaml to use full directory)")
+        else:
+            # Fallback logic: use main if it exists, otherwise use partial if it exists
+            if main_dir.exists():
+                target_dir = main_dir
+            elif partial_dir.exists():
+                target_dir = partial_dir
+                print("Using partial directory (unable to find full directory)")
+            else:
+                target_dir = main_dir
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return target_dir
+
+    def get_page_to_chunk_map_path(self, artifacts_dir: os.PathLike, index_prefix: str) -> os.PathLike:
+        """Returns the path to the page-to-chunk map file."""
+        return pathlib.Path(artifacts_dir) / f"{index_prefix}_page_to_chunk_map.json"
+    
     def get_config_state(self) -> Dict[str, object]:
         """Return a serializable dict of all config parameters except chunk_config."""
         state = self.__dict__.copy()

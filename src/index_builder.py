@@ -11,7 +11,7 @@ import os
 import pathlib
 import pickle
 import re
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import faiss
 import numpy as np
@@ -135,6 +135,7 @@ def _extract_and_chunk(
     markdown_file: str,
     chunker: DocumentChunker,
     chunk_config: ChunkConfig,
+    chapters_to_index: Optional[Sequence[int]] = None,
 ) -> tuple[
     List[str], List[str], List[Dict[str, Any]],
     List[str], List[str], List[Dict[str, Any]],
@@ -152,6 +153,14 @@ def _extract_and_chunk(
     )
     if not sections:
         raise ValueError(f"No sections were extracted from {source_path}")
+
+    if chapters_to_index:
+        chapter_filter = {int(chapter) for chapter in chapters_to_index}
+        sections = [section for section in sections if section.get("chapter") in chapter_filter]
+        if not sections:
+            raise ValueError(
+                f"No sections matched requested chapters: {sorted(chapter_filter)}"
+            )
 
     chunk_texts: List[str] = []
     chunk_sources: List[str] = []
@@ -358,6 +367,7 @@ def build_index(
     index_prefix: str,
     use_multiprocessing: bool = False,
     use_headings: bool = False,
+    chapters_to_index: Optional[List[int]] = None,
 ) -> None:
     """Extract sections, chunk, embed, and build both section-level and chunk-level indexes."""
     artifacts_path = pathlib.Path(artifacts_dir)
@@ -366,14 +376,18 @@ def build_index(
 
     (chunk_texts, chunk_sources, chunk_meta,
      section_texts, section_sources, section_meta,
-     page_to_chunk_ids) = _extract_and_chunk(markdown_file, chunker, chunk_config)
+     page_to_chunk_ids) = _extract_and_chunk(
+        markdown_file,
+        chunker,
+        chunk_config,
+        chapters_to_index=chapters_to_index,
+    )
 
     (chunk_embeddings, section_embeddings,
      chunk_faiss, section_faiss,
      chunk_bm25, section_bm25) = _embed_and_build_indexes(
         embedding_model_path, chunk_texts, section_texts, use_multiprocessing,
     )
-
     _persist_artifacts(
         artifacts_dir=artifacts_path,
         file_map=file_map,
@@ -398,6 +412,21 @@ def build_index(
         use_multiprocessing=use_multiprocessing,
     )
 
+    output_file = artifacts_path / f"{index_prefix}_info.json"
+    index_info = {
+        "textbooks": [
+            {
+                "markdown_file": markdown_file,
+                "chapters": chapters_to_index if chapters_to_index else ["all"],
+                "status": "partial" if chapters_to_index else "full"
+            }
+        ]
+    }
+    with output_file.open("w", encoding="utf-8") as f:
+        json.dump(index_info, f, indent=2)
+    print(f"Saved index information: {output_file}")
+
+# ------------------------ Helper functions ------------------------------
 
 def preprocess_for_bm25(text: str) -> List[str]:
     """

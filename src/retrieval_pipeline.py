@@ -179,6 +179,25 @@ class AdaptiveQueryPlanner:
             A tuple of (QueryPlan, reason_string) where reason_string explains
             the classification route taken.
         """
+        if not self.cfg.enable_adaptive_routing:
+            return (
+                QueryPlan(
+                    query_type="configured",
+                    resolved_query_type="configured",
+                    effective_query=query,
+                    retrieval_mode="flat",
+                    chunk_weights=self._normalize_weights(self.cfg.ranker_weights),
+                    section_weights={},
+                    num_candidates=max(self.cfg.num_candidates, self.cfg.top_k),
+                    section_top_k=0,
+                    section_candidate_pool=0,
+                    use_hyde=self.cfg.use_hyde,
+                    diversify_sections=False,
+                    max_chunks_per_section=self.cfg.top_k,
+                ),
+                "adaptive routing disabled",
+            )
+
         query_type, reason = self.classify(query, history)
         effective_query = query
         rewritten_query = None
@@ -214,6 +233,9 @@ class AdaptiveQueryPlanner:
         elif resolved_query_type in {"explanatory", "procedural", "follow_up", "multi_part"}:
             retrieval_mode = "hierarchical"
         else:
+            retrieval_mode = "flat"
+
+        if not self.cfg.enable_hierarchical_retrieval:
             retrieval_mode = "flat"
 
         if resolved_query_type == "multi_part":
@@ -358,6 +380,13 @@ def _score_lookup(candidate_ids: Sequence[int], candidate_scores: Sequence[float
         int(candidate_id): float(score) / max_score
         for candidate_id, score in zip(candidate_ids, candidate_scores)
     }
+
+
+def _below_confidence_threshold(scores: Sequence[float], threshold: float) -> bool:
+    """Return true when a result list is empty or its best fused score is below threshold."""
+    if threshold <= 0:
+        return False
+    return not scores or max(scores) < threshold
 
 
 def _apply_section_prior(
@@ -537,6 +566,23 @@ def execute_retrieval_plan(
             pool_size=plan.num_candidates,
             candidate_ids=candidate_ids,
         )
+
+        if _below_confidence_threshold(chunk_scores, cfg.retrieval_confidence_threshold):
+            fallback_scores, fallback_ids, fallback_ordered_scores = _score_with_retrievers(
+                query=query_input,
+                texts=bundle.chunks,
+                retrievers=retrievers["chunk"],
+                weights=plan.chunk_weights,
+                pool_size=plan.num_candidates * cfg.fallback_candidate_multiplier,
+                candidate_ids=None,
+            )
+            if fallback_ordered_scores and (
+                not chunk_scores or max(fallback_ordered_scores) >= max(chunk_scores)
+            ):
+                raw_chunk_scores = fallback_scores
+                chunk_ids = fallback_ids
+                chunk_scores = fallback_ordered_scores
+                candidate_ids = None
 
         for retriever_name, scores in raw_chunk_scores.items():
             merged_raw_chunk_scores.setdefault(retriever_name, {}).update(scores)

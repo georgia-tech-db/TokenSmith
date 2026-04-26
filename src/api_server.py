@@ -3,6 +3,7 @@
 import json
 import pathlib
 import traceback
+from copy import copy
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -29,6 +30,7 @@ from src.user_feedback_model import TopicExtractor, estimate_difficulty
 
 # Constants
 INDEX_PREFIX = "textbook_index"
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 # Global state populated during app lifespan
@@ -57,6 +59,7 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = None
     top_k: Optional[int] = None  # Alternative name for max_chunks, takes precedence if both provided
     session_id: Optional[str] = None
+    gen_model: Optional[str] = None  # Optional generator model override (must exist under models/generators/)
 
 
 class FeedbackRequest(BaseModel):
@@ -83,7 +86,7 @@ class ChatResponse(BaseModel):
 
 def _resolve_config_path() -> pathlib.Path:
     """Return the absolute path to the API config."""
-    return pathlib.Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+    return PROJECT_ROOT / "config" / "config.yaml"
 
 
 def _ensure_initialized():
@@ -93,6 +96,37 @@ def _ensure_initialized():
             status_code=503,
             detail="Artifacts not loaded. Please run indexing first."
         )
+
+def _get_available_gen_models() -> List[str]:
+    """Return generator model paths derived from the local models/generators/ directory."""
+    models_dir = PROJECT_ROOT / "models" / "generators"
+    if not models_dir.exists():
+        return []
+    return sorted(
+        str(pathlib.Path("models") / "generators" / p.name)
+        for p in models_dir.iterdir()
+        if p.is_file() and p.suffix == ".gguf"
+    )
+
+def _resolve_gen_model(requested_model: Optional[str]) -> str:
+    """Pick generator model, validating membership if an override is provided."""
+    if not _config or not _config.gen_model:
+        raise HTTPException(status_code=500, detail="Model path not configured.")
+    if not requested_model:
+        return _config.gen_model
+    available = _get_available_gen_models()
+    if requested_model not in available:
+        raise HTTPException(status_code=400, detail="Unknown generator model.")
+    return requested_model
+
+
+def _request_config(top_k: int) -> RAGConfig:
+    """Return a per-request config copy so API top_k can affect adaptive retrieval."""
+    cfg = copy(_config)
+    cfg.top_k = max(1, int(top_k))
+    cfg.num_candidates = max(cfg.num_candidates, cfg.top_k)
+    cfg.page_rerank_window = max(cfg.page_rerank_window, cfg.top_k)
+    return cfg
 
 def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, full_response_accumulator, request,
                  enable_chunks, prompt_type, max_chunks, temperature, retrieval_trace=None):
@@ -142,7 +176,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
     if _artifact_bundle and _runtime_retrievers:
         _, topk_idxs, retrieval_trace = execute_retrieval_plan(
             query=query,
-            cfg=_config,
+            cfg=_request_config(top_k if top_k is not None else _config.top_k),
             bundle=_artifact_bundle,
             retrievers=_runtime_retrievers,
             history=None,
@@ -291,6 +325,14 @@ async def feedback(request: FeedbackRequest):
         return FeedbackResponse(ok=True, message="Feedback stored; unknown answer_id.")
     return FeedbackResponse(ok=True, message="Feedback stored; topic extractor disabled.")
 
+@app.get("/api/models/generators")
+async def list_generator_models():
+    """List available generator models from the local models/ directory."""
+    _ensure_initialized()
+    return {
+        "available": _get_available_gen_models(),
+        "default": _config.gen_model if _config else None,
+    }
 
 @app.post("/api/test-chat")
 async def test_chat(request: ChatRequest):
@@ -378,7 +420,7 @@ async def chat_stream(request: ChatRequest):
     elif _artifact_bundle and _runtime_retrievers:
         ranked_chunks, topk_idxs, retrieval_trace = execute_retrieval_plan(
             query=request.query,
-            cfg=_config,
+            cfg=_request_config(max_chunks),
             bundle=_artifact_bundle,
             retrievers=_runtime_retrievers,
             history=None,
@@ -388,9 +430,7 @@ async def chat_stream(request: ChatRequest):
         topk_idxs, ordered_ranked_scores = _retrieve_and_rank(request.query, top_k=max_chunks)
         topk_idxs = [int(i) for i in topk_idxs]
         ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
-
-    if not _config.gen_model:
-        raise HTTPException(status_code=500, detail="Model path not configured.")
+    model_path = _resolve_gen_model(request.gen_model)
 
     answer_id = str(uuid4())
     session_id = request.session_id or str(uuid4())
@@ -415,7 +455,7 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'chunks_by_page', 'content': chunks_by_page})}\n\n"
 
             # Stream generation token by token
-            for delta in answer(request.query, ranked_chunks, _config.gen_model,
+            for delta in answer(request.query, ranked_chunks, model_path,
                               _config.max_gen_tokens, system_prompt_mode=prompt_type, temperature=temperature):
                 if delta:
                     full_response_accumulator.append(delta) # Capture for log
@@ -509,7 +549,7 @@ async def chat(request: ChatRequest):
         elif _artifact_bundle and _runtime_retrievers:
             ranked_chunks, topk_idxs, retrieval_trace = execute_retrieval_plan(
                 query=request.query,
-                cfg=_config,
+                cfg=_request_config(max_chunks),
                 bundle=_artifact_bundle,
                 retrievers=_runtime_retrievers,
                 history=None,
@@ -531,8 +571,7 @@ async def chat(request: ChatRequest):
             ordered_ranked_scores = ordered_ranked_scores or {}
             ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
 
-        if not _config.gen_model:
-            raise HTTPException(status_code=500, detail="Model path not configured.")
+        model_path = _resolve_gen_model(request.gen_model)
 
         # 3. Full Generation
         try:
@@ -540,7 +579,7 @@ async def chat(request: ChatRequest):
                 answer(
                     request.query,
                     ranked_chunks,
-                    _config.gen_model,
+                    model_path,
                     _config.max_gen_tokens,
                     system_prompt_mode=prompt_type,
                     temperature=temperature,

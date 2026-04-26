@@ -137,7 +137,8 @@ def load_artifact_bundle(artifacts_dir: os.PathLike, index_prefix: str) -> Artif
             file_path = artifacts_path / relative_path
             if not file_path.exists():
                 raise ArtifactValidationError(f"Artifact manifest references missing file: {file_path}")
-        validate_bundle(bundle)
+
+    validate_bundle(bundle)
 
     return bundle
 
