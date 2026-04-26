@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
-from src.config import RAGConfig
+from src.config import RAGConfig, resolve_config_path
 from src.generator import answer
 from src.feedback_store import (
     init_feedback_db,
@@ -86,7 +86,7 @@ class ChatResponse(BaseModel):
 
 def _resolve_config_path() -> pathlib.Path:
     """Return the absolute path to the API config."""
-    return PROJECT_ROOT / "config" / "config.yaml"
+    return resolve_config_path()
 
 
 def _ensure_initialized():
@@ -213,6 +213,7 @@ async def lifespan(app: FastAPI):
         raise FileNotFoundError(f"No config file found at {config_path}")
 
     _config = RAGConfig.from_yaml(config_path)
+    _config.validate_runtime_files(require_index_sidecars=True)
     _logger = get_logger()
 
     try:
@@ -444,8 +445,6 @@ async def chat_stream(request: ChatRequest):
             for i in topk_idxs[:max_chunks]:
                 source_text = sources[i]
                 pages = page_nums.get(i, [1]) or [1]
-
-                print(f"[DEBUG] i={i} pages={pages!r} page_nums_has_key={i in page_nums}", flush=True)
 
                 for page in pages:
                     chunks_by_page.setdefault(page, []).append(chunks[i])

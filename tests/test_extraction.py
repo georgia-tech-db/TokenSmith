@@ -3,6 +3,10 @@ import json
 import src.preprocessing.extraction as extraction
 import pytest
 
+
+pytestmark = pytest.mark.unit
+
+
 def test_extract_no_pdfs_exits_with_error(tmp_path, monkeypatch, capsys):
     # Create temporary data/chapters/ with no PDFs
     monkeypatch.chdir(tmp_path)

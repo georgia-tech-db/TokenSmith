@@ -17,6 +17,7 @@ import numpy as np
 from nltk.stem import WordNetLemmatizer
 
 from src.artifacts import (
+    ARTIFACT_VERSION,
     ArtifactBundle,
     ArtifactValidationError,
     artifact_file_map,
@@ -74,6 +75,21 @@ def _load_page_to_chunk_map(path: pathlib.Path) -> Dict[int, List[int]]:
     return {int(page): [int(chunk_id) for chunk_id in chunk_ids] for page, chunk_ids in raw_map.items()}
 
 
+def _normalize_legacy_metadata(metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add required artifact fields to pre-manifest metadata before validation."""
+    normalized: List[Dict[str, Any]] = []
+    for chunk_id, item in enumerate(metadata):
+        meta = dict(item)
+        meta.setdefault("chunk_id", chunk_id)
+        if "page_numbers" not in meta:
+            if "page_number" in meta:
+                meta["page_numbers"] = [int(meta["page_number"])]
+            elif "page" in meta:
+                meta["page_numbers"] = [int(meta["page"])]
+        normalized.append(meta)
+    return normalized
+
+
 def load_artifact_bundle(artifacts_dir: os.PathLike, index_prefix: str) -> ArtifactBundle:
     """Load all index artifacts from disk into an ArtifactBundle.
 
@@ -101,6 +117,8 @@ def load_artifact_bundle(artifacts_dir: os.PathLike, index_prefix: str) -> Artif
     chunks = _load_pickle(artifacts_path / file_map["chunks"])
     sources = _load_pickle(artifacts_path / file_map["sources"])
     metadata = _load_pickle(artifacts_path / file_map["metadata"])
+    if manifest is None:
+        metadata = _normalize_legacy_metadata(metadata)
     page_to_chunk_map = _load_page_to_chunk_map(artifacts_path / file_map["page_to_chunk_map"])
 
     bundle = ArtifactBundle(
@@ -121,6 +139,13 @@ def load_artifact_bundle(artifacts_dir: os.PathLike, index_prefix: str) -> Artif
     )
 
     if manifest is not None:
+        artifact_version = manifest.get("artifact_version")
+        if artifact_version != ARTIFACT_VERSION:
+            raise ArtifactValidationError(
+                f"Unsupported artifact manifest version: {artifact_version}. "
+                f"Expected version {ARTIFACT_VERSION}. Rebuild the index artifacts."
+            )
+
         source_document = manifest.get("source_document")
         source_sha256 = manifest.get("source_document_sha256")
         if source_document:
@@ -143,7 +168,10 @@ def load_artifact_bundle(artifacts_dir: os.PathLike, index_prefix: str) -> Artif
     return bundle
 
 
-def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str], Any]:
+def load_artifacts(
+    artifacts_dir: os.PathLike,
+    index_prefix: str,
+) -> Tuple[faiss.Index, Any, List[str], List[str], List[Dict[str, Any]]]:
     """
     Backwards-compatible loader for legacy callers.
     """
@@ -182,8 +210,9 @@ class Retriever(ABC):
         self,
         query: str,
         pool_size: int,
-        texts: Sequence[str],
+        texts: Optional[Sequence[str]] = None,
         candidate_ids: Optional[Iterable[int]] = None,
+        chunks: Optional[Sequence[str]] = None,
     ) -> Dict[int, float]:
         """Retrieve the top pool_size scores for a query."""
 
@@ -249,14 +278,19 @@ class FAISSRetriever(Retriever):
         self,
         query: str,
         pool_size: int,
-        texts: Sequence[str],
+        texts: Optional[Sequence[str]] = None,
         candidate_ids: Optional[Iterable[int]] = None,
+        chunks: Optional[Sequence[str]] = None,
     ) -> Dict[int, float]:
         """Encode the query and return FAISS similarity scores for the top chunks.
 
         Falls back to global search filtered by candidate_ids when
         preloaded embeddings are unavailable.
         """
+        texts = texts if texts is not None else chunks
+        if texts is None:
+            raise TypeError("FAISSRetriever.get_scores() requires 'texts' or legacy alias 'chunks'.")
+
         embedder = self._ensure_embedder()
         if embedder is None:
             return {}
@@ -298,10 +332,15 @@ class BM25Retriever(Retriever):
         self,
         query: str,
         pool_size: int,
-        texts: Sequence[str],
+        texts: Optional[Sequence[str]] = None,
         candidate_ids: Optional[Iterable[int]] = None,
+        chunks: Optional[Sequence[str]] = None,
     ) -> Dict[int, float]:
         """Score chunks using BM25, optionally restricted to candidate_ids."""
+        texts = texts if texts is not None else chunks
+        if texts is None:
+            raise TypeError("BM25Retriever.get_scores() requires 'texts' or legacy alias 'chunks'.")
+
         tokenized_query = preprocess_for_bm25(query)
         all_scores = np.asarray(self.index.get_scores(tokenized_query))
 
@@ -365,10 +404,15 @@ class IndexKeywordRetriever(Retriever):
         self,
         query: str,
         pool_size: int,
-        texts: Sequence[str],
+        texts: Optional[Sequence[str]] = None,
         candidate_ids: Optional[Iterable[int]] = None,
+        chunks: Optional[Sequence[str]] = None,
     ) -> Dict[int, float]:
         """Score chunks by counting keyword hits via the book index, normalized to [0, 1]."""
+        texts = texts if texts is not None else chunks
+        if texts is None:
+            raise TypeError("IndexKeywordRetriever.get_scores() requires 'texts' or legacy alias 'chunks'.")
+
         keywords = self._extract_keywords(query)
         candidate_set = None if candidate_ids is None else {int(idx) for idx in candidate_ids}
         chunk_hit_counts: Dict[int, int] = {}

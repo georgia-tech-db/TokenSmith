@@ -1,11 +1,13 @@
 import os
 import sys
-import yaml
 import pytest
 from pathlib import Path
+import yaml
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from src.config import RAGConfig, resolve_config_path
 
 
 def pytest_addoption(parser):
@@ -135,10 +137,15 @@ def config(pytestconfig):
     Priority: CLI args > config.yaml
     """
     # Load config file
-    config_path = Path(pytestconfig.getoption("--config"))
-    if config_path.exists():
-        with open(config_path) as f:
-            cfg = yaml.safe_load(f) or {}
+    raw_config_path = pytestconfig.getoption("--config")
+    try:
+        config_path = resolve_config_path(raw_config_path)
+    except FileNotFoundError:
+        config_path = None
+
+    if config_path is not None:
+        runtime_cfg = RAGConfig.from_yaml(config_path)
+        cfg = runtime_cfg.to_dict()
     else:
         cfg = {}
     
@@ -170,7 +177,7 @@ def config(pytestconfig):
             or cfg.get("gen_model")
             or "models/generators/qwen2.5-3b-instruct-q8_0.gguf"
         ),
-        "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", os.path.join(Path(__file__).parent.parent, "models", "embedders", "Qwen3-Embedding-4B-Q8_0.gguf")),
+        "embed_model": pytestconfig.getoption("--embed-model") or cfg.get("embed_model", os.path.join(Path(__file__).parent.parent, "models", "embedders", "Qwen3-Embedding-4B-Q5_K_M.gguf")),
         
         # Generator
         "system_prompt_mode": pytestconfig.getoption("--system-prompt") or cfg.get("system_prompt_mode", "baseline"),
@@ -262,11 +269,15 @@ def pytest_sessionfinish(session, exitstatus):
     config = session.config
     
     # Get output mode from config
-    config_path = Path(config.getoption("--config"))
+    raw_config_path = config.getoption("--config")
+    try:
+        config_path = resolve_config_path(raw_config_path)
+    except FileNotFoundError:
+        config_path = None
     output_mode = config.getoption("--output-mode")
     
     # If not specified via CLI, check config file
-    if not output_mode and config_path.exists():
+    if not output_mode and config_path is not None:
         with open(config_path) as f:
             cfg = yaml.safe_load(f) or {}
         output_mode = cfg.get("testing", {}).get("output_mode", "html")

@@ -95,6 +95,7 @@ def _prepare_improved(
     pipeline_mod = importlib.import_module("src.retrieval_pipeline")
 
     cfg = config_mod.RAGConfig.from_yaml(config_path)
+    cfg.validate_runtime_files(require_index_sidecars=True)
     bundle = retriever_mod.load_artifact_bundle(artifacts_dir, index_prefix)
     runtime_retrievers = pipeline_mod.build_runtime_retrievers(bundle, cfg)
     return {
@@ -152,6 +153,7 @@ def _prepare_baseline(
     from src.ranking.ranker import EnsembleRanker
 
     cfg = config_cls.from_yaml(config_path)
+    cfg.validate_runtime_files(require_generation=False, require_index_sidecars=True)
     index, bm25_index, chunks, _sources, metadata = load_artifacts(artifacts_dir, index_prefix)
 
     retrievers = [

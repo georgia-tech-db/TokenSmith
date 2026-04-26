@@ -2,6 +2,7 @@
 
 import argparse
 import pathlib
+import re
 import sys
 from typing import Dict, Optional, List, Tuple, Union, Any
 
@@ -9,7 +10,7 @@ from rich.live import Live
 from rich.console import Console
 from rich.markdown import Markdown
 
-from src.config import RAGConfig
+from src.config import RAGConfig, resolve_config_path
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.index_updater import add_to_index
@@ -26,11 +27,17 @@ from src.ranking.reranker import rerank
 from src.cache import get_cache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
+    "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "what",
+    "when", "where", "which", "who", "why", "with",
+}
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for index or chat mode."""
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
     parser.add_argument("mode", choices=["index", "chat", "add-chapters"], help="operation mode")
+    parser.add_argument("--config", help="path to YAML config")
     parser.add_argument("--pdf_dir", default="data/chapters/", help="directory containing PDF files")
     parser.add_argument("--index_prefix", default="textbook_index", help="prefix for generated index files")
     parser.add_argument("--partial", action="store_true",
@@ -57,8 +64,17 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
+def get_keywords(question: str) -> List[str]:
+    """Extract simple content-bearing keywords from a question string."""
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]+", question.lower())
+        if token not in STOPWORDS
+    ]
+
 def run_index_mode(args: argparse.Namespace, cfg: RAGConfig):
     """Build chunk and section indexes from the source document."""
+    cfg.validate_runtime_files(require_generation=False)
     strategy = cfg.get_chunk_strategy()
     chunker = DocumentChunker(strategy=strategy, keep_tables=args.keep_tables)
     artifacts_dir = cfg.get_artifacts_directory(partial=args.partial)
@@ -416,6 +432,7 @@ def render_final_answer(console, ans):
 
 def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
     """Run an interactive chat loop, loading artifacts and streaming answers."""
+    cfg.validate_runtime_files(require_index_sidecars=True)
     logger = get_logger()
     console = Console()
 
@@ -508,10 +525,9 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
 
 def main():
     args = parse_args()
-    config_path = pathlib.Path("config/config.yaml")
-    if not config_path.exists():
-        raise FileNotFoundError("config/config.yaml not found.")
+    config_path = resolve_config_path(args.config)
     cfg = RAGConfig.from_yaml(config_path)
+    cfg.apply_overrides(model_path=args.model_path)
     print(f"Loaded configuration from {config_path.resolve()}.")
     if args.mode == "index":
         run_index_mode(args, cfg)

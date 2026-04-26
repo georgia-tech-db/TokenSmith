@@ -8,6 +8,17 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from src.config import RAGConfig
 from src.generator import format_prompt
+from src.planning.rules import (
+    QUERY_TYPE_DEFINITION,
+    QUERY_TYPE_EXPLANATORY,
+    QUERY_TYPE_FOLLOW_UP,
+    QUERY_TYPE_MULTI_PART,
+    QUERY_TYPE_OTHER,
+    QUERY_TYPE_PROCEDURAL,
+    classify_query,
+    heuristic_decompose_query,
+    should_apply_anchor_rerank,
+)
 from src.query_enhancement import contextualize_query, decompose_complex_query, generate_hypothetical_document
 from src.ranking.ranker import EnsembleRanker
 from src.retriever import (
@@ -19,26 +30,25 @@ from src.retriever import (
 )
 
 
-FOLLOW_UP_PATTERN = re.compile(
-    r"^(it|they|them|that|those|this|these|he|she|its|their|what about|how about|and what|and how|why is that|why does that)\b",
-    re.IGNORECASE,
-)
-DEFINITION_PATTERN = re.compile(r"^(what is|what are|define|definition of|meaning of)\b", re.IGNORECASE)
-PROCEDURAL_PATTERN = re.compile(r"^(how do|how does|what steps|steps of|procedure|algorithm|phases of)\b", re.IGNORECASE)
-EXPLANATORY_PATTERN = re.compile(r"\b(explain|why|how does|how do we|why does|how can)\b", re.IGNORECASE)
-MULTIPART_PATTERN = re.compile(
-    r"(\?.*\?| and | compare | contrast | difference between | advantages and disadvantages | both .* and )",
-    re.IGNORECASE,
-)
-COMPARISON_PATTERN = re.compile(
-    r"(?:compare|contrast|difference between|differentiate|versus|vs\.?)\s+(?P<left>.+?)\s+(?:and|vs\.?|versus)\s+(?P<right>.+)",
-    re.IGNORECASE,
-)
-ADVANTAGE_PATTERN = re.compile(
-    r"advantages?\s+and\s+disadvantages?\s+of\s+(?P<topic>.+)",
-    re.IGNORECASE,
-)
-CLAUSE_SPLIT_PATTERN = re.compile(r"\?\s*|;\s*|\s+(?:and|also)\s+(?=(?:what|why|how|when|where|which)\b)", re.IGNORECASE)
+ANCHOR_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9+.#-]*")
+RETRIEVAL_MODE_FLAT = "flat"
+RETRIEVAL_MODE_HIERARCHICAL = "hierarchical"
+RRF_K = 60
+PAGE_RERANK_BASE_WEIGHT = 0.60
+PAGE_RERANK_LEXICAL_WEIGHT = 0.15
+PAGE_RERANK_SPECIFICITY_WEIGHT = 0.25
+ANCHOR_BASE_WEIGHT = 0.45
+ANCHOR_MATCH_WEIGHT = 0.45
+ANCHOR_LEXICAL_WEIGHT = 0.10
+SECTION_PRIOR_BASE_WEIGHT = 0.80
+SECTION_PRIOR_WEIGHT = 0.20
+MULTIPART_SCORE_WEIGHT = 0.65
+MULTIPART_RANK_PRIOR_WEIGHT = 0.35
+MULTIPART_RANK_OFFSET = 4
+MULTIPART_COVERAGE_BONUS_WEIGHT = 0.10
+MULTIPART_SUBQUERY_WINNER_BONUS = 1.0
+NO_RANK_SENTINEL = 10**9
+PROMPT_TOKEN_WORD_MULTIPLIER = 1.25
 
 
 @dataclass
@@ -50,7 +60,7 @@ class QueryPlan:
     effective_query: str
     rewritten_query: Optional[str] = None
     sub_queries: List[str] = field(default_factory=list)
-    retrieval_mode: str = "flat"
+    retrieval_mode: str = RETRIEVAL_MODE_FLAT
     chunk_weights: Dict[str, float] = field(default_factory=dict)
     section_weights: Dict[str, float] = field(default_factory=dict)
     num_candidates: int = 0
@@ -81,12 +91,14 @@ class RetrievalTrace:
     fused_chunk_scores: List[float] = field(default_factory=list)
     fused_section_ids: List[int] = field(default_factory=list)
     retrieval_latency_ms: float = 0.0
+    # Retrieval-only execution has no downstream generation stage, so total currently matches retrieval latency.
     total_latency_ms: float = 0.0
     chunks_passed_to_generation: int = 0
     prompt_tokens_estimate: int = 0
     page_map: Dict[int, List[int]] = field(default_factory=dict)
     selected_section_paths: List[str] = field(default_factory=list)
     subquery_traces: List[Dict[str, Any]] = field(default_factory=list)
+    confidence_widening_used: bool = False
 
 
 class AdaptiveQueryPlanner:
@@ -97,20 +109,8 @@ class AdaptiveQueryPlanner:
 
     def classify(self, query: str, history: Optional[List[Dict[str, str]]] = None) -> tuple[str, str]:
         """Classify a query into a type (e.g. definition, procedural, multi_part) using regex heuristics."""
-        stripped = query.strip()
-        lowered = stripped.lower()
-
-        if history and FOLLOW_UP_PATTERN.search(lowered):
-            return "follow_up", "follow-up reference pattern"
-        if MULTIPART_PATTERN.search(lowered) or lowered.count("?") > 1:
-            return "multi_part", "multi-clause question"
-        if DEFINITION_PATTERN.search(lowered):
-            return "definition", "definition pattern"
-        if PROCEDURAL_PATTERN.search(lowered):
-            return "procedural", "procedural pattern"
-        if EXPLANATORY_PATTERN.search(lowered):
-            return "explanatory", "explanatory pattern"
-        return "other", "default route"
+        decision = classify_query(query, has_history=bool(history))
+        return decision.query_type, decision.reason
 
     @staticmethod
     def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
@@ -119,7 +119,7 @@ class AdaptiveQueryPlanner:
         return {name: weight / total for name, weight in active.items()}
 
     def _decompose_query(self, query: str, model_path: str) -> List[str]:
-        heuristic_subqueries = self._heuristic_decompose_query(query)
+        heuristic_subqueries = heuristic_decompose_query(query)
         if len(heuristic_subqueries) > 1:
             raw_subqueries = heuristic_subqueries
         else:
@@ -135,38 +135,6 @@ class AdaptiveQueryPlanner:
         if query not in cleaned:
             cleaned.append(query)
         return cleaned[: self.cfg.decomposition_max_subqueries]
-
-    @staticmethod
-    def _heuristic_decompose_query(query: str) -> List[str]:
-        """Split a query into sub-queries using regex patterns for comparisons, advantages, and clause boundaries."""
-        normalized = " ".join(query.strip().split())
-        if not normalized:
-            return []
-
-        comparison_match = COMPARISON_PATTERN.search(normalized)
-        if comparison_match:
-            left = comparison_match.group("left").strip(" ?.,;:")
-            right = comparison_match.group("right").strip(" ?.,;:")
-            return [
-                f"What is {left}?",
-                f"What is {right}?",
-                f"How do {left} and {right} differ?",
-            ]
-
-        advantage_match = ADVANTAGE_PATTERN.search(normalized)
-        if advantage_match:
-            topic = advantage_match.group("topic").strip(" ?.,;:")
-            return [
-                f"What are the advantages of {topic}?",
-                f"What are the disadvantages of {topic}?",
-            ]
-
-        clauses = [segment.strip(" ?.,;:") for segment in CLAUSE_SPLIT_PATTERN.split(normalized) if segment.strip(" ?.,;:")]
-        if len(clauses) > 1:
-            rebuilt = [clause if clause.endswith("?") else f"{clause}?" for clause in clauses]
-            return rebuilt
-
-        return [normalized]
 
     def plan(self, query: str, history: Optional[List[Dict[str, str]]] = None) -> tuple[QueryPlan, str]:
         """Build a retrieval plan by classifying the query and selecting weights, mode, and candidates.
@@ -185,7 +153,7 @@ class AdaptiveQueryPlanner:
                     query_type="configured",
                     resolved_query_type="configured",
                     effective_query=query,
-                    retrieval_mode="flat",
+                    retrieval_mode=RETRIEVAL_MODE_FLAT,
                     chunk_weights=self._normalize_weights(self.cfg.ranker_weights),
                     section_weights={},
                     num_candidates=max(self.cfg.num_candidates, self.cfg.top_k),
@@ -204,45 +172,50 @@ class AdaptiveQueryPlanner:
         sub_queries: List[str] = []
         resolved_query_type = query_type
 
-        if query_type == "follow_up" and history:
+        if query_type == QUERY_TYPE_FOLLOW_UP and history:
             rewritten_query = contextualize_query(query, history, self.cfg.gen_model)
             effective_query = rewritten_query or query
             resolved_query_type, _ = self.classify(effective_query, history=None)
-            if resolved_query_type == "follow_up":
-                resolved_query_type = "explanatory"
+            if resolved_query_type == QUERY_TYPE_FOLLOW_UP:
+                resolved_query_type = QUERY_TYPE_EXPLANATORY
 
-        if resolved_query_type == "multi_part":
+        if resolved_query_type == QUERY_TYPE_MULTI_PART:
             sub_queries = self._decompose_query(effective_query, self.cfg.gen_model)
             if len(sub_queries) <= 1:
                 sub_queries = [effective_query]
 
         base_weights = self.cfg.ranker_weights
-        if resolved_query_type == "definition":
+        if resolved_query_type == QUERY_TYPE_DEFINITION:
             chunk_weights = {**base_weights, "faiss": 0.3, "bm25": 0.55, "index_keywords": 0.15}
-        elif resolved_query_type in {"procedural", "follow_up"}:
+        elif resolved_query_type in {QUERY_TYPE_PROCEDURAL, QUERY_TYPE_FOLLOW_UP}:
             chunk_weights = {**base_weights, "faiss": 0.5, "bm25": 0.3, "index_keywords": 0.2}
-        elif resolved_query_type in {"explanatory", "multi_part", "other"}:
+        elif resolved_query_type in {QUERY_TYPE_EXPLANATORY, QUERY_TYPE_MULTI_PART, QUERY_TYPE_OTHER}:
             chunk_weights = {**base_weights, "faiss": 0.55, "bm25": 0.3, "index_keywords": 0.15}
         else:
             chunk_weights = dict(base_weights)
 
         section_weights = {"faiss": 0.65, "bm25": 0.35}
-        if resolved_query_type == "definition":
+        if resolved_query_type == QUERY_TYPE_DEFINITION:
             section_weights = {"faiss": 0.35, "bm25": 0.65}
-            retrieval_mode = "flat"
-        elif resolved_query_type in {"explanatory", "procedural", "follow_up", "multi_part"}:
-            retrieval_mode = "hierarchical"
+            retrieval_mode = RETRIEVAL_MODE_FLAT
+        elif resolved_query_type in {
+            QUERY_TYPE_EXPLANATORY,
+            QUERY_TYPE_PROCEDURAL,
+            QUERY_TYPE_FOLLOW_UP,
+            QUERY_TYPE_MULTI_PART,
+        }:
+            retrieval_mode = RETRIEVAL_MODE_HIERARCHICAL
         else:
-            retrieval_mode = "flat"
+            retrieval_mode = RETRIEVAL_MODE_FLAT
 
         if not self.cfg.enable_hierarchical_retrieval:
-            retrieval_mode = "flat"
+            retrieval_mode = RETRIEVAL_MODE_FLAT
 
-        if resolved_query_type == "multi_part":
+        if resolved_query_type == QUERY_TYPE_MULTI_PART:
             num_candidates = max(self.cfg.num_candidates, self.cfg.top_k * 6)
             section_top_k = max(self.cfg.section_top_k, 6)
             section_candidate_pool = max(section_top_k * 4, 12)
-        elif retrieval_mode == "hierarchical":
+        elif retrieval_mode == RETRIEVAL_MODE_HIERARCHICAL:
             num_candidates = max(self.cfg.num_candidates, self.cfg.top_k * 5)
             section_top_k = max(self.cfg.section_top_k, 4)
             section_candidate_pool = max(section_top_k * 3, 8)
@@ -264,9 +237,9 @@ class AdaptiveQueryPlanner:
                 num_candidates=num_candidates,
                 section_top_k=section_top_k,
                 section_candidate_pool=section_candidate_pool,
-                use_hyde=self.cfg.use_hyde and query_type != "follow_up",
-                diversify_sections=retrieval_mode == "hierarchical",
-                max_chunks_per_section=2 if retrieval_mode == "hierarchical" else self.cfg.top_k,
+                use_hyde=self.cfg.use_hyde and query_type != QUERY_TYPE_FOLLOW_UP,
+                diversify_sections=retrieval_mode == RETRIEVAL_MODE_HIERARCHICAL,
+                max_chunks_per_section=2 if retrieval_mode == RETRIEVAL_MODE_HIERARCHICAL else self.cfg.top_k,
             ),
             reason,
         )
@@ -321,7 +294,7 @@ def _score_with_retrievers(
     ranker = EnsembleRanker(
         ensemble_method="rrf",
         weights=_active_weights(weights, retrievers),
-        rrf_k=60,
+        rrf_k=RRF_K,
     )
     ordered_ids, ordered_scores = ranker.rank(raw_scores=raw_scores)
     return raw_scores, ordered_ids, ordered_scores
@@ -361,9 +334,9 @@ def _page_aware_rerank(
     scored = [
         (
             cid,
-            (0.6 * base / max_score)
-            + (0.15 * _lexical_overlap(query, metadata[cid].get("raw_text", chunks[cid])))
-            + (0.25 * _page_specificity(metadata[cid].get("page_numbers", []))),
+            (PAGE_RERANK_BASE_WEIGHT * base / max_score)
+            + (PAGE_RERANK_LEXICAL_WEIGHT * _lexical_overlap(query, metadata[cid].get("raw_text", chunks[cid])))
+            + (PAGE_RERANK_SPECIFICITY_WEIGHT * _page_specificity(metadata[cid].get("page_numbers", []))),
             base,
         )
         for cid, base in zip(candidate_ids, candidate_scores)
@@ -381,12 +354,81 @@ def _score_lookup(candidate_ids: Sequence[int], candidate_scores: Sequence[float
         for candidate_id, score in zip(candidate_ids, candidate_scores)
     }
 
-
 def _below_confidence_threshold(scores: Sequence[float], threshold: float) -> bool:
     """Return true when a result list is empty or its best fused score is below threshold."""
     if threshold <= 0:
         return False
     return not scores or max(scores) < threshold
+
+
+def _extract_anchor_terms(query: str) -> List[str]:
+    """Extract exact technical anchors such as acronyms and mixed-case identifiers."""
+    anchors: List[str] = []
+    seen = set()
+    for token in ANCHOR_TOKEN_PATTERN.findall(query):
+        if len(token) < 2:
+            continue
+        uppercase_count = sum(character.isupper() for character in token)
+        has_alpha = any(character.isalpha() for character in token)
+        has_digit = any(character.isdigit() for character in token)
+        if (has_alpha and token.isupper()) or uppercase_count >= 2 or (has_alpha and has_digit):
+            normalized = token.lower()
+        else:
+            continue
+        if normalized not in seen:
+            anchors.append(token)
+            seen.add(normalized)
+    return anchors
+
+
+def _anchor_overlap(anchor_terms: Sequence[str], *texts: Optional[str]) -> float:
+    """Return the fraction of anchor terms that appear verbatim in the supplied text."""
+    if not anchor_terms:
+        return 0.0
+
+    normalized_text = " ".join(text for text in texts if text).lower()
+    if not normalized_text:
+        return 0.0
+
+    matches = 0
+    for anchor in anchor_terms:
+        if anchor.lower() in normalized_text:
+            matches += 1
+    return matches / len(anchor_terms)
+
+
+def _anchor_aware_rerank(
+    *,
+    query: str,
+    candidate_ids: Sequence[int],
+    candidate_scores: Sequence[float],
+    metadata: Sequence[Dict[str, Any]],
+    texts: Sequence[str],
+) -> tuple[List[int], List[float]]:
+    """Boost exact technical anchor matches before downstream reranking."""
+    if not candidate_ids:
+        return [], []
+
+    anchor_terms = _extract_anchor_terms(query)
+    if not anchor_terms:
+        return list(candidate_ids), list(candidate_scores)
+
+    normalized_lookup = _score_lookup(candidate_ids, candidate_scores)
+    rescored = []
+    for candidate_id in candidate_ids:
+        meta = metadata[candidate_id] if 0 <= candidate_id < len(metadata) else {}
+        text = meta.get("raw_text", texts[candidate_id] if 0 <= candidate_id < len(texts) else "")
+        anchor_score = _anchor_overlap(anchor_terms, text, meta.get("section_path", ""))
+        lexical_score = _lexical_overlap(query, text)
+        combined_score = (
+            (ANCHOR_BASE_WEIGHT * normalized_lookup.get(candidate_id, 0.0))
+            + (ANCHOR_MATCH_WEIGHT * anchor_score)
+            + (ANCHOR_LEXICAL_WEIGHT * lexical_score)
+        )
+        rescored.append((candidate_id, combined_score, normalized_lookup.get(candidate_id, 0.0)))
+
+    rescored.sort(key=lambda item: (item[1], item[2]), reverse=True)
+    return [candidate_id for candidate_id, _, _ in rescored], [score for _, score, _ in rescored]
 
 
 def _apply_section_prior(
@@ -404,7 +446,10 @@ def _apply_section_prior(
     for candidate_id in candidate_ids:
         section_id = metadata[candidate_id].get("section_id")
         section_prior = section_score_lookup.get(int(section_id), 0.0) if section_id is not None else 0.0
-        combined_score = (0.8 * normalized_lookup.get(candidate_id, 0.0)) + (0.2 * section_prior)
+        combined_score = (
+            SECTION_PRIOR_BASE_WEIGHT * normalized_lookup.get(candidate_id, 0.0)
+            + SECTION_PRIOR_WEIGHT * section_prior
+        )
         rescored.append((candidate_id, combined_score))
 
     rescored.sort(key=lambda item: item[1], reverse=True)
@@ -424,30 +469,46 @@ def _collect_section_candidate_ids(section_ids: Sequence[int], bundle: ArtifactB
 
 
 def _merge_multi_part_results(results: List[Dict[str, Any]]) -> tuple[List[int], List[float]]:
-    """Merge retrieval results from multiple sub-queries using score + rank fusion with coverage bonuses."""
+    """Merge sub-query results while preserving direct evidence for each part."""
     merged_scores: Dict[int, float] = defaultdict(float)
     coverage: Dict[int, int] = defaultdict(int)
     best_rank: Dict[int, int] = {}
+    protected_ids: set[int] = set()
     for result in results:
         candidate_ids = result.get("candidate_ids", [])
         candidate_scores = result.get("candidate_scores", [])
+        if candidate_ids:
+            protected_ids.add(int(candidate_ids[0]))
         normalized_lookup = _score_lookup(candidate_ids, candidate_scores)
         for rank, candidate_id in enumerate(candidate_ids, start=1):
+            candidate_id = int(candidate_id)
             score = normalized_lookup.get(candidate_id, 0.0)
-            merged_scores[candidate_id] += (0.65 * score) + (0.35 / (rank + 4))
+            merged_scores[candidate_id] += (
+                (MULTIPART_SCORE_WEIGHT * score)
+                + (MULTIPART_RANK_PRIOR_WEIGHT / (rank + MULTIPART_RANK_OFFSET))
+            )
             coverage[candidate_id] += 1
             best_rank[candidate_id] = min(best_rank.get(candidate_id, rank), rank)
 
     ranked = sorted(
         merged_scores.items(),
         key=lambda item: (
-            item[1] + (0.1 * coverage[item[0]]),
+            item[1] + (MULTIPART_COVERAGE_BONUS_WEIGHT * coverage[item[0]]),
             coverage[item[0]],
-            -best_rank.get(item[0], 10**9),
+            -best_rank.get(item[0], NO_RANK_SENTINEL),
         ),
         reverse=True,
     )
-    return [candidate_id for candidate_id, _ in ranked], [score for _, score in ranked]
+    protected_ranked = [item for item in ranked if item[0] in protected_ids]
+    remaining_ranked = [item for item in ranked if item[0] not in protected_ids]
+    balanced_ranked = protected_ranked + remaining_ranked
+    return (
+        [candidate_id for candidate_id, _ in balanced_ranked],
+        [
+            score + (MULTIPART_SUBQUERY_WINNER_BONUS if candidate_id in protected_ids else 0.0)
+            for candidate_id, score in balanced_ranked
+        ],
+    )
 
 
 def _diversify_by_section(
@@ -486,7 +547,7 @@ def _diversify_by_section(
 def _estimate_prompt_tokens(query: str, chunks: Sequence[str], prompt_mode: str) -> int:
     """Estimate the token count of the final generation prompt from the assembled chunks."""
     prompt = format_prompt(list(chunks), query, system_prompt_mode=prompt_mode)
-    return max(1, round(len(prompt.split()) * 1.25))
+    return max(1, round(len(prompt.split()) * PROMPT_TOKEN_WORD_MULTIPLIER))
 
 
 def execute_retrieval_plan(
@@ -534,12 +595,17 @@ def execute_retrieval_plan(
     multi_part_results: List[Dict[str, Any]] = []
     section_score_lookup: Dict[int, float] = {}
     subquery_traces: List[Dict[str, Any]] = []
+    confidence_widening_used = False
 
     for query_input in query_inputs:
         candidate_ids = None
         subquery_section_ids: List[int] = []
         subquery_section_lookup: Dict[int, float] = {}
-        if plan.retrieval_mode == "hierarchical" and bundle.has_hierarchical_artifacts and retrievers["section"]:
+        if (
+            plan.retrieval_mode == RETRIEVAL_MODE_HIERARCHICAL
+            and bundle.has_hierarchical_artifacts
+            and retrievers["section"]
+        ):
             section_scores, ordered_sections, section_ordered_scores = _score_with_retrievers(
                 query=query_input,
                 texts=bundle.sections,
@@ -547,6 +613,14 @@ def execute_retrieval_plan(
                 weights=plan.section_weights,
                 pool_size=max(plan.section_candidate_pool, 1),
             )
+            if should_apply_anchor_rerank(query_input):
+                ordered_sections, section_ordered_scores = _anchor_aware_rerank(
+                    query=query_input,
+                    candidate_ids=ordered_sections,
+                    candidate_scores=section_ordered_scores,
+                    metadata=bundle.section_meta,
+                    texts=bundle.sections,
+                )
             for retriever_name, scores in section_scores.items():
                 merged_section_scores.setdefault(retriever_name, {}).update(scores)
             subquery_section_ids = ordered_sections[: plan.section_top_k]
@@ -568,7 +642,7 @@ def execute_retrieval_plan(
         )
 
         if _below_confidence_threshold(chunk_scores, cfg.retrieval_confidence_threshold):
-            fallback_scores, fallback_ids, fallback_ordered_scores = _score_with_retrievers(
+            widened_scores, widened_ids, widened_ordered_scores = _score_with_retrievers(
                 query=query_input,
                 texts=bundle.chunks,
                 retrievers=retrievers["chunk"],
@@ -576,13 +650,14 @@ def execute_retrieval_plan(
                 pool_size=plan.num_candidates * cfg.fallback_candidate_multiplier,
                 candidate_ids=None,
             )
-            if fallback_ordered_scores and (
-                not chunk_scores or max(fallback_ordered_scores) >= max(chunk_scores)
+            if widened_ordered_scores and (
+                not chunk_scores or max(widened_ordered_scores) >= max(chunk_scores)
             ):
-                raw_chunk_scores = fallback_scores
-                chunk_ids = fallback_ids
-                chunk_scores = fallback_ordered_scores
+                raw_chunk_scores = widened_scores
+                chunk_ids = widened_ids
+                chunk_scores = widened_ordered_scores
                 candidate_ids = None
+                confidence_widening_used = True
 
         for retriever_name, scores in raw_chunk_scores.items():
             merged_raw_chunk_scores.setdefault(retriever_name, {}).update(scores)
@@ -594,6 +669,14 @@ def execute_retrieval_plan(
                 bundle.metadata,
                 subquery_section_lookup,
             )
+        if should_apply_anchor_rerank(query_input):
+            chunk_ids, chunk_scores = _anchor_aware_rerank(
+                query=query_input,
+                candidate_ids=chunk_ids,
+                candidate_scores=chunk_scores,
+                metadata=bundle.metadata,
+                texts=bundle.chunks,
+            )
 
         subquery_traces.append(
             {
@@ -603,7 +686,7 @@ def execute_retrieval_plan(
             }
         )
 
-        if plan.query_type == "multi_part":
+        if plan.query_type == QUERY_TYPE_MULTI_PART:
             multi_part_results.append(
                 {
                     "query": query_input,
@@ -615,7 +698,7 @@ def execute_retrieval_plan(
             ordered_chunk_ids = chunk_ids
             ordered_chunk_scores = chunk_scores
 
-    if plan.query_type == "multi_part":
+    if plan.query_type == QUERY_TYPE_MULTI_PART:
         ordered_chunk_ids, ordered_chunk_scores = _merge_multi_part_results(multi_part_results)
 
     reranked_chunk_ids = _page_aware_rerank(
@@ -653,7 +736,7 @@ def execute_retrieval_plan(
         effective_query=plan.effective_query,
         rewritten_query=plan.rewritten_query,
         retrieval_mode=plan.retrieval_mode,
-        sub_queries=query_inputs if plan.query_type == "multi_part" else [],
+        sub_queries=query_inputs if plan.query_type == QUERY_TYPE_MULTI_PART else [],
         chunk_weights=plan.chunk_weights,
         section_weights=plan.section_weights,
         route_reason=route_reason,
@@ -669,6 +752,7 @@ def execute_retrieval_plan(
         page_map={candidate_id: bundle.metadata[candidate_id].get("page_numbers", []) for candidate_id in final_chunk_ids},
         selected_section_paths=selected_section_paths,
         subquery_traces=subquery_traces,
+        confidence_widening_used=confidence_widening_used,
     )
     return ranked_chunks, final_chunk_ids, trace
 

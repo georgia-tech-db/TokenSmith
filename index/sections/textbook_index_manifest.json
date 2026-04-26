@@ -1,0 +1,30 @@
+{
+  "artifact_version": 2,
+  "index_prefix": "textbook_index",
+  "source_document": "data/silberschatz--extracted_markdown.md",
+  "source_document_sha256": "86b3969b334bdafe7e86830e95744e2e9248ddc5133fb072427e0e5601a42d92",
+  "embedding_model_path": "/Users/shrey/Desktop/Spring 2026/TokenSmith/models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf",
+  "chunk_count": 1779,
+  "section_count": 774,
+  "files": {
+    "chunk_index": "textbook_index.faiss",
+    "chunk_bm25": "textbook_index_bm25.pkl",
+    "chunks": "textbook_index_chunks.pkl",
+    "sources": "textbook_index_sources.pkl",
+    "metadata": "textbook_index_meta.pkl",
+    "page_to_chunk_map": "textbook_index_page_to_chunk_map.json",
+    "chunk_embeddings": "textbook_index_chunk_embeddings.npy",
+    "section_index": "textbook_index_sections.faiss",
+    "section_bm25": "textbook_index_sections_bm25.pkl",
+    "sections": "textbook_index_sections.pkl",
+    "section_sources": "textbook_index_section_sources.pkl",
+    "section_meta": "textbook_index_section_meta.pkl",
+    "section_embeddings": "textbook_index_section_embeddings.npy",
+    "manifest": "textbook_index_manifest.json"
+  },
+  "build_settings": {
+    "chunk_mode": "chunk_mode=sections+recursive, chunk_size=2000, overlap=300",
+    "use_headings": false,
+    "use_multiprocessing": false
+  }
+}

@@ -10,6 +10,7 @@ RUFF_TARGETS = \
 	src/main.py \
 	src/planning/heuristics.py \
 	src/planning/planner.py \
+	src/planning/rules.py \
 	src/preprocessing/extraction.py \
 	src/ranking/ranker.py \
 	src/query_enhancement.py \
@@ -20,6 +21,7 @@ RUFF_TARGETS = \
 	tests/test_benchmarks.py \
 	tests/test_embedder.py \
 	tests/test_extraction.py \
+	tests/test_planning_rules.py \
 	tests/test_retrieval_metrics.py \
 	tests/test_retrieval_pipeline.py \
 	tests/metrics/__init__.py \

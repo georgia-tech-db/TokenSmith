@@ -8,15 +8,15 @@ Run with: pytest tests/test_api.py -v
 Or: pytest -m unit
 """
 
-import pytest
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
 import numpy as np
+import pytest
 
 # Mark all tests in this module as unit tests
 pytestmark = pytest.mark.unit
-from unittest.mock import Mock, MagicMock, patch
-from pathlib import Path
-import tempfile
-import os
 
 
 # ====================== RAGConfig Tests ======================
@@ -87,6 +87,62 @@ rrf_k: 50
         assert cfg.num_candidates == 100
         assert cfg.ensemble_method == "rrf"
         assert cfg.rrf_k == 50
+
+    def test_from_yaml_supports_legacy_aliases(self, tmp_path):
+        """Legacy config keys are normalized onto the current schema."""
+        from src.config import RAGConfig
+
+        yaml_content = """
+pool_size: 80
+chunk_size: 1500
+recursive_overlap: 125
+"""
+        yaml_file = tmp_path / "test_config.yaml"
+        yaml_file.write_text(yaml_content)
+
+        cfg = RAGConfig.from_yaml(yaml_file)
+
+        assert cfg.num_candidates == 80
+        assert cfg.chunk_size_in_chars == 1500
+        assert cfg.chunk_overlap == 125
+
+    def test_from_yaml_resolves_model_paths_relative_to_config(self, tmp_path):
+        """Relative GGUF paths are resolved against the config file location."""
+        from src.config import RAGConfig
+
+        config_dir = tmp_path / "configs"
+        models_dir = tmp_path / "models"
+        config_dir.mkdir()
+        models_dir.mkdir()
+        embed_model = models_dir / "embed.gguf"
+        gen_model = models_dir / "gen.gguf"
+        embed_model.write_text("embed")
+        gen_model.write_text("gen")
+
+        yaml_content = """
+embed_model: ../models/embed.gguf
+model_path: ../models/gen.gguf
+"""
+        yaml_file = config_dir / "tokensmith.yaml"
+        yaml_file.write_text(yaml_content)
+
+        cfg = RAGConfig.from_yaml(yaml_file)
+
+        assert cfg.embed_model == str(embed_model.resolve())
+        assert cfg.gen_model == str(gen_model.resolve())
+        assert cfg.model_path == str(gen_model.resolve())
+
+    def test_validate_runtime_files_reports_missing_assets(self):
+        """Runtime validation fails before startup when configured files are absent."""
+        from src.config import RAGConfig
+
+        cfg = RAGConfig(
+            embed_model="/missing/embed.gguf",
+            model_path="/missing/gen.gguf",
+        )
+
+        with pytest.raises(FileNotFoundError, match="required runtime assets"):
+            cfg.validate_runtime_files()
     
     def test_chunk_config_created(self):
         """chunk_config is created during initialization."""
@@ -266,7 +322,7 @@ class TestRetrieverInterface:
             
             assert isinstance(scores, dict)
             # Keys are int (numpy int64 is also int-like)
-            assert all(isinstance(k, (int, np.integer)) for k in scores.keys())
+            assert all(isinstance(k, (int, np.integer)) for k in scores)
             assert all(isinstance(v, float) for v in scores.values())
     
     def test_bm25_retriever_interface(self):
@@ -393,6 +449,29 @@ class TestGeneratorAPI:
         deduped = dedupe_generated_text(text)
         
         assert deduped == text
+
+    def test_get_llama_model_force_cpu_disables_all_offload(self, monkeypatch):
+        """Force-CPU mode disables all device offload for generation models."""
+        import src.generator as generator
+
+        class FakeLlama:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def set_cache(self, cache):
+                self.cache = cache
+
+        monkeypatch.setenv("TOKENSMITH_FORCE_CPU", "1")
+        monkeypatch.setattr(generator, "Llama", FakeLlama)
+        monkeypatch.setattr(generator, "LlamaRAMCache", lambda: object())
+        monkeypatch.setattr(generator, "_LLM_CACHE", {})
+
+        model = generator.get_llama_model("fake.gguf", n_ctx=512)
+
+        assert model.kwargs["n_gpu_layers"] == 0
+        assert model.kwargs["offload_kqv"] is False
+        assert model.kwargs["op_offload"] is False
+        assert model.kwargs["flash_attn"] is False
 
 
 # ====================== Chunking Tests ======================
@@ -643,7 +722,11 @@ class TestLoadArtifacts:
             assert bm25_idx is not None
             assert loaded_chunks == chunks
             assert loaded_sources == sources
-            assert loaded_meta == meta
+            assert loaded_meta == [
+                {"page": 1, "chunk_id": 0, "page_numbers": [1]},
+                {"page": 2, "chunk_id": 1, "page_numbers": [2]},
+                {"page": 3, "chunk_id": 2, "page_numbers": [3]},
+            ]
 
 
 # ====================== Filter Retrieved Chunks Tests ======================

@@ -355,8 +355,8 @@ def preprocess_extracted_section(text: str) -> str:
 
 def main():
     # Returns all pdf files under data/chapters/
-    project_root = Path(__file__).resolve().parent.parent.parent
-    chapters_dir = project_root / "data/chapters"
+    data_dir = Path("data")
+    chapters_dir = data_dir / "chapters"
     pdfs = sorted(chapters_dir.glob("*.pdf"))
 
     # Ensure at least one PDF is found
@@ -368,7 +368,7 @@ def main():
     markdown_files = []
     for pdf_path in pdfs:
         pdf_name = pdf_path.stem
-        output_md = Path("data") / f"{pdf_name}--extracted_markdown.md"
+        output_md = data_dir / f"{pdf_name}--extracted_markdown.md"
 
         print(f"Converting '{pdf_path}' to '{output_md}'...")
         convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
@@ -381,7 +381,7 @@ def main():
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-        output_filename = project_root / "data/extracted_sections.json"
+        output_filename = data_dir / "extracted_sections.json"
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")

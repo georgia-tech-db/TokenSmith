@@ -1,8 +1,15 @@
 import json
+import os
 import pytest
 from pathlib import Path
 from datetime import datetime
 from tests.metrics import SimilarityScorer
+
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("TOKENSMITH_RUN_BENCHMARKS") != "1",
+    reason="benchmark suite requires TOKENSMITH_RUN_BENCHMARKS=1",
+)
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")

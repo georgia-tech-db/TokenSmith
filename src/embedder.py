@@ -29,6 +29,15 @@ def _candidate_contexts(n_ctx: int) -> List[int]:
     return candidates
 
 
+def _cpu_backend_kwargs() -> dict:
+    """Return llama.cpp kwargs that fully disable device offload."""
+    return {
+        "n_gpu_layers": 0,
+        "offload_kqv": False,
+        "op_offload": False,
+    }
+
+
 def _load_embedding_model(
     model_path: str,
     n_ctx: int,
@@ -61,7 +70,7 @@ def _load_embedding_model(
 
         if force_cpu:
             try:
-                return Llama(**common_kwargs), candidate_n_ctx
+                return Llama(**common_kwargs, **_cpu_backend_kwargs()), candidate_n_ctx
             except Exception as exc:
                 last_error = exc
                 continue
@@ -71,7 +80,7 @@ def _load_embedding_model(
         except Exception as gpu_exc:
             last_error = gpu_exc
             try:
-                return Llama(**common_kwargs), candidate_n_ctx
+                return Llama(**common_kwargs, **_cpu_backend_kwargs()), candidate_n_ctx
             except Exception as cpu_exc:
                 last_error = cpu_exc
                 continue

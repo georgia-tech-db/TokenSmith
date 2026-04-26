@@ -6,14 +6,20 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 1247
+        - id: 1270
           grade: 3
-        - id: 1248
+        - id: 1265
+          grade: 2
+        - id: 1266
           grade: 2
       pages:
-        - page: 1461
+        - page: 1415
           grade: 3
-        - page: 1462
+        - page: 1416
+          grade: 3
+        - page: 1412
+          grade: 2
+        - page: 1413
           grade: 2
     query_type: procedural
     history: []
@@ -25,14 +31,16 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 1248
+        - id: 1271
           grade: 3
-        - id: 1247
+        - id: 1270
           grade: 2
       pages:
-        - page: 1462
+        - page: 1416
           grade: 3
-        - page: 1463
+        - page: 1417
+          grade: 3
+        - page: 1415
           grade: 2
     query_type: procedural
     history: []
@@ -44,14 +52,20 @@ benchmarks:
     similarity_threshold: 0.76
     retrieval_gold:
       chunks:
-        - id: 1249
+        - id: 1272
           grade: 3
-        - id: 1248
+        - id: 1270
+          grade: 2
+        - id: 1274
           grade: 2
       pages:
-        - page: 1463
+        - page: 1417
           grade: 3
-        - page: 1462
+        - page: 1415
+          grade: 2
+        - page: 1416
+          grade: 2
+        - page: 1418
           grade: 2
     query_type: procedural
     history: []
@@ -63,14 +77,20 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 1250
+        - id: 1273
           grade: 3
-        - id: 1251
+        - id: 1274
+          grade: 2
+        - id: 1270
           grade: 2
       pages:
-        - page: 1463
+        - page: 1417
           grade: 3
-        - page: 1465
+        - page: 1418
+          grade: 2
+        - page: 1415
+          grade: 2
+        - page: 1416
           grade: 2
     query_type: procedural
     history: []
@@ -82,14 +102,16 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 1217
+        - id: 1240
           grade: 3
-        - id: 1219
+        - id: 1239
           grade: 2
       pages:
-        - page: 1433
+        - page: 1389
           grade: 3
-        - page: 1434
+        - page: 1387
+          grade: 2
+        - page: 1388
           grade: 2
     query_type: explanatory
     history: []
@@ -101,18 +123,22 @@ benchmarks:
     similarity_threshold: 0.76
     retrieval_gold:
       chunks:
-        - id: 1047
+        - id: 1067
           grade: 3
-        - id: 1049
+        - id: 1066
           grade: 2
-        - id: 1046
+        - id: 1071
           grade: 1
       pages:
-        - page: 1232
+        - page: 1193
           grade: 3
-        - page: 1233
+        - page: 1192
           grade: 2
-        - page: 1231
+        - page: 1196
+          grade: 1
+        - page: 1197
+          grade: 1
+        - page: 1198
           grade: 1
     query_type: definition
     history: []
@@ -124,15 +150,31 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 1047
+        - id: 1071
           grade: 3
-        - id: 1046
+        - id: 1067
           grade: 2
+        - id: 1205
+          grade: 1
+        - id: 1206
+          grade: 1
+        - id: 1270
+          grade: 1
       pages:
-        - page: 1232
+        - page: 1196
           grade: 3
-        - page: 1231
+        - page: 1197
+          grade: 3
+        - page: 1198
+          grade: 3
+        - page: 1193
           grade: 2
+        - page: 1360
+          grade: 1
+        - page: 1415
+          grade: 1
+        - page: 1416
+          grade: 1
     query_type: follow_up
     history:
       - role: user
@@ -147,14 +189,14 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 1063
+        - id: 1067
           grade: 3
-        - id: 1046
+        - id: 1066
           grade: 2
       pages:
-        - page: 1251
+        - page: 1193
           grade: 3
-        - page: 1231
+        - page: 1192
           grade: 2
     query_type: definition
     history: []
@@ -166,14 +208,32 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 1067
+        - id: 1087
           grade: 3
-        - id: 1068
+        - id: 1088
+          grade: 2
+        - id: 1086
+          grade: 2
+        - id: 1085
+          grade: 2
+        - id: 1089
           grade: 2
       pages:
-        - page: 1255
+        - page: 1216
           grade: 3
-        - page: 1257
+        - page: 1217
+          grade: 3
+        - page: 1218
+          grade: 2
+        - page: 1219
+          grade: 2
+        - page: 1215
+          grade: 2
+        - page: 1214
+          grade: 2
+        - page: 1220
+          grade: 2
+        - page: 1221
           grade: 2
     query_type: explanatory
     history: []
@@ -185,14 +245,20 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 1143
+        - id: 1163
           grade: 3
-        - id: 1144
+        - id: 1102
+          grade: 2
+        - id: 1164
           grade: 2
       pages:
-        - page: 1345
+        - page: 1305
           grade: 3
-        - page: 1346
+        - page: 1306
+          grade: 3
+        - page: 1231
+          grade: 2
+        - page: 1232
           grade: 2
     query_type: definition
     history: []
@@ -204,14 +270,22 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 1148
+        - id: 1169
           grade: 3
-        - id: 1083
+        - id: 1170
+          grade: 2
+        - id: 1172
           grade: 2
       pages:
-        - page: 1349
+        - page: 1310
           grade: 3
-        - page: 1271
+        - page: 1311
+          grade: 3
+        - page: 1312
+          grade: 2
+        - page: 1313
+          grade: 2
+        - page: 1314
           grade: 2
     query_type: explanatory
     history: []
@@ -223,18 +297,22 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 379
+        - id: 387
           grade: 3
-        - id: 378
+        - id: 386
           grade: 2
-        - id: 380
+        - id: 388
           grade: 1
       pages:
-        - page: 482
+        - page: 474
           grade: 3
-        - page: 481
+        - page: 475
+          grade: 3
+        - page: 476
           grade: 2
-        - page: 484
+        - page: 473
+          grade: 2
+        - page: 477
           grade: 1
     query_type: definition
     history: []
@@ -246,14 +324,20 @@ benchmarks:
     similarity_threshold: 0.76
     retrieval_gold:
       chunks:
-        - id: 382
+        - id: 390
           grade: 3
-        - id: 383
+        - id: 382
           grade: 2
       pages:
-        - page: 485
+        - page: 477
           grade: 3
-        - page: 486
+        - page: 478
+          grade: 3
+        - page: 469
+          grade: 2
+        - page: 470
+          grade: 2
+        - page: 471
           grade: 2
     query_type: explanatory
     history: []
@@ -265,14 +349,18 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 373
+        - id: 381
           grade: 3
         - id: 382
           grade: 2
       pages:
-        - page: 476
+        - page: 468
           grade: 3
-        - page: 485
+        - page: 469
+          grade: 3
+        - page: 470
+          grade: 2
+        - page: 471
           grade: 2
     query_type: definition
     history: []
@@ -284,14 +372,20 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 382
+        - id: 390
           grade: 3
-        - id: 383
+        - id: 382
           grade: 2
       pages:
-        - page: 485
+        - page: 477
           grade: 3
-        - page: 486
+        - page: 478
+          grade: 3
+        - page: 469
+          grade: 2
+        - page: 470
+          grade: 2
+        - page: 471
           grade: 2
     query_type: follow_up
     history:
@@ -307,14 +401,16 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 56
+        - id: 58
           grade: 3
-        - id: 57
+        - id: 59
           grade: 2
       pages:
-        - page: 111
+        - page: 109
           grade: 3
-        - page: 112
+        - page: 110
+          grade: 3
+        - page: 111
           grade: 2
     query_type: definition
     history: []
@@ -326,14 +422,20 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 58
+        - id: 60
           grade: 3
-        - id: 59
+        - id: 61
+          grade: 2
+        - id: 84
           grade: 2
       pages:
-        - page: 113
+        - page: 111
           grade: 3
-        - page: 114
+        - page: 112
+          grade: 3
+        - page: 143
+          grade: 2
+        - page: 144
           grade: 2
     query_type: definition
     history: []
@@ -345,19 +447,31 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 56
-          grade: 3
         - id: 58
           grade: 3
         - id: 60
+          grade: 3
+        - id: 61
           grade: 2
+        - id: 84
+          grade: 2
+        - id: 316
+          grade: 1
       pages:
+        - page: 109
+          grade: 3
+        - page: 110
+          grade: 3
         - page: 111
           grade: 3
-        - page: 113
-          grade: 3
-        - page: 114
+        - page: 112
           grade: 2
+        - page: 143
+          grade: 2
+        - page: 144
+          grade: 2
+        - page: 396
+          grade: 1
     query_type: multi_part
     history: []
 
@@ -368,14 +482,18 @@ benchmarks:
     similarity_threshold: 0.74
     retrieval_gold:
       chunks:
-        - id: 18
-          grade: 3
         - id: 19
+          grade: 3
+        - id: 55
           grade: 2
       pages:
+        - page: 62
+          grade: 3
         - page: 63
           grade: 3
-        - page: 64
+        - page: 105
+          grade: 2
+        - page: 106
           grade: 2
     query_type: multi_part
     history: []
@@ -387,12 +505,12 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 60
+        - id: 62
           grade: 3
       pages:
-        - page: 114
+        - page: 112
           grade: 3
-        - page: 115
+        - page: 113
           grade: 2
     query_type: definition
     history: []
@@ -404,14 +522,12 @@ benchmarks:
     similarity_threshold: 0.72
     retrieval_gold:
       chunks:
-        - id: 1661
+        - id: 1692
           grade: 3
-        - id: 665
-          grade: 2
       pages:
-        - page: 1921
+        - page: 1848
           grade: 3
-        - page: 796
+        - page: 1849
           grade: 2
     query_type: multi_part
     history: []

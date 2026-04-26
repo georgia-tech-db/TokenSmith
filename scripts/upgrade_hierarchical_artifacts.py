@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--embed-model",
-        default="models/Qwen3-Embedding-4B-Q5_K_M.gguf",
+        default="models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf",
         help="Embedding model path recorded in the manifest.",
     )
     parser.add_argument(

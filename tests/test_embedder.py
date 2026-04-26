@@ -85,3 +85,19 @@ def test_load_embedding_model_retries_with_smaller_context(monkeypatch):
 
     assert actual_n_ctx == 1024
     assert model.kwargs["n_ctx"] == 1024
+
+
+def test_load_embedding_model_force_cpu_disables_all_offload(monkeypatch):
+    class FakeLlama:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setenv("TOKENSMITH_FORCE_CPU", "1")
+    monkeypatch.setattr("src.embedder.Llama", FakeLlama)
+
+    model, actual_n_ctx = _load_embedding_model("fake.gguf", n_ctx=512, n_threads=1, verbose=False)
+
+    assert actual_n_ctx == 512
+    assert model.kwargs["n_gpu_layers"] == 0
+    assert model.kwargs["offload_kqv"] is False
+    assert model.kwargs["op_offload"] is False

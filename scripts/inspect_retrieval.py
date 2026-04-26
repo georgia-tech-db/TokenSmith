@@ -6,10 +6,9 @@ Inspect TokenSmith retrieval for a single query using the current local artifact
 from __future__ import annotations
 
 import argparse
-import pathlib
 from typing import List
 
-from src.config import RAGConfig
+from src.config import RAGConfig, resolve_config_path
 from src.retrieval_pipeline import build_runtime_retrievers, execute_retrieval_plan
 from src.retriever import load_artifact_bundle
 
@@ -39,9 +38,10 @@ def _history_pairs(turns: List[str]) -> List[dict]:
 
 def main() -> None:
     args = parse_args()
-    cfg = RAGConfig.from_yaml(pathlib.Path(args.config))
+    cfg = RAGConfig.from_yaml(resolve_config_path(args.config))
     if args.top_k is not None:
         cfg.top_k = args.top_k
+    cfg.validate_runtime_files(require_index_sidecars=True)
 
     artifacts_dir = cfg.get_artifacts_directory()
     bundle = load_artifact_bundle(artifacts_dir, args.index_prefix)
