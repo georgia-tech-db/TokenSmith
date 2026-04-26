@@ -1,0 +1,158 @@
+{
+  "overall": {
+    "group": "overall",
+    "n": 7,
+    "error_rate_pct": 0.0,
+    "answer_word_count_mean": 222,
+    "answer_word_count_stdev": 93.05732999966561,
+    "answer_char_count_mean": 1435.142857142857,
+    "n_retrieved_chunks_mean": 10,
+    "gold_chunk_coverage_rate_mean": 0.9761904761904762,
+    "gold_chunk_coverage_rate_stdev": 0.0629940788348712,
+    "retrieval_precision_mean": 0.2142857142857143,
+    "perfect_gold_coverage_pct": 85.71428571428571,
+    "chunk_relevance_rate_mean_individual": 0.6571428571428571,
+    "chunk_relevance_rate_mean_group": 0.6857142857142857,
+    "rubric_met_rate_mean_individual": 0.9642857142857143,
+    "rubric_met_rate_mean_all": 0.9642857142857143,
+    "rubric_avg_score_individual": 0.9642857142857143,
+    "rubric_avg_score_all": 0.9642857142857143,
+    "correctness_score_no_ref_mean": 0.7142857142857143,
+    "correctness_score_with_ref_mean": 0.7142857142857143,
+    "correctness_no_ref_distribution": {
+      "-1": 0,
+      "0": 2,
+      "1": 5
+    },
+    "correctness_with_ref_distribution": {
+      "-1": 0,
+      "0": 2,
+      "1": 5
+    },
+    "faithfulness_score_mean": 1.0,
+    "faithfulness_distribution": {
+      "faithful": 4,
+      "partially_faithful": 0,
+      "unfaithful": 0,
+      "uncertain": 3
+    }
+  },
+  "by_difficulty": {
+    "easy": {
+      "group": "easy",
+      "n": 4,
+      "error_rate_pct": 0.0,
+      "answer_word_count_mean": 148.75,
+      "answer_word_count_stdev": 23.51418011895517,
+      "answer_char_count_mean": 967,
+      "n_retrieved_chunks_mean": 10,
+      "gold_chunk_coverage_rate_mean": 1.0,
+      "gold_chunk_coverage_rate_stdev": 0.0,
+      "retrieval_precision_mean": 0.15000000000000002,
+      "perfect_gold_coverage_pct": 100.0,
+      "chunk_relevance_rate_mean_individual": 0.5,
+      "chunk_relevance_rate_mean_group": 0.575,
+      "rubric_met_rate_mean_individual": 1.0,
+      "rubric_met_rate_mean_all": 1.0,
+      "rubric_avg_score_individual": 1.0,
+      "rubric_avg_score_all": 1.0,
+      "correctness_score_no_ref_mean": 1,
+      "correctness_score_with_ref_mean": 1,
+      "correctness_no_ref_distribution": {
+        "-1": 0,
+        "0": 0,
+        "1": 4
+      },
+      "correctness_with_ref_distribution": {
+        "-1": 0,
+        "0": 0,
+        "1": 4
+      },
+      "faithfulness_score_mean": 1.0,
+      "faithfulness_distribution": {
+        "faithful": 3,
+        "partially_faithful": 0,
+        "unfaithful": 0,
+        "uncertain": 1
+      }
+    },
+    "medium": {
+      "group": "medium",
+      "n": 3,
+      "error_rate_pct": 0.0,
+      "answer_word_count_mean": 319.6666666666667,
+      "answer_word_count_stdev": 10.503967504392486,
+      "answer_char_count_mean": 2059.3333333333335,
+      "n_retrieved_chunks_mean": 10,
+      "gold_chunk_coverage_rate_mean": 0.9444444444444444,
+      "gold_chunk_coverage_rate_stdev": 0.0962250448649376,
+      "retrieval_precision_mean": 0.3,
+      "perfect_gold_coverage_pct": 66.66666666666666,
+      "chunk_relevance_rate_mean_individual": 0.8666666666666667,
+      "chunk_relevance_rate_mean_group": 0.8333333333333334,
+      "rubric_met_rate_mean_individual": 0.9166666666666666,
+      "rubric_met_rate_mean_all": 0.9166666666666666,
+      "rubric_avg_score_individual": 0.9166666666666666,
+      "rubric_avg_score_all": 0.9166666666666666,
+      "correctness_score_no_ref_mean": 0.3333333333333333,
+      "correctness_score_with_ref_mean": 0.3333333333333333,
+      "correctness_no_ref_distribution": {
+        "-1": 0,
+        "0": 2,
+        "1": 1
+      },
+      "correctness_with_ref_distribution": {
+        "-1": 0,
+        "0": 2,
+        "1": 1
+      },
+      "faithfulness_score_mean": 1.0,
+      "faithfulness_distribution": {
+        "faithful": 1,
+        "partially_faithful": 0,
+        "unfaithful": 0,
+        "uncertain": 2
+      }
+    }
+  },
+  "by_chapter": {
+    "chapter_10": {
+      "group": "chapter_10",
+      "n": 7,
+      "error_rate_pct": 0.0,
+      "answer_word_count_mean": 222,
+      "answer_word_count_stdev": 93.05732999966561,
+      "answer_char_count_mean": 1435.142857142857,
+      "n_retrieved_chunks_mean": 10,
+      "gold_chunk_coverage_rate_mean": 0.9761904761904762,
+      "gold_chunk_coverage_rate_stdev": 0.0629940788348712,
+      "retrieval_precision_mean": 0.2142857142857143,
+      "perfect_gold_coverage_pct": 85.71428571428571,
+      "chunk_relevance_rate_mean_individual": 0.6571428571428571,
+      "chunk_relevance_rate_mean_group": 0.6857142857142857,
+      "rubric_met_rate_mean_individual": 0.9642857142857143,
+      "rubric_met_rate_mean_all": 0.9642857142857143,
+      "rubric_avg_score_individual": 0.9642857142857143,
+      "rubric_avg_score_all": 0.9642857142857143,
+      "correctness_score_no_ref_mean": 0.7142857142857143,
+      "correctness_score_with_ref_mean": 0.7142857142857143,
+      "correctness_no_ref_distribution": {
+        "-1": 0,
+        "0": 2,
+        "1": 5
+      },
+      "correctness_with_ref_distribution": {
+        "-1": 0,
+        "0": 2,
+        "1": 5
+      },
+      "faithfulness_score_mean": 1.0,
+      "faithfulness_distribution": {
+        "faithful": 4,
+        "partially_faithful": 0,
+        "unfaithful": 0,
+        "uncertain": 3
+      }
+    }
+  }
+}

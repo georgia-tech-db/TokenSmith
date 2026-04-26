@@ -1,0 +1,31 @@
+{
+  "markdown_path": "data/textbook--extracted_markdown.md",
+  "chapters": {
+    "1":  {"content_start": 43,   "content_end": 91,   "rt_start": 91,   "rt_end": 94},
+    "2":  {"content_start": 101,  "content_end": 131,  "rt_start": 131,  "rt_end": 132},
+    "3":  {"content_start": 139,  "content_end": 200,  "rt_start": 200,  "rt_end": 202},
+    "4":  {"content_start": 215,  "content_end": 280,  "rt_start": 281,  "rt_end": 282},
+    "5":  {"content_start": 291,  "content_end": 365,  "rt_start": 365,  "rt_end": 366},
+    "6":  {"content_start": 378,  "content_end": 458,  "rt_start": 459,  "rt_end": 460},
+    "7":  {"content_start": 471,  "content_end": 545,  "rt_start": 545,  "rt_end": 547},
+    "8":  {"content_start": 561,  "content_end": 611,  "rt_start": 611,  "rt_end": 613},
+    "9":  {"content_start": 621,  "content_end": 697,  "rt_start": 697,  "rt_end": 698},
+    "10": {"content_start": 715,  "content_end": 782,  "rt_start": 782,  "rt_end": 783},
+    "11": {"content_start": 791,  "content_end": 842,  "rt_start": 842,  "rt_end": 843},
+    "12": {"content_start": 852,  "content_end": 889,  "rt_start": 889,  "rt_end": 891},
+    "13": {"content_start": 898,  "content_end": 945,  "rt_start": 945,  "rt_end": 947},
+    "14": {"content_start": 954,  "content_end": 1042, "rt_start": 1042, "rt_end": 1045},
+    "15": {"content_start": 1056, "content_end": 1130, "rt_start": 1130, "rt_end": 1132},
+    "16": {"content_start": 1141, "content_end": 1213, "rt_start": 1213, "rt_end": 1215},
+    "17": {"content_start": 1226, "content_end": 1276, "rt_start": 1276, "rt_end": 1278},
+    "18": {"content_start": 1285, "content_end": 1384, "rt_start": 1384, "rt_end": 1387},
+    "19": {"content_start": 1401, "content_end": 1471, "rt_start": 1472, "rt_end": 1474},
+    "20": {"content_start": 1485, "content_end": 1543, "rt_start": 1543, "rt_end": 1546},
+    "21": {"content_start": 1552, "content_end": 1599, "rt_start": 1599, "rt_end": 1601},
+    "22": {"content_start": 1609, "content_end": 1690, "rt_start": 1690, "rt_end": 1692},
+    "23": {"content_start": 1704, "content_end": 1814, "rt_start": 1814, "rt_end": 1817},
+    "24": {"content_start": 1830, "content_end": 1876, "rt_start": 1876, "rt_end": 1877},
+    "25": {"content_start": 1883, "content_end": 1943, "rt_start": 1943, "rt_end": 1945},
+    "26": {"content_start": 1952, "content_end": 2000, "rt_start": 2001, "rt_end": 2001}
+  }
+}

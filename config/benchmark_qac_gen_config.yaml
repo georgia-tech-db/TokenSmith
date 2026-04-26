@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# benchmark_qac_gen_config.yaml
+# Configuration for the QAC benchmark generation pipeline.
+# All paths are relative to the project root (where main.py is invoked from).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── API ───────────────────────────────────────────────────────────────────────
+openrouter_api_key: "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"          # leave blank to read from OPENROUTER_API_KEY env var
+
+# ── Models ────────────────────────────────────────────────────────────────────
+generation_model:  "google/gemini-2.5-pro-preview"
+verifier_1_model:  "anthropic/claude-sonnet-4-5"
+verifier_2_model:  "openai/gpt-4o"
+
+# ── Book & chapter info ───────────────────────────────────────────────────────
+# Path to the JSON file describing chapter page ranges.
+# If the file is missing or contains no chapter data, the full markdown is
+# treated as a single chapter starting from the first page marker found.
+book_info_path: "src/llm_benchmark_generation/book_chapters_page_info.json"
+
+# Default markdown path used when book_info_path is missing or has no
+# markdown_path field.
+default_markdown_path: "data/textbook--extracted_markdown.md"
+
+# ── Windowing ─────────────────────────────────────────────────────────────────
+window_size: 25                 # pages per LLM generation window
+
+# ── Generation parameters ─────────────────────────────────────────────────────
+max_tokens_generation: 16000    # output token budget for QAC generation (large)
+max_tokens_critique:   2000     # output token budget for self-critique
+max_tokens_refine:     4000     # output token budget for refinement steps
+max_tokens_verify:     1500     # output token budget per verifier call
+
+# ── HTTP / retry ──────────────────────────────────────────────────────────────
+http_connect_timeout:  10       # seconds to establish TCP connection
+http_read_timeout:     180      # seconds to wait for response body
+max_retries:           3        # LLM call retry attempts before giving up
+retry_delay_base:      10       # seconds; multiplied by attempt number
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output_dir:   "synthetic_qac_data"   # root output directory
+qac_subdir:   "qacs"                 # subdirectory for JSONL files
+log_subdir:   "logs"                 # subdirectory for per-window JSON logs
+
+# Output filename. Leave blank for auto-generated name based on model + date.
+# Example auto name: qac_gemini-2.5-pro-preview_2025-04-25.jsonl
+output_filename: ""
+
+# ── Behaviour ─────────────────────────────────────────────────────────────────
+# When --no-interactive is set and output already exists, choose:
+#   append    — add new records to the existing file
+#   overwrite — replace the file entirely
+non_interactive_default: "append"
