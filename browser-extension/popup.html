@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenSmith · Ed Discussion</title>
+  <style>
+    /* ─── Reset & Base ─── */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #191c24;
+      --card:      #1e2230;
+      --border:    #2a2e3b;
+      --text:      #e4e6eb;
+      --muted:     #8b8fa3;
+      --accent:    #6c5ce7;
+      --accent2:   #a29bfe;
+      --success:   #00b894;
+      --warn:      #fdcb6e;
+      --danger:    #e17055;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0,0,0,.45);
+    }
+
+    body {
+      width: 400px;
+      min-height: 200px;
+      max-height: 600px;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
+      overflow-y: auto;
+    }
+
+    /* ─── Header ─── */
+    .header {
+      background: linear-gradient(135deg, var(--accent), #4834d4);
+      padding: 18px 20px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header svg { flex-shrink: 0; }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+    .header small {
+      display: block;
+      font-size: 11px;
+      opacity: .75;
+      margin-top: 2px;
+    }
+
+    /* ─── Sections ─── */
+    .body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+    label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--muted);
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    /* ─── Inputs / Selects ─── */
+    input, select {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108,92,231,.25);
+    }
+    select { cursor: pointer; appearance: none; }
+
+    /* ─── Button ─── */
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      cursor: pointer;
+      transition: background .2s, transform .1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #4834d4);
+      color: #fff;
+    }
+    .btn-primary:hover { background: linear-gradient(135deg, #7c6cf0, #5a3fd4); }
+    .btn-primary:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ─── Session badge ─── */
+    .session-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+    }
+    .session-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .session-badge .dot.green  { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .session-badge .dot.yellow { background: var(--warn); }
+    .session-badge .dot.red    { background: var(--danger); }
+    .session-badge .label { flex: 1; }
+    .session-badge .name  { color: var(--text); font-weight: 600; }
+    .session-badge .sub   { color: var(--muted); font-size: 11px; }
+
+    /* ─── Fallback toggle ─── */
+    .fallback-toggle {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0;
+      margin-top: -4px;
+    }
+    .fallback-toggle:hover { color: var(--accent2); }
+    .fallback-section { display: none; }
+    .fallback-section.visible { display: block; }
+
+    /* ─── Log Area ─── */
+    #log {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.65;
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--muted);
+      display: none;           /* hidden until first message */
+    }
+    #log.visible { display: block; }
+
+    .log-info  { color: var(--accent2); }
+    .log-ok    { color: var(--success); }
+    .log-warn  { color: var(--warn); }
+    .log-err   { color: var(--danger); }
+    .log-sub   { color: var(--muted); font-size: 11px; }
+
+    /* Spinner inside button */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Footer ─── */
+    .footer {
+      padding: 8px 18px 12px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    <div>
+      <h1>TokenSmith</h1>
+      <small>Ed Discussion Auto‑Answerer</small>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Session status indicator -->
+    <div id="sessionBadge" class="session-badge">
+      <span class="dot yellow"></span>
+      <div class="label">
+        <div class="name" id="sessionName">Detecting Ed session…</div>
+        <div class="sub" id="sessionSub">Checking active tab</div>
+      </div>
+    </div>
+
+    <!-- Fallback: manual token entry (hidden by default) -->
+    <button class="fallback-toggle" id="btnFallback" style="display:none;">
+      Use manual API token instead ▾
+    </button>
+    <div class="fallback-section" id="fallbackSection">
+      <label for="edToken">Ed API Token (manual)</label>
+      <input id="edToken" type="password" placeholder="Paste your Ed API token…" autocomplete="off" />
+    </div>
+
+    <!-- TokenSmith URL -->
+    <div>
+      <label for="tsUrl">TokenSmith Server URL</label>
+      <input id="tsUrl" type="url" value="http://localhost:8000" placeholder="http://localhost:8000" />
+    </div>
+
+    <!-- Course selector -->
+    <div>
+      <label for="courseSelect">Course</label>
+      <select id="courseSelect" disabled>
+        <option value="">— detecting session… —</option>
+      </select>
+    </div>
+
+    <!-- Action buttons -->
+    <button class="btn btn-primary" id="btnLoad" style="display:none;">
+      Load Courses
+    </button>
+
+    <button class="btn btn-primary" id="btnGo" disabled>
+      🚀&nbsp; Answer Unanswered Questions
+    </button>
+
+    <!-- Log output -->
+    <div id="log"></div>
+  </div>
+
+  <div class="footer">Powered by TokenSmith · Admin-only mode</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
