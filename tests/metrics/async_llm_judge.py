@@ -2,6 +2,7 @@ from typing import Optional, List, Dict
 from pathlib import Path
 from datetime import datetime
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -40,8 +41,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results_file = self.log_dir / "async_llm_results.json"
         
-        # Initialize client once
-        if not _initialized:
+        if self.is_available() and not _initialized:
             _lazy_init()
     
     @property
@@ -53,7 +53,7 @@ class AsyncLLMJudgeMetric(MetricBase):
         return 0.0
     
     def is_available(self) -> bool:
-        return True
+        return bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"))
     
     def calculate(self, answer: str, expected: str, keywords: Optional[List[str]] = None) -> float:
         """
@@ -227,4 +227,3 @@ Evaluate the answer on the following dimensions:
 - Base your evaluation ONLY on the attached textbook content
 - Provide specific, actionable feedback
 - Be fair but rigorous in your assessment"""
-

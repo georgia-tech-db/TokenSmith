@@ -26,6 +26,7 @@ dependencies:
     - langchain_text_splitters
     - google-genai
     - pytest
+    - ruff
     - rich
     - langchain-text-splitters
     - fastapi

@@ -253,3 +253,15 @@ marimo/_lsp/
 __marimo__/
 
 tests/results
+
+# Local machine / evaluation (do not commit)
+.conda-envs/
+.conda-pkgs/
+eval_runs/
+# Rebuilt FAISS-related tensors and info (re-generate with index build)
+index/sections/*.npy
+index/sections/*_info.json
+# Editor / merge accident duplicates
+* 2.py
+* 2.yaml
+* 2.yml

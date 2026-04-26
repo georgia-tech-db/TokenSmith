@@ -1,4 +1,39 @@
-.PHONY: help env build-llama clean test run-index run-chat run-index-partial run-add-chapters-partial run-chat-partial install update-env
+.PHONY: help env build-llama clean test lint run-index run-chat run-index-partial run-add-chapters-partial run-chat-partial install update-env
+
+RUFF_TARGETS = \
+	src/api_server.py \
+	src/artifacts.py \
+	src/config.py \
+	src/embedder.py \
+	src/index_builder.py \
+	src/instrumentation/logging.py \
+	src/main.py \
+	src/planning/heuristics.py \
+	src/planning/planner.py \
+	src/planning/rules.py \
+	src/preprocessing/extraction.py \
+	src/ranking/ranker.py \
+	src/query_enhancement.py \
+	src/retrieval_pipeline.py \
+	src/retriever.py \
+	tests/conftest.py \
+	tests/test_artifacts.py \
+	tests/test_benchmarks.py \
+	tests/test_embedder.py \
+	tests/test_extraction.py \
+	tests/test_planning_rules.py \
+	tests/test_retrieval_metrics.py \
+	tests/test_retrieval_pipeline.py \
+	tests/metrics/__init__.py \
+	tests/metrics/base.py \
+	tests/metrics/chunk_retrieval.py \
+	tests/metrics/registry.py \
+	tests/metrics/scorer.py \
+	scripts/compare_benchmark_results.py \
+	scripts/inspect_retrieval.py \
+	scripts/rescore_benchmark_results.py \
+	scripts/run_retrieval_benchmark.py \
+	tests/test_index_builder.py
 
 help:
 	@echo "TokenSmith - RAG Application (Conda Dependencies)"
@@ -8,6 +43,7 @@ help:
 	@echo "  build-llama - Build llama.cpp (if not found)"  
 	@echo "  install     - Install package in development mode"
 	@echo "  test        - Run tests"
+	@echo "  lint        - Run Ruff lint checks"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  show-deps   - Show installed conda packages"
 	@echo "  export-env  - Export current environment"
@@ -54,6 +90,13 @@ export-env:
 # Run tests
 test:
 	conda run -n tokensmith python -m pytest tests/ -v || echo "No tests found"
+
+lint:
+	@if [ -x ".conda-envs/tokensmith/bin/python" ]; then \
+		./.conda-envs/tokensmith/bin/python -m ruff check $(RUFF_TARGETS) --ignore W293,E501,UP006,UP035,UP045; \
+	else \
+		conda run -n tokensmith python -m ruff check $(RUFF_TARGETS) --ignore W293,E501,UP006,UP035,UP045; \
+	fi
 
 # Clean
 clean:

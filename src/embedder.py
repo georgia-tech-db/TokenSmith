@@ -2,6 +2,7 @@ import sqlite3
 import hashlib
 import multiprocessing
 import multiprocessing.pool
+import os
 import numpy as np
 from pathlib import Path
 from typing import List, Union, Optional
@@ -13,17 +14,91 @@ _worker_model: Optional[Llama] = None
 _worker_embedding_dim: int = 0
 
 
+def _truthy_env(name: str) -> bool:
+    """Return True if the environment variable *name* is set to a truthy value."""
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _candidate_contexts(n_ctx: int) -> List[int]:
+    """Return a descending list of embedding context sizes to try."""
+    candidates = []
+    for candidate in [n_ctx, min(n_ctx, 2048), min(n_ctx, 1024), 512]:
+        candidate = int(candidate)
+        if candidate > 0 and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _cpu_backend_kwargs() -> dict:
+    """Return llama.cpp kwargs that fully disable device offload."""
+    return {
+        "n_gpu_layers": 0,
+        "offload_kqv": False,
+        "op_offload": False,
+    }
+
+
+def _load_embedding_model(
+    model_path: str,
+    n_ctx: int,
+    n_threads: int = None,
+    verbose: bool = False,
+) -> tuple[Llama, int]:
+    """Load a GGUF embedding model with GPU/CPU and context-size fallback.
+
+    Args:
+        model_path: Path to the ``.gguf`` model file.
+        n_ctx: Context window size.
+        n_threads: Number of CPU threads (None for auto-detect).
+        verbose: Whether to enable verbose llama.cpp output.
+
+    Returns:
+        A tuple of ``(model, actual_n_ctx)``.
+    """
+    force_cpu = _truthy_env("TOKENSMITH_FORCE_CPU")
+    last_error = None
+
+    for candidate_n_ctx in _candidate_contexts(n_ctx):
+        common_kwargs = {
+            "model_path": model_path,
+            "n_ctx": candidate_n_ctx,
+            "n_threads": n_threads,
+            "embedding": True,
+            "verbose": verbose,
+            "use_mmap": True,
+        }
+
+        if force_cpu:
+            try:
+                return Llama(**common_kwargs, **_cpu_backend_kwargs()), candidate_n_ctx
+            except Exception as exc:
+                last_error = exc
+                continue
+
+        try:
+            return Llama(**common_kwargs, n_gpu_layers=-1), candidate_n_ctx
+        except Exception as gpu_exc:
+            last_error = gpu_exc
+            try:
+                return Llama(**common_kwargs, **_cpu_backend_kwargs()), candidate_n_ctx
+            except Exception as cpu_exc:
+                last_error = cpu_exc
+                continue
+
+    raise ValueError(
+        f"Failed to create embedding llama_context for {model_path} "
+        f"after trying n_ctx values {_candidate_contexts(n_ctx)}"
+    ) from last_error
+
 def _init_worker(model_path: str, n_ctx: int, n_threads: int):
     """Initializes the model inside a worker process."""
     global _worker_model, _worker_embedding_dim
 
-    _worker_model = Llama(
+    _worker_model, _ = _load_embedding_model(
         model_path=model_path,
         n_ctx=n_ctx,
         n_threads=n_threads,
-        embedding=True,
         verbose=False,
-        use_mmap=True,
     )
 
     test_emb = _worker_model.create_embedding("test")['data'][0]['embedding']
@@ -42,12 +117,18 @@ def _encode_batch_worker(texts: List[str]) -> List[List[float]]:
             emb = _worker_model.create_embedding(text)['data'][0]['embedding']
             embeddings.append(emb)
         except Exception:
-            embeddings.append([0.0] * _worker_embedding_dim)
+            raise
 
     return embeddings
 
 
 class SentenceTransformer:
+    """GGUF-backed text embedding model with single- and multi-process encoding.
+
+    Wraps a llama.cpp ``Llama`` instance loaded in embedding mode and exposes an
+    ``encode()`` interface compatible with sentence-transformers conventions.
+    """
+
     def __init__(self, model_path: str, n_ctx: int = 4096, n_threads: int = None):
         """
         Initialize with a local GGUF model file path.
@@ -60,14 +141,11 @@ class SentenceTransformer:
         self.model_path = model_path
         self.n_ctx = n_ctx
 
-        self.model = Llama(
+        self.model, self.n_ctx = _load_embedding_model(
             model_path=model_path,
             n_ctx=n_ctx,
             n_threads=n_threads,
-            embedding=True,
-            verbose=False,
-            use_mmap=True,
-            n_gpu_layers=-1,
+            verbose=_truthy_env("TOKENSMITH_VERBOSE_EMBEDDER"),
         )
         self._embedding_dimension = None
 
@@ -82,27 +160,29 @@ class SentenceTransformer:
             self._embedding_dimension = len(test_embedding)
         return self._embedding_dimension
 
+    def _encode_single(self, text: str) -> List[float]:
+        """Encode a single text string and return its raw embedding vector."""
+        return self.model.create_embedding(text)["data"][0]["embedding"]
+
     def encode(
         self,
         texts: Union[str, List[str]],
-        batch_size: int = 1,
+        batch_size: int = 16,  # Adjusted for 4B model
         normalize: bool = False,
         show_progress_bar: bool = False,
         **kwargs,
     ) -> np.ndarray:
-        """
-        Encode texts to embeddings sequentially.
+
+        """Encode texts to embeddings with batch processing.
 
         Args:
-            texts:             Single text or list of texts to encode.
-            batch_size:        Unused — kept for API compatibility only.
-                               All encoding is sequential (one chunk per
-                               forward pass) due to llama-cpp-python
-                               n_seq_max limitations in 0.3.x.
-            normalize:         Whether to L2-normalize embeddings.
-            show_progress_bar: Whether to show a tqdm progress bar.
+            texts: Single text or list of texts to encode.
+            batch_size: Number of texts to process at once.
+            normalize: Whether to L2-normalize embeddings.
+            show_progress_bar: Whether to show a progress bar.
+
         Returns:
-            numpy.ndarray: Float32 embeddings of shape (len(texts), dim).
+            numpy.ndarray: Float32 embeddings array of shape ``(len(texts), dim)``.
         """
         if isinstance(texts, str):
             texts = [texts]
@@ -110,22 +190,32 @@ class SentenceTransformer:
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self.embedding_dimension)
 
+        # Process in batches
         embeddings = []
-        failed_indices = []
+        num_batches = (len(texts) + batch_size - 1) // batch_size
 
-        for i, text in enumerate(tqdm(texts, desc="Encoding", disable=not show_progress_bar)):
+        for i in tqdm(range(num_batches), desc="Encoding", disable=not show_progress_bar):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, len(texts))
+            batch_texts = texts[start_idx:end_idx]
+
             try:
-                emb = self.model.create_embedding(text)['data'][0]['embedding']
-                embeddings.append(emb)
-            except Exception as e:
-                print(f"  [ERROR] Failed to embed chunk {i}: {e}")
-                print(f"  Preview: '{text[:80]}...'")
-                failed_indices.append(i)
-                embeddings.append([0.0] * self.embedding_dimension)
+                # llama.cpp's Python wrapper has been unreliable for multi-string
+                # embedding batches on the local GGUF backend, especially with Metal.
+                # Default to deterministic one-by-one embedding and keep the batched
+                # list API opt-in for experimentation only.
+                if len(batch_texts) > 1 and _truthy_env("TOKENSMITH_ENABLE_BATCH_EMBEDDINGS"):
+                    response = self.model.create_embedding(batch_texts)
+                    batch_embeddings = [item["embedding"] for item in response["data"]]
+                else:
+                    batch_embeddings = [self._encode_single(text) for text in batch_texts]
 
-        if failed_indices:
-            print(f"\n[WARNING] {len(failed_indices)} chunk(s) failed embedding: indices {failed_indices}")
-            print("These chunks will have zero vectors in the FAISS index and will not be retrievable.\n")
+                embeddings.extend(batch_embeddings)
+
+            except Exception as e:
+                print(f"Error encoding batch: {e}")
+                for text in batch_texts:
+                    embeddings.append(self._encode_single(text))
 
         vecs = np.array(embeddings, dtype=np.float32)
 
@@ -140,8 +230,12 @@ class SentenceTransformer:
         return self.embedding_dimension
 
     def start_multi_process_pool(self, num_workers: int = None) -> multiprocessing.pool.Pool:
-        """Starts a pool of worker processes."""
-        workers = num_workers if num_workers else max(1, multiprocessing.cpu_count() - 2)
+        """
+        Starts a pool of worker processes.
+        """
+        # Default to CPU count - 2 (leave room for OS/Main process)
+        workers = num_workers or max(1, multiprocessing.cpu_count() - 2)
+
         print(f"Creating {workers} worker processes...")
 
         pool = multiprocessing.Pool(
@@ -182,6 +276,7 @@ class SentenceTransformer:
 
     @staticmethod
     def stop_multi_process_pool(pool: multiprocessing.pool.Pool):
+        """Gracefully shut down the worker pool and wait for processes to exit."""
         pool.close()
         pool.join()
 

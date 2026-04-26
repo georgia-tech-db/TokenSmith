@@ -1,4 +1,6 @@
-import textwrap, re
+import os
+import re
+import textwrap
 from llama_cpp import Llama, LlamaRAMCache
 
 ANSWER_START = "<<<ANSWER>>>"
@@ -110,23 +112,75 @@ def format_prompt(chunks, query, max_chunk_chars=400, system_prompt_mode="tutor"
 
 _LLM_CACHE = {}
 
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _candidate_contexts(n_ctx: int):
+    candidates = []
+    for candidate in [n_ctx, min(n_ctx, 2048), min(n_ctx, 1024), 512]:
+        candidate = int(candidate)
+        if candidate > 0 and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _cpu_backend_kwargs():
+    return {
+        "n_gpu_layers": 0,
+        "offload_kqv": False,
+        "op_offload": False,
+        "flash_attn": False,
+    }
+
 def get_llama_model(model_path: str, n_ctx: int = 4096):
-    if model_path not in _LLM_CACHE:
-        try:
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False,
-                                       n_gpu_layers=-1,
-                                       flash_attn=True)
-        except Exception as e:
-            print(f"Error loading LLaMA model from {model_path} on GPU: {e}")
-            _LLM_CACHE[model_path] = Llama(model_path=model_path,
-                                       n_ctx=n_ctx,
-                                       verbose=False)
+    cache_key = (model_path, _truthy_env("TOKENSMITH_FORCE_CPU"))
+    if cache_key not in _LLM_CACHE:
+        last_error = None
+        force_cpu = _truthy_env("TOKENSMITH_FORCE_CPU")
+        for candidate_n_ctx in _candidate_contexts(n_ctx):
+            common_kwargs = {
+                "model_path": model_path,
+                "n_ctx": candidate_n_ctx,
+                "verbose": False,
+            }
+            if force_cpu:
+                try:
+                    _LLM_CACHE[cache_key] = Llama(
+                        **common_kwargs,
+                        **_cpu_backend_kwargs(),
+                    )
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+            try:
+                _LLM_CACHE[cache_key] = Llama(
+                    **common_kwargs,
+                    n_gpu_layers=-1,
+                    flash_attn=True,
+                )
+                break
+            except Exception as gpu_exc:
+                last_error = gpu_exc
+                try:
+                    _LLM_CACHE[cache_key] = Llama(
+                        **common_kwargs,
+                        **_cpu_backend_kwargs(),
+                    )
+                    break
+                except Exception as cpu_exc:
+                    last_error = cpu_exc
+        else:
+            raise ValueError(
+                f"Failed to create generation llama_context for {model_path} "
+                f"after trying n_ctx values {_candidate_contexts(n_ctx)}"
+            ) from last_error
 
         cache = LlamaRAMCache()
-        _LLM_CACHE[model_path].set_cache(cache)
-    return _LLM_CACHE[model_path]
+        _LLM_CACHE[cache_key].set_cache(cache)
+    return _LLM_CACHE[cache_key]
 
 def stream_llama_cpp(prompt: str, model_path: str, max_tokens: int, temperature: float):
     """

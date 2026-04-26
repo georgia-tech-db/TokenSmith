@@ -63,8 +63,13 @@ class SemanticCache(BaseResponseCache):
         Create a unique JSON key for semantic cache based on config, arguments, and optional golden chunks.
         """
         try: 
-            payload = RAGConfig.get_config_state()
-        except Exception:
+            payload = cfg.get_config_state()
+            json.dumps(payload)
+            if not isinstance(payload, dict):
+                raise TypeError("config state must be a dict")
+            payload["system_prompt_mode"] = getattr(args, "system_prompt_mode", None) or cfg.system_prompt_mode
+            payload["index_prefix"] = getattr(args, "index_prefix", None)
+        except (AttributeError, TypeError, ValueError):
             payload = {
                 "gen_model": getattr(args, "model_path", None) or cfg.gen_model,
                 "embed_model": cfg.embed_model,
@@ -141,7 +146,7 @@ class SemanticCache(BaseResponseCache):
         """
         for retriever in retrievers:
             if isinstance(retriever, FAISSRetriever):
-                return retriever.embedder
+                return retriever._ensure_embedder()
 
         model_path = embed_model
         if not model_path:
@@ -158,11 +163,19 @@ class SemanticCache(BaseResponseCache):
         """
         Compute a normalized embedding vector for a question using the configured embedder.
         """
-        embedder = self._get_question_embedder(retrievers, embed_model)
+        try:
+            embedder = self._get_question_embedder(retrievers, embed_model)
+        except Exception as exc:
+            print(f"WARNING: semantic cache embedding unavailable for {embed_model}: {exc}")
+            return None
         if not embedder:
             return None
 
-        vec = embedder.encode([question], batch_size=1, normalize=True, show_progress_bar=False)
+        try:
+            vec = embedder.encode([question], batch_size=1, normalize=True, show_progress_bar=False)
+        except Exception as exc:
+            print(f"WARNING: semantic cache embedding failed: {exc}")
+            return None
         if vec.size == 0:
             return None
 

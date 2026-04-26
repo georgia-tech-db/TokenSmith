@@ -1,11 +1,9 @@
 from pathlib import Path
+from contextlib import suppress
 import re
 import json
 from typing import List, Dict
 import sys
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
-from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 
 def extract_sections_from_markdown(
     file_path: str,
@@ -23,7 +21,7 @@ def extract_sections_from_markdown(
               section with 'heading' and 'content' keys.
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
         print(f"Error: The file '{file_path}' was not found.")
@@ -61,9 +59,10 @@ def extract_sections_from_markdown(
             heading = f"Section {heading}"
 
             # Exclude sections based on keywords if provided
-            if exclusion_keywords is not None:
-                if any(keyword.lower() in heading.lower() for keyword in exclusion_keywords):
-                    continue
+            if exclusion_keywords is not None and any(
+                keyword.lower() in heading.lower() for keyword in exclusion_keywords
+            ):
+                continue
 
             section_content = parts[1].strip() if len(parts) > 1 else ''
             
@@ -104,6 +103,85 @@ def extract_sections_from_markdown(
             })
 
     return sections
+
+
+def extract_sections_from_json(
+    file_path: str,
+    exclusion_keywords: List[str] = None,
+) -> List[Dict]:
+    """
+    Loads already-extracted textbook sections from JSON and normalizes them for indexing.
+    """
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            raw_sections = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+        return []
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return []
+
+    if not isinstance(raw_sections, list):
+        print(f"Error: Expected a list of sections in '{file_path}'.")
+        return []
+
+    numbering_pattern = re.compile(r"(\d+(?:\.\d+)*)")
+    sections: List[Dict] = []
+
+    for raw_section in raw_sections:
+        if not isinstance(raw_section, dict):
+            continue
+
+        heading = str(raw_section.get("heading", "")).strip() or "Untitled Section"
+        content = str(raw_section.get("content", "")).strip()
+        if not content:
+            continue
+
+        if exclusion_keywords is not None and any(
+            keyword.lower() in heading.lower() for keyword in exclusion_keywords
+        ):
+            continue
+
+        level = raw_section.get("level")
+        chapter = raw_section.get("chapter")
+
+        if level is None or chapter is None:
+            match = numbering_pattern.search(heading)
+            if match:
+                section_number = match.group(1)
+                level = section_number.count(".") + 1
+                try:
+                    chapter = int(section_number.split(".")[0])
+                except ValueError:
+                    chapter = 0
+            else:
+                level = 1
+                chapter = 0
+
+        sections.append(
+            {
+                "heading": heading,
+                "content": preprocess_extracted_section(content),
+                "level": int(level),
+                "chapter": int(chapter),
+            }
+        )
+
+    return sections
+
+
+def load_extracted_sections(
+    file_path: str,
+    exclusion_keywords: List[str] = None,
+) -> List[Dict]:
+    """
+    Load sections from either a docling markdown export or a previously extracted JSON file.
+    """
+    source_path = Path(file_path)
+    if source_path.suffix.lower() == ".json":
+        return extract_sections_from_json(str(source_path), exclusion_keywords=exclusion_keywords)
+    return extract_sections_from_markdown(str(source_path), exclusion_keywords=exclusion_keywords)
 
 def extract_index_with_range_expansion(text_content):
     """
@@ -148,14 +226,11 @@ def extract_index_with_range_expansion(text_content):
                     pages.extend(range(start, end + 1))
                 except ValueError:
                     # Handle cases where a part with a hyphen isn't a valid range
-                    pass 
+                    pass
             else:
-                try:
+                with suppress(ValueError):
                     # It's a single page number
                     pages.append(int(part))
-                except ValueError:
-                    # Handle cases where a part is not a valid number
-                    pass
         
         if keyword and pages:
             # Add the parsed pages to the dictionary
@@ -183,6 +258,10 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         print(f"Error: Input file not found at {input_file_path}", file=sys.stderr)
         return
 
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption, InputFormat
+    from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
+
     # Disable OCR and table structure extraction for faster processing
     pipeline_options = PdfPipelineOptions()
     pipeline_options.do_ocr = False
@@ -203,21 +282,52 @@ def convert_and_save_with_page_numbers(input_file_path, output_file_path):
         
     doc = result.document
 
-    num_pages = len(doc.pages)
-    
-    # Extract markdown and append page number footer except for the last page
-    final_text = "".join(
-        doc.export_to_markdown(page_no=i) + (f"\n\n--- Page {i} ---\n\n" if i < num_pages else "")
-        for i in range(1, num_pages + 1)
-    )
+    # Define a unique placeholder that won't appear in the text.
+    # Using "\n" ensures it's on its own line.
+    UNIQUE_PLACEHOLDER = "\n%%%__DOCLING_PAGE_BREAK__%%%\n"
+
+    # Export the entire document at once, using our placeholder.
+    # This avoids the fragile doc.filter() method.
+    try:
+        full_markdown = doc.export_to_markdown(page_break_placeholder=UNIQUE_PLACEHOLDER)
+    except Exception as e:
+        print(f"Error during final markdown export: {e}", file=sys.stderr)
+        print("Falling back to exporting document without page numbers.")
+        try:
+            # Fallback: just save the raw export
+            with open(output_file_path, "w", encoding="utf-8") as f:
+                f.write(doc.export_to_markdown())
+            print(f"Successfully saved (fallback, no page numbers) to {output_file_path}")
+        except OSError as e_io:
+            print(f"Error writing fallback file: {e_io}", file=sys.stderr)
+        return
+
+    # Split the full markdown by our unique placeholder.
+    # This gives us a list where each item is one page's content.
+    markdown_pages = full_markdown.split(UNIQUE_PLACEHOLDER)
+
+    final_output_chunks = []
+
+    # Iterate through the pages, adding our custom footer.
+    # We use enumerate to get a 1-based page number.
+    num_pages = len(markdown_pages)
+    for i, page_content in enumerate(markdown_pages, 1):
+        # Add the content for the current page
+        final_output_chunks.append(page_content)
+
+        # Add our custom footer, but not after the very last page
+        if i < num_pages:
+            final_output_chunks.append(f"\n\n--- Page {i} ---\n\n")
 
     # Write the combined markdown string to the output file
     try:
         with open(output_file_path, "w", encoding="utf-8") as f:
-            f.write(final_text)
+            f.write("".join(final_output_chunks))
         print(f"Successfully converted and saved to {output_file_path}")
-    except Exception as e:
+    except OSError as e:
         print(f"Error writing to file {output_file_path}: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
 
 
 def preprocess_extracted_section(text: str) -> str:
@@ -245,8 +355,8 @@ def preprocess_extracted_section(text: str) -> str:
 
 def main():
     # Returns all pdf files under data/chapters/
-    project_root = Path(__file__).resolve().parent.parent.parent
-    chapters_dir = project_root / "data/chapters"
+    data_dir = Path("data")
+    chapters_dir = data_dir / "chapters"
     pdfs = sorted(chapters_dir.glob("*.pdf"))
 
     # Ensure at least one PDF is found
@@ -258,7 +368,7 @@ def main():
     markdown_files = []
     for pdf_path in pdfs:
         pdf_name = pdf_path.stem
-        output_md = Path("data") / f"{pdf_name}--extracted_markdown.md"
+        output_md = data_dir / f"{pdf_name}--extracted_markdown.md"
 
         print(f"Converting '{pdf_path}' to '{output_md}'...")
         convert_and_save_with_page_numbers(str(pdf_path), str(output_md))
@@ -271,7 +381,7 @@ def main():
 
     if extracted_sections:
         print(f"Successfully extracted {len(extracted_sections)} sections.")
-        output_filename = project_root / "data/extracted_sections.json"
+        output_filename = data_dir / "extracted_sections.json"
         with open(output_filename, 'w', encoding='utf-8') as f:
             json.dump(extracted_sections, f, indent=4, ensure_ascii=False)
         print(f"\nFull extracted content saved to '{output_filename}'")
