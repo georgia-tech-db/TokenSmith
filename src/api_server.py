@@ -270,6 +270,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",  # Alternative localhost format
         "http://127.0.0.1:3001",  # Alternative localhost format
         "http://127.0.0.1:8080",  # Alternative localhost format
+        "https://token-smith.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
