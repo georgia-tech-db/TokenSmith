@@ -138,6 +138,7 @@ def decompose_complex_query(
     prompt = textwrap.dedent(f"""\
         <|im_start|>system
         Break the following complex question into simple, single-step sub-questions.
+        Generate at most 3 sub-questions. Fewer is better if the query is simple.
         If the question is already simple, just output the original question.
         Output each sub-question on a new line. Do not provide explanations.
         <|im_end|>
