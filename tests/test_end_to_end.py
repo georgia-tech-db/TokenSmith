@@ -37,6 +37,7 @@ def test_end_to_end_pipeline_stubbed():
         ranker_weights={"faiss": 0.5, "bm25": 0.5},
         chunk_mode="recursive_sections",
         use_hyde=False,
+        use_multi_query_retrieval=False,
         disable_chunks=False,
         rerank_mode="none"
     )

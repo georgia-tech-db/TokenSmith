@@ -58,6 +58,8 @@ def print_test_config(config, scorer):
     print(f"  Chunks Enabled:     {not config['disable_chunks']}")
     print(f"  Golden Chunks:      {config['use_golden_chunks']}")
     print(f"  HyDE Enabled:       {config.get('use_hyde', False)}")
+    print(f"  MQR Max Pooling Enabled:        {config.get('use_multi_query_retrieval_max_pooling', False)}")
+    print(f"  MQR RRF Enabled:        {config.get('use_multi_query_retrieval_rrf', False)}")
     print(f"  Output Mode:        {config['output_mode']}")
     print(f"  Metrics:            {', '.join(active_metrics)}")
     print(f"{'='*60}\n")
@@ -205,6 +207,10 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
         metrics=config.get("metrics", ["all"]),
         use_hyde=config.get("use_hyde", False),
         hyde_max_tokens=config.get("hyde_max_tokens", 300),
+        use_multi_query_retrieval_max_pooling=config.get("use_multi_query_retrieval_max_pooling", False),
+        use_multi_query_retrieval_rrf=config.get("use_multi_query_retrieval_rrf", False),
+        multi_query_retrieval_max_tokens=config.get("multi_query_retrieval_max_tokens", 300),
+        question_variation_nums=config.get("question_variation_nums", 3),
         use_indexed_chunks=config.get("use_indexed_chunks", False),
         extracted_index_path=config.get("extracted_index_path", "data/extracted_index.json"),
         page_to_chunk_map_path=config.get("page_to_chunk_map_path", "index/sections/textbook_index_page_to_chunk_map.json"),
@@ -218,6 +224,10 @@ def get_tokensmith_answer(question, config, golden_chunks=None):
     else:
         if config.get("use_hyde", False):
             print(f"  🔬 HyDE enabled - generating hypothetical document...")
+        if config.get("use_multi_query_retrieval_max_pooling", False):
+            print(f"  🔬 Multi Query Retrieval Max Pooling enabled - generating alternative queries...")
+        if config.get("use_multi_query_retrieval_rrf", False):
+            print(f"  🔬 Multi Query Retrieval RRF enabled - generating alternative queries...")
         print(f"  🔍 Retrieving chunks...")
     
     logger = get_logger()

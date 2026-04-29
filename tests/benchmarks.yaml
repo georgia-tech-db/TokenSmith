@@ -75,3 +75,74 @@ benchmarks:
     keywords: ["lossy decomposition", "spurious tuples", "lossless join", "superkey", "natural join", "information loss", "functional dependency"]
     similarity_threshold: 0.70
     ideal_retrieved_chunks: [431, 430, 432, 433, 440]
+
+  - id: "strict_2pc_vs_normal_2pc"
+    question: "Explain how strict two-phase commit improves on the original two-phase commit protocol?"
+    expected_answer: "Strict two-phase locking protocol requires not only that locking be two phase, but also that all exclusive-mode locks taken by a transaction be held until that transaction commits. This requirement ensures that any data written by an uncommitted transaction are locked in exclusive mode until the transaction commits, preventing any other transaction from reading the data."
+    keywords: ["strict two-phase locking protocol", "exclusive-mode locks", "uncommitted transactions"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1094, 1095, 1096, 1097]
+
+  - id: "aries_phases"
+    question: "Describe the phases in ARIES recovery protocol for database transactions?"
+    expected_answer: "Performing necessary actions to bring the system to a consistent state, which may involve: Undoing transactions that have not yet been committed. Redoing transactions that have been committed but not yet written to disk"
+    keywords: ["consistent state", "undo", "redo"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1191, 1201, 1205]
+
+
+  - id: "steal_no_force"
+    question: "Explain STEAL + NO-FORCE policy and give an example of systems that used it"
+    expected_answer: "The STEAL + NO-FORCE policy is a combination of two database management strategies: the STEAL (Steal) policy and   the NO-FORCE policy.                                                                                                                                                                                                                                          **STEAL Policy**: This policy allows the system to write modified blocks to disk even if the transactions that     made those modifications have not yet committed. This means that a transaction can commit even if some of its              modifications are still pending on disk. This can be useful for reducing the number of write operations, especially for    frequently updated blocks.                                                                                                                                                                                                                                    **NO-FORCE Policy**: This policy allows transactions to commit even if they have modified some blocks that have    not yet been written back to disk. This means that a transaction can commit without forcing all its modifications to be    written to disk. This can also help in reducing the number of write operations.                                                                                                                                                                               **Example of Systems that used STEAL + NO-FORCE Policy**:                                                                                                                                                                                             One of the systems that adopted the STEAL + NO-FORCE policy is Oracle Database. Oracle Database is a popular       relational database management system that uses a two-level storage hierarchy similar to the standard operating-system     concept of virtual memory. Oracle Database allows transactions to commit even if some of their modifications are still     pending on disk, which aligns with the STEAL policy. Additionally, Oracle Database allows multiple updates to accumulate   on a block before it is written to stable storage, which can reduce the number of write operations, aligning with the NO-FORCE policy."
+    keywords: ["STEAL", "NO-FORCE", "database management strategies"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1218, 1219]
+
+    - id: "clr"
+    question: "Explain what CLRs are in the context of recovery protocols"
+    expected_answer: "Each log record in ARIES has a log sequence number (LSN) that uniquely identifies the record. The number is conceptually just a logical identifier whose value is greater for log records that occur later in the log. In practice, the LSN is generated in such a way that it can also be used to locate the log record on disk. Typically, ARIES splits a log into multiple log files, each of which has a file number. When a log file grows to some limit, ARIES appends further log records to a new log file; the new log file has a file number that is higher by 1 than the previous log file. The LSN then consists of a file number and an offset within the file. Each page also maintains an identifier called the PageLSN . Whenever an update operation (whether physical or physiological) occurs on a page, the operation stores the LSN of its log record in the PageLSN field of the page. During the redo phase of recovery, any log records with LSN less than or equal to the PageLSN of a page should not be executed on the page, since their actions are already reflected on the page. In combination with a scheme for recording PageLSNs as part of checkpointing, which we present later, ARIES can avoid even reading many pages for which logged operations are already reflected on disk. Thereby, recovery time is reduced significantly. The PageLSN is essential for ensuring idempotence in the presence of physiological redo operations, since reapplying a physiological redo that has already been applied to a page could cause incorrect changes to a page. Pages should not be flushed to disk while an update is in progress, since physiological operations cannot be redone on the partially updated state of the page on disk. Therefore, ARIES uses latches on buffer pages to prevent them from being written to disk while they are being updated. It releases the buffer page latch only after the update is completed and the log record for the update has been written to the log. Each log record also contains the LSN of the previous log record of the same transaction. This value, stored in the PrevLSN field, permits log records of a transaction to be fetched backward, without reading the whole log. There are special redo-only log records generated during transaction rollback, called compensation log records ( CLRs ) in ARIES. These serve the same purpose as the redo-only log records in our earlier recovery scheme. In addition, CLRs serve the role of the operation-abort log records in our scheme. The CLRs have an extra field, called the UndoNextLSN, that records the LSN of the log that needs to be undone next, when the transaction is being rolled back. This field serves the same purpose as the operation identifier in the operation-abort log record in our earlier recovery scheme, which helps to skip over log records that have already been rolled back. --- Page 1458 --- --- Page 1459 --- Page 943 The DirtyPageTable contains a list of pages that have been updated in the database buffer. For each page, it stores the PageLSN and a field called the RecLSN, which helps identify log records that have been applied already to the version of the page on disk. When a page is inserted into the DirtyPageTable (when it is first modified in the buffer pool), the value of RecLSN is set to the current end of log. Whenever the page is flushed to disk, the page is removed from the DirtyPageTable. A checkpoint log record contains the DirtyPageTable and a list of active transactions. For each transaction, the checkpoint log record also notes LastLSN, the LSN of the last log record written by the transaction. A fixed position on disk also notes the LSN of the last (complete) checkpoint log record. Figure 19.9 illustrates some of the data structures used in ARIES. The log records shown in the figure are prefixed by their LSN; these may not be explicitly stored, but inferred from the position in the log, in an actual implementation. The data item identifier in a log record is shown in two parts, for example, 4894.1; the first identifies the page, and the second part identifies a record within the page (we assume a slotted page record organization within a page). Note that the log is shown with the newest records on top, since older log records, which are on disk, are shown lower in the figure. --- Page 1460 --- Figure 19.9 Data structures used in ARIES. Page 944 Each page (whether in the buffer or on disk) has an associated PageLSN field. You can verify that the LSN for the last log record that updated page 4894 is 7567. By comparing PageLSNs for the pages in the buffer with the PageLSNs for the corresponding pages in stable storage, you can observe that the DirtyPageTable contains entries for all pages in the buffer that have been modified since they were fetched from stable storage. The RecLSN entry in the DirtyPageTable reflects the LSN at the end of the log when the page was added to DirtyPageTable and would be greater than or equal to the PageLSN for that page on stable storage."
+    keywords: ["LSN", "CLR", "ARIES", "compensation log records"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [838, 839, 840]
+
+    - id: "shadow_paging"
+    question: "What buffer management policies are the shadow paging technique best fit into?"
+    expected_answer: ""
+    keywords: ["no-steal", "force", "shadow paging"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [819, 820, 821]
+
+    - id: "strict_two_phase_locking"
+    question: "Can strict two-phase locking prevent deadlocks?"
+    expected_answer: ""
+    keywords: ["2PL", "deadlocks", "commit time"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1094, 1095, 1103]
+
+    - id: "deadlock_prevention"
+    question: "If strict two-phase locking cannot prevent deadlocks, what are some deadlock prevention techniques?"
+    expected_answer: ""
+    keywords: ["preemption", "deadlocks", "wound-wait", "wait-die"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1091, 1094, 1095]
+
+    - id: "deadlock_detection"
+    question: "What are some recommended deadlock detection methods?"
+    expected_answer: ""
+    keywords: ["preemption", "deadlocks", "wound-wait", "wait-die"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1101, 1103]
+
+    - id: "predicate_selectivity"
+    question: "Explain the selectivity of a predicate?"
+    expected_answer: "The selectivity (sel) of a predicate P is the fraction of tuples that qualify. The formula depends on the type of predicate, but can include: Equality, Range, Negation, Conjunction, Disjunction"
+    keywords: ["predicate", "selectivity"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [991, 992]
+
+    - id: "adaptive_query_processing"
+    question: "Explain adaptive query processing"
+    expected_answer: ""
+    keywords: ["adaptive query processing", "query generation"]
+    similarity_threshold: 0.70
+    ideal_retrieved_chunks: [1211, 1212]

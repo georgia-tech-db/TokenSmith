@@ -45,6 +45,10 @@ class RAGConfig:
     use_hyde: bool = False
     hyde_max_tokens: int = 300
     use_double_prompt: bool = False
+    use_multi_query_retrieval_max_pooling: bool = False
+    use_multi_query_retrieval_rrf: bool = False
+    question_variation_nums: int = 3
+    multi_query_retrieval_max_tokens: int = 300
 
     # conversational memory
     enable_history: bool = True
