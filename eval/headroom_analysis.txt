@@ -1,0 +1,31 @@
+=== Cost model (route by planner_classification) — eval/results_corpus1_final.csv (N=116) ===
+  baseline_retrieval_hit     95.69%
+  optimizer_retrieval_hit    95.69%
+  cost_model_retrieval_hit   98.28%
+  baseline_answer_hit        83.62%
+  optimizer_answer_hit       87.93%
+  cost_model_answer_hit      87.93%
+  delta vs baseline (ans)    +4.31
+  delta vs optimizer (ans)   +0.00
+
+  cat            n    b_ans   o_ans  cm_ans      choice
+  comparison    24    87.5%   87.5%   87.5%    baseline
+  definition    20    85.0%   90.0%   90.0%   optimizer
+  explanatory   24    75.0%   75.0%   75.0%    baseline
+  keyword       20    85.0%   95.0%   95.0%   optimizer
+  other          8    87.5%  100.0%  100.0%   optimizer
+  procedural    20    85.0%   90.0%   90.0%   optimizer
+
+=== Oracle cost model (route by gold category) — eval/results_corpus1_final.csv (N=116) ===
+  baseline_retrieval_hit     95.69%
+  optimizer_retrieval_hit    95.69%
+  cost_model_retrieval_hit   98.28%
+  baseline_answer_hit        83.62%
+  optimizer_answer_hit       87.93%
+  cost_model_answer_hit      87.93%
+  delta vs baseline (ans)    +4.31
+  delta vs optimizer (ans)   +0.00
+
+  classifier confusion (gold → predicted):
+    keyword      → definition    n=1
+

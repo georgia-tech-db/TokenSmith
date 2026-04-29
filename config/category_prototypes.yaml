@@ -1,0 +1,55 @@
+# Category prototypes for PrototypeClassifier
+# ---------------------------------------------
+# Each list is averaged into a single prototype embedding at planner-build
+# time. Exemplars are sourced from eval/questions.jsonl so the prototype
+# space matches the distribution we evaluate against.
+#
+# Add 3-5 exemplars per category. More exemplars = smoother prototype but
+# diminishing returns above ~5. If a category looks under-represented in
+# practice (e.g. low confidence on legitimate queries), add 1-2 more.
+#
+# Acronym hygiene: keyword exemplars MUST contain an all-caps 2-4 char token
+# (matches _ACRONYM_PATTERN in heuristics.py). Other categories MUST NOT —
+# bleed will collapse the prototype space.
+
+keyword:
+  - "What is ACID?"
+  - "Define MVCC"
+  - "Explain WAL-based recovery"
+  - "What does OLTP mean"
+  - "What is CRUD in databases"
+
+comparison:
+  - "Compare clustered and non-clustered indexes"
+  - "Difference between B+ tree and hash index"
+  - "Compare second normal form and third normal form"
+  - "Difference between optimistic and pessimistic concurrency control"
+  - "Compare row-store and column-store databases"
+
+definition:
+  - "What is a candidate key"
+  - "Define functional dependency"
+  - "What is a schedule in concurrency control"
+  - "Define referential integrity"
+  - "What is a foreign key"
+
+explanatory:
+  - "Why does normalization reduce redundancy"
+  - "How does write-ahead logging ensure durability"
+  - "Explain how deadlocks arise in transactions"
+  - "Why do databases use indexes despite write overhead"
+  - "How does two-phase commit work"
+
+procedural:
+  - "How to build a B+ tree index from scratch"
+  - "How to perform database normalization"
+  - "Steps to recover from a transaction failure"
+  - "How to design a relational schema for a library system"
+  - "Procedure for query optimization in a relational engine"
+
+other:
+  - "List the disadvantages of using a database"
+  - "What are the components of a DBMS"
+  - "Lock escalation behavior"
+  - "Buffer management considerations"
+  - "Index selection during query planning"

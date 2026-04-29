@@ -37,6 +37,7 @@ from src.main import ANSWER_NOT_FOUND, get_answer
 from src.planning.composite import CompositeQueryPlanner
 from src.planning.cost_model import CostModelPlanner
 from src.planning.heuristics import HeuristicQueryPlanner
+from src.planning.learned_classifier import PrototypeClassifier
 from src.planning.multihop import MultiHopQueryPlanner
 from src.planning.noop import NoOpPlanner
 from src.planning.planner import QueryPlanner
@@ -183,7 +184,49 @@ def _build_cost_model(cfg: RAGConfig) -> CostModelPlanner:
     )
 
 
+PROTOTYPES_PATH = REPO_ROOT / "config" / "category_prototypes.yaml"
+
+
+def _load_prototypes() -> Dict[str, List[str]]:
+    import yaml
+    with open(PROTOTYPES_PATH) as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected mapping at top level of {PROTOTYPES_PATH}")
+    return {cat: list(exs) for cat, exs in data.items()}
+
+
+def _build_cost_model_lc(cfg: RAGConfig, confidence_threshold: float = 0.5) -> CostModelPlanner:
+    """Cost model with PrototypeClassifier + confidence-based fallback to NoOp."""
+    from src.embedder import SentenceTransformer
+    composite = CompositeQueryPlanner(
+        cfg,
+        [MultiHopQueryPlanner(cfg), HeuristicQueryPlanner(cfg)],
+    )
+    noop = NoOpPlanner(cfg)
+    table = {"composite": composite, "noop": noop}
+    routing = {cat: table[choice] for cat, choice in COST_MODEL_ROUTING.items()}
+    embedder = SentenceTransformer(
+        model_path=cfg.embed_model,
+        n_ctx=cfg.embedding_model_context_window,
+    )
+    classifier = PrototypeClassifier(
+        embedder=embedder,
+        prototypes=_load_prototypes(),
+        softmax_temp=0.1,
+    )
+    return CostModelPlanner(
+        cfg,
+        routing_table=routing,
+        default_planner=composite,
+        classifier=classifier,
+        confidence_threshold=confidence_threshold,
+        fallback_planner=noop,
+    )
+
+
 def main() -> None:
+    global QUESTIONS_PATH, RESULTS_PATH
     parser = argparse.ArgumentParser(description="TokenSmith planner evaluation")
     parser.add_argument(
         "--baseline",
@@ -199,16 +242,48 @@ def main() -> None:
         "--cost-model",
         dest="cost_model",
         action="store_true",
-        help="Include the CostModelPlanner (per-category routing)",
+        help="Include the CostModelPlanner with regex classifier",
+    )
+    parser.add_argument(
+        "--cost-model-lc",
+        dest="cost_model_lc",
+        action="store_true",
+        help="Include the CostModelPlanner with PrototypeClassifier (learned) + confidence fallback",
+    )
+    parser.add_argument(
+        "--questions",
+        dest="questions",
+        default=None,
+        help=f"Path to questions JSONL (default: {QUESTIONS_PATH})",
+    )
+    parser.add_argument(
+        "--output",
+        dest="output",
+        default=None,
+        help=f"Path to write results CSV (default: {RESULTS_PATH})",
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        dest="confidence_threshold",
+        type=float,
+        default=0.5,
+        help="Confidence threshold for learned-classifier fallback (default: 0.5)",
     )
     cli = parser.parse_args()
 
-    # If no flag is passed, run all three modes. Otherwise run only the
+    # Allow --questions / --output to override module-level defaults
+    if cli.questions:
+        QUESTIONS_PATH = pathlib.Path(cli.questions).resolve()
+    if cli.output:
+        RESULTS_PATH = pathlib.Path(cli.output).resolve()
+
+    # If no flag is passed, run all four modes. Otherwise run only the
     # explicitly requested ones.
-    any_flag = cli.baseline or cli.optimizer or cli.cost_model
+    any_flag = cli.baseline or cli.optimizer or cli.cost_model or cli.cost_model_lc
     run_baseline = cli.baseline or not any_flag
     run_optimizer = cli.optimizer or not any_flag
     run_cost_model = cli.cost_model or not any_flag
+    run_cost_model_lc = cli.cost_model_lc or not any_flag
 
     if not CONFIG_PATH.exists():
         print(f"ERROR: missing config at {CONFIG_PATH}", file=sys.stderr)
@@ -223,6 +298,7 @@ def main() -> None:
     baseline_artifacts: Optional[Dict[str, Any]] = None
     optimizer_artifacts: Optional[Dict[str, Any]] = None
     cost_model_artifacts: Optional[Dict[str, Any]] = None
+    cost_model_lc_artifacts: Optional[Dict[str, Any]] = None
     if run_baseline:
         baseline_artifacts = build_artifacts(cfg, NoOpPlanner(cfg))
     if run_optimizer:
@@ -233,6 +309,10 @@ def main() -> None:
         optimizer_artifacts = build_artifacts(cfg, composite)
     if run_cost_model:
         cost_model_artifacts = build_artifacts(cfg, _build_cost_model(cfg))
+    if run_cost_model_lc:
+        cost_model_lc_artifacts = build_artifacts(
+            cfg, _build_cost_model_lc(cfg, cli.confidence_threshold)
+        )
 
     questions = load_questions()
     print(f"Loaded {len(questions)} questions from {QUESTIONS_PATH}")
@@ -255,9 +335,14 @@ def main() -> None:
         b_retr: Any = ""
         o_retr: Any = ""
         c_retr: Any = ""
+        cl_retr: Any = ""
         b_ans: Any = ""
         o_ans: Any = ""
         c_ans: Any = ""
+        cl_ans: Any = ""
+        cl_conf: Any = ""
+        cl_fallback: Any = ""
+        cl_predicted: Any = ""
 
         print(f"\n[{i}/{len(questions)}] ({category}) {query}")
 
@@ -276,11 +361,23 @@ def main() -> None:
             print(f"    retrieval_hit={o_retr} answer_hit={o_ans}")
 
         if run_cost_model and cost_model_artifacts is not None:
-            print("  -- cost_model --")
+            print("  -- cost_model (regex) --")
             ans_c, chunks_c = run_one(query, cfg, cost_model_artifacts, args, logger)
             c_retr = retrieval_hit(chunks_c, expected)
             c_ans = answer_hit(ans_c, gold)
             print(f"    retrieval_hit={c_retr} answer_hit={c_ans}")
+
+        if run_cost_model_lc and cost_model_lc_artifacts is not None:
+            print("  -- cost_model (learned) --")
+            ans_cl, chunks_cl = run_one(query, cfg, cost_model_lc_artifacts, args, logger)
+            cl_retr = retrieval_hit(chunks_cl, expected)
+            cl_ans = answer_hit(ans_cl, gold)
+            decision = cost_model_lc_artifacts["planner"].last_decision
+            cl_conf = decision.get("confidence", "")
+            cl_fallback = decision.get("fallback", "")
+            cl_predicted = decision.get("category", "")
+            print(f"    retrieval_hit={cl_retr} answer_hit={cl_ans} "
+                  f"conf={cl_conf} fallback={cl_fallback} predicted={cl_predicted}")
 
         rows.append({
             "query": query,
@@ -289,13 +386,18 @@ def main() -> None:
             "baseline_retrieval_hit": b_retr,
             "optimizer_retrieval_hit": o_retr,
             "cost_model_retrieval_hit": c_retr,
+            "cost_model_lc_retrieval_hit": cl_retr,
             "baseline_answer_hit": b_ans,
             "optimizer_answer_hit": o_ans,
             "cost_model_answer_hit": c_ans,
+            "cost_model_lc_answer_hit": cl_ans,
+            "cost_model_lc_predicted": cl_predicted,
+            "cost_model_lc_confidence": cl_conf,
+            "cost_model_lc_fallback": cl_fallback,
         })
 
     write_results(rows)
-    print_summary(rows, run_baseline, run_optimizer, run_cost_model)
+    print_summary(rows, run_baseline, run_optimizer, run_cost_model, run_cost_model_lc)
 
 
 def write_results(rows: List[Dict[str, Any]]) -> None:
@@ -307,9 +409,14 @@ def write_results(rows: List[Dict[str, Any]]) -> None:
         "baseline_retrieval_hit",
         "optimizer_retrieval_hit",
         "cost_model_retrieval_hit",
+        "cost_model_lc_retrieval_hit",
         "baseline_answer_hit",
         "optimizer_answer_hit",
         "cost_model_answer_hit",
+        "cost_model_lc_answer_hit",
+        "cost_model_lc_predicted",
+        "cost_model_lc_confidence",
+        "cost_model_lc_fallback",
     ]
     with open(RESULTS_PATH, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -328,6 +435,7 @@ def print_summary(
     run_baseline: bool,
     run_optimizer: bool,
     run_cost_model: bool,
+    run_cost_model_lc: bool = False,
 ) -> None:
     buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for r in rows:
@@ -340,6 +448,8 @@ def print_summary(
         cols += [f"{'O retr':>8}", f"{'O ans':>8}"]
     if run_cost_model:
         cols += [f"{'C retr':>8}", f"{'C ans':>8}"]
+    if run_cost_model_lc:
+        cols += [f"{'CL retr':>8}", f"{'CL ans':>8}"]
     header = " ".join(cols)
 
     print()
@@ -363,6 +473,10 @@ def print_summary(
             cr = _rate([int(x.get("cost_model_retrieval_hit") or 0) for x in items])
             ca = _rate([int(x.get("cost_model_answer_hit") or 0) for x in items])
             parts += [f"{cr:>8.2%}", f"{ca:>8.2%}"]
+        if run_cost_model_lc:
+            clr = _rate([int(x.get("cost_model_lc_retrieval_hit") or 0) for x in items])
+            cla = _rate([int(x.get("cost_model_lc_answer_hit") or 0) for x in items])
+            parts += [f"{clr:>8.2%}", f"{cla:>8.2%}"]
         return " ".join(parts)
 
     for cat in sorted(buckets):

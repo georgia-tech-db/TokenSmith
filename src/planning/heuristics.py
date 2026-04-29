@@ -2,6 +2,7 @@ import re
 from src.config import RAGConfig
 from copy import deepcopy
 
+from src.planning.learned_classifier import Classification
 from src.planning.planner import QueryPlanner
 
 """
@@ -55,6 +56,15 @@ class HeuristicQueryPlanner(QueryPlanner):
         if _EXPLANATORY_PATTERN.match(q) or "because" in q:
             return "explanatory"
         return "other"
+
+    def classify_query(self, query: str) -> Classification:
+        """
+        Classifier-protocol adapter. Returns a Classification with the regex
+        outcome and confidence=1.0 — the regex either matches a category or
+        falls through; there's no graded score.
+        """
+        cat = self.classify(query)
+        return Classification(category=cat, confidence=1.0, all_scores={cat: 1.0})
 
     def plan(self, query: str) -> RAGConfig:
         kind = self.classify(query)

@@ -1,0 +1,29 @@
+query,category,planner_classification,baseline_retrieval_hit,optimizer_retrieval_hit,cost_model_retrieval_hit,cost_model_lc_retrieval_hit,baseline_answer_hit,optimizer_answer_hit,cost_model_answer_hit,cost_model_lc_answer_hit,cost_model_lc_predicted,cost_model_lc_confidence,cost_model_lc_fallback
+What sets clustered indexes apart from non-clustered indexes,comparison,other,1,1,1,1,0,0,0,0,comparison,0.5365,False
+Tell me how primary keys relate to foreign keys,comparison,other,1,1,1,1,0,1,1,0,definition,0.4860,True
+Tell me about hash indexes alongside tree-based indexes,comparison,other,1,1,1,1,1,1,1,1,comparison,0.4514,True
+Tell me how strict two-phase locking relates to non-strict two-phase locking,comparison,other,1,1,1,1,1,1,1,1,explanatory,0.2634,True
+Tell me about logical and physical data independence in juxtaposition,comparison,other,1,1,1,1,1,1,1,1,comparison,0.2173,True
+Tell me about shadow paging in relation to log-based recovery,comparison,other,1,1,1,1,1,1,1,1,explanatory,0.2481,True
+Tell me how lossless decomposition relates to lossy decomposition in normalization,comparison,other,1,1,1,1,1,1,1,1,procedural,0.2575,True
+Tell me how nested-loop join relates to hash join,comparison,other,1,1,1,1,1,1,1,1,comparison,0.3055,True
+The need for transaction isolation in databases,explanatory,other,1,1,1,1,1,1,1,1,explanatory,0.2414,True
+Walk me through how deadlocks arise in concurrent transactions,explanatory,other,1,1,1,1,1,1,1,1,explanatory,0.3929,True
+The reasoning behind preferring third normal form over second normal form,explanatory,other,1,1,1,1,0,0,0,0,comparison,0.2778,True
+The reason write-ahead logging ensures durability in databases,explanatory,other,1,1,1,1,1,1,1,1,explanatory,0.3624,True
+Tell me about the role of the recovery manager in databases,explanatory,other,1,1,1,1,1,1,1,1,keyword,0.2387,True
+The importance of functional dependency for normalization,explanatory,other,1,1,1,1,1,1,1,1,procedural,0.3161,True
+Walk me through bucket overflow handling in static hashing,explanatory,other,1,1,1,1,1,1,1,1,procedural,0.2541,True
+The role of normalization in eliminating update anomalies,explanatory,other,1,1,1,1,1,1,1,1,procedural,0.3272,True
+Tell me about atomicity consistency isolation and durability properties,keyword,other,1,1,1,1,1,1,1,1,keyword,0.2691,True
+Tell me about multi-version concurrency control mechanism,keyword,other,1,1,1,1,0,0,0,0,keyword,0.2517,True
+The mechanism behind write-ahead log based recovery,keyword,other,1,1,1,1,1,1,1,1,explanatory,0.2981,True
+Tell me about online transaction processing systems,keyword,other,1,1,1,1,1,1,1,1,keyword,0.2959,True
+Describe candidate keys in relational databases,definition,other,1,1,1,1,1,1,1,1,procedural,0.2465,True
+Tell me about functional dependency in databases,definition,other,1,1,1,1,1,1,1,1,definition,0.4393,True
+Describe foreign keys and their purpose,definition,other,1,1,1,1,1,1,1,1,definition,0.5521,False
+Tell me about referential integrity in databases,definition,other,1,1,1,1,1,1,1,1,definition,0.4131,True
+Walk through performing database normalization,procedural,other,1,1,1,1,1,1,1,1,procedural,0.4354,True
+Walk through building a B+ tree index from scratch,procedural,other,1,1,1,1,0,0,0,0,procedural,0.4052,True
+Walk me through recovering from a transaction failure,procedural,other,1,1,1,1,1,1,1,1,procedural,0.3309,True
+Walk through designing a relational schema for a library system,procedural,other,1,1,1,1,1,1,1,1,procedural,0.4874,True
