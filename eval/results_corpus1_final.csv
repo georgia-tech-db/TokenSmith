@@ -1,0 +1,117 @@
+query,category,planner_classification,baseline_retrieval_hit,optimizer_retrieval_hit,cost_model_retrieval_hit,baseline_answer_hit,optimizer_answer_hit,cost_model_answer_hit
+What is ACID?,keyword,keyword,1,1,1,1,1,1
+Explain WAL-based recovery,keyword,keyword,1,1,1,1,1,1
+How does MVCC work?,keyword,keyword,1,1,1,0,1,1
+What guarantees does BCNF provide?,keyword,keyword,1,1,1,1,0,0
+Describe the DBMS architecture,keyword,keyword,0,0,0,1,1,1
+What is DDL used for?,keyword,keyword,1,1,1,0,1,1
+What is SQL used for?,keyword,keyword,1,1,1,1,1,1
+What is RAID used for in storage?,keyword,keyword,1,1,1,1,1,1
+Compare clustered and non-clustered indexes,comparison,comparison,1,0,1,1,0,0
+What is the difference between optimistic and pessimistic concurrency control?,comparison,comparison,1,1,1,0,0,0
+Contrast primary keys with foreign keys,comparison,comparison,1,1,1,1,1,1
+Hash indexes versus tree-based indexes,comparison,comparison,1,1,1,1,1,1
+Compare strict and non-strict two-phase locking,comparison,comparison,1,1,1,1,1,1
+Difference between logical and physical data independence,comparison,comparison,1,1,1,1,1,1
+Shadow paging versus log-based recovery,comparison,comparison,1,1,1,1,1,1
+Compare lossless and lossy decomposition in normalization,comparison,comparison,1,1,1,1,1,1
+What is a transaction?,definition,definition,1,1,1,1,1,1
+Define a relation in the relational model,definition,definition,1,1,1,1,1,1
+What is serializability?,definition,definition,1,1,1,1,1,1
+Define a functional dependency,definition,definition,1,1,1,1,1,1
+What is a primary key?,definition,definition,1,1,1,1,1,1
+What is a foreign key?,definition,definition,1,1,1,1,1,1
+Define a candidate key,definition,definition,0,1,1,0,1,1
+What is a schedule in transaction processing?,definition,definition,1,1,1,1,1,1
+Why do we need transaction isolation?,explanatory,explanatory,1,1,1,1,1,1
+Explain how deadlocks arise in concurrent transactions,explanatory,explanatory,1,1,1,1,1,1
+Why is third normal form preferred over second normal form?,explanatory,explanatory,1,1,1,1,1,1
+Explain why B+ trees are preferred over binary search trees for disk storage,explanatory,explanatory,1,0,1,1,1,1
+Why does write-ahead logging ensure durability?,explanatory,explanatory,1,1,1,1,1,1
+Explain the role of the recovery manager,explanatory,explanatory,1,1,1,1,0,1
+Why is functional dependency important for normalization?,explanatory,explanatory,1,1,1,1,1,1
+Explain how bucket overflow is handled in static hashing,explanatory,explanatory,1,1,1,1,1,1
+How to perform database normalization step by step,procedural,procedural,1,1,1,1,1,1
+Steps to recover a database after a crash,procedural,procedural,1,1,1,1,1,1
+Describe the algorithm for two-phase locking,procedural,procedural,1,1,1,0,1,1
+How to build a B+ tree index from scratch,procedural,procedural,1,1,1,0,0,1
+What is ARIES recovery?,keyword,definition,1,1,1,0,1,1
+Define ACID compliance,keyword,keyword,1,1,1,1,1,1
+What is OLTP?,keyword,keyword,1,1,1,1,1,1
+What is OLAP?,keyword,keyword,1,1,1,1,1,1
+Describe DML in SQL,keyword,keyword,1,1,1,1,1,1
+What is JDBC used for?,keyword,keyword,1,1,1,1,1,1
+Explain LRU buffer replacement,keyword,keyword,1,1,1,1,1,1
+What is the CAP theorem?,keyword,keyword,1,1,1,1,1,1
+What is JSON storage in databases?,keyword,keyword,1,1,1,1,1,1
+What does NULL represent in SQL?,keyword,keyword,1,1,1,1,1,1
+What is ODBC?,keyword,keyword,0,1,1,1,1,1
+Explain CRUD operations,keyword,keyword,1,1,1,1,1,1
+Compare nested-loop join and hash join,comparison,comparison,1,1,1,1,1,1
+Compare static and dynamic hashing,comparison,comparison,1,1,1,1,1,1
+Difference between inner join and outer join,comparison,comparison,1,1,1,1,1,1
+Compare second normal form and third normal form,comparison,comparison,1,1,1,0,1,1
+Compare timestamp ordering and two-phase locking,comparison,comparison,1,1,1,1,1,1
+Difference between snapshot isolation and serializable isolation,comparison,comparison,1,1,1,1,1,1
+Compare bitmap indexes and tree-based indexes,comparison,comparison,1,1,1,1,1,1
+Compare entity integrity and referential integrity,comparison,comparison,1,1,1,1,1,1
+Difference between supertype and subtype in entity relationship diagrams,comparison,comparison,1,0,1,0,0,0
+Compare materialized views and regular views,comparison,comparison,1,1,1,1,1,1
+Compare horizontal partitioning and vertical partitioning,comparison,comparison,1,1,1,1,1,1
+Difference between checkpoint and savepoint,comparison,comparison,1,1,1,1,1,1
+Compare sequential file organization and hashed file organization,comparison,comparison,1,1,1,1,1,1
+Compare deferred and immediate database modification,comparison,comparison,1,1,1,1,1,1
+Difference between conflict serializability and view serializability,comparison,comparison,1,1,1,1,1,1
+Compare aggregation and generalization in entity relationship modeling,comparison,comparison,1,1,1,1,1,1
+What is a superkey?,definition,definition,1,1,1,1,1,1
+Define a composite key,definition,definition,1,1,1,1,1,1
+What is a weak entity?,definition,definition,0,0,0,0,0,0
+Define a multivalued dependency,definition,definition,1,1,1,1,1,1
+What is an aggregate function?,definition,definition,1,1,1,1,1,1
+Define a recoverable schedule,definition,definition,1,1,1,1,1,1
+What is a cascading rollback?,definition,definition,1,1,1,1,1,1
+Define a hash function in indexing,definition,definition,1,1,1,1,1,1
+What is the projection operator in relational algebra?,definition,definition,1,1,1,1,1,1
+Define a deadlock victim,definition,definition,1,1,1,1,1,1
+What is a participation constraint?,definition,definition,1,1,1,1,1,1
+Define generalization in the entity relationship model,definition,definition,1,1,1,0,0,0
+Why does normalization eliminate update anomalies?,explanatory,explanatory,1,1,1,1,1,1
+Why is checkpointing important during recovery?,explanatory,explanatory,1,1,1,1,1,1
+Why do databases use indexes despite write overhead?,explanatory,explanatory,1,1,1,0,0,1
+Why does fuzzy checkpointing reduce stalls?,explanatory,explanatory,1,1,1,0,0,0
+Why does snapshot isolation allow write skew?,explanatory,explanatory,1,1,1,1,1,1
+Why is deadlock detection harder in distributed systems?,explanatory,explanatory,1,1,1,0,0,0
+Why do databases use buffer pools?,explanatory,explanatory,1,1,1,1,1,1
+Explain how hash partitioning distributes data across nodes,explanatory,explanatory,1,1,1,1,1,1
+Why does query optimization estimate intermediate result sizes?,explanatory,explanatory,1,1,1,0,0,0
+Explain why the lost update problem occurs,explanatory,explanatory,1,1,1,1,1,1
+Why are nested-loop joins inefficient on large tables?,explanatory,explanatory,1,1,1,0,1,0
+Why does the recovery manager need a redo log?,explanatory,explanatory,1,1,1,1,1,1
+Explain how the buffer replacement policy affects performance,explanatory,explanatory,1,1,1,0,0,0
+Why do databases use sorted runs in external sort?,explanatory,explanatory,1,1,1,1,1,1
+Explain how foreign key constraints maintain referential integrity,explanatory,explanatory,1,1,1,1,1,1
+Why does strict two-phase locking prevent cascading rollbacks?,explanatory,explanatory,1,1,1,1,1,1
+Steps to perform a hash join,procedural,procedural,1,1,1,1,1,1
+How to detect a deadlock using a wait-for graph,procedural,procedural,1,1,1,1,1,1
+How to recover from a system crash using log-based recovery,procedural,procedural,1,1,1,1,1,1
+Steps to compute the closure of a set of attributes,procedural,procedural,1,1,1,1,1,1
+How to convert an entity-relationship diagram to a relational schema,procedural,procedural,1,1,1,1,1,1
+Steps to estimate the cost of a sort-merge join,procedural,procedural,1,1,1,1,1,1
+Steps to perform external merge sort,procedural,procedural,1,1,1,1,1,1
+How to compute a candidate key from a set of functional dependencies,procedural,procedural,1,1,1,1,1,1
+How to apply the chase algorithm to test lossless decomposition,procedural,procedural,1,1,1,1,1,1
+Steps to perform a redo pass during crash recovery,procedural,procedural,1,1,1,1,1,1
+How to insert a key into a B+ tree with node splits,procedural,procedural,1,1,1,1,1,1
+How to evaluate a query containing a where clause,procedural,procedural,1,1,1,0,0,0
+Steps to decompose a schema into Boyce-Codd normal form,procedural,procedural,1,1,1,1,1,1
+How to enforce serializability using timestamp ordering,procedural,procedural,1,1,1,1,1,1
+Steps to grant and revoke access privileges in a database,procedural,procedural,1,1,1,1,1,1
+How to compute the relational division operator,procedural,procedural,1,1,1,1,1,1
+Database normalization in summary,other,other,1,1,1,1,1,1
+Concurrency and recovery interactions,other,other,1,1,1,1,1,1
+Storage hierarchy in databases,other,other,0,1,1,0,1,1
+Index selection during query planning,other,other,1,1,1,1,1,1
+Buffer management considerations,other,other,1,1,1,1,1,1
+Lock escalation behavior,other,other,1,1,1,1,1,1
+Transaction logging mechanism,other,other,1,1,1,1,1,1
+The role of constraints in database design,other,other,1,1,1,1,1,1

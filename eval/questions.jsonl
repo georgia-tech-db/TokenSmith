@@ -1,0 +1,116 @@
+{"query": "What is ACID?", "category": "keyword", "expected_chunks": ["atomicity", "consistency", "isolation", "durability"], "gold_answer_fragment": "atomicity"}
+{"query": "Explain WAL-based recovery", "category": "keyword", "expected_chunks": ["write-ahead log", "log record", "recovery"], "gold_answer_fragment": "write-ahead"}
+{"query": "How does MVCC work?", "category": "keyword", "expected_chunks": ["multiversion", "timestamp", "version"], "gold_answer_fragment": "multiversion"}
+{"query": "What guarantees does BCNF provide?", "category": "keyword", "expected_chunks": ["Boyce-Codd", "functional dependency", "superkey"], "gold_answer_fragment": "Boyce"}
+{"query": "Describe the DBMS architecture", "category": "keyword", "expected_chunks": ["database management system", "query processor", "storage manager"], "gold_answer_fragment": "storage"}
+{"query": "What is DDL used for?", "category": "keyword", "expected_chunks": ["data-definition language", "schema", "create table"], "gold_answer_fragment": "data-definition"}
+{"query": "What is SQL used for?", "category": "keyword", "expected_chunks": ["structured query language", "relation", "select"], "gold_answer_fragment": "structured query"}
+{"query": "What is RAID used for in storage?", "category": "keyword", "expected_chunks": ["redundant array", "disk", "parity"], "gold_answer_fragment": "redundant"}
+{"query": "Compare clustered and non-clustered indexes", "category": "comparison", "expected_chunks": ["clustering index", "primary index", "secondary index"], "gold_answer_fragment": "clustering"}
+{"query": "What is the difference between optimistic and pessimistic concurrency control?", "category": "comparison", "expected_chunks": ["optimistic", "validation", "locking"], "gold_answer_fragment": "validation"}
+{"query": "Contrast primary keys with foreign keys", "category": "comparison", "expected_chunks": ["primary key", "foreign key", "referential"], "gold_answer_fragment": "referential"}
+{"query": "Hash indexes versus tree-based indexes", "category": "comparison", "expected_chunks": ["hash index", "B+-tree", "bucket"], "gold_answer_fragment": "hash"}
+{"query": "Compare strict and non-strict two-phase locking", "category": "comparison", "expected_chunks": ["two-phase locking", "strict", "lock"], "gold_answer_fragment": "strict"}
+{"query": "Difference between logical and physical data independence", "category": "comparison", "expected_chunks": ["logical", "physical", "data independence"], "gold_answer_fragment": "independence"}
+{"query": "Shadow paging versus log-based recovery", "category": "comparison", "expected_chunks": ["shadow paging", "log", "recovery"], "gold_answer_fragment": "shadow"}
+{"query": "Compare lossless and lossy decomposition in normalization", "category": "comparison", "expected_chunks": ["lossless", "decomposition", "natural join"], "gold_answer_fragment": "lossless"}
+{"query": "What is a transaction?", "category": "definition", "expected_chunks": ["transaction", "unit of work", "atomic"], "gold_answer_fragment": "transaction"}
+{"query": "Define a relation in the relational model", "category": "definition", "expected_chunks": ["relation", "tuple", "attribute"], "gold_answer_fragment": "tuple"}
+{"query": "What is serializability?", "category": "definition", "expected_chunks": ["serial schedule", "serializable", "equivalent"], "gold_answer_fragment": "serial"}
+{"query": "Define a functional dependency", "category": "definition", "expected_chunks": ["functional dependency", "determines", "attribute"], "gold_answer_fragment": "functional dependency"}
+{"query": "What is a primary key?", "category": "definition", "expected_chunks": ["primary key", "candidate key", "tuple"], "gold_answer_fragment": "uniquely"}
+{"query": "What is a foreign key?", "category": "definition", "expected_chunks": ["foreign key", "referential integrity", "referenced relation"], "gold_answer_fragment": "referenced"}
+{"query": "Define a candidate key", "category": "definition", "expected_chunks": ["candidate key", "minimal", "superkey"], "gold_answer_fragment": "minimal"}
+{"query": "What is a schedule in transaction processing?", "category": "definition", "expected_chunks": ["schedule", "operations", "transaction"], "gold_answer_fragment": "sequence"}
+{"query": "Why do we need transaction isolation?", "category": "explanatory", "expected_chunks": ["isolation", "concurrent", "consistency"], "gold_answer_fragment": "concurrent"}
+{"query": "Explain how deadlocks arise in concurrent transactions", "category": "explanatory", "expected_chunks": ["deadlock", "wait-for", "cycle"], "gold_answer_fragment": "deadlock"}
+{"query": "Why is third normal form preferred over second normal form?", "category": "explanatory", "expected_chunks": ["third normal form", "transitive", "dependency"], "gold_answer_fragment": "transitive"}
+{"query": "Explain why B+ trees are preferred over binary search trees for disk storage", "category": "explanatory", "expected_chunks": ["B+-tree", "disk block", "height"], "gold_answer_fragment": "disk"}
+{"query": "Why does write-ahead logging ensure durability?", "category": "explanatory", "expected_chunks": ["write-ahead log", "durability", "redo"], "gold_answer_fragment": "durability"}
+{"query": "Explain the role of the recovery manager", "category": "explanatory", "expected_chunks": ["recovery", "log", "crash"], "gold_answer_fragment": "crash"}
+{"query": "Why is functional dependency important for normalization?", "category": "explanatory", "expected_chunks": ["functional dependency", "normal form", "decomposition"], "gold_answer_fragment": "normal form"}
+{"query": "Explain how bucket overflow is handled in static hashing", "category": "explanatory", "expected_chunks": ["bucket", "overflow chain", "hash"], "gold_answer_fragment": "overflow"}
+{"query": "How to perform database normalization step by step", "category": "procedural", "expected_chunks": ["normal form", "decomposition", "functional dependency"], "gold_answer_fragment": "normal form"}
+{"query": "Steps to recover a database after a crash", "category": "procedural", "expected_chunks": ["log", "redo", "undo"], "gold_answer_fragment": "redo"}
+{"query": "Describe the algorithm for two-phase locking", "category": "procedural", "expected_chunks": ["two-phase locking", "growing phase", "shrinking phase"], "gold_answer_fragment": "growing"}
+{"query": "How to build a B+ tree index from scratch", "category": "procedural", "expected_chunks": ["B+-tree", "insert", "split"], "gold_answer_fragment": "split"}
+{"query": "What is ARIES recovery?", "category": "keyword", "expected_chunks": ["ARIES", "log", "recovery"], "gold_answer_fragment": "log"}
+{"query": "Define ACID compliance", "category": "keyword", "expected_chunks": ["atomicity", "consistency", "isolation", "durability"], "gold_answer_fragment": "atomicity"}
+{"query": "What is OLTP?", "category": "keyword", "expected_chunks": ["online transaction", "OLTP", "transactional"], "gold_answer_fragment": "transaction"}
+{"query": "What is OLAP?", "category": "keyword", "expected_chunks": ["online analytical", "OLAP", "analytical"], "gold_answer_fragment": "analytical"}
+{"query": "Describe DML in SQL", "category": "keyword", "expected_chunks": ["data manipulation", "INSERT", "UPDATE"], "gold_answer_fragment": "manipulation"}
+{"query": "What is JDBC used for?", "category": "keyword", "expected_chunks": ["Java", "database connectivity", "JDBC"], "gold_answer_fragment": "Java"}
+{"query": "Explain LRU buffer replacement", "category": "keyword", "expected_chunks": ["least recently used", "LRU", "buffer"], "gold_answer_fragment": "least recently"}
+{"query": "What is the CAP theorem?", "category": "keyword", "expected_chunks": ["consistency", "availability", "partition"], "gold_answer_fragment": "partition"}
+{"query": "What is JSON storage in databases?", "category": "keyword", "expected_chunks": ["JSON", "document", "semi-structured"], "gold_answer_fragment": "JSON"}
+{"query": "What does NULL represent in SQL?", "category": "keyword", "expected_chunks": ["unknown", "missing", "three-valued"], "gold_answer_fragment": "unknown"}
+{"query": "What is ODBC?", "category": "keyword", "expected_chunks": ["Open Database", "ODBC", "connectivity"], "gold_answer_fragment": "connectivity"}
+{"query": "Explain CRUD operations", "category": "keyword", "expected_chunks": ["create", "read", "update", "delete"], "gold_answer_fragment": "create"}
+{"query": "Compare nested-loop join and hash join", "category": "comparison", "expected_chunks": ["nested loop", "hash join", "build"], "gold_answer_fragment": "hash"}
+{"query": "Compare static and dynamic hashing", "category": "comparison", "expected_chunks": ["static hashing", "dynamic hashing", "bucket"], "gold_answer_fragment": "bucket"}
+{"query": "Difference between inner join and outer join", "category": "comparison", "expected_chunks": ["inner join", "outer join", "matching"], "gold_answer_fragment": "outer"}
+{"query": "Compare second normal form and third normal form", "category": "comparison", "expected_chunks": ["second normal form", "third normal form", "transitive"], "gold_answer_fragment": "transitive"}
+{"query": "Compare timestamp ordering and two-phase locking", "category": "comparison", "expected_chunks": ["timestamp ordering", "two-phase locking", "concurrency"], "gold_answer_fragment": "timestamp"}
+{"query": "Difference between snapshot isolation and serializable isolation", "category": "comparison", "expected_chunks": ["snapshot isolation", "serializable", "anomaly"], "gold_answer_fragment": "serializable"}
+{"query": "Compare bitmap indexes and tree-based indexes", "category": "comparison", "expected_chunks": ["bitmap", "tree", "index"], "gold_answer_fragment": "bitmap"}
+{"query": "Compare entity integrity and referential integrity", "category": "comparison", "expected_chunks": ["entity integrity", "referential integrity", "constraint"], "gold_answer_fragment": "referential"}
+{"query": "Difference between supertype and subtype in entity relationship diagrams", "category": "comparison", "expected_chunks": ["supertype", "subtype", "specialization"], "gold_answer_fragment": "specialization"}
+{"query": "Compare materialized views and regular views", "category": "comparison", "expected_chunks": ["materialized view", "stored", "query"], "gold_answer_fragment": "materialized"}
+{"query": "Compare horizontal partitioning and vertical partitioning", "category": "comparison", "expected_chunks": ["horizontal partition", "vertical partition", "fragment"], "gold_answer_fragment": "partition"}
+{"query": "Difference between checkpoint and savepoint", "category": "comparison", "expected_chunks": ["checkpoint", "savepoint", "transaction"], "gold_answer_fragment": "checkpoint"}
+{"query": "Compare sequential file organization and hashed file organization", "category": "comparison", "expected_chunks": ["sequential", "hashed", "file organization"], "gold_answer_fragment": "hashed"}
+{"query": "Compare deferred and immediate database modification", "category": "comparison", "expected_chunks": ["deferred", "immediate", "modification"], "gold_answer_fragment": "deferred"}
+{"query": "Difference between conflict serializability and view serializability", "category": "comparison", "expected_chunks": ["conflict serializability", "view serializability", "schedule"], "gold_answer_fragment": "view"}
+{"query": "Compare aggregation and generalization in entity relationship modeling", "category": "comparison", "expected_chunks": ["aggregation", "generalization", "entity"], "gold_answer_fragment": "generalization"}
+{"query": "What is a superkey?", "category": "definition", "expected_chunks": ["superkey", "tuple", "uniquely"], "gold_answer_fragment": "uniquely"}
+{"query": "Define a composite key", "category": "definition", "expected_chunks": ["composite", "multiple attributes", "key"], "gold_answer_fragment": "composite"}
+{"query": "What is a weak entity?", "category": "definition", "expected_chunks": ["weak entity", "identifying", "discriminator"], "gold_answer_fragment": "identifying"}
+{"query": "Define a multivalued dependency", "category": "definition", "expected_chunks": ["multivalued", "fourth normal form", "tuple"], "gold_answer_fragment": "multivalued"}
+{"query": "What is an aggregate function?", "category": "definition", "expected_chunks": ["aggregate", "sum", "average"], "gold_answer_fragment": "aggregate"}
+{"query": "Define a recoverable schedule", "category": "definition", "expected_chunks": ["recoverable", "commit", "transaction"], "gold_answer_fragment": "commit"}
+{"query": "What is a cascading rollback?", "category": "definition", "expected_chunks": ["cascading", "rollback", "abort"], "gold_answer_fragment": "rollback"}
+{"query": "Define a hash function in indexing", "category": "definition", "expected_chunks": ["hash function", "bucket", "key"], "gold_answer_fragment": "bucket"}
+{"query": "What is the projection operator in relational algebra?", "category": "definition", "expected_chunks": ["projection", "attributes", "relation"], "gold_answer_fragment": "projection"}
+{"query": "Define a deadlock victim", "category": "definition", "expected_chunks": ["victim", "rollback", "deadlock"], "gold_answer_fragment": "rollback"}
+{"query": "What is a participation constraint?", "category": "definition", "expected_chunks": ["participation", "total", "partial"], "gold_answer_fragment": "participation"}
+{"query": "Define generalization in the entity relationship model", "category": "definition", "expected_chunks": ["generalization", "subtype", "supertype"], "gold_answer_fragment": "subtype"}
+{"query": "Why does normalization eliminate update anomalies?", "category": "explanatory", "expected_chunks": ["update anomaly", "normalization", "redundancy"], "gold_answer_fragment": "redundancy"}
+{"query": "Why is checkpointing important during recovery?", "category": "explanatory", "expected_chunks": ["checkpoint", "recovery", "log"], "gold_answer_fragment": "recovery"}
+{"query": "Why do databases use indexes despite write overhead?", "category": "explanatory", "expected_chunks": ["index", "lookup", "search"], "gold_answer_fragment": "lookup"}
+{"query": "Why does fuzzy checkpointing reduce stalls?", "category": "explanatory", "expected_chunks": ["fuzzy", "checkpoint", "concurrent"], "gold_answer_fragment": "concurrent"}
+{"query": "Why does snapshot isolation allow write skew?", "category": "explanatory", "expected_chunks": ["write skew", "snapshot", "concurrent"], "gold_answer_fragment": "skew"}
+{"query": "Why is deadlock detection harder in distributed systems?", "category": "explanatory", "expected_chunks": ["distributed", "wait-for", "global"], "gold_answer_fragment": "global"}
+{"query": "Why do databases use buffer pools?", "category": "explanatory", "expected_chunks": ["buffer", "cache", "memory"], "gold_answer_fragment": "memory"}
+{"query": "Explain how hash partitioning distributes data across nodes", "category": "explanatory", "expected_chunks": ["hash partition", "distribute", "node"], "gold_answer_fragment": "hash"}
+{"query": "Why does query optimization estimate intermediate result sizes?", "category": "explanatory", "expected_chunks": ["selectivity", "cardinality", "cost"], "gold_answer_fragment": "selectivity"}
+{"query": "Explain why the lost update problem occurs", "category": "explanatory", "expected_chunks": ["lost update", "concurrent", "overwrite"], "gold_answer_fragment": "lost"}
+{"query": "Why are nested-loop joins inefficient on large tables?", "category": "explanatory", "expected_chunks": ["nested loop", "tuple", "inner"], "gold_answer_fragment": "inner"}
+{"query": "Why does the recovery manager need a redo log?", "category": "explanatory", "expected_chunks": ["redo", "log", "durability"], "gold_answer_fragment": "redo"}
+{"query": "Explain how the buffer replacement policy affects performance", "category": "explanatory", "expected_chunks": ["replacement", "buffer", "page"], "gold_answer_fragment": "page"}
+{"query": "Why do databases use sorted runs in external sort?", "category": "explanatory", "expected_chunks": ["external sort", "run", "merge"], "gold_answer_fragment": "merge"}
+{"query": "Explain how foreign key constraints maintain referential integrity", "category": "explanatory", "expected_chunks": ["foreign key", "referential", "constraint"], "gold_answer_fragment": "referential"}
+{"query": "Why does strict two-phase locking prevent cascading rollbacks?", "category": "explanatory", "expected_chunks": ["strict", "two-phase", "cascading"], "gold_answer_fragment": "cascading"}
+{"query": "Steps to perform a hash join", "category": "procedural", "expected_chunks": ["hash join", "build", "probe"], "gold_answer_fragment": "build"}
+{"query": "How to detect a deadlock using a wait-for graph", "category": "procedural", "expected_chunks": ["wait-for", "cycle", "deadlock"], "gold_answer_fragment": "cycle"}
+{"query": "How to recover from a system crash using log-based recovery", "category": "procedural", "expected_chunks": ["log-based", "redo", "undo"], "gold_answer_fragment": "redo"}
+{"query": "Steps to compute the closure of a set of attributes", "category": "procedural", "expected_chunks": ["closure", "functional dependency", "attribute"], "gold_answer_fragment": "closure"}
+{"query": "How to convert an entity-relationship diagram to a relational schema", "category": "procedural", "expected_chunks": ["entity", "relation", "schema"], "gold_answer_fragment": "relation"}
+{"query": "Steps to estimate the cost of a sort-merge join", "category": "procedural", "expected_chunks": ["sort-merge", "cost", "block"], "gold_answer_fragment": "cost"}
+{"query": "Steps to perform external merge sort", "category": "procedural", "expected_chunks": ["external", "merge", "run"], "gold_answer_fragment": "merge"}
+{"query": "How to compute a candidate key from a set of functional dependencies", "category": "procedural", "expected_chunks": ["candidate key", "closure", "functional dependency"], "gold_answer_fragment": "closure"}
+{"query": "How to apply the chase algorithm to test lossless decomposition", "category": "procedural", "expected_chunks": ["chase", "lossless", "decomposition"], "gold_answer_fragment": "chase"}
+{"query": "Steps to perform a redo pass during crash recovery", "category": "procedural", "expected_chunks": ["redo", "log record", "page"], "gold_answer_fragment": "redo"}
+{"query": "How to insert a key into a B+ tree with node splits", "category": "procedural", "expected_chunks": ["insert", "split", "node"], "gold_answer_fragment": "split"}
+{"query": "How to evaluate a query containing a where clause", "category": "procedural", "expected_chunks": ["where", "selection", "predicate"], "gold_answer_fragment": "selection"}
+{"query": "Steps to decompose a schema into Boyce-Codd normal form", "category": "procedural", "expected_chunks": ["Boyce-Codd", "decompose", "functional dependency"], "gold_answer_fragment": "decompose"}
+{"query": "How to enforce serializability using timestamp ordering", "category": "procedural", "expected_chunks": ["timestamp", "serializable", "ordering"], "gold_answer_fragment": "timestamp"}
+{"query": "Steps to grant and revoke access privileges in a database", "category": "procedural", "expected_chunks": ["grant", "revoke", "privilege"], "gold_answer_fragment": "grant"}
+{"query": "How to compute the relational division operator", "category": "procedural", "expected_chunks": ["division", "relational", "tuple"], "gold_answer_fragment": "division"}
+{"query": "Database normalization in summary", "category": "other", "expected_chunks": ["normalization", "redundancy", "anomaly"], "gold_answer_fragment": "normalization"}
+{"query": "Concurrency and recovery interactions", "category": "other", "expected_chunks": ["concurrency", "recovery", "transaction"], "gold_answer_fragment": "transaction"}
+{"query": "Storage hierarchy in databases", "category": "other", "expected_chunks": ["primary", "secondary", "tertiary"], "gold_answer_fragment": "secondary"}
+{"query": "Index selection during query planning", "category": "other", "expected_chunks": ["index", "query", "planner"], "gold_answer_fragment": "index"}
+{"query": "Buffer management considerations", "category": "other", "expected_chunks": ["buffer", "page", "memory"], "gold_answer_fragment": "buffer"}
+{"query": "Lock escalation behavior", "category": "other", "expected_chunks": ["lock", "escalation", "granularity"], "gold_answer_fragment": "lock"}
+{"query": "Transaction logging mechanism", "category": "other", "expected_chunks": ["log", "transaction", "record"], "gold_answer_fragment": "log"}
+{"query": "The role of constraints in database design", "category": "other", "expected_chunks": ["constraint", "integrity", "design"], "gold_answer_fragment": "constraint"}
