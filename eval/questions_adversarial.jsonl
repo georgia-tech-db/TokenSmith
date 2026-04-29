@@ -1,0 +1,28 @@
+{"query": "What sets clustered indexes apart from non-clustered indexes", "category": "comparison", "expected_chunks": ["clustering index", "primary index", "secondary index"], "gold_answer_fragment": "clustering"}
+{"query": "Tell me how primary keys relate to foreign keys", "category": "comparison", "expected_chunks": ["primary key", "foreign key", "referential"], "gold_answer_fragment": "referential"}
+{"query": "Tell me about hash indexes alongside tree-based indexes", "category": "comparison", "expected_chunks": ["hash index", "B+-tree", "bucket"], "gold_answer_fragment": "hash"}
+{"query": "Tell me how strict two-phase locking relates to non-strict two-phase locking", "category": "comparison", "expected_chunks": ["two-phase locking", "strict", "lock"], "gold_answer_fragment": "strict"}
+{"query": "Tell me about logical and physical data independence in juxtaposition", "category": "comparison", "expected_chunks": ["logical", "physical", "data independence"], "gold_answer_fragment": "independence"}
+{"query": "Tell me about shadow paging in relation to log-based recovery", "category": "comparison", "expected_chunks": ["shadow paging", "log", "recovery"], "gold_answer_fragment": "shadow"}
+{"query": "Tell me how lossless decomposition relates to lossy decomposition in normalization", "category": "comparison", "expected_chunks": ["lossless", "decomposition", "natural join"], "gold_answer_fragment": "lossless"}
+{"query": "Tell me how nested-loop join relates to hash join", "category": "comparison", "expected_chunks": ["nested loop", "hash join", "build"], "gold_answer_fragment": "hash"}
+{"query": "The need for transaction isolation in databases", "category": "explanatory", "expected_chunks": ["isolation", "concurrent", "consistency"], "gold_answer_fragment": "concurrent"}
+{"query": "Walk me through how deadlocks arise in concurrent transactions", "category": "explanatory", "expected_chunks": ["deadlock", "wait-for", "cycle"], "gold_answer_fragment": "deadlock"}
+{"query": "The reasoning behind preferring third normal form over second normal form", "category": "explanatory", "expected_chunks": ["third normal form", "transitive", "dependency"], "gold_answer_fragment": "transitive"}
+{"query": "The reason write-ahead logging ensures durability in databases", "category": "explanatory", "expected_chunks": ["write-ahead log", "durability", "redo"], "gold_answer_fragment": "durability"}
+{"query": "Tell me about the role of the recovery manager in databases", "category": "explanatory", "expected_chunks": ["recovery", "log", "crash"], "gold_answer_fragment": "crash"}
+{"query": "The importance of functional dependency for normalization", "category": "explanatory", "expected_chunks": ["functional dependency", "normal form", "decomposition"], "gold_answer_fragment": "normal form"}
+{"query": "Walk me through bucket overflow handling in static hashing", "category": "explanatory", "expected_chunks": ["bucket", "overflow chain", "hash"], "gold_answer_fragment": "overflow"}
+{"query": "The role of normalization in eliminating update anomalies", "category": "explanatory", "expected_chunks": ["update anomaly", "normalization", "redundancy"], "gold_answer_fragment": "redundancy"}
+{"query": "Tell me about atomicity consistency isolation and durability properties", "category": "keyword", "expected_chunks": ["atomicity", "consistency", "isolation", "durability"], "gold_answer_fragment": "atomicity"}
+{"query": "Tell me about multi-version concurrency control mechanism", "category": "keyword", "expected_chunks": ["multiversion", "timestamp", "version"], "gold_answer_fragment": "multiversion"}
+{"query": "The mechanism behind write-ahead log based recovery", "category": "keyword", "expected_chunks": ["write-ahead log", "log record", "recovery"], "gold_answer_fragment": "write-ahead"}
+{"query": "Tell me about online transaction processing systems", "category": "keyword", "expected_chunks": ["online transaction", "transaction processing", "operational"], "gold_answer_fragment": "transaction processing"}
+{"query": "Describe candidate keys in relational databases", "category": "definition", "expected_chunks": ["candidate key", "minimal", "superkey"], "gold_answer_fragment": "candidate"}
+{"query": "Tell me about functional dependency in databases", "category": "definition", "expected_chunks": ["functional dependency", "attribute", "determines"], "gold_answer_fragment": "dependency"}
+{"query": "Describe foreign keys and their purpose", "category": "definition", "expected_chunks": ["foreign key", "referential", "relation"], "gold_answer_fragment": "foreign"}
+{"query": "Tell me about referential integrity in databases", "category": "definition", "expected_chunks": ["referential integrity", "foreign key", "constraint"], "gold_answer_fragment": "referential"}
+{"query": "Walk through performing database normalization", "category": "procedural", "expected_chunks": ["normalization", "normal form", "decomposition"], "gold_answer_fragment": "normalization"}
+{"query": "Walk through building a B+ tree index from scratch", "category": "procedural", "expected_chunks": ["B+-tree", "node", "split"], "gold_answer_fragment": "B+-tree"}
+{"query": "Walk me through recovering from a transaction failure", "category": "procedural", "expected_chunks": ["recovery", "log", "rollback"], "gold_answer_fragment": "recovery"}
+{"query": "Walk through designing a relational schema for a library system", "category": "procedural", "expected_chunks": ["entity", "relationship", "schema"], "gold_answer_fragment": "schema"}
