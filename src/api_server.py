@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 import traceback
 import os
+import argparse
+from typing import Any
 
 # Add project root to Python path to allow imports when run directly
 _project_root = pathlib.Path(__file__).resolve().parent.parent
@@ -90,6 +92,21 @@ class ChatResponse(BaseModel):
     chunks_used: List[int]
     chunks_by_page: Dict[int, List[str]]
     query: str
+
+
+class SchedulerRequest(BaseModel):
+    queries: List[str]
+    log_data: Optional[Dict[str, Any]] = None
+
+
+class QueryResult(BaseModel):
+    query: str
+    answer: str
+    score: float = 0.0
+
+
+class SchedulerResponse(BaseModel):
+    results: List[QueryResult]
 
 
 def _resolve_config_path() -> pathlib.Path:
@@ -662,6 +679,61 @@ async def chat(request: ChatRequest):
             status_code=500,
             detail=f"Error processing query: {str(e)}",
         )
+
+
+@app.post("/scheduler/run", response_model=SchedulerResponse)
+async def run_scheduler(request: SchedulerRequest):
+    """Run a batch of queries through the pipeline (used by scheduler)."""
+    _ensure_initialized()
+
+    results = []
+
+    disable_chunks = _config.disable_chunks
+    prompt_type = _config.system_prompt_mode
+    max_chunks = _config.top_k
+    temperature = 0.7
+    chunks = _artifacts["chunks"]
+
+    for query in request.queries:
+        query = query.strip()
+
+        try:
+            new_score = 0.0
+            if disable_chunks:
+                ranked_chunks = []
+            else:
+                retrieval_result = _retrieve_and_rank(query, top_k=max_chunks)
+                if not retrieval_result or \
+                   not isinstance(retrieval_result, (list, tuple)) or \
+                   len(retrieval_result) != 2:
+                    topk_idxs = []
+                else:
+                    topk_idxs, ordered_scores = retrieval_result
+                    if ordered_scores:
+                        new_score = ordered_scores[0]
+
+                topk_idxs = [int(i) for i in (topk_idxs or [])]
+                ranked_chunks = [chunks[i] for i in topk_idxs[:max_chunks]]
+
+            model_path = _resolve_gen_model(None)
+
+            answer_text = "".join(
+                answer(
+                    query,
+                    ranked_chunks,
+                    model_path,
+                    _config.max_gen_tokens,
+                    system_prompt_mode=prompt_type,
+                    temperature=temperature,
+                )
+            )
+
+            results.append(QueryResult(query=query, answer=answer_text, score=new_score))
+
+        except Exception as e:
+            print(f"[ERROR] Failed to process query: {query}. Error: {e}")
+
+    return SchedulerResponse(results=results)
 
 
 if __name__ == "__main__":

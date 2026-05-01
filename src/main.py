@@ -28,6 +28,7 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from src.scheduler import run_scheduler_job
 from src.cache import get_cache
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
@@ -405,6 +406,12 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             if q.lower() in {"exit", "quit"}:
                 print("Goodbye!")
                 break
+                
+            if q == "@server":
+                print("Triggering background scheduler...")
+                run_scheduler_job(cfg, args, remote_url="http://localhost:8000")
+                continue
+
             
             effective_q = q
             if cfg.enable_history and chat_history:
