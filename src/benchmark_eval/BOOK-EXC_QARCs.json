@@ -1,0 +1,472 @@
+[
+  {
+    "id": "2.10",
+    "question": "Describe the differences in meaning between the terms relation and relation schema.",
+    "answer": "relation is a set of tuples. relation schema is used to refer to the the structure of a relation. A relation schema consists of a list of attributes and their corresponding domains.",
+    "must_rubric": [
+      "Define 'relation' as a set or collection of tuples.",
+      "Define 'relation schema' as the structural definition (list of attributes) and their domains."
+    ],
+    "optional_rubric": [
+      "Distinguish between the static nature of a schema and the dynamic nature of a relation instance."
+    ]
+  },
+  {
+    "id": "3.5",
+    "question": "Suppose that we have a relation marks(ID,score) and we wish to assign grades to students based on the score as follows: grade F if score < 40, grade C if 40 <= score < 60, grade B if 60 <= score < 80, and grade A if 80 <= score. Write SQL queries to do the following: a. Display the grade for each student, based on the marks relation. b. Find the number of students with each grade.",
+    "answer": "a. SELECT ID, CASE WHEN score < 40 THEN 'F' WHEN score < 60 THEN 'C' WHEN score < 80 THEN 'B' ELSE 'A' END FROM marks. b. WITH grades(ID,grade) AS (SELECT ID, CASE WHEN score < 40 THEN 'F' WHEN score < 60 THEN 'C' WHEN score < 80 THEN 'B' ELSE 'A' END FROM marks) SELECT grade, COUNT(ID) FROM grades GROUP BY grade.",
+    "must_rubric": [
+      "Use 'CASE' syntax to evaluate the score brackets.",
+      "Check specific boundaries: < 40 for 'F', < 60 for 'C', < 80 for 'B', and ELSE/others for 'A'.",
+      "For part (b), use 'GROUP BY grade' and 'COUNT' to aggregate results."
+    ],
+    "optional_rubric": [
+      "Use a Common Table Expression (CTE) or subquery to structure the aggregate query for part (b)."
+    ]
+  },
+  {
+    "id": "3.14",
+    "question": "Consider the insurance database below, where the primary keys are underlined. Construct the following SQL queries for this relational database. Database Schema: person (driver id, name, address)\ncar (license plate, model, year)\naccident (report number, year, location)\nowns (driver id, license plate)\nparticipated (report number, license plate, driver id, damage amount) \n a. Find the number of accidents involving a car belonging to a person named 'John Smith'. b. Update the damage amount for the car with license_plate 'AABB2000' in the accident with report number 'AR2197' to $3000.",
+    "answer": "a. WITH all_cars_owned_by_john_smith(license_plate) AS (SELECT license_plate FROM person INNER JOIN owns ON person.driver_id = owns.driver_id WHERE person.name = 'John Smith') SELECT COUNT(DISTINCT report_number) FROM participated WHERE license_plate IN (SELECT license_plate FROM all_cars_owned_by_john_smith). b. UPDATE participated SET damage_amount = 3000 WHERE report_number = 'AR2197' AND license_plate = 'AABB2000'.",
+    "must_rubric": [
+      "In part (a), perform a join or subquery connecting 'person.driver_id' to 'owns.driver_id' filtered by name 'John Smith'.",
+      "In part (a), use 'COUNT' on 'report_number' from the 'participated' table.",
+      "In part (b), use 'UPDATE participated SET damage_amount = 3000'.",
+      "In part (b), apply a 'WHERE' clause filtering specifically for report_number 'AR2197' and license_plate 'AABB2000'."
+    ],
+    "optional_rubric": [
+      "Use 'DISTINCT' within the count to ensure accidents with multiple participants are not double-counted."
+    ]
+  },
+  {
+    "id": "4.9",
+    "question": "SQL allows a foreign-key dependency to refer to the same relation... Explain exactly what happens when a tuple in the relation manager is deleted.",
+    "answer": "The tuples of all employees of the manager, at all levels, get deleted as well!. This happens in a series of steps. The initial deletion will trigger deletion of all the tuples corresponding to direct employees of the manager. These deletions will in turn cause deletions of second-level employee tuples, and so on, till all direct and indirect employee tuples are deleted.",
+    "must_rubric": [
+      "State that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'.",
+      "Explain that this deletion process is recursive/multi-level, affecting both direct and indirect subordinates."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "4.12",
+    "question": "Suppose a user wants to grant select access on a relation to another user. Why should the user include (or not include) the clause granted by current role in the grant statement?",
+    "answer": "If the grant is done based on the role, then the grant remains in effect even if the user who performed the grant leaves and that user’s account is terminated. Whether that is a good or bad idea depends on the specific situation, but usually granting through a role is more consistent with a well-run enterprise.",
+    "must_rubric": [
+      "Identify that granting by role ensures the authorization persists even if the grantor's individual account is terminated."
+    ],
+    "optional_rubric": [
+      "Contrast this with user-level grants where privileges may be revoked if the grantor is removed."
+    ]
+  },
+  {
+    "id": "5.4",
+    "question": "Describe the circumstances in which you would choose to use embedded SQL rather than SQL alone or only a general-purpose programming language.",
+    "answer": "Writing queries in SQL is typically much easier than coding the same queries in a general-purpose programming language. However, not all kinds of queries can be written in SQL. Also, nondeclarative actions such as printing a report, interacting with a user, or sending the results of a query to a GUI cannot be done from within SQL.",
+    "must_rubric": [
+      "State that SQL is chosen for its ease of declarative data retrieval compared to procedural languages.",
+      "State that general-purpose languages are required for non-declarative actions (UI interaction, printing, GUI).",
+      "Specify that embedded SQL is used to combine these two strengths when both data manipulation and procedural logic are needed."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "6.5",
+    "question": "An E-R diagram can be viewed as a graph. What do the following mean in terms of the structure of an enterprise schema? a. The graph is disconnected. b. The graph has a cycle.",
+    "answer": "a. If a pair of entity sets are connected by a path in an E-R diagram, the entity sets are related, though perhaps indirectly. A disconnected graph implies that there are pairs of entity sets that are unrelated to each other. b. As indicated in the answer to the previous part, a path in the graph between a pair of entity sets indicates a (possibly indirect) relationship between the two entity sets. If there is a cycle in the graph, then every pair of entity sets on the cycle are related to each other in at least two distinct ways.",
+    "must_rubric": [
+      "For (a), define a disconnected graph as representing two or more independent/unrelated parts of the enterprise.",
+      "For (b), define a cycle as representing multiple distinct relationship paths between the same entity sets."
+    ],
+    "optional_rubric": [
+      "Note that acyclic graphs imply a unique relationship path between any two connected entities."
+    ]
+  },
+  {
+    "id": "6.10",
+    "question": "Consider a many-to-one relationship R between entity sets A and B... Explain how a constraint on total participation of A in R can be enforced using NOT NULL constraint in SQL.",
+    "answer": "The foreign-key attribute in R corresponding to the primary key of B should be made NOT NULL. This ensures that no tuple of A which is not related to any entry in B under R can come in R. For example, say a is a tuple in A which has no corresponding entry in R. This means when R is combined with A, it would have a foreign-key attribute corresponding to B as NULL, which is not allowed.",
+    "must_rubric": [
+      "Specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'.",
+      "Explain that this prevents any instance of A from existing without a corresponding link to B."
+    ],
+    "optional_rubric": []
+  },
+    {
+    "id": "2.5",
+    "question": "What is the result of first performing the Cartesian product of student and advisor, and then performing a selection operation on the result with the predicate $s\\_id = ID$? (Using the symbolic notation of relational algebra, this query can be written as $\\sigma_{s\\_id=ID}(student \times advisor)$.)",
+    "answer": "The result attributes include all attribute values of student followed by all attributes of advisor. The tuple in the result are as follows: For each student who has an advisor, the result has a row containing the student’s attributes, followed by $s\\_id$ attribute identical to the student’s ID attribute, followed by the $i\\_id$ attribute containing the ID of the students advisor.Students who do not have an advisor will not appear in the result. A student who has more than one advisor will appear a corresponding number of times in the result.",
+    "must_rubric": [
+        "State that the result includes only tuples where the student's ID equals the advisor's s_id.",
+        "Explicitly mention that students without an advisor are excluded from the result set.",
+        "Identify that the output schema contains attributes from both the student and advisor relations."
+    ],
+    "optional_rubric": [
+        "Mention that students with multiple advisors will appear multiple times (preserving multiplicity).",
+        "Note the presence of redundant columns (both 'ID' and 's_id' will appear in the result).",
+        "Specify the attribute ordering (e.g., student attributes followed by advisor attributes)."
+    ]
+  },
+  {
+    "id": "6.14",
+    "question": "Explain the distinctions among the terms primary key, candidate key, and superkey.",
+    "answer": "A superkey is a set of one or more attributes that, taken collectively, allow us to identify uniquely a tuple in the relation. A candidate key is a superkey for which no proper subset is a superkey. A primary key is a candidate key that is chosen by the database designer as the principal means of identifying tuples within a relation.",
+    "must_rubric": [
+      "Define 'superkey' as a set of attributes that uniquely identifies a tuple.",
+      "Define 'candidate key' as a minimal superkey (no proper subset is a superkey).",
+      "Define 'primary key' as a candidate key specifically chosen as the principal identifier for the relation."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "6.5",
+    "question": "An E-R diagram can be viewed as a graph. What do the following mean in terms of the structure of an enterprise schema? a. The graph is disconnected. b. The graph has a cycle.",
+    "answer": "a. If a pair of entity sets are connected by a path in an E-R diagram, the entity sets are related, though perhaps indirectly. A disconnected graph implies that there are pairs of entity sets that are unrelated to each other. In an enterprise, we can say that the two parts of the enterprise are completely independent of each other. If we split the graph into connected components, we have, a separate database corresponding to each independent independent part of the enterprise. b. As indicated in the answer to the previous part, a path in the graph between a pair of entity sets indicates a (possibly indirect) relationship between the two entity sets. If there is a cycle in the graph, then every pair of entity sets on the cycle are related to each other in at least two distinct ways. If the E-R diagram is acyclic, then there is unique path between every pair of entity sets and thus a unique relationship between every pair of entity sets.",
+    "must_rubric": [
+      "Explain that a disconnected graph signifies parts of the enterprise that are completely independent/unrelated.",
+      "Explain that a cycle in the graph indicates that entity sets are related to each other in at least two distinct ways."
+    ],
+    "optional_rubric": [
+      "Mention that disconnected components can lead to separate databases.",
+      "Contrast cycles with acyclic diagrams where unique paths/relationships exist between every pair."
+    ]
+  },
+  {
+    "id": "6.7",
+    "question": "A weak entity set can always be made into a strong entity set by adding to its attributes the primary-key attributes of its identifying entity set. Outline what sort of redundancy will result if we do so.",
+    "answer": "The primary key of a weak entity set can be inferred from its relationship with the strong entity set. If we add primary-key attributes to the weak entity set, they will be present in both the entity set, and the relationship set and they have to be the same. Hence there will be redundancy.",
+    "must_rubric": [
+      "Specify that the primary-key attributes of the strong entity will be duplicated in both the new strong entity set and its relationship set.",
+      "Identify that these duplicated values must remain identical, which constitutes redundancy."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "6.11",
+    "question": "In SQL, foreign key constraints can reference only the primary key attributes of the referenced relation or other attributes declared to be a superkey using the unique constraint. As a result, total participation constraints on a many-to-many relationship set (or on the “one” side of a one-to-many relationship set) cannot be enforced on the relations created from the relationship set, using primary key, foreign key, and not null constraints. a. Explain why. b. Explain how to enforce total participation constraints using complex check constraints or assertions (see Section 4.4.8). (Unfortunately, these features are not supported on any widely used database currently.)",
+    "answer": "a. For the many-to-many case, the relationship set must be represented as a separate relation that cannot be combined with either participating entity. Now, there is no way in SQL to ensure that a primary-key value occuring in an entity E1 also occurs in a many-to-many relationship R, since the corresponding attribute in R is not unique; SQL foreign keys can only refer to the primary key or some other unique key. Similary, for the one-to-many case, there is no way to ensure that an attribute on the one side appears in the relation corresponding to the many side, for the same reason. b. Let the relation R be many-to-one from entity A to entity B with a and b as their respective primary keys. We can put the following check constraints on the “one” side relation B:\n\nCONSTRAINT total_part CHECK (b IN (SELECT b FROM A));\nSET CONSTRAINTS total_part DEFERRED;\n\nNote that the constraint should be set to deferred so that it is only checked at the end of the transaction; otherwise if we insert a b value in B before it is inserted in A, the constraint would be violated, and if we insert it in A before we insert it in B, a foreign-key violation would occur.",
+    "must_rubric": [
+      "For (a), explain that foreign keys require uniqueness in the referenced column, which does not exist for the 'one' side or M:M relations.",
+      "For (b), provide SQL syntax using a CHECK constraint with a subquery (IN SELECT).",
+      "For (b), explicitly state that constraints must be set to DEFERRED to avoid violations during intermediate transaction steps."
+    ],
+    "optional_rubric": [
+      "Clarify that the constraint check must occur at the end of the transaction to handle circular dependencies."
+    ]
+  },
+  {
+    "id": "6.18",
+    "question": "Consider two entity sets A and B that both have the attribute X (among others whose names are not relevant to this question). a. If the two Xs are completely unrelated, how should the design be improved? b. If the two Xs represent the same property and it is one that applies both to A and B, how should the design be improved? Consider three subcases: X is the primary key for A but not B, X is the primary key for both A and B, X is not the primary key for A nor for B.",
+    "answer": "a. Rename the attribute X to something that describes more info in both entity sets, so that it can have a different name in both the entity sets. b. Case 1: X is the primary key for A but not B. In this case we would create a foreign-key constraint on the attribute X of the entity set B referencing the entity set A. Case 2: X is the primary key for both A and B. In this case we merge the two entity sets A and B into one entity set C. The new entity set C will have the attribute X as a primary key and moreover it will have all the other attributes of A and B (making proper attribute name modifications, if needed). Case 3: X is not the primary key for A nor for B. In this case we can create a new entity set called C having a single attribute X. And the attribute X in A and B will be a foreign-key referencing the attribute X in the entity set C. This also gives room for storing more information about the attribute X in side of the entity set C.",
+    "must_rubric": [
+      "For (a), advise renaming the attributes to be distinct and descriptive.",
+      "For (b) Case 1, identify the need for a foreign key from the non-primary key side to the primary key side.",
+      "For (b) Case 2, advise merging the two entities into a single entity set with X as the PK.",
+      "For (b) Case 3, advise creating a separate parent entity set for X with foreign keys in both A and B."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "6.27",
+    "question": "Explain the distinction between disjoint and overlapping constraints.",
+    "answer": "Disjoint Specialization Constraint - An entity in a higher level entity set cannot belong to multiple specialized entity sets. Overlapping Specialization Constraint - An entity in a higher level entity set can belong to multiple specialized entity sets.",
+    "must_rubric": [
+      "Define 'disjoint' as a constraint where an entity cannot belong to more than one subclass.",
+      "Define 'overlapping' as a constraint where an entity is allowed to belong to multiple subclasses simultaneously."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.6",
+    "question": "Compute the closure of the following set F of functional dependencies for relation schema $R = (A, B, C, D, E)$. $A -> BC, CD -> E, B -> D, E -> A$. List the candidate keys for R.",
+    "answer": "Starting with $A -> BC$, we can conclude that: $A -> B$ and $A -> C$. Since $A -> B$ and $B -> D$, $A -> D$ (decomposition, transitive). Since $A -> CD$ and $CD -> E$, $A -> E$ (union, decomposition, transitive). Since $A -> A$, we have $A -> ABCDE$ from the above steps (reflexive, union). Since $E -> A$, $E -> ABCDE$ (transitive). Since $CD -> E$, $CD -> ABCDE$ (transitive). Since $B -> D$ and $BC -> CD$, $BC -> ABCDE$ (augmentative, transitive). Also, $C -> C$, $D -> D$, $BD -> D$, etc. Therefore, any functional dependency with $A, E, BC$ or $CD$ on the left-hand side of the arrow is in $F^+$, no matter which other attributes appear in the functional dependency. Allow * to represent any set of attributes in R, the $F^+$ is $BD -> B, BD -> D, C -> C, D -> D, BD -> BD, B -> D, B -> B, B -> BD$, and all functional dependencies of the form $A* -> \\alpha, BC* -> \\alpha, CD* -> \\alpha, E* -> \\alpha$ where $\\alpha$ is any subset of $\\{A, B, C, D, E\\}$. The candidate keys are $A, BC, CD$, and $E$.",
+    "must_rubric": [
+      "Correctly list the candidate keys: A, BC, CD, and E.",
+      "Provide a logical derivation (using attribute closure) showing that each of these keys determines the full set of attributes."
+    ],
+    "optional_rubric": [
+      "Explain the use of shorthand notation (A*) to describe the extensive set of dependencies in the closure."
+    ]
+  },
+  {
+    "id": "7.3",
+    "question": "Explain how functional dependencies can be used to indicate the following: * A one-to-one relationship set exists between entity sets student and instructor. * A many-to-one relationship set exists between entity sets student and instructor.",
+    "answer": "Let $Pk(r)$ denote the primary key of relation $r$. The functional dependencies $Pk(student) -> Pk(instructor)$ and $Pk(instructor) -> Pk(student)$ indicate a one-to-one relationship because any two tuples with the same value for student must have the same value for instructor, and any two tuples agreeing on instructor must have the same value for student. The functional dependency $Pk(student) -> Pk(instructor)$ indicates a many-to-one relationship since any student value which is repeated will have the same instructor value, but many student values may have the same instructor value.",
+    "must_rubric": [
+      "For 1:1, state that FDs must exist in both directions between the primary keys.",
+      "For many-to-one, state that the FD exists specifically from the primary key of the 'many' side to the primary key of the 'one' side."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.1",
+    "question": "Suppose that we decompose the schema R = (A, B, C, D, E) into (A, B, C)(A, D, E). Show that this decomposition is a lossless decomposition if the following set F of functional dependencies holds:\n\nA -> BC\nCD -> E\nB -> D\nE -> A",
+    "answer": "A decomposition { R_1, R_2 } is a lossless decomposition if R_1 intersection R_2 -> R_1 or R_1 intersection R_2 -> R_2. Let R_1 = (A, B, C), R_2 = (A, D, E), and R_1 intersection R_2 = A. Since A is a candidate key (see Practice Exercise 7.6), R_1 intersection R_2 -> R_1.",
+    "must_rubric": [
+      "State the necessary condition for a two-relation lossless decomposition: the intersection of the schemas must functionally determine at least one of the schemas.",
+      "Correctively identify the intersection of (A, B, C) and (A, D, E) as attribute {A}.",
+      "Demonstrate that A is a superkey for the relation by showing that the closure A+ contains all attributes {A, B, C, D, E}."
+    ],
+    "optional_rubric": [
+      "Explicitly mention that A determines R_1 (A -> ABC) specifically to satisfy the theorem."
+    ]
+  },
+  {
+    "id": "7.14",
+    "question": "Show that there can be more than one canonical cover for a given set of functional dependencies, using the following set of dependencies: X -> YZ, Y -> XZ, and Z -> XY",
+    "answer": "Consider the first functional dependency. We can verify that Z is extraneous in X -> YZ and delete it. Subsequently, we can similarly check that X is extraneous in Y -> XZ and delete it, and that Y is extraneous in Z -> XY and delete it, resulting in a canonical cover X -> Y, Y -> Z, Z -> X. However, we can also verify that Y is extraneous in X -> YZ and delete it. Subsequently, we can similarly check that Z is extraneous in Y -> XZ and delete it, and that X is extraneous in Z -> XY and delete it, resulting in a canonical cover X -> Z, Y -> X, Z -> Y.",
+    "must_rubric": [
+      "Show the systematic removal of one extraneous attribute from each original dependency to form a cycle.",
+      "Identify the first valid canonical cover: {X -> Y, Y -> Z, Z -> X}.",
+      "Identify the second valid canonical cover: {X -> Z, Y -> X, Z -> Y}."
+    ],
+    "optional_rubric": [
+      "Briefly explain the test for extraneous attributes (e.g., check if the closure of the LHS remains unchanged after removal)."
+    ]
+  },
+  {
+    "id": "7.18",
+    "question": "Let a prime attribute be one that appears in at least one candidate key. Let alpha and beta be sets of attributes such that alpha -> beta holds, but beta -> alpha does not hold. Let A be an attribute that is not in alpha, is not in beta, and for which beta -> A holds. We say that A is transitively dependent on alpha. We can restate the definition of 3NF as follows: A relation schema R is in 3NF with respect to a set F of functional dependencies if there are no nonprime attributes A in R for which A is transitively dependent on a key for R. Show that this new definition is equivalent to the original one.",
+    "answer": "Suppose R is in 3NF according to the textbook definition. We show that it is in 3NF according to the definition in the exercise. Let A be a nonprime attribute in R that is transitively dependent on a key alpha for R. Then there exists beta subset of R such that beta -> A, alpha -> beta, A not in alpha, A not in beta, and beta -> alpha does not hold. But then beta -> A violates the textbook definition of 3NF since:\n\n* A not in beta implies beta -> A is nontrivial.\n* Since beta -> alpha does not hold, beta is not a superkey.\n* A is not in any candidate key, since A is nonprime.\n\nNow we show that if R is in 3NF according to the exercise definition, it is in 3NF according to the textbook definition. Suppose R is not in 3NF according to the textbook definition. Then there is a functional dependency alpha -> beta that fails all three conditions. Thus,\n\n* alpha -> beta is nontrivial.\n* alpha is not a superkey for R.\n* Some A in beta - alpha is not in any candidate key.\n\nThis implies that A is nonprime and alpha -> A. Let gamma be a candidate key for R. Then gamma -> alpha, alpha -> gamma does not hold (since alpha is not a superkey), A not in alpha, and A not in gamma (since A is nonprime). Thus A is transitively dependent on gamma, violating the exercise definition.",
+    "must_rubric": [
+      "Prove that textbook 3NF implies exercise 3NF by showing that a transitive dependency (beta -> A) with a nonprime A and non-superkey beta violates the three 3NF conditions.",
+      "Prove that exercise 3NF implies textbook 3NF by demonstrating that a 3NF violation (alpha -> A where alpha is not a superkey and A is nonprime) results in A being transitively dependent on any candidate key gamma."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.5",
+    "question": "Use Armstrong's axioms to prove the soundness of the pseudotransitivity rule.",
+    "answer": "Proof using Armstrong's axioms of the pseudotransitivity rule:\n\nif alpha -> beta and gamma beta -> delta then alpha gamma -> delta\n\nProof:\nalpha -> beta given\nalpha gamma -> gamma beta augmentation rule and set union commutativity\ngamma beta -> delta given\nalpha gamma -> delta transitivity rule",
+    "must_rubric": [
+      "Correctly use the Augmentation rule on the first given FD (alpha -> beta) with attribute set gamma to obtain alpha gamma -> beta gamma.",
+      "Correctly use the Transitivity rule using alpha gamma -> beta gamma and the second given FD (gamma beta -> delta) to conclude alpha gamma -> delta."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.39",
+    "question": "Given the three goals of relational database design, is there any reason to design a database schema that is in 2NF, but is in no higher-order normal form? (See Exercise 7.19 for the definition of 2NF).",
+    "answer": "2NF does not prohibit as much repetition of information since the schema (A, B, C) with dependencies A -> B and B -> C is allowed under 2NF, although the same (B, C) pair could be associated with many A values, needlessly duplicating C values. To void this we must go to 3NF. Repetition of information is allowed in 3NF in some but not all of the cases where it is allowed in 2NF. Thus, in general, 3NF reduces repetition of information. Since we can always achieve a lossless decomposition into 3NF, there is no loss of information needed in going from 2NF to 3NF. Note that the decomposition { {A, B}, {B, C} } is a dependency-preserving 3NF decomposition of the schema (A, B, C). However, in case we choose this decomposition, retrieving information about the relationship between A, B and C requires a join of two relations, which is avoided in the corresponding 2NF decomposition.",
+    "must_rubric": [
+      "Acknowledge that 3NF is superior for reducing data redundancy/repetition compared to 2NF.",
+      "State that the main reason to retain a 2NF design is query performance, specifically avoiding the join operations required by the decomposed 3NF schema."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.27",
+    "question": "Use Armstrong's axioms to prove the soundness of the decomposition rule.",
+    "answer": "Decomposition Rule states: If alpha -> beta gamma holds, then alpha -> beta holds and alpha -> gamma holds. Suppose alpha -> beta gamma holds. By Reflexivity rule we know that, beta gamma -> beta and beta gamma -> gamma holds. By Transitivity rule alpha -> beta holds and alpha -> gamma holds.",
+    "must_rubric": [
+      "Use the Reflexivity rule to show that the combined set (beta gamma) functionally determines its subsets (beta and gamma).",
+      "Apply the Transitivity rule to the given FD (alpha -> beta gamma) and the reflexive FDs to conclude the proof."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "7.25",
+    "question": "Use the definition of functional dependency to argue that each of Armstrong's axioms (reflexivity, augmentation, and transitivity) is sound.",
+    "answer": "* Reflexivity rule: If alpha is a set of attributes and beta is a subset of alpha, then alpha -> beta holds. Let r(R) be a relation schema. Let t_1 and t_2 be two tuples in r such that t_1[alpha] = t_2[alpha]. Since beta is a subset of alpha, the value of each attribute x in beta must be identical in t_1 and t_2. Thus t_1[beta] = t_2[beta], and alpha -> beta holds.\n* Augmentation rule: If alpha -> beta holds and gamma is a set of attributes, then gamma alpha -> gamma beta holds. Suppose t_1[gamma alpha] = t_2[gamma alpha]. This implies t_1[gamma] = t_2[gamma] and t_1[alpha] = t_2[alpha]. Since alpha -> beta, then t_1[beta] = t_2[beta]. Combining results gives t_1[gamma beta] = t_2[gamma beta].\n* Transitivity rule: If alpha -> beta and beta -> gamma holds, then alpha -> gamma holds. Suppose t_1[alpha] = t_2[alpha]. Because alpha -> beta, then t_1[beta] = t_2[beta]. Because beta -> gamma, then t_1[gamma] = t_2[gamma]. Thus alpha -> gamma holds.",
+    "must_rubric": [
+      "Argue for Reflexivity by showing that if tuples match on a set of attributes, they must logically match on any subset of those attributes.",
+      "Argue for Augmentation by showing that agreement on gamma and alpha implies agreement on both gamma and the dependent beta.",
+      "Argue for Transitivity by following the chain of identical tuple values from alpha to beta, and then from beta to gamma."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "9.4",
+    "question": "Consider another carelessly written web application which uses a servlet that checks if there was an active session but does not check if the user is authorized to access that page, instead depending on the fact that a link to the page is shown only to authorized users. What is the risk with this scheme?",
+    "answer": "Although the link to the page is shown only to authorized users, an unauthorized user may somehow come to know of the existence of the link (for example, from an authorized user, or via web proxy logs). The user may then log in to the system and access the unauthorized page by entering its URL in the browser. If the check for user authorization was inadvertently left out from the page, the user will be able to see the result of the page. The HTTP referer attribute can be used to block a naive attempt to exploit such loopholes by ensuring the referer value is from a valid page of the web site. However, the referer attribute is set by the browser and can be spoofed, so a malicious user can easily work around the referer check.",
+    "must_rubric": [
+      "Identify that 'hidden' URLs are not secure because they can be leaked via logs, bookmarks, or sharing.",
+      "Explain that every sensitive page must independently perform an authorization check on the server side.",
+      "State that the Referer header is an insufficient defense due to its ability to be spoofed by a client."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "9.9",
+    "question": "A database relation may have the values of certain attributes encrypted for security. Why do database systems not support indexing on encrypted attributes? Using your answer to this question, explain why database systems do not allow encryption of primary-key attributes.",
+    "answer": "It is not possible in general to index on an encrypted value, unless all occurrences of the value encrypt to the same value (and even in this case, only equality predicates would be supported). However, mapping all occurrences of a value to the same encrypted value is risky, since statistical analysis can be used to reveal common values, even without decryption; techniques based on adding random “salt” bits are used to prevent such analysis, but they make indexing impossible. One possible workaround is to store the index unencrypted, but then the index can be used to leak values. Another option is to keep the index encrypted, but then the database system should know the decryption key, to decrypt required parts of the index on the fly. Since this requires modifying large parts of the database system code, databases typically do not support this option. The primary-key constraint has to be checked by the database when tuples are inserted, and if the values are encrypted as above, the database system will not be able to detect primary-key violations. Therefore, database systems that support encryption of specified attributes do not allow primary-key attributes, or for that matter foreign-key attributes, to be encrypted.",
+    "must_rubric": [
+      "Explain that indexing (e.g., B-trees) relies on value order, which is randomized and obscured by encryption.",
+      "Mention that while deterministic encryption allows equality indexing, it is vulnerable to statistical/frequency analysis.",
+      "State that primary keys cannot be encrypted because the database must be able to efficiently verify uniqueness and integrity constraints, which is impossible without a searchable index or cleartext comparison."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "9.11",
+    "question": "Suppose someone impersonates a company and gets a certificate from a certificate-issuing authority. What is the effect on things (such as puchase orders or programs) certified by the impersonated company, and on things certified by other companies?",
+    "answer": "The key problem with digital certificates (when used offline, without contacting the certificate issuer) is that there is no way to withdraw them. For instance (this actually happened, but names of the parties have been changed) person C claims to be an employee of company X and gets a new public key certified by the certifying authority A. Suppose the authority A incorrectly believed that C was acting on behalf of company X, and it gave C a certificate cert. Now C can communicate with person Y, who checks the certificate cert presented by C and believes the public key contained in cert really belongs to X. C can communicate with Y using the public key, and Y trusts the communication is from company X. Person Y may now reveal confidential information to C or accept a purchase order from C or execute programs certified by C, based on the public key, thinking he is actually communicating with company X. In each case there is potential for harm to Y. Even if A detects the impersonation, as long as Y does not check with A (the protocol does not require this check), there is no way for Y to find out that the certificate is forged. If X was a certification authority itself, further levels of fake certificates could be created. But certificates that are not part of this chain would not be affected.",
+    "must_rubric": [
+      "Explain that digital certificates used offline cannot be easily withdrawn/revoked in real-time.",
+      "Describe how an impersonator can trick third parties into trusting communications (orders, programs) as if they originated from the victim company.",
+      "Identify that only certificates within the compromised chain of trust are affected; other companies remain secure."
+    ],
+    "optional_rubric": [
+      "Mention the potential for 'cascading' fake certificates if the impersonated entity is itself a certificate authority."
+    ]
+  },
+  {
+    "id": "10.3",
+    "question": "Suppose you wish to store utility bills for a large number of users, where each bill is identified by a customer ID and a date. How would you store the bills in a key-value store that supports range queries, if queries request the bills of a specified customer for a specified date range.",
+    "answer": "Create a key by concatenating the customer ID and date (with date represented in the form year/month/date, e.g., 2018/02/28) and store the records indexed on this key. Now the required records can be retrieved by a range query.",
+    "must_rubric": [
+      "Propose concatenating the Customer ID and Date to form a composite key.",
+      "Specify a sortable date format (like YYYY/MM/DD) to ensure chronological order within a customer's range."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "10.9",
+    "question": "Suppose you wish to model the university schema as a graph. For each of the following relations, explain whether the relation would be modeled as a node or as an edge: (i) student (ii) instructor (iii) course (iv) section (v) takes (vi) teaches Does the model capture connections between sections and courses?",
+    "answer": "Each relation corresponding to an entity (student, instructor, course, section) would be modeled as a node. Takes and teaches would be modeled as edges. There is a further edge between course and section, which has been merged into the section relation and cannot be captured with the above schema. It can be modeled if we create a separate relation that links sections to courses.",
+    "must_rubric": [
+      "Categorize the entities (student, instructor, course, section) as nodes.",
+      "Categorize the relationships (takes, teaches) as edges.",
+      "Identify that the link between course and section requires an explicit edge/relation in a graph model."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "11.7",
+    "question": "Why is column-oriented storage potentially advantageous in a database system that supports a data warehouse?",
+    "answer": "Column-oriented storage has at least two major benefits over row-oriented storage: 1. When a query needs to access only a few attributes of a relation with a large number of attributes, the remaining attributes need not be fetched from disk into memory. In contrast, in row-oriented storage, not only are irrelevant attributes fetched into memory, but they may also get prefetched into processor cache (L1, L2, L3), wasting cache space and memory bandwidth, if they are stored adjacent to attributes used in the query. 2. Storing values of the same type together increases the effectiveness of compression; compression can greatly reduce both the disk storage cost and the time to retrieve data from disk.",
+    "must_rubric": [
+      "Explain the reduction in I/O for queries that only access a small subset of available columns.",
+      "Discuss the improvement in CPU cache utilization and memory bandwidth.",
+      "Identify that homogeneous data in columns allows for significantly higher compression ratios."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "11.10",
+    "question": "Suppose half of all the transactions in a clothes shop purchase jeans, and one-third of all transactions in the shop purchase T-shirts. Suppose also that half of the transactions that purchase jeans also purchase T-shirts. Write down all the (nontrivial) association rules you can deduce from the above information, giving support and confidence of each rule.",
+    "answer": "Given P(jeans) = 0.5, P(T-shirts) = 0.3333, and P(T-shirts | jeans) = 0.5: 1. jeans -> T-shirts. Support = P(jeans and T-shirts) = P(T-shirts | jeans) * P(jeans) = 0.5 * 0.5 = 0.25 (25%). Confidence = P(T-shirts | jeans) = 0.5 (50%). 2. T-shirts -> jeans. Support = P(jeans and T-shirts) = 0.25 (25%). Confidence = P(jeans | T-shirts) = P(jeans and T-shirts) / P(T-shirts) = 0.25 / 0.3333 = 0.75 (75%).",
+    "must_rubric": [
+      "Calculate the exact support for the itemset (jeans, T-shirts) as 25%.",
+      "Correctly identify the confidence of jeans -> T-shirts as 50%.",
+      "Correctly identify the confidence of T-shirts -> jeans as 75%."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "12.10",
+    "question": "Operating systems try to ensure that consecutive blocks of a file are stored on consecutive disk blocks. Why is doing so very important with magnetic disks? If SSDs were used instead, is doing so still important, or is it irrelevant? Explain why.",
+    "answer": "Operating systems try to ensure that consecutive blocks of a file are stored on consecutive disk blocks. This is because, when processing the file (that is stored on disk), most programs perform a sequential access pattern. To read blocks in sequential access, a disk seek may be required for the first block, but successive requests would either not require a seek, or require a seek to an adjacent track, which is faster than a seek to a track that is farther away. Data transfer rates are highest, when consecutive file blocks are stored on consecutive disk blocks (since seek time is minimal). Storing consecutive blocks of a file on consecutive disk blocks, also improves performance when using SSDs. This is because of the read-ahead caching that is performed.",
+    "must_rubric": [
+      "Explain that sequential storage minimizes seek time and rotational latency for magnetic hard drives.",
+      "Identify that sequential access is a common behavior for most programs.",
+      "Explain that SSDs still benefit from block locality due to internal read-ahead caching/prefetching logic."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "12.11",
+    "question": "RAID systems typically allow you to replace failed disks without stopping access to the system. Thus, the data in the failed disk must be rebuilt and written to the replacement disk while the system is in operation. Which of the RAID levels yields the least amount of interference between the rebuild and ongoing disk accesses? Explain your answer.",
+    "answer": "RAID level 1 (Mirroring Disks). The time to rebuild the data of a failed disk can be significant, and it varies with the RAID level that is used. Rebuilding is easiest for RAID level 1, since data can be copied from another disk; for the other levels (excluding RAID level 0), we need to access all the other disks in the array to rebuild data of a failed disk.",
+    "must_rubric": [
+      "Identify RAID Level 1 as having the least rebuild interference.",
+      "Explain that RAID 1 only requires reading from one surviving mirror disk.",
+      "Contrast this with parity-based levels (e.g., RAID 5) that require reading all remaining disks to reconstruct data."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "12.12",
+    "question": "What is scrubbing, in the context of RAID systems, and why is scrubbing important?",
+    "answer": "Even if all writes are completed properly, there is a small chance of a sector in a disk becoming unreadable at some point, even though it was successfully written earlier. Reasons for loss of data on individual sectors could range from manufacturing defects to data corruption on a track when an adjacent track is written repeatedly. Such loss of data that were successfully written earlier is sometimes referred to as a latent failure, or as bit rot. When such a failure happens, if it is detected early the data can be recovered from the remaining disks in the RAID organization. However, if such a failure remains undetected, a single disk failure could lead to data loss if a sector in one of the other disks has a latent failure (assuming RAID level 5 is used). To minimize the chance of such data loss, good RAID controllers perform scrubbing; that is, during periods when disks are idle, every sector of every disk is read, and if any sector is found to be unreadable, the data can be recovered from the remaining disks in the RAID organization, and the sector is written back. (If the physical sector is damaged, the disk controller would remap the logical sector address to a different physical sector on disk).",
+    "must_rubric": [
+      "Define 'bit rot' or 'latent failure' as sectors becoming unreadable over time despite a successful write.",
+      "Explain scrubbing as the proactive process of reading disk sectors during idle time to detect corruption.",
+      "State that scrubbing allows data recovery using existing redundancy before a catastrophic multi-disk failure occurs."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "13.4",
+    "question": "Consider the bitmap representation of the free-space map, where for each block in the file, two bits are maintained in the bitmap. If the block is between 0 and 30 percent full the bits are 00 , between 30 and 60 percent the bits are 01 , between 60 and 90 percent the bits are 10 , and above 90 percent the bits are 11 . Such bitmaps can be kept in memory even for quite large files. a. Outline two benefits and one drawback to using two bits for a block, instead of one byte as described earlier in this chapter. b. Describe how to keep the bitmap up to date on record insertions and deletions. c. Outline the benefit of the bitmap technique over free lists in searching for free space and in updating free space information.",
+    "answer": "a. The space used is less with 2 bits, and the number of times the free-space map needs to be updated decreases significantly, since many inserts/deletes do no result in any change in the free-space map. However, we have only an approximate idea of the free space available, which could lead both to wasted space and/or increased search cost for finding free space for a record. b. Every time a record is inserted/deleted, check if the usage of the block has changed levels. In that case, update the corresponding bits. Note that we don’t need to access the bitmaps at all unless the usage crosses a boundary, so in most of the cases there is no overhead. c. When free space for a large record or a set of records is sought, then multiple free list entries may have to be scanned before a proper-sized one is found, so overheads are much higher. With bitmaps, one page of bitmap can store free info for many pages, so I/O spent for finding free space is minimal. Similarly, when a whole block or a large part of it is deleted, bitmap technique is more convenient for updating free space information.",
+    "must_rubric": [
+      "List benefits (a): Reduced metadata storage space and fewer updates (only required on boundary crossings).",
+      "List drawback (a): Lack of precision regarding exact available free space.",
+      "Describe maintenance (b): Bits are updated only when block occupancy crosses defined thresholds (30/60/90 percent).",
+      "Contrast with free lists (c): Explain that bitmaps minimize I/O for finding large/contiguous free space compared to scanning linked lists."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "13.9",
+    "question": "In the variable-length record representation, a null bitmap is used to indicate if an attribute has the null value. a. For variable-length fields, if the value is null, what would be stored in the offset and length fields? b. In some applications, tuples have a very large number of attributes, most of which are null. Can you modify the record representation such that the only overhead for a null attribute is the single bit in the null bitmap?",
+    "answer": "a. We should store -1 in the length field. Any number in the offset field is fine, since a length of -1 will indiciate that the field is null. b. Yes. By storing the null bitmap at the beginning of the record, we are not obliged to store data (value, or offset/length). Such a representation would save some storage space, at the cost of extra work to extract attributes of the record. This representation is particularly useful for certain applications where records have a large number of fields, most of which are null.",
+    "must_rubric": [
+      "For (a): Specify that we should store -1 as a length of -1 indicates a NULL value for variable-length fields.",
+      "For (a): Explain that the offset is ignored if the length is -1.",
+      "Describe the optimization (b): Place the bitmap at the header and omit offset/length entries entirely for NULL attributes to minimize overhead."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "15.1",
+    "question": "Assume (for simplicity in this exercise) that only one tuple fits in a block and memory holds at most three blocks. Show the runs created on each pass of the sort-merge algorithm when applied to sort the following tuples on the first attribute: (kangaroo, 17), (wallaby, 21), (emu, 1), (wombat, 13), (platypus, 3), (lion, 8), (warthog, 4), (zebra, 11), (meerkat, 6), (hyena, 9), (hornbill, 2), (baboon, 12).",
+    "answer": "Let the tuples be labeled $t_1$ through $t_{12}$. With memory holding 3 blocks, we first create 4 initial sorted runs ($r_{1j}$) of size 3 each:\n$r_{11} = \\{t_3, t_1, t_2\\}$ (emu, kangaroo, wallaby)\n$r_{12} = \\{t_6, t_5, t_4\\}$ (lion, platypus, wombat)\n$r_{13} = \\{t_9, t_7, t_8\\}$ (meerkat, warthog, zebra)\n$r_{14} = \\{t_{12}, t_{11}, t_{10}\\}$ (baboon, hornbill, hyena)\n\nSince memory holds 3 blocks, we can only merge 2 runs at a time (merge factor $M-1 = 2$).\nPass 2 Merge Results ($r_{2j}$):\n$r_{21} = \\text{merge}(r_{11}, r_{12}) = \\{t_3, t_1, t_6, t_5, t_2, t_4\\}$\n$r_{22} = \\text{merge}(r_{13}, r_{14}) = \\{t_{12}, t_{11}, t_{10}, t_9, t_7, t_8\\}$\n\nPass 3 Final Result:\n$r_{31} = \\text{merge}(r_{21}, r_{22}) = \\{t_{12}, t_3, t_{11}, t_{10}, t_1, t_6, t_9, t_5, t_2, t_7, t_4, t_8\\}$",
+    "must_rubric": [
+      "Specify that with 3 blocks of memory, the merge factor is 2 ($M-1$).",
+      "Show initial runs created with a maximum size of 3 tuples (matching the memory limit).",
+      "Correctly sort the final run alphabetically: baboon, emu, hornbill, hyena, kangaroo, lion, meerkat, platypus, wallaby, warthog, wombat, zebra."
+    ],
+    "optional_rubric": [
+      "Label tuples as $t_1$ through $t_{12}$ for clarity.",
+      "Explicitly identify the merging pairs for each pass."
+    ]
+  },
+  {
+    "id": "15.5",
+    "question": "Let $r$ and $s$ be relations with no indices, and assume that the relations are not sorted. Assuming infinite memory, what is the lowest-cost way (in terms of I/O operations) to compute r join s? What is the amount of memory required for this algorithm.",
+    "answer": "We can store the entire smaller relation in memory, read the larger relation block by block, and perform nested-loop join using the larger one as the outer relation. The number of I/O operations is equal to $b_r + b_s$, and the memory requirement is $\\min(b_r, b_s) + 2$ pages.",
+    "must_rubric": [
+      "Propose an in-memory nested-loop join where the smaller relation is the inner relation.",
+      "State the correct I/O cost as $b_r + b_s$.",
+      "Identify the memory requirement as $\\min(b_r, b_s) + 2$ (the size of the smaller relation plus input and output buffers)."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "15.12",
+    "question": "a. Explain why producer-driven pipelining with buffering is likely to result in a better instruction cache hit rate, as compared to demand-driven pipelining.\nb. Explain why modifying demand-driven pipelining by generating multiple results on one call to next(), and returning them together, can improve the instruction cache hit rate.",
+    "answer": "a. Producer-driven pipelining executes the same set of instructions to generate multiple tuples by consuming already generated tuples from the inputs. Thus, instruction cache hits will be more frequent. In comparison, demand-driven pipelining switches from the instructions of one function to another for each individual tuple, resulting in more misses.\nb. By generating multiple results at one go, a next() function would receive multiple tuples in its inputs and have a loop that generates multiple tuples for its output without switching execution context to another function. Thus, the instruction cache hit rate can be expected to improve.",
+    "must_rubric": [
+      "Explain that producer-driven pipelining (batching) improves hits by using the same code for multiple tuples sequentially.",
+      "Contrast this with demand-driven pipelining where function calls and returns for every tuple cause frequent cache flushes/misses.",
+      "Identify that a next() function returning multiple results reduces the frequency of switching between operators."
+    ],
+    "optional_rubric": []
+  },
+  {
+    "id": "15.24",
+    "question": "Explain how to split the hybrid hash-join operator into sub-operators to model pipelining. Also explain how this split is different from the split for a hash-join operator.",
+    "answer": "Hybrid hash join is partially pipelined on the probe relation because it can output tuples from the first partition as tuples are received for the probe relation. Sub-operators are handled as follows:\n- **Best-case (Build input fits in memory):** Read build relation $s$ into memory and create an in-memory hash index (blocking). Then read probe relation $r$ in a pipelined fashion and probe the index. Matches are output immediately.\n- **Medium-case (Most of build input fits):** Pipelined for input tuples from the probe relation falling into the first partition. Tuples not in the first partition must wait (block) until partitioning is complete.\n- **Worst-case (Small memory):** The sub-operators are identical to a standard hash-join operator where partitioning is fully blocking.\nThis differs from a standard hash-join because the first partition is never written to disk, allowing for immediate result generation.",
+    "must_rubric": [
+      "Explain that hybrid hash join allows for partial pipelining on the probe relation.",
+      "Mention that the 'build' phase for the first partition remains in memory to enable immediate matching.",
+      "Contrast this with standard hash joins where both partitioning steps are typically blocking operations."
+    ],
+    "optional_rubric": [
+      "Break down the behavior into best, medium, and worst memory availability cases."
+    ]
+  },
+  {
+    "id": "15.25",
+    "question": "Suppose you need to sort relation $r$ using sort-merge and merge-join the result with an already sorted relation $s$.\na. Describe how the sort operator is broken into suboperators to model the pipelining in this case.\nb. What is the effect of having to share memory on the cost of each sort-merge operation?",
+    "answer": "a. The sort operator is broken into two suboperators: the run-generation suboperator and the merge suboperator. The output of the merge suboperator can then be pipelined directly into the merge-join operation.\nb. Since memory must be shared between the sort-merge and merge-join, the amount of blocks we can buffer from a single run ($b_b$) decreases. As a consequence, the number of disk seeks required during the merge phase increases, which increases the total cost.",
+    "must_rubric": [
+      "Identify the suboperators as run generation and merging.",
+      "Explain that the merge suboperator's output is what allows for pipelining into the join.",
+      "State that sharing memory reduces the per-run buffer size ($b_b$), thereby increasing disk seeks."
+    ],
+    "optional_rubric": []
+  }
+]
