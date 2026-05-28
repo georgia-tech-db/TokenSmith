@@ -411,34 +411,39 @@
         {
           "criterion": "State that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'.",
           "verdict": "met",
-          "reason": "The student correctly states that the 'ON DELETE CASCADE' clause triggers the deletion of tuples where the foreign key matches the deleted primary key."
+          "reason": "The student correctly states that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'."
         },
         {
           "criterion": "Explain that this deletion process is recursive/multi-level, affecting both direct and indirect subordinates.",
           "verdict": "partial",
-          "reason": "The student mentions cascading deletion but does not explicitly state that the process is recursive, affecting both direct and indirect subordinates."
+          "reason": "The student mentions a cascading effect but does not clearly explain that this deletion process is recursive, affecting both direct and indirect subordinates. The explanation is somewhat vague and could be more precise."
         }
       ],
       "optional_rubric_satisfaction": [],
       "answer_correctness": {
         "without_reference": {
           "score": 0,
-          "explanation": "The answer addresses the general concept of cascading deletes but does not specifically mention the recursive/multi-level deletion process for 'manager_id' and 'employee_id' as required by the rubric.",
+          "explanation": "The student's answer contains some inaccuracies and misunderstandings. The ON DELETE CASCADE clause applies to the foreign key (manager_id) and not the primary key (employee_id). When a manager (employee_id) is deleted, all tuples where this employee_id is referenced as manager_id will be deleted, not the employee_id itself. The answer incorrectly suggests that the employee_id is deleted from the employee relation, which is not the case in this schema. The propagation of cascade deletion is also misinterpreted.",
           "strengths": [
-            "Explains the concept of cascading deletes and the importance of the 'ON DELETE CASCADE' clause."
+            "The student correctly identifies the ON DELETE CASCADE clause and its general purpose."
           ],
           "weaknesses": [
-            "Does not specifically address the recursive deletion process for 'manager_id' and 'employee_id'."
+            "Incorrectly states that the employee_id is deleted from the employee relation.",
+            "Misunderstands the direction of the cascade deletion.",
+            "Incorrectly describes the propagation of the cascade deletion.",
+            "Does not correctly explain the recursive nature of the deletion for direct and indirect subordinates."
           ]
         },
         "with_reference": {
           "score": 0,
-          "explanation": "The answer does not address the recursive/multi-level deletion process, which is a key aspect of the correct response.",
+          "explanation": "The student's answer incorrectly states that the deletion of a tuple in the `manager` relation will delete the corresponding `employee_id` from the `employee` relation, which is not accurate. The `ON DELETE CASCADE` clause in this context means that if a manager (identified by `employee_id`) is deleted, all employees (tuples) who have that manager as their `manager_id` will also be deleted. The answer also does not clearly explain the recursive nature of the deletion process affecting both direct and indirect subordinates.",
           "strengths": [
-            "Explains the concept of cascading delete and the role of 'ON DELETE CASCADE' clause."
+            "The student correctly identifies the role of the `ON DELETE CASCADE` clause in triggering additional deletions."
           ],
           "weaknesses": [
-            "Does not mention the recursive nature of the deletion process affecting direct and indirect subordinates."
+            "Incorrectly describes the deletion process as affecting the `employee` relation instead of the `manager` relation.",
+            "Does not explain the recursive/multi-level nature of the deletion process.",
+            "Mentions propagation to other relations and transaction handling, which is not relevant to the specific question asked."
           ]
         }
       },
@@ -449,61 +454,61 @@
             "chunk_id": 179,
             "rank": 1,
             "verdict": "relevant",
-            "reason": "This chunk directly addresses the question by explaining what happens when a tuple in the referenced relation is deleted, specifically discussing the 'on delete cascade' action and how it affects the referencing relation."
+            "reason": "It provides a detailed explanation of how foreign key constraints work, including the ON DELETE CASCADE action, which is directly relevant to the question."
           },
           {
             "chunk_id": 180,
             "rank": 2,
             "verdict": "relevant",
-            "reason": "This chunk is relevant as it discusses additional actions that can be specified in the foreign key clause, such as 'set null' and 'set default', and it also mentions the case where a foreign key constraint references the same relation, which is part of the question."
-          },
-          {
-            "chunk_id": 58,
-            "rank": 3,
-            "verdict": "not_relevant",
-            "reason": "This chunk provides a general explanation of foreign key constraints and their relationship to primary keys, but it does not specifically address the scenario of deleting a tuple in the same relation or the cascading effects of such an action."
+            "reason": "It discusses the various actions that can be specified in a foreign key clause, including ON DELETE CASCADE, and mentions the specific case of a foreign key referencing the same relation, which is pertinent to the question."
           },
           {
             "chunk_id": 178,
-            "rank": 4,
+            "rank": 3,
             "verdict": "relevant",
-            "reason": "The chunk discusses foreign keys and referential integrity constraints, which are directly related to the question about foreign-key dependencies and what happens when a tuple is deleted."
+            "reason": "It explains the concept of referential integrity constraints and foreign keys, which is foundational to understanding the behavior of the foreign key in the given SQL example."
+          },
+          {
+            "chunk_id": 58,
+            "rank": 4,
+            "verdict": "not_relevant",
+            "reason": "The chunk discusses foreign keys and referential integrity in a general context, but it does not specifically address the scenario of a foreign key referencing the same table or the effects of deleting a tuple in such a scenario."
           },
           {
             "chunk_id": 82,
             "rank": 5,
-            "verdict": "relevant",
-            "reason": "The chunk provides additional details on foreign keys and how they ensure referential integrity, which is pertinent to understanding the implications of deleting a tuple in a relation with a foreign-key dependency."
+            "verdict": "not_relevant",
+            "reason": "The chunk provides a general explanation of foreign keys and primary keys, but it does not discuss the specific case of a foreign key referencing the same table or the consequences of deleting a tuple in this context."
           },
           {
             "chunk_id": 134,
             "rank": 6,
             "verdict": "not_relevant",
-            "reason": "The chunk focuses on the delete statement and its execution, but does not discuss the implications of deleting a tuple in a relation with a foreign-key dependency, which is the focus of the question."
-          },
-          {
-            "chunk_id": 59,
-            "rank": 7,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign-key constraints and referential integrity but does not address the specific scenario of a foreign-key dependency referring to the same relation or the effects of deleting a tuple in such a scenario."
+            "reason": "The chunk explains how to delete tuples from a table using a nested select statement, but it does not address the specific question about foreign key dependencies within the same table or the effects of tuple deletion in such a setup."
           },
           {
             "chunk_id": 133,
-            "rank": 8,
+            "rank": 7,
             "verdict": "relevant",
-            "reason": "The chunk provides a detailed explanation of how delete operations work in SQL, which is directly relevant to the question about what happens when a tuple in a relation is deleted, especially in the context of foreign-key dependencies."
+            "reason": "The chunk provides a detailed explanation of how delete operations work in SQL, which is directly relevant to understanding what happens when a tuple in the manager relation is deleted, especially in the context of foreign key constraints and cascading deletes."
           },
           {
-            "chunk_id": 181,
-            "rank": 9,
-            "verdict": "uncertain",
-            "reason": "The chunk discusses naming constraints and integrity constraint violations during transactions, which could be tangentially related to the effects of deleting a tuple in a relation with a foreign-key dependency, but it does not directly address the specific question asked."
+            "chunk_id": 59,
+            "rank": 8,
+            "verdict": "not_relevant",
+            "reason": "The chunk discusses foreign-key constraints and referential integrity constraints but does not provide information relevant to the specific question about what happens when a tuple in the manager relation is deleted."
           },
           {
             "chunk_id": 383,
+            "rank": 9,
+            "verdict": "uncertain",
+            "reason": "The chunk discusses primary and foreign key constraints, which are related to the question. However, it does not specifically address the cascading delete behavior or the scenario described in the question, making its relevance uncertain."
+          },
+          {
+            "chunk_id": 213,
             "rank": 10,
-            "verdict": "relevant",
-            "reason": "The chunk discusses the relationship between two relations through a foreign key and primary key, which is relevant to the question about foreign-key dependencies and what happens when a tuple is deleted. It explains the dependency and the enforcement of the relationship, which is pertinent to understanding the implications of deleting a tuple in the referenced relation."
+            "verdict": "not_relevant",
+            "reason": "The chunk discusses SQL authorization mechanisms and privileges, which are not directly related to the question about foreign key dependencies and the effects of deleting a tuple in a self-referencing table."
           }
         ]
       },
@@ -524,7 +529,7 @@
       "correctness_no_ref": 0,
       "faithfulness_verdict": "skipped",
       "faithfulness_score": null,
-      "chunk_relevance_rate": 0.6666666666666666
+      "chunk_relevance_rate": 0.4444444444444444
     }
   },
   {
@@ -918,36 +923,36 @@
       "must_rubric_satisfaction": [
         {
           "criterion": "Specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'.",
-          "verdict": "met",
-          "reason": "The student correctly specifies that the foreign-key attribute representing B (dept_name) within the combined relation A (inst_dept) must be set to 'NOT NULL'."
+          "verdict": "not_met",
+          "reason": "The student did not specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'. Instead, they mentioned PK_R, which is not clearly identified as the foreign key to B."
         },
         {
           "criterion": "Explain that this prevents any instance of A from existing without a corresponding link to B.",
-          "verdict": "met",
-          "reason": "The student explains that the NOT NULL constraint on the foreign key prevents any instance of A (instructor) from existing without a corresponding link to B (department)."
+          "verdict": "not_met",
+          "reason": "The student's explanation does not clearly prevent any instance of A from existing without a corresponding link to B, as they did not correctly identify the foreign key to B in the combined schema."
         }
       ],
       "optional_rubric_satisfaction": [],
       "answer_correctness": {
         "without_reference": {
           "score": 1,
-          "explanation": "The answer correctly identifies the use of the NOT NULL constraint on the foreign key to enforce total participation of A in the relationship R.",
+          "explanation": "The student correctly identifies the need to use a NOT NULL constraint on the foreign key attribute representing B within the combined relation A to enforce total participation. The explanation is clear and the SQL example provided is accurate.",
           "strengths": [
-            "Correctly explains the use of NOT NULL constraint to enforce total participation.",
-            "Provides a clear example with a SQL statement."
+            "Correctly identifies the use of NOT NULL constraint",
+            "Provides a clear step-by-step explanation",
+            "Includes a correct SQL example"
           ],
-          "weaknesses": [
-            "The answer could be more concise in the explanation of the relationship schema and the creation of the relationship table."
-          ]
+          "weaknesses": []
         },
         "with_reference": {
-          "score": 1,
-          "explanation": "The answer correctly identifies the need to set the foreign-key attribute to NOT NULL to enforce total participation of A in the relationship R.",
+          "score": 0,
+          "explanation": "The student's answer focuses on the primary key of the relationship R (PK_R) being not null, which is not the correct approach. The correct approach is to ensure that the foreign key in A that references B is not null to enforce total participation.",
           "strengths": [
-            "Correctly explains the use of NOT NULL constraint on the foreign key to enforce total participation."
+            "The student correctly identifies the need to use a NOT NULL constraint to enforce participation."
           ],
           "weaknesses": [
-            "The answer is cut off and does not fully explain the consequences of the NOT NULL constraint on the foreign key."
+            "The student incorrectly applies the NOT NULL constraint to the primary key of the relationship R (PK_R) instead of the foreign key in A that references B.",
+            "The student's SQL example does not correctly reflect the relationship between A and B, and the enforcement of the total participation constraint."
           ]
         }
       },
@@ -958,61 +963,61 @@
             "chunk_id": 308,
             "rank": 1,
             "verdict": "relevant",
-            "reason": "The chunk discusses total participation in a relationship, which is directly related to the question. It also mentions how to represent total participation in E-R diagrams, which is relevant to understanding the concept."
-          },
-          {
-            "chunk_id": 307,
-            "rank": 2,
-            "verdict": "relevant",
-            "reason": "The chunk provides information on many-to-one relationships and how they are represented in E-R diagrams, which is relevant to the context of the question."
+            "reason": "It provides a clear definition of total participation and how it is represented in E-R diagrams, which is directly related to the question about enforcing total participation in a relationship using SQL constraints."
           },
           {
             "chunk_id": 82,
-            "rank": 3,
+            "rank": 2,
             "verdict": "relevant",
-            "reason": "The chunk explains the NOT NULL constraint in SQL, which is directly relevant to the question about enforcing total participation using NOT NULL in SQL."
-          },
-          {
-            "chunk_id": 343,
-            "rank": 4,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses constraints on generalization/specialization, which is not directly related to the enforcement of total participation in a many-to-one relationship using NOT NULL constraints in SQL."
+            "reason": "It explains the NOT NULL constraint in SQL, which is directly applicable to enforcing total participation in a relationship by ensuring that the foreign key attribute cannot be null."
           },
           {
             "chunk_id": 333,
-            "rank": 5,
+            "rank": 3,
             "verdict": "relevant",
-            "reason": "The chunk explains how to handle total participation in a many-to-one relationship in the context of relational schema design, which is directly related to the question."
+            "reason": "It discusses the combination of schemas in the context of a many-to-one relationship with total participation, which is directly relevant to the question about how to represent and enforce such a relationship in SQL."
           },
           {
-            "chunk_id": 306,
-            "rank": 6,
-            "verdict": "not_relevant",
-            "reason": "The chunk provides an overview of mapping cardinalities in relationships, which is not directly related to the enforcement of total participation using NOT NULL constraints in SQL."
+            "chunk_id": 178,
+            "rank": 4,
+            "verdict": "relevant",
+            "reason": "It provides a detailed explanation of foreign key constraints and referential integrity, which are directly related to the question about enforcing total participation using NOT NULL constraints."
+          },
+          {
+            "chunk_id": 334,
+            "rank": 5,
+            "verdict": "relevant",
+            "reason": "It discusses the combination of relation schemas and the use of null values for partial participation, which is pertinent to the question about total participation and NOT NULL constraints."
           },
           {
             "chunk_id": 59,
-            "rank": 7,
+            "rank": 6,
             "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign-key constraints and referential integrity, but does not address the enforcement of total participation using NOT NULL constraints in the context of a many-to-one relationship."
-          },
-          {
-            "chunk_id": 313,
-            "rank": 8,
-            "verdict": "not_relevant",
-            "reason": "The chunk provides information on primary keys in different types of relationships but does not discuss the enforcement of total participation or the use of NOT NULL constraints."
+            "reason": "It focuses on a specific case where a foreign key constraint cannot be used, which is not directly related to the question about enforcing total participation using NOT NULL constraints."
           },
           {
             "chunk_id": 174,
-            "rank": 9,
+            "rank": 7,
             "verdict": "relevant",
-            "reason": "The chunk explains how the NOT NULL constraint can be used to prohibit null values in SQL, which is directly relevant to enforcing total participation of an entity in a relationship by ensuring that a foreign key cannot be null."
+            "reason": "Discusses the NOT NULL constraint in SQL, which is directly relevant to enforcing total participation in a relationship."
           },
           {
             "chunk_id": 58,
+            "rank": 8,
+            "verdict": "relevant",
+            "reason": "Explains foreign key constraints and their role in maintaining referential integrity, which is pertinent to the discussion of total participation in a relationship."
+          },
+          {
+            "chunk_id": 329,
+            "rank": 9,
+            "verdict": "relevant",
+            "reason": "Provides an example of how to represent a many-to-one relationship in a relational schema, including the use of foreign keys, which is directly related to the question."
+          },
+          {
+            "chunk_id": 307,
             "rank": 10,
             "verdict": "relevant",
-            "reason": "The chunk discusses foreign key constraints and referential integrity, which are directly related to enforcing participation constraints in a many-to-one relationship using SQL, including the use of NOT NULL constraints."
+            "reason": "The chunk provides a detailed explanation of different types of relationships and their cardinalities, including many-to-one relationships. It also mentions the concept of total participation, which is directly relevant to the question about enforcing total participation constraints in SQL using NOT NULL."
           }
         ]
       },
@@ -1023,17 +1028,17 @@
       }
     },
     "summary": {
-      "must_rubric_met_rate": 1.0,
-      "must_rubric_met_count": 2,
+      "must_rubric_met_rate": 0.0,
+      "must_rubric_met_count": 0,
       "must_rubric_total": 2,
       "opt_rubric_met_rate": null,
       "opt_rubric_met_count": 0,
       "opt_rubric_total": 0,
-      "correctness_with_ref": 1,
+      "correctness_with_ref": 0,
       "correctness_no_ref": 1,
       "faithfulness_verdict": "skipped",
       "faithfulness_score": null,
-      "chunk_relevance_rate": 0.6
+      "chunk_relevance_rate": 0.9
     }
   },
   {

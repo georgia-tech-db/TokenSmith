@@ -40,7 +40,7 @@
   },
   {
     "id": "4.9",
-    "question": "SQL allows a foreign-key dependency to refer to the same relation... Explain exactly what happens when a tuple in the relation manager is deleted.",
+    "question": "SQL allows a foreign-key dependecy to refer to the same relation, as in the following example: CREATE TABLE manager ( employee_id char(20), manager_id char(20), PRIMARY KEY employee_id, FOREIGN KEY (manager_id) REFERENCES manager (employee_id) ON DELETE CASCADE ); Here, employee_id is a key to the table manager, meaning that each employee has at at most one manager. The foreign-key clause requires that every manager also be an employee. Explain exactly what happens when a tuple in the relation manager is deleted.",
     "answer": "The tuples of all employees of the manager, at all levels, get deleted as well!. This happens in a series of steps. The initial deletion will trigger deletion of all the tuples corresponding to direct employees of the manager. These deletions will in turn cause deletions of second-level employee tuples, and so on, till all direct and indirect employee tuples are deleted.",
     "must_rubric": [
       "State that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'.",
@@ -84,7 +84,7 @@
   },
   {
     "id": "6.10",
-    "question": "Consider a many-to-one relationship R between entity sets A and B... Explain how a constraint on total participation of A in R can be enforced using NOT NULL constraint in SQL.",
+    "question": "Consider a many-to-one relationship $R$ between entity sets $A$ and $B$. Suppose the relation created from $R$ is combined with the relation created from $A$. In SQL, attributes participating in a foreign key constraint can be null. Explain how a constraint on total participation of $A$ in $R$ can be enforced using NOT NULL constraint in SQL.",
     "answer": "The foreign-key attribute in R corresponding to the primary key of B should be made NOT NULL. This ensures that no tuple of A which is not related to any entry in B under R can come in R. For example, say a is a tuple in A which has no corresponding entry in R. This means when R is combined with A, it would have a foreign-key attribute corresponding to B as NULL, which is not allowed.",
     "must_rubric": [
       "Specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'.",

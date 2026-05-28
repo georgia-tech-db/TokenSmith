@@ -164,7 +164,9 @@ def save_verified(records: list[dict], verified_path: pathlib.Path) -> None:
     verified_path.parent.mkdir(parents=True, exist_ok=True)
     with open(verified_path, "w", encoding="utf-8") as f:
         for rec in records:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            # Strip internal underscore fields before saving
+            clean = {k: v for k, v in rec.items() if not k.startswith("_")}
+            f.write(json.dumps(clean, ensure_ascii=False) + "\n")
 
 
 def make_record_id(rec: dict, idx: int) -> str:
@@ -181,30 +183,34 @@ def merge_records(
     verified:  dict[str, dict],
 ) -> list[dict]:
     """
-    Merge generated records with existing annotations.
-    New records start as unannotated. Existing annotations are fully restored.
+    For records that exist in the verified file, use the verified record as
+    the base (it has flags, edits, and annotation fields).
+    For records not yet verified, use the original generated record.
+    Either way, store the original generated record under _original so the
+    user can restore it via the 'Load Original' button.
     """
     merged = []
     for i, rec in enumerate(generated):
-        rid  = make_record_id(rec, i)
-        base = deepcopy(rec)
-        base["record_id"] = rid
+        rid = make_record_id(rec, i)
 
         if rid in verified:
-            ann = verified[rid]
-            base["annotation_status"]    = ann.get("annotation_status", STATUS_UNANNOTATED)
-            base["annotator_note"]       = ann.get("annotator_note", "")
-            base["annotation_timestamp"] = ann.get("annotation_timestamp", "")
-            base["edited_fields"]        = ann.get("edited_fields", {})
-            for field in ("question", "mock_answer", "rubric",
-                          "gold_chunks", "chunk_relationships", "difficulty"):
-                if field in ann.get("edited_fields", {}):
-                    base[field] = ann["edited_fields"][field]
+            # Use verified record as base — it has all the right content
+            base = deepcopy(verified[rid])
+            # Ensure record_id is present
+            base["record_id"] = rid
+            # Store original for potential restore
+            base["_original"] = deepcopy(rec)
+            base["_source"]   = "verified"
         else:
-            base["annotation_status"]    = STATUS_UNANNOTATED
-            base["annotator_note"]       = ""
+            # Not yet reviewed — use original generated record
+            base = deepcopy(rec)
+            base["record_id"]        = rid
+            base["annotation_status"]= STATUS_UNANNOTATED
+            base["annotator_note"]   = ""
             base["annotation_timestamp"] = ""
-            base["edited_fields"]        = {}
+            base["edited_fields"]    = {}
+            base["_original"]        = deepcopy(rec)
+            base["_source"]          = "original"
 
         merged.append(base)
     return merged
@@ -250,15 +256,38 @@ def load_file(path: pathlib.Path) -> None:
 
 
 def sync_edit_state(idx: int) -> None:
-    """
-    Sync the dynamic edit lists to the record at idx.
-    Called whenever the selected record changes so the lists are fresh.
-    """
+    import uuid
     if st.session_state.edit_record_idx != idx:
         rec = st.session_state.records[idx]
-        st.session_state.edit_rubric     = list(rec.get("rubric", []))
-        st.session_state.edit_chunks     = list(rec.get("gold_chunks", []))
+
+        rubric = list(rec.get("rubric", []))
+        chunks = list(rec.get("gold_chunks", []))
+
+        st.session_state.edit_rubric     = rubric
+        st.session_state.edit_rubric_ids = [str(uuid.uuid4()) for _ in rubric]
+        st.session_state.edit_chunks     = chunks
+        st.session_state.edit_chunk_ids  = [str(uuid.uuid4()) for _ in chunks]
         st.session_state.edit_record_idx = idx
+
+        # Rubric flags — use saved if present, otherwise default False
+        saved_rubric_flags = rec.get("rubric_flags", [])
+        st.session_state.edit_rubric_flags = [
+            saved_rubric_flags[i] if i < len(saved_rubric_flags)
+            else {"gold": False, "optional": False, "example_analogy": False}
+            for i in range(len(rubric))
+        ]
+
+        # Chunk flags — use saved if present, otherwise default False
+        saved_chunk_flags = rec.get("gold_chunk_flags", [])
+        st.session_state.edit_chunk_flags = [
+            saved_chunk_flags[i] if i < len(saved_chunk_flags)
+            else {"gold": False, "optional": False, "example_analogy": False, "confusing": False}
+            for i in range(len(chunks))
+        ]
+
+        rel_key = f"edit_rels_{idx}"
+        if rel_key in st.session_state:
+            del st.session_state[rel_key]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,6 +505,32 @@ def render_detail(idx: int, records: list[dict], visible_indices: list[int]) -> 
         unsafe_allow_html=True,
     )
 
+    # ── Source indicator + Load Original ──────────────────────────────────────
+    source = rec.get("_source", "original")
+    if source == "verified":
+        src_cols = st.columns([6, 2])
+        src_cols[0].caption(
+            "📂 Loaded from **verified file** — your previous annotations and edits are shown."
+        )
+        if src_cols[1].button("↩ Load Original", key=f"load_orig_{idx}"):
+            original = rec.get("_original", {})
+            if original:
+                # Replace content fields with the original generated record
+                for field in ("question", "mock_answer", "rubric",
+                              "gold_chunks", "chunk_relationships", "difficulty"):
+                    rec[field] = deepcopy(original.get(field, rec.get(field)))
+                # Clear flags since original has none
+                rec["rubric_flags"]     = []
+                rec["gold_chunk_flags"] = []
+                # Mark source as original so button disappears
+                rec["_source"] = "original"
+                # Reset edit state so panels reinitialise from the restored content
+                st.session_state.edit_record_idx = None
+                st.toast("↩ Loaded original — hit Approve to save, or just keep reviewing.")
+                st.rerun()
+    else:
+        st.caption("📄 Loaded from **original file** — not yet verified.")
+        
     left, right = st.columns(2, gap="large")
 
     # ── LEFT COLUMN ───────────────────────────────────────────────────────────
@@ -503,60 +558,101 @@ def render_detail(idx: int, records: list[dict], visible_indices: list[int]) -> 
 
         # ── Rubric (dynamic list backed by session state) ─────────────────────
         st.markdown("**Rubric**")
+        RUBRIC_FLAG_OPTIONS = ["Gold", "Optional", "Example/Analogy"]
 
-        # Add / delete buttons mutate session state and rerun immediately
-        add_rub = st.button("＋ Add criterion", key=f"add_rub_{idx}")
-        if add_rub:
+        if st.button("＋ Add criterion", key=f"add_rub_{idx}"):
+            import uuid
             st.session_state.edit_rubric.append("")
+            st.session_state.edit_rubric_ids.append(str(uuid.uuid4()))
+            st.session_state.edit_rubric_flags.append(
+                {"gold": False, "optional": False, "example_analogy": False}
+            )
             st.rerun()
 
-        new_rubric: list[str] = []
-        delete_rub_idx: int | None = None
+        new_rubric:       list[str]  = []
+        new_rubric_flags: list[dict] = []
+        new_rubric_ids:   list[str]  = []
+        delete_rub_idx: int | None   = None
 
-        for ri, criterion in enumerate(st.session_state.edit_rubric):
-            # Each criterion in a rounded, outlined box
+        for ri, (criterion, rid) in enumerate(
+            zip(st.session_state.edit_rubric, st.session_state.edit_rubric_ids)
+        ):
             st.markdown(
                 '<div style="border:1px solid #444;border-radius:6px;'
                 'padding:6px 8px;margin-bottom:4px">',
                 unsafe_allow_html=True,
             )
             rcols = st.columns([10, 1])
+            # Key uses stable ID — survives reordering after deletions
             edited = rcols[0].text_area(
                 f"Criterion {ri+1}",
                 value=criterion,
                 height=68,
-                key=f"rub_{idx}_{ri}",
+                key=f"rub_{idx}_{rid}",
                 label_visibility="collapsed",
             )
-            if rcols[1].button("✕", key=f"del_rub_{idx}_{ri}"):
+            if rcols[1].button("✕", key=f"del_rub_{idx}_{rid}"):
                 delete_rub_idx = ri
             else:
                 new_rubric.append(edited)
+                new_rubric_ids.append(rid)
+                current_flags = (
+                    st.session_state.edit_rubric_flags[ri]
+                    if ri < len(st.session_state.edit_rubric_flags)
+                    else {"gold": False, "optional": False, "example_analogy": False}
+                )
+                current_selected = [
+                    f for f, key in [
+                        ("Gold", "gold"), ("Optional", "optional"),
+                        ("Example/Analogy", "example_analogy")
+                    ]
+                    if current_flags.get(key, False)
+                ]
+                selected_flags = st.multiselect(
+                    "Flags", options=RUBRIC_FLAG_OPTIONS, default=current_selected,
+                    key=f"rub_flags_{idx}_{rid}", label_visibility="collapsed",
+                )
+                new_rubric_flags.append({
+                    "gold":            "Gold"            in selected_flags,
+                    "optional":        "Optional"        in selected_flags,
+                    "example_analogy": "Example/Analogy" in selected_flags,
+                })
             st.markdown("</div>", unsafe_allow_html=True)
 
         if delete_rub_idx is not None:
             st.session_state.edit_rubric.pop(delete_rub_idx)
+            st.session_state.edit_rubric_ids.pop(delete_rub_idx)
+            st.session_state.edit_rubric_flags.pop(delete_rub_idx)
             st.rerun()
         else:
-            # Keep session state in sync with any text edits
-            st.session_state.edit_rubric = new_rubric
+            st.session_state.edit_rubric       = new_rubric
+            st.session_state.edit_rubric_ids   = new_rubric_ids
+            st.session_state.edit_rubric_flags = new_rubric_flags
 
     # ── RIGHT COLUMN ──────────────────────────────────────────────────────────
     with right:
         st.markdown("**Gold Chunks**")
-        st.caption(
-            "🟢 found verbatim  |  🔴 not found  |  ⚪ pages unavailable"
-        )
+        st.caption("🟢 found verbatim  |  🔴 not found  |  ⚪ pages unavailable")
 
-        add_chunk = st.button("＋ Add chunk", key=f"add_chunk_{idx}")
-        if add_chunk:
+        CHUNK_FLAG_OPTIONS = ["Gold", "Optional", "Example/Analogy", "Confusing"]
+
+        if st.button("＋ Add chunk", key=f"add_chunk_{idx}"):
+            import uuid
             st.session_state.edit_chunks.append("")
+            st.session_state.edit_chunk_ids.append(str(uuid.uuid4()))
+            st.session_state.edit_chunk_flags.append(
+                {"gold": False, "optional": False, "example_analogy": False, "confusing": False}
+            )
             st.rerun()
 
-        new_chunks: list[str] = []
+        new_chunks:       list[str]  = []
+        new_chunk_flags:  list[dict] = []
+        new_chunk_ids:    list[str]  = []
         delete_chunk_idx: int | None = None
 
-        for ci, chunk in enumerate(st.session_state.edit_chunks):
+        for ci, (chunk, cid) in enumerate(
+            zip(st.session_state.edit_chunks, st.session_state.edit_chunk_ids)
+        ):
             if pages_text:
                 found     = check_chunk(chunk, pages_text)
                 indicator = "🟢" if found else "🔴"
@@ -567,47 +663,161 @@ def render_detail(idx: int, records: list[dict], visible_indices: list[int]) -> 
             ccols = st.columns([10, 1])
             edited_chunk = ccols[0].text_area(
                 f"Chunk {ci+1}", value=chunk,
-                height=80, key=f"chunk_{idx}_{ci}",
+                height=80, key=f"chunk_{idx}_{cid}",
                 label_visibility="collapsed",
             )
-            if ccols[1].button("✕", key=f"del_chunk_{idx}_{ci}"):
+            if ccols[1].button("✕", key=f"del_chunk_{idx}_{cid}"):
                 delete_chunk_idx = ci
             else:
                 new_chunks.append(edited_chunk)
+                new_chunk_ids.append(cid)
+                current_flags = (
+                    st.session_state.edit_chunk_flags[ci]
+                    if ci < len(st.session_state.edit_chunk_flags)
+                    else {"gold": False, "optional": False, "example_analogy": False, "confusing": False}
+                )
+                current_selected = [
+                    f for f, key in [
+                        ("Gold", "gold"), ("Optional", "optional"),
+                        ("Example/Analogy", "example_analogy"), ("Confusing", "confusing")
+                    ]
+                    if current_flags.get(key, False)
+                ]
+                selected_flags = st.multiselect(
+                    "Flags", options=CHUNK_FLAG_OPTIONS, default=current_selected,
+                    key=f"chunk_flags_{idx}_{cid}", label_visibility="collapsed",
+                )
+                new_chunk_flags.append({
+                    "gold":            "Gold"            in selected_flags,
+                    "optional":        "Optional"        in selected_flags,
+                    "example_analogy": "Example/Analogy" in selected_flags,
+                    "confusing":       "Confusing"       in selected_flags,
+                })
 
         if delete_chunk_idx is not None:
             st.session_state.edit_chunks.pop(delete_chunk_idx)
+            st.session_state.edit_chunk_ids.pop(delete_chunk_idx)
+            st.session_state.edit_chunk_flags.pop(delete_chunk_idx)
             st.rerun()
         else:
-            st.session_state.edit_chunks = new_chunks
+            st.session_state.edit_chunks      = new_chunks
+            st.session_state.edit_chunk_ids   = new_chunk_ids
+            st.session_state.edit_chunk_flags = new_chunk_flags
 
         # ── Chunk Relationships ───────────────────────────────────────────────
         with st.expander("Chunk Relationships", expanded=False):
-            rels         = rec.get("chunk_relationships", {})
-            composites   = rels.get("composites", [])
-            substitutes  = rels.get("substitutes", [])
-            new_composites  = []
-            new_substitutes = []
 
-            st.markdown("**Composites** (all needed together)")
-            for gi, group in enumerate(composites):
-                edited_group = st.text_area(
-                    f"Composite group {gi+1}",
-                    value="\n".join(group),
-                    height=80, key=f"comp_{idx}_{gi}",
-                    help="One sentence per line",
-                )
-                new_composites.append(edited_group.splitlines())
+            # Chunks available for selection — use 1-based IDs matching display
+            chunk_labels = [f"Chunk {i+1}" for i in range(len(st.session_state.edit_chunks))]
 
-            st.markdown("**Substitutes** (any one sufficient)")
-            for gi, group in enumerate(substitutes):
-                edited_group = st.text_area(
-                    f"Substitute group {gi+1}",
-                    value="\n".join(group),
-                    height=80, key=f"subs_{idx}_{gi}",
-                    help="One sentence per line",
+            if not chunk_labels:
+                st.info("Add gold chunks first before defining relationships.")
+            else:
+                rel_key = f"edit_rels_{idx}"
+
+                # Initialise session state from record on first open
+                if rel_key not in st.session_state:
+                    rels = rec.get("chunk_relationships", {})
+                    # Convert saved sentence lists back to chunk index lists
+                    chunks_now = st.session_state.edit_chunks
+
+                    def _sentences_to_indices(group_sentences):
+                        """Map saved verbatim sentences back to current chunk indices."""
+                        result = []
+                        for sent in group_sentences:
+                            for ci, chunk in enumerate(chunks_now):
+                                if sent.strip() == chunk.strip():
+                                    result.append(ci)
+                                    break
+                        return result
+
+                    st.session_state[rel_key] = {
+                        "composites":  [
+                            _sentences_to_indices(g)
+                            for g in rels.get("composites", [])
+                        ],
+                        "substitutes": [
+                            _sentences_to_indices(g)
+                            for g in rels.get("substitutes", [])
+                        ],
+                    }
+
+                # ── Composites ────────────────────────────────────────────────
+                st.markdown("**Composites** — all selected chunks are needed together")
+                st.caption(
+                    "Each group means: you need ALL of those chunks to answer the question."
                 )
-                new_substitutes.append(edited_group.splitlines())
+
+                comp_to_delete = None
+                for gi, group_indices in enumerate(st.session_state[rel_key]["composites"]):
+                    gcols = st.columns([8, 1])
+                    selected = gcols[0].multiselect(
+                        f"Composite group {gi+1}",
+                        options=list(range(len(chunk_labels))),
+                        default=[i for i in group_indices if i < len(chunk_labels)],
+                        format_func=lambda i: chunk_labels[i],
+                        key=f"comp_{idx}_{gi}",
+                        label_visibility="collapsed",
+                    )
+                    st.session_state[rel_key]["composites"][gi] = selected
+                    if gcols[1].button("✕", key=f"del_comp_{idx}_{gi}"):
+                        comp_to_delete = gi
+
+                if comp_to_delete is not None:
+                    st.session_state[rel_key]["composites"].pop(comp_to_delete)
+                    st.rerun()
+
+                if st.button("＋ Add composite group", key=f"add_comp_{idx}"):
+                    st.session_state[rel_key]["composites"].append([])
+                    st.rerun()
+
+                st.markdown("---")
+
+                # ── Substitutes ───────────────────────────────────────────────
+                st.markdown("**Substitutes** — any one selected chunk is sufficient")
+                st.caption(
+                    "Each group means: having ANY ONE of those chunks is enough to answer the question."
+                )
+
+                subs_to_delete = None
+                for gi, group_indices in enumerate(st.session_state[rel_key]["substitutes"]):
+                    gcols = st.columns([8, 1])
+                    selected = gcols[0].multiselect(
+                        f"Substitute group {gi+1}",
+                        options=list(range(len(chunk_labels))),
+                        default=[i for i in group_indices if i < len(chunk_labels)],
+                        format_func=lambda i: chunk_labels[i],
+                        key=f"subs_{idx}_{gi}",
+                        label_visibility="collapsed",
+                    )
+                    st.session_state[rel_key]["substitutes"][gi] = selected
+                    if gcols[1].button("✕", key=f"del_subs_{idx}_{gi}"):
+                        subs_to_delete = gi
+
+                if subs_to_delete is not None:
+                    st.session_state[rel_key]["substitutes"].pop(subs_to_delete)
+                    st.rerun()
+
+                if st.button("＋ Add substitute group", key=f"add_subs_{idx}"):
+                    st.session_state[rel_key]["substitutes"].append([])
+                    st.rerun()
+
+                # ── Live preview ──────────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("**Current relationships preview:**")
+                comps = st.session_state[rel_key]["composites"]
+                subs  = st.session_state[rel_key]["substitutes"]
+                if not any(comps) and not any(subs):
+                    st.caption("No relationships defined.")
+                else:
+                    for gi, group in enumerate(comps):
+                        if group:
+                            labels = " **AND** ".join(chunk_labels[i] for i in group)
+                            st.markdown(f"- 🔗 COMPOSITE {gi+1}: {labels}")
+                    for gi, group in enumerate(subs):
+                        if group:
+                            labels = " **OR** ".join(chunk_labels[i] for i in group)
+                            st.markdown(f"- 🔀 SUBSTITUTE {gi+1}: {labels}")
 
     # ── Pipeline flag reasons (read-only) ─────────────────────────────────────
     flag_reasons = []
@@ -631,23 +841,49 @@ def render_detail(idx: int, records: list[dict], visible_indices: list[int]) -> 
     bcols = st.columns(5)
 
     def collect_edits() -> dict:
-        """Build a diff of only the fields that actually changed."""
         edited: dict = {}
-        if new_question   != rec.get("question"):     edited["question"]    = new_question
-        if new_mock       != rec.get("mock_answer"):  edited["mock_answer"] = new_mock
-        if new_difficulty != rec.get("difficulty"):   edited["difficulty"]  = new_difficulty
+        if new_question   != rec.get("question"):    edited["question"]    = new_question
+        if new_mock       != rec.get("mock_answer"): edited["mock_answer"] = new_mock
+        if new_difficulty != rec.get("difficulty"):  edited["difficulty"]  = new_difficulty
+
         if st.session_state.edit_rubric != rec.get("rubric"):
             edited["rubric"] = list(st.session_state.edit_rubric)
+        # Always save rubric flags (even if text unchanged, flags may have changed)
+        if st.session_state.edit_rubric_flags != rec.get("rubric_flags", []):
+            edited["rubric_flags"] = list(st.session_state.edit_rubric_flags)
+
         if st.session_state.edit_chunks != rec.get("gold_chunks"):
             edited["gold_chunks"] = list(st.session_state.edit_chunks)
-        new_rels = {"composites": new_composites, "substitutes": new_substitutes}
-        if new_rels != rec.get("chunk_relationships"):
-            edited["chunk_relationships"] = new_rels
+        # Always save chunk flags
+        if st.session_state.edit_chunk_flags != rec.get("gold_chunk_flags", []):
+            edited["gold_chunk_flags"] = list(st.session_state.edit_chunk_flags)
+
+        # Relationships
+        rel_key = f"edit_rels_{idx}"
+        if rel_key in st.session_state:
+            chunks_now = st.session_state.edit_chunks
+            new_rels = {
+                "composites": [
+                    [chunks_now[i] for i in group if i < len(chunks_now)]
+                    for group in st.session_state[rel_key]["composites"] if group
+                ],
+                "substitutes": [
+                    [chunks_now[i] for i in group if i < len(chunks_now)]
+                    for group in st.session_state[rel_key]["substitutes"] if group
+                ],
+            }
+            if new_rels != rec.get("chunk_relationships"):
+                edited["chunk_relationships"] = new_rels
+
         return edited
 
     def apply_edits(edited: dict) -> None:
-        for field in ("question", "mock_answer", "difficulty",
-                      "rubric", "gold_chunks", "chunk_relationships"):
+        for field in (
+            "question", "mock_answer", "difficulty",
+            "rubric", "rubric_flags",
+            "gold_chunks", "gold_chunk_flags",
+            "chunk_relationships",
+        ):
             if field in edited:
                 rec[field] = edited[field]
 

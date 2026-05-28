@@ -903,7 +903,7 @@
     "id": "4.9",
     "benchmark_item": {
       "id": "4.9",
-      "question": "SQL allows a foreign-key dependency to refer to the same relation... Explain exactly what happens when a tuple in the relation manager is deleted.",
+      "question": "SQL allows a foreign-key dependecy to refer to the same relation, as in the following example: CREATE TABLE manager ( employee_id char(20), manager_id char(20), PRIMARY KEY employee_id, FOREIGN KEY (manager_id) REFERENCES manager (employee_id) ON DELETE CASCADE ); Here, employee_id is a key to the table manager, meaning that each employee has at at most one manager. The foreign-key clause requires that every manager also be an employee. Explain exactly what happens when a tuple in the relation manager is deleted.",
       "answer": "The tuples of all employees of the manager, at all levels, get deleted as well!. This happens in a series of steps. The initial deletion will trigger deletion of all the tuples corresponding to direct employees of the manager. These deletions will in turn cause deletions of second-level employee tuples, and so on, till all direct and indirect employee tuples are deleted.",
       "must_rubric": [
         "State that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'.",
@@ -911,16 +911,16 @@
       ],
       "optional_rubric": []
     },
-    "ts_answer": "            When a tuple in the relation manager is deleted, and there are foreign-key dependencies that refer to the same relation, the behavior depends on the specific SQL configuration and the actions specified in the foreign key constraints.\n\n            In SQL, if a foreign key constraint is defined such that it references the same relation (i.e., the referenced relation and the referencing relation are the same), the system will typically handle the deletion in a cascading manner. This means that if a tuple is deleted from the relation that contains the foreign key, the system will automatically delete the corresponding tuples in the same relation that reference the deleted tuple.\n\n            For example, if there is a foreign key constraint on the `course` relation that references the `dept_name` attribute, and a tuple in the `department` relation is deleted, the system will automatically delete the corresponding tuples in the `course` relation that have the same `dept_name` value.\n\n            However, it's important to note that this cascading behavior is only possible if the foreign key constraint is defined with the `ON DELETE CASCADE` clause. If the `ON DELETE CASCADE` clause is not specified, the system will not automatically delete the tuples in the referencing relation when a deletion occurs in the referenced relation.\n\n            Additionally, if the referenced relation has a primary key and the foreign key constraint is defined with `ON DELETE CASCADE`, the system will ensure that the primary key values in the referencing relation are consistent with the primary key values in the referenced relation. If a deletion causes a constraint violation (e.g., trying to delete a tuple that has a foreign key referencing a non-existent primary key value), the system will abort the transaction and roll back the changes.\n\n            In summary, when a tuple is deleted from a relation that has a foreign key referencing the same relation, the system will typically perform a cascading delete, automatically removing the corresponding tuples in the same relation. This behavior is controlled by the `ON DELETE CASCADE` clause in the foreign key constraint.",
+    "ts_answer": "When a tuple in the relation `manager` is deleted, the behavior depends on the `ON DELETE CASCADE` clause specified in the foreign key constraint. Here's a detailed explanation of what happens:\n\n1. **Cascade Deletion**: The `ON DELETE CASCADE` clause means that if a tuple is deleted from the `manager` relation, the corresponding tuple in the `employee_id` column of the `manager` relation will also be deleted. \n\n2. **Tuple in `manager` Relation**: Suppose the tuple `(employee_id = 'E001', manager_id = 'M001')` exists in the `manager` relation. When this tuple is deleted, the `employee_id` value 'E001' will also be deleted from the `employee` relation.\n\n3. **Impact on `employee` Relation**: The deletion of 'E001' from the `employee` relation will cause a cascading effect. If 'E001' is a key in the `employee` relation, the deletion will propagate to any other relations where 'E001' is referenced as a foreign key.\n\n4. **Propagation of Cascade Deletion**: The cascading effect will continue to propagate through the entire chain of foreign-key dependencies. If there are other relations that have `employee_id` as a foreign key, those relations will also be affected.\n\n5. **Transaction Handling**: If the deletion of the tuple in the `manager` relation causes a constraint violation (e.g., if 'E001' is a primary key in the `employee` relation and cannot be deleted), the system will abort the transaction. This means that all changes caused by the transaction and its cascading actions will be undone.\n\n6. **Null Values and Default Values**: If any of the foreign-key columns are null, the tuple is defined automatically to satisfy the constraint. However, if all columns are non-null, the usual definition of foreign-key constraints is used.\n\n",
     "retrieved_chunks": [
       {
         "rank": 1,
         "chunk_id": 179,
         "content": ". A more general form of a referential-integrity constraint, where the referenced columns need not be a candidate key, cannot be directly specified in SQL. The SQL standard specifies other constructs that can be used to implement such constraints, which are described in Section 4.4.8; however, these alternative constructs are not supported by any of the widely used database systems. Note that the foreign key must reference a compatible set of attributes, that is, the number of attributes must be the same and the data types of corresponding attributes must be compatible. We can use the following as part of a table definition to declare that an attribute forms a foreign key: dept\\_name varchar (20) references department When a referential-integrity constraint is violated, the normal procedure is to reject the action that caused the violation (i.e., the transaction performing the update action is rolled back). However, a foreign key clause can specify that if a delete or update action on the referenced relation violates the constraint, then, instead of rejecting the action, the system must take steps to change the tuple in the referencing relation to restore the constraint. Consider this definition of an integrity constraint on the relation course : create table course (… foreign key ( dept\\_name ) references department on delete cascade on update cascade, …); Because of the clause on delete cascade associated with the foreign-key declaration, if a delete of a tuple in department results in this referential-integrity constraint being violated, the system does not reject the delete. Instead, the delete ' cascades ' to the course relation, deleting the tuple that refers to the department that was deleted. Similarly, the system does  Page 151 not reject an update to a field referenced by the constraint if it violates the constraint; instead, the system updates the field dept\\_name in the referencing tuples in course to the new value as well",
-        "faiss_score": 0.00010985704101561976,
+        "faiss_score": 9.726380022775306e-05,
         "faiss_rank": 1,
-        "bm25_score": 41.34996632248048,
-        "bm25_rank": 4,
+        "bm25_score": 137.8205959172904,
+        "bm25_rank": 1,
         "index_score": 0,
         "index_rank": 0
       },
@@ -928,32 +928,32 @@
         "rank": 2,
         "chunk_id": 180,
         "content": ". SQL also allows the foreign key clause to specify actions other than cascade , if the constraint is violated: The referencing field (here, dept\\_name ) can be set to null (by using set null in place of cascade ), or to the default value for the domain (by using set default ). If there is a chain of foreign-key dependencies across multiple relations, a deletion or update at one end of the chain can propagate across the entire chain. An interesting case where the foreign key constraint on a relation references the same relation appears in Exercise 4.9. If a cascading update or delete causes a constraint violation that cannot be handled by a further cascading operation, the system aborts the transaction. As a result, all the changes caused by the transaction and its cascading actions are undone. Null values complicate the semantics of referential-integrity constraints in SQL. Attributes of foreign key s are allowed to be null , provided that they have not otherwise been declared to be not null . If all the columns of a foreign key are nonnull in a given tuple, the usual definition of foreign-key constraints is used for that tuple. If any of the foreign-key columns is null , the tuple is defined automatically to satisfy the constraint. This definition may not always be the right choice, so SQL also provides constructs that allow you to change the behavior with null values; we do not discuss the constructs here.",
-        "faiss_score": 0.00010310678671223369,
+        "faiss_score": 9.235632368438237e-05,
         "faiss_rank": 2,
-        "bm25_score": 43.243602960679006,
+        "bm25_score": 124.03177789848326,
         "bm25_rank": 2,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 3,
-        "chunk_id": 58,
-        "content": ". It would not make sense for a tuple in instructor to have a value for dept\\_name that does not correspond to a department in the dept\\_name relation. Thus, in any database instance, given any tuple, say t a , from the instructor relation, there must be some tuple, say t b , in the dept\\_name relation such that the value of the dept\\_name attribute of t a is the same as the value of the primary key, dept\\_name , of t b . A foreign-key constraint from attribute(s) A of relation r 1 to the primary-key B of relation r 2 states that on any database instance, the value of A for each tuple in r 1 must also be the value of B for some tuple in r 2 . Attribute set A is called a foreign key from r 1 , referencing r 2 . The relation r 1 is also called the referencing relation of the foreign-key constraint, and r 2 is called the referenced relation . For example, the attribute dept\\_name in instructor is a foreign key from instructor, referencing dept\\_name ; note that dept\\_name is the primary key of dept\\_name . Similarly, the  Page 46 attributes building and room\\_number of the section relation together form a foreign key referencing the classroom relation. Note that in a foreign-key constraint, the referenced attribute(s) must be the primary key of the referenced relation. The more general case, a referential-integrity constraint, relaxes the requirement that the referenced attributes form the primary key of the referenced relation. As an example, consider the values in the time\\_slot\\_id attribute of the section relation. We require that these values must exist in the time\\_slot\\_id attribute of the time slot relation. Such a requirement is an example of a referential integrity constraint. In general, a referential integrity constraint requires that the values appearing in specified attributes of any tuple in the referencing relation also appear in specified attributes of at least one tuple in the referenced relation",
-        "faiss_score": 9.567512018019064e-05,
+        "chunk_id": 178,
+        "content": "Often, we wish to ensure that a value that appears in one relation (the referencing relation) for a given set of attributes also appears for a certain set of attributes in another relation (the referenced relation). As we saw earlier, in Section 2.3, such conditions are called referential integrity constraints , and foreign keys are a form of a referential integrity constraint where the referenced attributes form a primary key of the referenced relation. Foreign keys can be specified as part of the SQL create table statement by using the foreign key clause, as we saw in Section 3.2.2. We illustrate foreign-key declarations by using the SQL DDL definition of part of our university database, shown in Figure 4.9. The definition of the course table has a declaration ' foreign key ( dept\\_name ) references department '. This foreign-key declaration specifies that for each course tuple, the department name specified in the tuple must exist in the department relation. Without this constraint, it is possible for a course to specify a nonexistent department name. By default, in SQL a foreign key references the primary-key attributes of the referenced table. SQL also supports a version of the references clause where a list of attributes of the referenced relation can be specified explicitly. 8 For example, the foreign key declaration for the course relation can be specified as: foreign key ( dept\\_name ) references department ( dept name ) The specified list of attributes must, however, be declared as a superkey of the referenced relation, using either a primary key  Page 150 constraint or a unique constraint. A more general form of a referential-integrity constraint, where the referenced columns need not be a candidate key, cannot be directly specified in SQL",
+        "faiss_score": 8.820663506847729e-05,
         "faiss_rank": 3,
-        "bm25_score": 39.38119811172277,
-        "bm25_rank": 14,
+        "bm25_score": 116.06256976517271,
+        "bm25_rank": 4,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 4,
-        "chunk_id": 178,
-        "content": "Often, we wish to ensure that a value that appears in one relation (the referencing relation) for a given set of attributes also appears for a certain set of attributes in another relation (the referenced relation). As we saw earlier, in Section 2.3, such conditions are called referential integrity constraints , and foreign keys are a form of a referential integrity constraint where the referenced attributes form a primary key of the referenced relation. Foreign keys can be specified as part of the SQL create table statement by using the foreign key clause, as we saw in Section 3.2.2. We illustrate foreign-key declarations by using the SQL DDL definition of part of our university database, shown in Figure 4.9. The definition of the course table has a declaration ' foreign key ( dept\\_name ) references department '. This foreign-key declaration specifies that for each course tuple, the department name specified in the tuple must exist in the department relation. Without this constraint, it is possible for a course to specify a nonexistent department name. By default, in SQL a foreign key references the primary-key attributes of the referenced table. SQL also supports a version of the references clause where a list of attributes of the referenced relation can be specified explicitly. 8 For example, the foreign key declaration for the course relation can be specified as: foreign key ( dept\\_name ) references department ( dept name ) The specified list of attributes must, however, be declared as a superkey of the referenced relation, using either a primary key  Page 150 constraint or a unique constraint. A more general form of a referential-integrity constraint, where the referenced columns need not be a candidate key, cannot be directly specified in SQL",
-        "faiss_score": 9.499511201908957e-05,
+        "chunk_id": 58,
+        "content": ". It would not make sense for a tuple in instructor to have a value for dept\\_name that does not correspond to a department in the dept\\_name relation. Thus, in any database instance, given any tuple, say t a , from the instructor relation, there must be some tuple, say t b , in the dept\\_name relation such that the value of the dept\\_name attribute of t a is the same as the value of the primary key, dept\\_name , of t b . A foreign-key constraint from attribute(s) A of relation r 1 to the primary-key B of relation r 2 states that on any database instance, the value of A for each tuple in r 1 must also be the value of B for some tuple in r 2 . Attribute set A is called a foreign key from r 1 , referencing r 2 . The relation r 1 is also called the referencing relation of the foreign-key constraint, and r 2 is called the referenced relation . For example, the attribute dept\\_name in instructor is a foreign key from instructor, referencing dept\\_name ; note that dept\\_name is the primary key of dept\\_name . Similarly, the  Page 46 attributes building and room\\_number of the section relation together form a foreign key referencing the classroom relation. Note that in a foreign-key constraint, the referenced attribute(s) must be the primary key of the referenced relation. The more general case, a referential-integrity constraint, relaxes the requirement that the referenced attributes form the primary key of the referenced relation. As an example, consider the values in the time\\_slot\\_id attribute of the section relation. We require that these values must exist in the time\\_slot\\_id attribute of the time slot relation. Such a requirement is an example of a referential integrity constraint. In general, a referential integrity constraint requires that the values appearing in specified attributes of any tuple in the referencing relation also appear in specified attributes of at least one tuple in the referenced relation",
+        "faiss_score": 8.819295309021993e-05,
         "faiss_rank": 4,
-        "bm25_score": 37.039005241627095,
-        "bm25_rank": 31,
+        "bm25_score": 105.05785410653473,
+        "bm25_rank": 13,
         "index_score": 0,
         "index_rank": 0
       },
@@ -961,10 +961,10 @@
         "rank": 5,
         "chunk_id": 82,
         "content": ". Although the primary-key specification is optional, it is generally a good idea to specify a primary key for each relation. - foreign key ( A k 1 , A k 2 ,..., A k n ) references S : The foreign key specification says that the values of attributes ( A k 1 , A k 2 ,..., A k n ) for any tuple in the relation must correspond to values of the primary key attributes of some tuple in relation s. Figure 3.1 presents a partial SQL DDL definition of the university database we use in the text. The definition of the course table has a declaration ' foreign key ( dept\\_name ) references department'. This foreign-key declaration specifies that for each course tuple, the department name specified in the tuple must exist in the primary key attribute ( dept\\_name ) of the department relation. Without this constraint, it is possible for a course to specify a nonexistent department name. Figure 3.1  also shows foreign-key constraints on tables section, instructor and teaches. Some database systems, including MySQL, require an alternative syntax, ' foreign key ( dept\\_name ) references department(dept\\_name)', where the referenced attributes in the referenced table are listed explicitly. - not null : The not null constraint on an attribute specifies that the null value is not allowed for that attribute; in other words, the constraint excludes the null value from the domain of that attribute. For example, in Figure 3.1, the not null constraint on the name attribute of the instructor relation ensures that the name of an instructor cannot be null. More details on the foreign-key constraint, as well as on other integrity constraints that the create table command may include, are provided later, in Section 4.4. SQL prevents any update to the database that violates an integrity constraint",
-        "faiss_score": 7.965756581570242e-05,
+        "faiss_score": 7.85655767073934e-05,
         "faiss_rank": 5,
-        "bm25_score": 39.564106201143915,
-        "bm25_rank": 11,
+        "bm25_score": 120.07214613351178,
+        "bm25_rank": 3,
         "index_score": 0,
         "index_rank": 0
       },
@@ -972,7 +972,7 @@
         "rank": 6,
         "chunk_id": 134,
         "content": ". The delete request can contain a nested select that references the relation from which tuples are to be deleted. For example, suppose that we want to delete the records of all instructors with salary below the average at the university. We could write: ## Page 110 delete from instructor where salary &lt; ( select avg ( salary ) from instructor ); The delete statement first tests each tuple in the relation instructor to check whether the salary is less than the average salary of instructors in the university. Then, all tuples that pass the test-that is, represent an instructor with a lower-thanaverage salary-are deleted. Performing all the tests before performing any deletion is important-if some tuples are deleted before other tuples have been tested, the average salary may change, and the final result of the delete would depend on the order in which the tuples were processed!",
-        "faiss_score": 7.952555550619724e-05,
+        "faiss_score": 7.365640008660381e-05,
         "faiss_rank": 6,
         "bm25_score": 0,
         "bm25_rank": 0,
@@ -981,9 +981,9 @@
       },
       {
         "rank": 7,
-        "chunk_id": 59,
-        "content": ". Note that timeslot does not form a primary key of the timeslot relation, although it is a part of the primary key; thus, we cannot use a foreign-key constraint to enforce the above constraint. In fact, foreign-key constraints are a special case of referential integrity constraints, where the referenced attributes form the primary key of the referenced relation. Database systems today typically support foreign-key constraints, but they do not support referential integrity constraints where the referenced attribute is not a primary key.",
-        "faiss_score": 7.730192137549106e-05,
+        "chunk_id": 133,
+        "content": "A delete request is expressed in much the same way as a query. We can delete only whole tuples; we cannot delete values on only particular attributes. SQL expresses a deletion by: ## delete from r where P ; Page 109 where P represents a predicate and r represents a relation. The delete statement first finds all tuples t in r for which P ( t ) is true, and then deletes them from r . The where clause can be omitted, in which case all tuples in r are deleted. Note that a delete command operates on only one relation. If we want to delete tuples from several relations, we must use one delete command for each relation. The predicate in the where clause may be as complex as a select command's where clause. At the other extreme, the where clause may be empty. The request: ## delete from instructor ; deletes all tuples from the instructor relation. The instructor relation itself still exists, but it is empty. Here are examples of SQL delete requests: - Delete all tuples in the instructor relation pertaining to instructors in the Finance department. ## delete from instructor where dept\\_name = 'Finance'; - Delete all instructors with a salary between $13,000 and $15,000. ## delete from instructor where salary between 13000 and 15000; - Delete all tuples in the instructor relation for those instructors associated with a department located in the Watson building. ``` delete from instructor where dept_name in ( select dept_name from department where building = 'Watson'); ```  This delete request first finds all departments located in Watson and then deletes all instructor tuples pertaining to those departments. Note that, although we may delete tuples from only one relation at a time, we may reference any number of relations in a select-from-where nested in the where clause of a delete . The delete request can contain a nested select that references the relation from which tuples are to be deleted",
+        "faiss_score": 7.21210360017788e-05,
         "faiss_rank": 7,
         "bm25_score": 0,
         "bm25_rank": 0,
@@ -992,9 +992,9 @@
       },
       {
         "rank": 8,
-        "chunk_id": 133,
-        "content": "A delete request is expressed in much the same way as a query. We can delete only whole tuples; we cannot delete values on only particular attributes. SQL expresses a deletion by: ## delete from r where P ; Page 109 where P represents a predicate and r represents a relation. The delete statement first finds all tuples t in r for which P ( t ) is true, and then deletes them from r . The where clause can be omitted, in which case all tuples in r are deleted. Note that a delete command operates on only one relation. If we want to delete tuples from several relations, we must use one delete command for each relation. The predicate in the where clause may be as complex as a select command's where clause. At the other extreme, the where clause may be empty. The request: ## delete from instructor ; deletes all tuples from the instructor relation. The instructor relation itself still exists, but it is empty. Here are examples of SQL delete requests: - Delete all tuples in the instructor relation pertaining to instructors in the Finance department. ## delete from instructor where dept\\_name = 'Finance'; - Delete all instructors with a salary between $13,000 and $15,000. ## delete from instructor where salary between 13000 and 15000; - Delete all tuples in the instructor relation for those instructors associated with a department located in the Watson building. ``` delete from instructor where dept_name in ( select dept_name from department where building = 'Watson'); ```  This delete request first finds all departments located in Watson and then deletes all instructor tuples pertaining to those departments. Note that, although we may delete tuples from only one relation at a time, we may reference any number of relations in a select-from-where nested in the where clause of a delete . The delete request can contain a nested select that references the relation from which tuples are to be deleted",
-        "faiss_score": 7.46568337395229e-05,
+        "chunk_id": 59,
+        "content": ". Note that timeslot does not form a primary key of the timeslot relation, although it is a part of the primary key; thus, we cannot use a foreign-key constraint to enforce the above constraint. In fact, foreign-key constraints are a special case of referential integrity constraints, where the referenced attributes form the primary key of the referenced relation. Database systems today typically support foreign-key constraints, but they do not support referential integrity constraints where the referenced attribute is not a primary key.",
+        "faiss_score": 6.864297201545352e-05,
         "faiss_rank": 8,
         "bm25_score": 0,
         "bm25_rank": 0,
@@ -1003,9 +1003,9 @@
       },
       {
         "rank": 9,
-        "chunk_id": 181,
-        "content": "It is possible for us to assign a name to integrity constraints. Such names are useful if we want to drop a constraint that was defined previously. To name a constraint, we precede the constraint with the keyword constraint and the name we wish to assign it. So, for example, if we wish to assign the name minsalary to the check constraint on the salary attribute of instructor (see Figure 4.9), we would modify the declaration for salary to:  salary numeric (8,2), constraint minsalary check ( salary &gt; 29000), Later, if we decide we no longer want this constraint, we can write: alter table instructor drop constraint minsalary ; Lacking a name, we would need first to use system-specific features to identify the system-assigned name for the constraint. Not all systems support this, but, for example, in Oracle, the system table user constraints contains this information. - 4.4.7 Integrity Constraint Violation During a Transaction Transactions may consist of several steps, and integrity constraints may be violated temporarily after one step, but a later step may remove the violation. For instance, suppose we have a relation person with primary key name , and an attribute spouse , and suppose that spouse is a foreign key on person . That is, the constraint says that the spouse attribute must contain a name that is present in the person table. Suppose we wish to note the fact that John and Mary are married to each other by inserting two tuples, one for John and one for Mary, in the preceding relation, with the spouse attributes set to Mary and John, respectively. The insertion of the first tuple would violate the foreign-key constraint, regardless of which of the two tuples is inserted first. After the second tuple is inserted, the foreign-key constraint would hold again",
-        "faiss_score": 7.342918902050051e-05,
+        "chunk_id": 383,
+        "content": ". R 1 ∩ R 2 is the primary key of r 1 . This constraint enforces the functional dependency. R 1 ∩ R 2 is a foreign key from r 2 referencing r 1 . This constraint ensures that each tuple in r 2 has a matching tuple in r 1 , without which it would not appear in  the natural join of r 1 and r 2 . If r 1 or r 2 is decomposed further, as long as the decomposition ensures that all attributes in R 1 ∩ R 2 are in one relation, the primary or foreign-key constraint on r 1 or r 2 would be inherited by that relation.",
+        "faiss_score": 6.810305588520804e-05,
         "faiss_rank": 9,
         "bm25_score": 0,
         "bm25_rank": 0,
@@ -1014,12 +1014,12 @@
       },
       {
         "rank": 10,
-        "chunk_id": 383,
-        "content": ". R 1 ∩ R 2 is the primary key of r 1 . This constraint enforces the functional dependency. R 1 ∩ R 2 is a foreign key from r 2 referencing r 1 . This constraint ensures that each tuple in r 2 has a matching tuple in r 1 , without which it would not appear in  the natural join of r 1 and r 2 . If r 1 or r 2 is decomposed further, as long as the decomposition ensures that all attributes in R 1 ∩ R 2 are in one relation, the primary or foreign-key constraint on r 1 or r 2 would be inherited by that relation.",
-        "faiss_score": 7.272117819671362e-05,
+        "chunk_id": 213,
+        "content": "The SQL standard specifies a primitive authorization mechanism for the database schema: Only the owner of the schema can carry out any modification to the schema, such as creating or deleting relations, adding or dropping attributes of relations, and adding or dropping indices. However, SQL includes a references privilege that permits a user to declare foreign keys when creating relations. The SQL references privilege is granted on specific attributes in a manner like that for the update privilege. The following grant statement allows user Mariano to create relations that reference the key dept\\_name of the department relation as a foreign key : grant references ( dept\\_name ) on department to Mariano; Initially, it may appear that there is no reason ever to prevent users from creating foreign keys referencing another relation. However, recall that foreign-key constraints restrict deletion and update operations on the referenced relation. Suppose Mariano creates a foreign key in a relation r referencing the dept\\_name attribute of the department relation and then inserts a tuple into r pertaining to the Geology department. It is no longer possible to delete the Geology department from the department relation without also modifying relation r . Thus, the definition of a foreign key by Mariano restricts future activity by other users; therefore, there is a need for the references privilege. Continuing to use the example of the department relation, the references privilege on department is also required to create a check constraint on a relation r if the constraint has a subquery referencing department . This is reasonable for the same reason as the one we gave for foreign-key constraints; a check constraint that references a relation limits potential updates to that relation.",
+        "faiss_score": 6.709360212707685e-05,
         "faiss_rank": 10,
-        "bm25_score": 0,
-        "bm25_rank": 0,
+        "bm25_score": 111.97442540131613,
+        "bm25_rank": 6,
         "index_score": 0,
         "index_rank": 0
       }
@@ -1029,32 +1029,28 @@
       "must_rubric_satisfaction": [
         {
           "criterion": "State that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'.",
-          "verdict": "not_met",
-          "reason": "The student answer does not explicitly state that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'."
+          "verdict": "met",
+          "reason": "The student correctly states that 'ON DELETE CASCADE' triggers the deletion of tuples where the 'manager_id' matches the deleted 'employee_id'."
         },
         {
           "criterion": "Explain that this deletion process is recursive/multi-level, affecting both direct and indirect subordinates.",
-          "verdict": "not_met",
-          "reason": "The student answer does not explain that the deletion process is recursive/multi-level, affecting both direct and indirect subordinates."
+          "verdict": "met",
+          "reason": "The student explains that this deletion process is recursive/multi-level, affecting both direct and indirect subordinates."
         }
       ],
       "optional_rubric_satisfaction": [],
       "answer_correctness": {
         "without_reference": {
-          "score": 0,
-          "explanation": "The answer correctly describes the cascading delete behavior but does not explicitly state the 'ON DELETE CASCADE' clause and does not explain the recursive nature of the deletion process.",
+          "score": 1,
+          "explanation": "The student correctly explains that the `ON DELETE CASCADE` clause triggers the deletion of tuples where the `manager_id` matches the deleted `employee_id`. They also correctly mention that this deletion process is recursive/multi-level, affecting both direct and indirect subordinates. However, the explanation lacks detail on the specific cascading effects on the `employee` relation and the handling of constraint violations.",
           "strengths": [],
-          "weaknesses": [
-            "Lacks a direct statement about the 'ON DELETE CASCADE' clause and does not fully address the recursive deletion process"
-          ]
+          "weaknesses": []
         },
         "with_reference": {
-          "score": 0,
-          "explanation": "The student answer correctly describes the cascading delete behavior but does not explicitly mention the recursive nature of the deletion process or the 'ON DELETE CASCADE' clause, which are key points.",
+          "score": 1,
+          "explanation": "The student correctly identifies that the `ON DELETE CASCADE` clause triggers the deletion of tuples where the `manager_id` matches the deleted `employee_id`. However, the explanation lacks the recursive/multi-level nature of the deletion process, which is crucial. The reference answer provides a more comprehensive explanation of the recursive deletion process affecting both direct and indirect subordinates.",
           "strengths": [],
-          "weaknesses": [
-            "Lacks explicit mention of the recursive deletion process and the 'ON DELETE CASCADE' clause"
-          ]
+          "weaknesses": []
         }
       },
       "chunk_relevance": {
@@ -1064,81 +1060,81 @@
             "chunk_id": 179,
             "rank": 1,
             "verdict": "relevant",
-            "reason": "The chunk discusses cascading actions for foreign key constraints, which directly relates to the question about what happens when a tuple is deleted."
+            "reason": "The chunk discusses the cascade action for foreign key violations, which is relevant to the question about what happens when a tuple in the relation manager is deleted."
           },
           {
             "chunk_id": 180,
             "rank": 2,
             "verdict": "relevant",
-            "reason": "The chunk elaborates on actions other than cascade when a foreign key constraint is violated, which is relevant to the question."
-          },
-          {
-            "chunk_id": 58,
-            "rank": 3,
-            "verdict": "not_relevant",
-            "reason": "The chunk does not directly address the question about what happens when a tuple is deleted."
+            "reason": "The chunk explains the actions other than cascade that can be specified for foreign key violations, which is relevant to the question about what happens when a tuple in the relation manager is deleted."
           },
           {
             "chunk_id": 178,
+            "rank": 3,
+            "verdict": "not_relevant",
+            "reason": "The chunk does not directly address the scenario of deleting a tuple in the relation manager or the consequences of such a deletion."
+          },
+          {
+            "chunk_id": 58,
             "rank": 4,
             "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign keys and referential integrity constraints but does not directly address the deletion of tuples in a relation manager."
+            "reason": "The chunk discusses constraints on the instructor relation and department relation, which are not directly relevant to the question about deleting tuples from the manager relation."
           },
           {
             "chunk_id": 82,
             "rank": 5,
             "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign keys and referential integrity constraints but does not directly address the deletion of tuples in a relation manager."
+            "reason": "The chunk discusses constraints on the course relation and other relations, which are not directly relevant to the question about deleting tuples from the manager relation."
           },
           {
             "chunk_id": 134,
             "rank": 6,
             "verdict": "relevant",
-            "reason": "The chunk explains the process of deleting tuples from a relation manager, which is relevant to the question."
-          },
-          {
-            "chunk_id": 59,
-            "rank": 7,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign-key constraints and referential integrity constraints, but does not directly address the deletion of tuples in a relation manager."
+            "reason": "The chunk discusses the delete operation and nested selects, which are relevant to explaining what happens when a tuple in the relation manager is deleted."
           },
           {
             "chunk_id": 133,
-            "rank": 8,
+            "rank": 7,
             "verdict": "relevant",
-            "reason": "The chunk provides detailed information about how SQL handles deletion operations, which is relevant to the question asked."
+            "reason": "The chunk discusses SQL delete operations, which is relevant to the question about what happens when a tuple in the relation manager is deleted."
           },
           {
-            "chunk_id": 181,
-            "rank": 9,
+            "chunk_id": 59,
+            "rank": 8,
             "verdict": "not_relevant",
-            "reason": "The chunk discusses integrity constraints and transactional integrity, but does not directly address the deletion of tuples in a relation manager."
+            "reason": "The chunk is about referential integrity constraints and does not directly address the deletion of tuples in the manager relation."
           },
           {
             "chunk_id": 383,
+            "rank": 9,
+            "verdict": "not_relevant",
+            "reason": "The chunk is about functional dependencies and foreign keys in relation decomposition, which is not directly relevant to the deletion of tuples in the manager relation."
+          },
+          {
+            "chunk_id": 213,
             "rank": 10,
             "verdict": "not_relevant",
-            "reason": "The chunk discusses primary and foreign keys in relation to functional dependencies and joins, but does not explain what happens when a tuple in the relation manager is deleted."
+            "reason": "The chunk discusses SQL references privilege and its implications on foreign keys and constraints, which are not directly relevant to the specific scenario described in the question regarding the deletion of a tuple in the 'manager' relation."
           }
         ]
       },
       "faithfulness": {
-        "verdict": "faithful",
+        "verdict": "skipped",
         "unsupported_claims": [],
-        "explanation": "All factual claims in the answer can be directly traced back to the retrieved chunks of text."
+        "explanation": "Faithfulness evaluation was skipped."
       }
     },
     "summary": {
-      "must_rubric_met_rate": 0.0,
-      "must_rubric_met_count": 0,
+      "must_rubric_met_rate": 1.0,
+      "must_rubric_met_count": 2,
       "must_rubric_total": 2,
       "opt_rubric_met_rate": null,
       "opt_rubric_met_count": 0,
       "opt_rubric_total": 0,
-      "correctness_with_ref": 0,
-      "correctness_no_ref": 0,
-      "faithfulness_verdict": "faithful",
-      "faithfulness_score": 1.0,
+      "correctness_with_ref": 1,
+      "correctness_no_ref": 1,
+      "faithfulness_verdict": "skipped",
+      "faithfulness_score": null,
       "chunk_relevance_rate": 0.4
     },
     "judge_backend": "local (qwen2.5-3b-instruct-q8_0.gguf)",
@@ -1181,7 +1177,7 @@
       "page_to_chunk_map_path": "index/sections/textbook_index_page_to_chunk_map.json",
       "enable_topic_extraction": false
     },
-    "timestamp": "2026-05-12T01:17:29"
+    "timestamp": "2026-05-14T02:29:42"
   },
   {
     "id": "4.12",
@@ -2062,7 +2058,7 @@
     "id": "6.10",
     "benchmark_item": {
       "id": "6.10",
-      "question": "Consider a many-to-one relationship R between entity sets A and B... Explain how a constraint on total participation of A in R can be enforced using NOT NULL constraint in SQL.",
+      "question": "Consider a many-to-one relationship $R$ between entity sets $A$ and $B$. Suppose the relation created from $R$ is combined with the relation created from $A$. In SQL, attributes participating in a foreign key constraint can be null. Explain how a constraint on total participation of $A$ in $R$ can be enforced using NOT NULL constraint in SQL.",
       "answer": "The foreign-key attribute in R corresponding to the primary key of B should be made NOT NULL. This ensures that no tuple of A which is not related to any entry in B under R can come in R. For example, say a is a tuple in A which has no corresponding entry in R. This means when R is combined with A, it would have a foreign-key attribute corresponding to B as NULL, which is not allowed.",
       "must_rubric": [
         "Specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'.",
@@ -2070,115 +2066,115 @@
       ],
       "optional_rubric": []
     },
-    "ts_answer": "            To enforce a constraint on total participation of entity set A in a many-to-one relationship R using a NOT NULL constraint in SQL, we need to ensure that every entity in A is associated with at least one entity in B. Here's how this can be done:\n\n1. **Identify the Relationship Schema**: First, we need to identify the schema for the relationship R, which includes the attributes of both entity sets A and B. For example, if A is the instructor entity set and B is the department entity set, the relationship schema might include attributes like `ID` (ID of the instructor), `dept_name` (name of the department), and `salary`.\n\n2. **Create the Relationship Table**: Create a table to represent the relationship R. For the example above, the table might be named `inst_dept`.\n\n3. **Add NOT NULL Constraint**: To enforce that every entity in A must participate in at least one relationship in R, we add a NOT NULL constraint on the foreign key column that references the entity set B. In the `inst_dept` table, the `dept_name` column would be the foreign key referencing the `dept_name` column in the `department` table.\n\n4. **Example SQL Statement**:\n    ```sql\n    CREATE TABLE inst_dept (\n        ID INT NOT NULL,  -- ID of the instructor\n        dept_name VARCHAR(50) NOT NULL,  -- Name of the department\n        salary DECIMAL(10, 2),  -- Salary of the instructor\n        PRIMARY KEY (ID),\n        FOREIGN KEY (dept_name) REFERENCES department(dept_name)  -- NOT NULL constraint\n    );\n    ```\n\n5. **Enforcing the Constraint**:\n    - If an attempt is made to insert an instructor without specifying a department, the SQL statement will fail because the `dept_name` column is NOT NULL.\n    - If an attempt is made to insert a department without specifying an instructor, the SQL statement",
+    "ts_answer": "To enforce a constraint on total participation of entity set \\( A \\) in the many-to-one relationship \\( R \\) using SQL's NOT NULL constraint, we need to ensure that every entity in \\( A \\) participates in at least one relationship in \\( R \\). Here's a step-by-step explanation:\n\n1. **Identify the Attributes Involved:**\n   - Let \\( A \\) have a primary key attribute \\( PK_A \\).\n   - Let \\( R \\) have a primary key attribute \\( PK_R \\) derived from the primary key of \\( A \\).\n   - Let \\( A \\) have additional attributes \\( A1, A2, \\ldots \\).\n\n2. **Create the Combined Schema:**\n   - Combine the schemas of \\( A \\) and \\( R \\) to form a single schema.\n   - The combined schema will have attributes \\( PK_A \\), \\( PK_R \\), and \\( A1, A2, \\ldots \\).\n\n3. **Enforce Total Participation:**\n   - To enforce that every entity in \\( A \\) must participate in at least one relationship in \\( R \\), we need to ensure that \\( PK_R \\) is not null for all entities in \\( A \\).\n   - We can use a NOT NULL constraint on the \\( PK_R \\) attribute in the combined schema.\n\nHere's how you would implement this in SQL:\n\n```sql\nCREATE TABLE combined_schema (\n    PK_A PRIMARY KEY,\n    PK_R NOT NULL,  -- Enforces total participation of A in R\n    A1,\n    A2,\n    ...\n);\n```\n\n### Explanation:\n- **PK_A**: This is the primary key of the entity set \\( A \\).\n- **PK_R**: This is the primary key of the relationship set \\( R \\) derived from the primary key of \\( A \\).\n- **NOT NULL**: This constraint ensures that \\( PK_R \\) cannot be null for any entity in",
     "retrieved_chunks": [
       {
         "rank": 1,
         "chunk_id": 308,
         "content": ". The participation of an entity set E in a relationship set R is said to be total if every entity in E must participate in at least one relationship in R . If it is possible that some entities in E do not participate in relationships in R , the participation of entity set E in relationship R is said to be partial . For example, a university may require every student to have at least one advisor; in the E-R model, this corresponds to requiring each entity to be related to at least one instructor through the advisor relationship. Therefore, the participation of student in the relationship set advisor is total. In contrast, an instructor need not advise any students. Hence, it is possible that only some of the instructor entities are related to the student entity set through the advisor relationship, and the participation of instructor in the advisor relationship set is therefore partial. We indicate total participation of an entity in a relationship set using double lines. Figure 6.12 shows an example of the advisor relationship set where the double line indicates that a student must have an advisor.  Figure 6.12 E-R diagram showing total participation. Page 256 E-R diagrams also provide a way to indicate more complex constraints on the number of times each entity participates in relationships in a relationship set. A line may have an associated minimum and maximum cardinality, shown in the form l .. h , where l is the minimum and h the maximum cardinality. A minimum value of 1 indicates total participation of the entity set in the relationship set; that is, each entity in the entity set occurs in at least one relationship in that relationship set. A maximum value of 1 indicates that the entity participates in at most one relationship, while a maximum value ∗ indicates no limit. For example, consider Figure 6.13. The line between advisor and student has a cardinality constraint of 1..1, meaning the minimum and the maximum cardinality are both 1",
-        "faiss_score": 0.0001310294332541953,
+        "faiss_score": 9.083154863532695e-05,
         "faiss_rank": 1,
-        "bm25_score": 74.09114377625968,
-        "bm25_rank": 4,
+        "bm25_score": 106.0215189459105,
+        "bm25_rank": 14,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 2,
-        "chunk_id": 307,
-        "content": ". Thus, mapping cardinalities can be  - used to specify constraints on what relationships are permitted in the real world. line (→) or an undirected line (-) between the relationship In the E-R diagram notation, we indicate cardinality constraints on a relationship by drawing either a directed set and the entity set in question. Specifically, for the university example: - One-to-one . We draw a directed line from the relationship set to both entity sets. For example, in Figure 6.11a, the directed lines to instructor and student indicate that an instructor may advise at most one student, and a student may have at most one advisor. - Page 255 One-to-many . We draw a directed line from the relationship set to the 'one' side of the relationship. Thus, in Figure 6.11b, there is a directed line from relationship set advisor to the entity set instructor , and an undirected line to the entity set student . This indicates that an instructor may advise many students, but a student may have at most one advisor. - Many-to-one . We draw a directed line from the relationship set to the 'one' side of the relationship. Thus, in Figure 6.11c, there is an undirected line from the relationship set advisor to the entity set instructor and a directed line to the entity set student . This indicates that an instructor may advise at most one student, but a student may have many advisors. - Many-to-many . We draw an undirected line from the relationship set to both entity sets. Thus, in Figure 6.11d, there are undirected lines from the relationship set advisor to both entity sets instructor and student . This indicates that an instructor may advise many students, and a student may have many advisors.  Figure 6.11 Relationship cardinalities. The participation of an entity set E in a relationship set R is said to be total if every entity in E must participate in at least one relationship in R",
-        "faiss_score": 0.00010003000900270081,
-        "faiss_rank": 2,
-        "bm25_score": 64.49205012408507,
-        "bm25_rank": 9,
-        "index_score": 0,
-        "index_rank": 0
-      },
-      {
-        "rank": 3,
         "chunk_id": 82,
         "content": ". Although the primary-key specification is optional, it is generally a good idea to specify a primary key for each relation. - foreign key ( A k 1 , A k 2 ,..., A k n ) references S : The foreign key specification says that the values of attributes ( A k 1 , A k 2 ,..., A k n ) for any tuple in the relation must correspond to values of the primary key attributes of some tuple in relation s. Figure 3.1 presents a partial SQL DDL definition of the university database we use in the text. The definition of the course table has a declaration ' foreign key ( dept\\_name ) references department'. This foreign-key declaration specifies that for each course tuple, the department name specified in the tuple must exist in the primary key attribute ( dept\\_name ) of the department relation. Without this constraint, it is possible for a course to specify a nonexistent department name. Figure 3.1  also shows foreign-key constraints on tables section, instructor and teaches. Some database systems, including MySQL, require an alternative syntax, ' foreign key ( dept\\_name ) references department(dept\\_name)', where the referenced attributes in the referenced table are listed explicitly. - not null : The not null constraint on an attribute specifies that the null value is not allowed for that attribute; in other words, the constraint excludes the null value from the domain of that attribute. For example, in Figure 3.1, the not null constraint on the name attribute of the instructor relation ensures that the name of an instructor cannot be null. More details on the foreign-key constraint, as well as on other integrity constraints that the create table command may include, are provided later, in Section 4.4. SQL prevents any update to the database that violates an integrity constraint",
-        "faiss_score": 8.447204927954168e-05,
-        "faiss_rank": 3,
-        "bm25_score": 51.51654503557647,
-        "bm25_rank": 32,
-        "index_score": 0,
-        "index_rank": 0
-      },
-      {
-        "rank": 4,
-        "chunk_id": 343,
-        "content": "To model an enterprise more accurately, the database designer may choose to place certain constraints on a particular generalization/specialization. One type of constraint on specialization which we saw earlier specifies whether a specialization is disjoint or overlapping. Another type of constraint on a specialization/generalization is a completeness constraint , which specifies whether or not an entity in the higher-level entity set must belong to at least one of the lower-level entity sets within the generalization/specialization. This constraint may be one of the following: - Total specialization or generalization . Each higherlevel entity must belong to a lower-level entity set. - Partial specialization or generalization . Some higher-level entities may not belong to any lower-level entity set. Partial specialization is the default. We can specify total specialization in an E-R diagram by adding the keyword 'total' in the diagram and drawing a dashed line from the keyword to the corresponding hollow arrowhead to which it applies (for a total specialization), or to the set of hollow arrowheads to which it applies (for an overlapping specialization). The specialization of person to student or employee is total if the university does not need to represent any person who is neither a student nor an employee . However, if the  Page 276 university needs to represent such persons, then the specialization would be partial. The completeness and disjointness constraints, do not depend on each other. Thus, specializations may be partialoverlapping, partial-disjoint, total-overlapping, and totaldisjoint. We can see that certain insertion and deletion requirements follow from the constraints that apply to a given generalization or specialization. For instance, when a total completeness constraint is in place, an entity inserted into a higher-level entity set must also be inserted into at least one of the lower-level entity sets",
-        "faiss_score": 8.354477204311269e-05,
-        "faiss_rank": 4,
-        "bm25_score": 60.709111096843664,
+        "faiss_score": 8.754392691791945e-05,
+        "faiss_rank": 2,
+        "bm25_score": 108.28294143889153,
         "bm25_rank": 11,
         "index_score": 0,
         "index_rank": 0
       },
       {
-        "rank": 5,
+        "rank": 3,
         "chunk_id": 333,
         "content": "Consider a many-to-one relationship set AB from entity set A to entity set B . Using our relational-schema construction algorithm outlined previously, we get three schemas: A , B , and AB . Suppose further that the participation of A in the relationship is total; that is, every entity a in the entity set A must participate in the relationship AB . Then we can combine the schemas A and AB to form a single schema consisting of the union of attributes of both schemas. The primary key of the combined schema is the primary key of the entity set into whose schema the relationship set schema was merged. To illustrate, let's examine the various relations in the E-R diagram of Figure 6.15 that satisfy the preceding criteria: - inst\\_dept . The schemas instructor and department correspond to the entity sets A and B , respectively. Thus, the schema inst\\_dept can be combined with the instructor schema. The resulting instructor schema consists of the attributes { ID , name , dept name , salary }. - stud\\_dept . The schemas student and department correspond to the entity sets A and B , respectively. Thus, the schema stud\\_dept can be combined with the student schema. The resulting student schema consists of the attributes { ID , name , dept name , tot\\_cred }. - course\\_dept . The schemas course and department correspond to the entity sets A and B , respectively. Thus, the schema course\\_dept can be combined with the course schema. The resulting course schema consists of the attributes { course\\_id , title , dept name , credits }. - sec\\_class . The schemas section and classroom correspond to the entity sets A and B , respectively. Thus, the schema sec\\_class can be combined with the section schema. The resulting section schema consists of the  - attributes { course\\_id , sec\\_id , semester , year , building , room\\_number }. - Page 271 sec\\_time\\_slot",
-        "faiss_score": 8.280779227794694e-05,
+        "faiss_score": 8.732690468592418e-05,
+        "faiss_rank": 3,
+        "bm25_score": 107.98870786495415,
+        "bm25_rank": 12,
+        "index_score": 0,
+        "index_rank": 0
+      },
+      {
+        "rank": 4,
+        "chunk_id": 178,
+        "content": "Often, we wish to ensure that a value that appears in one relation (the referencing relation) for a given set of attributes also appears for a certain set of attributes in another relation (the referenced relation). As we saw earlier, in Section 2.3, such conditions are called referential integrity constraints , and foreign keys are a form of a referential integrity constraint where the referenced attributes form a primary key of the referenced relation. Foreign keys can be specified as part of the SQL create table statement by using the foreign key clause, as we saw in Section 3.2.2. We illustrate foreign-key declarations by using the SQL DDL definition of part of our university database, shown in Figure 4.9. The definition of the course table has a declaration ' foreign key ( dept\\_name ) references department '. This foreign-key declaration specifies that for each course tuple, the department name specified in the tuple must exist in the department relation. Without this constraint, it is possible for a course to specify a nonexistent department name. By default, in SQL a foreign key references the primary-key attributes of the referenced table. SQL also supports a version of the references clause where a list of attributes of the referenced relation can be specified explicitly. 8 For example, the foreign key declaration for the course relation can be specified as: foreign key ( dept\\_name ) references department ( dept name ) The specified list of attributes must, however, be declared as a superkey of the referenced relation, using either a primary key  Page 150 constraint or a unique constraint. A more general form of a referential-integrity constraint, where the referenced columns need not be a candidate key, cannot be directly specified in SQL",
+        "faiss_score": 7.782433557853502e-05,
+        "faiss_rank": 4,
+        "bm25_score": 101.10798437995011,
+        "bm25_rank": 21,
+        "index_score": 0,
+        "index_rank": 0
+      },
+      {
+        "rank": 5,
+        "chunk_id": 334,
+        "content": ". The resulting section schema consists of the  - attributes { course\\_id , sec\\_id , semester , year , building , room\\_number }. - Page 271 sec\\_time\\_slot . The schemas section and time\\_slot correspond to the entity sets A and B respectively, Thus, the schema sec\\_time\\_slot can be combined with the section schema obtained in the previous step. The resulting section schema consists of the attributes { course\\_id , sec\\_id , semester , year , building , room\\_number , time\\_slot\\_id }. In the case of one-to-one relationships, the relation schema for the relationship set can be combined with the schemas for either of the entity sets. We can combine schemas even if the participation is partial by using null values. In the preceding example, if inst\\_dept were partial, then we would store null values for the dept\\_name attribute for those instructors who have no associated department. Finally, we consider the foreign-key constraints that would have appeared in the schema representing the relationship set. There would have been foreign-key constraints referencing each of the entity sets participating in the relationship set. We drop the constraint referencing the entity set into whose schema the relationship set schema is merged, and add the other foreign-key constraints to the combined schema. For example, inst\\_dept has a foreign key constraint of the attribute dept\\_name referencing the department relation. This foreign constraint is enforced implicitly by the instructor relation when the schema for inst\\_dept is merged into instructor .",
+        "faiss_score": 7.70220159610076e-05,
         "faiss_rank": 5,
-        "bm25_score": 62.23031409490589,
-        "bm25_rank": 10,
+        "bm25_score": 128.69814825201794,
+        "bm25_rank": 1,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 6,
-        "chunk_id": 306,
-        "content": "Mapping cardinalities , or cardinality ratios, express the number of entities to which another entity can be associated via a relationship set. Mapping cardinalities are most useful in describing binary relationship sets, although they can contribute to the description of relationship sets that involve more than two entity sets. For a binary relationship set R between entity sets A and B , the mapping cardinality must be one of the following: - One-to-one . An entity in A is associated with at most one entity in B , and an entity in B is associated with at most one entity in A . (See Figure 6.9a.) - One-to-many . An entity in A is associated with any number (zero or more) of entities in B . An entity in B , however, can be associated with at most one entity in A . (See Figure 6.9b.) - Many-to-one . An entity in A is associated with at most one entity in B . An entity in B , however, can be associated with any number (zero or more) of entities in A . (See Figure 6.10a.) - Page 253 Many-to-many . An entity in A is associated with any number (zero or more) of entities in B , and an entity in B is associated with any number (zero or more) of entities in A . (See Figure 6.10b.)  Figure 6.9 Mapping cardinalities. (a) One-to-one. (b) One-to-many. Figure 6.10 Mapping cardinalities. (a) Many-to-one. (b) Many-tomany. Page 254 The appropriate mapping cardinality for a particular relationship set obviously depends on the real-world situation that the relationship set is modeling. As an illustration, consider the advisor relationship set. If a student can be advised by several instructors (as in the case of students advised jointly), the relationship set is many-tomany. In contrast, if a particular university imposes a constraint that a student can be advised by only one instructor, and an instructor can advise several students, then the relationship set from instructor to student must be one-to-many",
-        "faiss_score": 8.213477257410858e-05,
-        "faiss_rank": 6,
-        "bm25_score": 72.26790695368544,
-        "bm25_rank": 5,
-        "index_score": 0,
-        "index_rank": 0
-      },
-      {
-        "rank": 7,
         "chunk_id": 59,
         "content": ". Note that timeslot does not form a primary key of the timeslot relation, although it is a part of the primary key; thus, we cannot use a foreign-key constraint to enforce the above constraint. In fact, foreign-key constraints are a special case of referential integrity constraints, where the referenced attributes form the primary key of the referenced relation. Database systems today typically support foreign-key constraints, but they do not support referential integrity constraints where the referenced attribute is not a primary key.",
-        "faiss_score": 8.109461254593843e-05,
-        "faiss_rank": 7,
+        "faiss_score": 7.681364402351968e-05,
+        "faiss_rank": 6,
         "bm25_score": 0,
         "bm25_rank": 0,
         "index_score": 0,
         "index_rank": 0
       },
       {
+        "rank": 7,
+        "chunk_id": 174,
+        "content": "As we discussed in Chapter 3, the null value is a member of all domains, and as a result it is a legal value for every attribute in SQL by default. For certain attributes, however, null values may be inappropriate. Consider a tuple in the student relation where name is null . Such a tuple gives student information for an unknown student; thus, it does not contain useful information. Similarly, we would not want the department budget to be null . In cases such as this, we wish to forbid null values, and we can do so by restricting the domain of the attributes name and budget to exclude null values, by declaring it as follows: name varchar (20) not null budget numeric (12,2) not null The not null constraint prohibits the insertion of a null value for the attribute, and is an example of a domain constraint . Any database modification that would cause a null to be inserted in an attribute declared to be not null generates an error diagnostic. There are many situations where we want to avoid null values. In particular, SQL prohibits null values in the primary key of a relation schema. Thus, in our university example, in the department relation, if the attribute dept\\_name is declared as the primary key for department , it cannot take a null value. As a result it would not need to be declared explicitly to be not null . Page 147",
+        "faiss_score": 7.585856673979659e-05,
+        "faiss_rank": 7,
+        "bm25_score": 101.83761058551077,
+        "bm25_rank": 18,
+        "index_score": 0,
+        "index_rank": 0
+      },
+      {
         "rank": 8,
-        "chunk_id": 313,
-        "content": ". For many-to-many relationships, the preceding union of the primary keys is a minimal superkey and is chosen as the primary key. As an illustration, consider the entity sets instructor and student , and the relationship set advisor , in Section 6.2.2. Suppose that the relationship set is many-to-many. Then the primary key of advisor consists of the union of the primary keys of instructor and student . For one-to-many and many-to-one relationships, the primary key of the 'many' side is a minimal superkey and is used as the primary key. For example, if the relationship is  many-to-one from student to instructor -that is, each student can have at most one advisor-then the primary key of advisor is simply the primary key of student . However, if an instructor can advise only one student-that is, if the advisor relationship is many-to-one from instructor to student -then the primary key of advisor is simply the primary key of instructor . For one-to-one relationships, the primary key of either one of the participating entity sets forms a minimal superkey, and either one can be chosen as the primary key of the relationship set. However, if an instructor can advise only one student, and each student can be advised by only one instructor-that is, if the advisor relationship is one-to-onethen the primary key of either student or instructor can be chosen as the primary key for advisor . For nonbinary relationships, if no cardinality constraints are present, then the superkey formed as described earlier in this section is the only candidate key, and it is chosen as the primary key. The choice of the primary key is more complicated if cardinality constraints are present. As we noted in Section 6.4, we permit at most one arrow out of a relationship set. We do so because an E-R diagram with two or more arrows out of a nonbinary relationship set can be interpreted in the two ways we describe below",
-        "faiss_score": 8.022366734504238e-05,
+        "chunk_id": 58,
+        "content": ". It would not make sense for a tuple in instructor to have a value for dept\\_name that does not correspond to a department in the dept\\_name relation. Thus, in any database instance, given any tuple, say t a , from the instructor relation, there must be some tuple, say t b , in the dept\\_name relation such that the value of the dept\\_name attribute of t a is the same as the value of the primary key, dept\\_name , of t b . A foreign-key constraint from attribute(s) A of relation r 1 to the primary-key B of relation r 2 states that on any database instance, the value of A for each tuple in r 1 must also be the value of B for some tuple in r 2 . Attribute set A is called a foreign key from r 1 , referencing r 2 . The relation r 1 is also called the referencing relation of the foreign-key constraint, and r 2 is called the referenced relation . For example, the attribute dept\\_name in instructor is a foreign key from instructor, referencing dept\\_name ; note that dept\\_name is the primary key of dept\\_name . Similarly, the  Page 46 attributes building and room\\_number of the section relation together form a foreign key referencing the classroom relation. Note that in a foreign-key constraint, the referenced attribute(s) must be the primary key of the referenced relation. The more general case, a referential-integrity constraint, relaxes the requirement that the referenced attributes form the primary key of the referenced relation. As an example, consider the values in the time\\_slot\\_id attribute of the section relation. We require that these values must exist in the time\\_slot\\_id attribute of the time slot relation. Such a requirement is an example of a referential integrity constraint. In general, a referential integrity constraint requires that the values appearing in specified attributes of any tuple in the referencing relation also appear in specified attributes of at least one tuple in the referenced relation",
+        "faiss_score": 7.528706502052675e-05,
         "faiss_rank": 8,
-        "bm25_score": 50.11815146560165,
-        "bm25_rank": 41,
+        "bm25_score": 112.18915248217817,
+        "bm25_rank": 6,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 9,
-        "chunk_id": 174,
-        "content": "As we discussed in Chapter 3, the null value is a member of all domains, and as a result it is a legal value for every attribute in SQL by default. For certain attributes, however, null values may be inappropriate. Consider a tuple in the student relation where name is null . Such a tuple gives student information for an unknown student; thus, it does not contain useful information. Similarly, we would not want the department budget to be null . In cases such as this, we wish to forbid null values, and we can do so by restricting the domain of the attributes name and budget to exclude null values, by declaring it as follows: name varchar (20) not null budget numeric (12,2) not null The not null constraint prohibits the insertion of a null value for the attribute, and is an example of a domain constraint . Any database modification that would cause a null to be inserted in an attribute declared to be not null generates an error diagnostic. There are many situations where we want to avoid null values. In particular, SQL prohibits null values in the primary key of a relation schema. Thus, in our university example, in the department relation, if the attribute dept\\_name is declared as the primary key for department , it cannot take a null value. As a result it would not need to be declared explicitly to be not null . Page 147",
-        "faiss_score": 7.99533272452206e-05,
+        "chunk_id": 329,
+        "content": "Let R be a relationship set, let a 1 , a 2 , …, a m be the set of attributes formed by the union of the primary keys of each of the entity sets participating in R , and let the descriptive attributes (if any) of R be b 1 , b 2 , …, b n . We represent this relationship set by a relation schema called R with one attribute for each member of the set:  { a 1 , a 2 , …, a m } ∪ { b 1 , b 2 , …, b n } We described in Section 6.5, how to choose a primary key for a binary relationship set. The primary key attributes of the relationship set are also used as the primary key attributes of the relational schema R . As an illustration, consider the relationship set advisor in the E-R diagram of Figure 6.15. This relationship set involves the following entity sets: - instructor , with the primary key ID . - student , with the primary key ID . Since the relationship set has no attributes, the advisor schema has two attributes, the primary keys of instructor and student . Since both attributes have the same name, we rename them i ID and s ID . Since the advisor relationship set is many-to-one from student to instructor the primary key for the advisor relation schema is s\\_ID . We also create foreign-key constraints on the relation schema R as follows: For each entity set E i related by relationship set R , we create a foreign-key constraint from relation schema R , with the attributes of R that were derived from primary-key attributes of E i referencing the primary key of the relation schema representing E i . Returning to our earlier example, we thus create two foreign-key constraints on the advisor relation, with attribute i ID referencing the primary key of instructor and attribute s\\_ID referencing the primary key of student . sets in the E-R diagram in Figure 6.15, we get the relational Applying the preceding techniques to the other relationship schemas depicted in Figure 6.17",
+        "faiss_score": 7.477616623618037e-05,
         "faiss_rank": 9,
-        "bm25_score": 53.212546722913,
-        "bm25_rank": 24,
+        "bm25_score": 118.01841096191077,
+        "bm25_rank": 4,
         "index_score": 0,
         "index_rank": 0
       },
       {
         "rank": 10,
-        "chunk_id": 58,
-        "content": ". It would not make sense for a tuple in instructor to have a value for dept\\_name that does not correspond to a department in the dept\\_name relation. Thus, in any database instance, given any tuple, say t a , from the instructor relation, there must be some tuple, say t b , in the dept\\_name relation such that the value of the dept\\_name attribute of t a is the same as the value of the primary key, dept\\_name , of t b . A foreign-key constraint from attribute(s) A of relation r 1 to the primary-key B of relation r 2 states that on any database instance, the value of A for each tuple in r 1 must also be the value of B for some tuple in r 2 . Attribute set A is called a foreign key from r 1 , referencing r 2 . The relation r 1 is also called the referencing relation of the foreign-key constraint, and r 2 is called the referenced relation . For example, the attribute dept\\_name in instructor is a foreign key from instructor, referencing dept\\_name ; note that dept\\_name is the primary key of dept\\_name . Similarly, the  Page 46 attributes building and room\\_number of the section relation together form a foreign key referencing the classroom relation. Note that in a foreign-key constraint, the referenced attribute(s) must be the primary key of the referenced relation. The more general case, a referential-integrity constraint, relaxes the requirement that the referenced attributes form the primary key of the referenced relation. As an example, consider the values in the time\\_slot\\_id attribute of the section relation. We require that these values must exist in the time\\_slot\\_id attribute of the time slot relation. Such a requirement is an example of a referential integrity constraint. In general, a referential integrity constraint requires that the values appearing in specified attributes of any tuple in the referencing relation also appear in specified attributes of at least one tuple in the referenced relation",
-        "faiss_score": 7.948822006313725e-05,
+        "chunk_id": 307,
+        "content": ". Thus, mapping cardinalities can be  - used to specify constraints on what relationships are permitted in the real world. line (→) or an undirected line (-) between the relationship In the E-R diagram notation, we indicate cardinality constraints on a relationship by drawing either a directed set and the entity set in question. Specifically, for the university example: - One-to-one . We draw a directed line from the relationship set to both entity sets. For example, in Figure 6.11a, the directed lines to instructor and student indicate that an instructor may advise at most one student, and a student may have at most one advisor. - Page 255 One-to-many . We draw a directed line from the relationship set to the 'one' side of the relationship. Thus, in Figure 6.11b, there is a directed line from relationship set advisor to the entity set instructor , and an undirected line to the entity set student . This indicates that an instructor may advise many students, but a student may have at most one advisor. - Many-to-one . We draw a directed line from the relationship set to the 'one' side of the relationship. Thus, in Figure 6.11c, there is an undirected line from the relationship set advisor to the entity set instructor and a directed line to the entity set student . This indicates that an instructor may advise at most one student, but a student may have many advisors. - Many-to-many . We draw an undirected line from the relationship set to both entity sets. Thus, in Figure 6.11d, there are undirected lines from the relationship set advisor to both entity sets instructor and student . This indicates that an instructor may advise many students, and a student may have many advisors.  Figure 6.11 Relationship cardinalities. The participation of an entity set E in a relationship set R is said to be total if every entity in E must participate in at least one relationship in R",
+        "faiss_score": 7.382646915394578e-05,
         "faiss_rank": 10,
-        "bm25_score": 55.53351689868517,
-        "bm25_rank": 20,
+        "bm25_score": 98.71420704101507,
+        "bm25_rank": 26,
         "index_score": 0,
         "index_rank": 0
       }
@@ -2189,32 +2185,26 @@
         {
           "criterion": "Specify that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'.",
           "verdict": "met",
-          "reason": "The student specifies that the foreign-key attribute representing B within the combined relation A must be set to 'NOT NULL'."
+          "reason": "The NOT NULL constraint is applied to the foreign-key attribute representing B within the combined relation A."
         },
         {
           "criterion": "Explain that this prevents any instance of A from existing without a corresponding link to B.",
           "verdict": "met",
-          "reason": "The student explains that this prevents any instance of A from existing without a corresponding link to B."
+          "reason": "The explanation states that this prevents any instance of A from existing without a corresponding link to B, which is correct."
         }
       ],
       "optional_rubric_satisfaction": [],
       "answer_correctness": {
         "without_reference": {
-          "score": 1,
-          "explanation": "The answer correctly explains how to enforce a constraint on total participation of entity set A in a many-to-one relationship R using a NOT NULL constraint on the foreign key column in SQL.",
-          "strengths": [
-            "Clearly explains the steps to create the relationship table and add the NOT NULL constraint on the foreign key column"
-          ],
-          "weaknesses": [
-            "Lacks a specific example of a SQL statement and does not mention the primary key constraint on the foreign key column"
-          ]
+          "score": 0,
+          "explanation": "",
+          "strengths": [],
+          "weaknesses": []
         },
         "with_reference": {
-          "score": 1,
-          "explanation": "The answer correctly identifies the need to make the foreign key in the relationship table NOT NULL to enforce total participation of entity set A in the many-to-one relationship R. It also provides a clear example of how this is done in SQL.",
-          "strengths": [
-            "Explanation of the SQL statement and its effect"
-          ],
+          "score": 0,
+          "explanation": "",
+          "strengths": [],
           "weaknesses": []
         }
       },
@@ -2224,69 +2214,69 @@
           {
             "chunk_id": 308,
             "rank": 1,
-            "verdict": "relevant",
-            "reason": "Chunk 1 discusses the concept of total participation in a relationship set and mentions that a minimum value of 1 indicates total participation of the entity set in the relationship set."
-          },
-          {
-            "chunk_id": 307,
-            "rank": 2,
             "verdict": "not_relevant",
-            "reason": "Chunk 2 focuses on relationship cardinalities and does not directly address the constraint on total participation of an entity set in a relationship set."
+            "reason": "The chunk discusses total participation in relationships and cardinality constraints, which is not directly relevant to enforcing a NOT NULL constraint on the total participation of entity set A in relationship R using a NOT NULL constraint in SQL."
           },
           {
             "chunk_id": 82,
-            "rank": 3,
-            "verdict": "not_relevant",
-            "reason": "Chunk 3 is about foreign key constraints and not about the constraint on total participation of an entity set in a relationship set."
-          },
-          {
-            "chunk_id": 343,
-            "rank": 4,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses completeness constraints on generalizations and specializations but does not mention SQL constraints or total participation in a relationship."
+            "rank": 2,
+            "verdict": "relevant",
+            "reason": "The chunk discusses foreign key constraints and NOT NULL constraints, which are relevant to enforcing constraints in SQL."
           },
           {
             "chunk_id": 333,
-            "rank": 5,
+            "rank": 3,
             "verdict": "not_relevant",
-            "reason": "The chunk focuses on combining schemas and cardinalities in relational databases, not on SQL constraints or total participation in a relationship."
+            "reason": "The chunk discusses combining schemas and creating new schemas from existing ones, which is not directly relevant to enforcing a NOT NULL constraint on the total participation of entity set A in relationship R using a NOT NULL constraint in SQL."
           },
           {
-            "chunk_id": 306,
-            "rank": 6,
+            "chunk_id": 178,
+            "rank": 4,
+            "verdict": "relevant",
+            "reason": "The chunk discusses referential integrity constraints and foreign keys, which are relevant to the question about enforcing a constraint on total participation of A in R using a NOT NULL constraint in SQL."
+          },
+          {
+            "chunk_id": 334,
+            "rank": 5,
             "verdict": "not_relevant",
-            "reason": "The chunk covers mapping cardinalities and relationship sets but does not address SQL constraints or total participation in a relationship."
+            "reason": "The chunk is about combining schemas and foreign key constraints in a database context, which is not directly relevant to the question about SQL constraints and total participation."
           },
           {
             "chunk_id": 59,
-            "rank": 7,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses foreign-key constraints and referential integrity constraints, which are not directly related to enforcing a constraint on total participation of entity set A in a relationship R using a NOT NULL constraint in SQL."
-          },
-          {
-            "chunk_id": 313,
-            "rank": 8,
-            "verdict": "not_relevant",
-            "reason": "The chunk discusses primary keys and cardinality constraints for different types of relationships, but does not address how a NOT NULL constraint can enforce a constraint on total participation of entity set A in a relationship R."
+            "rank": 6,
+            "verdict": "relevant",
+            "reason": "The chunk explains that foreign-key constraints are a special case of referential integrity constraints and that they do not support constraints where the referenced attribute is not a primary key, which is relevant to the question about total participation and NOT NULL constraints."
           },
           {
             "chunk_id": 174,
-            "rank": 9,
+            "rank": 7,
             "verdict": "relevant",
-            "reason": "The chunk explains how to enforce constraints using NOT NULL constraints, which is relevant to the question about enforcing a constraint on total participation of entity set A in a relationship R using a NOT NULL constraint in SQL."
+            "reason": "The chunk discusses the use of NOT NULL constraint to enforce the absence of null values, which is relevant to the question about enforcing a constraint on total participation of A in R using NOT NULL constraint in SQL."
           },
           {
             "chunk_id": 58,
+            "rank": 8,
+            "verdict": "not_relevant",
+            "reason": "The chunk does not directly address the enforcement of a constraint on total participation of A in R using NOT NULL constraint in SQL."
+          },
+          {
+            "chunk_id": 329,
+            "rank": 9,
+            "verdict": "not_relevant",
+            "reason": "The chunk discusses the creation of relational schemas and foreign-key constraints but does not address the enforcement of a constraint on total participation of A in R using NOT NULL constraint in SQL."
+          },
+          {
+            "chunk_id": 307,
             "rank": 10,
-            "verdict": "relevant",
-            "reason": "The chunk discusses foreign-key constraints and referential integrity, which are relevant to enforcing a constraint on total participation of entity set A in a many-to-one relationship R, as it explains how a foreign-key constraint ensures that the values of A for each tuple in r1 must also be the value of B for some tuple in r2, where B is the primary key of the referenced relation."
+            "verdict": "uncertain",
+            "reason": "The chunk discusses cardinality constraints in E-R diagrams, which are relevant to understanding the many-to-one relationship and total participation of an entity set in a relationship set."
           }
         ]
       },
       "faithfulness": {
-        "verdict": "uncertain",
+        "verdict": "skipped",
         "unsupported_claims": [],
-        "explanation": ""
+        "explanation": "Faithfulness evaluation was skipped."
       }
     },
     "summary": {
@@ -2296,11 +2286,11 @@
       "opt_rubric_met_rate": null,
       "opt_rubric_met_count": 0,
       "opt_rubric_total": 0,
-      "correctness_with_ref": 1,
-      "correctness_no_ref": 1,
-      "faithfulness_verdict": "uncertain",
+      "correctness_with_ref": 0,
+      "correctness_no_ref": 0,
+      "faithfulness_verdict": "skipped",
       "faithfulness_score": null,
-      "chunk_relevance_rate": 0.3
+      "chunk_relevance_rate": 0.4444444444444444
     },
     "judge_backend": "local (qwen2.5-3b-instruct-q8_0.gguf)",
     "config_state": {
@@ -2342,7 +2332,7 @@
       "page_to_chunk_map_path": "index/sections/textbook_index_page_to_chunk_map.json",
       "enable_topic_extraction": false
     },
-    "timestamp": "2026-05-12T01:21:04"
+    "timestamp": "2026-05-14T02:30:17"
   },
   {
     "id": "2.5",
