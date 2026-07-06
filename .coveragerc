@@ -1,0 +1,13 @@
+[run]
+branch = True
+source = python_engine
+
+[report]
+show_missing = True
+skip_empty = True
+
+[html]
+directory = .coverage-reports/python-html
+
+[xml]
+output = .coverage-reports/python.xml
