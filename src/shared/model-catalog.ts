@@ -30,11 +30,11 @@ export const tokenSmithTunedModels: ModelCatalogItem[] = [
     description: [
       'Local text embedding model for document collections',
       'Used to build vectors for retrieval',
-      'Matches the TokenSmith LocalDocs embedder',
+      'Recommended local embedder for source-backed retrieval',
       'Default context length: 2048 tokens',
       '#embedder'
     ],
-    url: 'https://tokensmith.io/models/gguf/nomic-embed-text-v1.5.f16.gguf',
+    url: 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf',
     tags: ['embedder']
   },
   {
@@ -110,7 +110,7 @@ export const tokenSmithTunedModels: ModelCatalogItem[] = [
       'Trained by Meta',
       'License: Meta Llama 3 Community License'
     ],
-    url: 'https://tokensmith.io/models/gguf/Meta-Llama-3-8B-Instruct.Q4_0.gguf'
+    url: 'https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_0.gguf'
   },
   {
     id: 'llama-3-2-3b-instruct',

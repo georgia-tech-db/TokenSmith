@@ -1,10 +1,10 @@
 # TokenSmith Electron
 
-Student-focused desktop app inspired by the TokenSmith desktop flow and TokenSmith's RAG study pipeline.
+Student-focused desktop app for local, source-backed study chat with TokenSmith's RAG study pipeline.
 
 ## What Works Now
 
-- TokenSmith-style Electron shell with Chat, Library, Models, and Settings.
+- Electron desktop shell with Chat, Library, Models, and Settings.
 - Local material import for PDF, Markdown, text files, and folders.
 - Python-backed extraction/indexing for readable PDFs through pypdfium2, plus Markdown, text files, and folders.
 - TokenSmith-style chunking with word counts, page estimates for PDFs, and local app-data storage.

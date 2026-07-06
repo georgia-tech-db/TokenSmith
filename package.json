@@ -1,7 +1,7 @@
 {
   "name": "tokensmith-electron",
   "version": "0.1.4",
-  "description": "Student-focused desktop app inspired by TokenSmith.",
+  "description": "Student-focused desktop app for local, source-backed study chat.",
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {

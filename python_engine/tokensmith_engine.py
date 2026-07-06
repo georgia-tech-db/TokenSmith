@@ -1835,7 +1835,7 @@ def render_chat_template(chat_template: str, messages: List[Dict[str, str]]) -> 
     return rendered if rendered.strip() else None
 
 
-def tokensmith_localdocs_context(sources: List[Dict[str, Any]], *, max_chars: Optional[int] = None) -> str:
+def local_source_context(sources: List[Dict[str, Any]], *, max_chars: Optional[int] = None) -> str:
     if not sources:
         return ""
 
@@ -1862,7 +1862,7 @@ def generation_messages(
     model_settings: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
     system_message = str((model_settings or {}).get("systemMessage") or "").strip()
-    user_content = f"{tokensmith_localdocs_context(sources)}{normalize_text(prompt)}"
+    user_content = f"{local_source_context(sources)}{normalize_text(prompt)}"
     messages: List[Dict[str, str]] = []
     if system_message:
         messages.append({"role": "system", "content": system_message})
