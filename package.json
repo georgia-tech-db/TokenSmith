@@ -1,0 +1,44 @@
+{
+  "name": "tokensmith-electron",
+  "version": "0.1.4",
+  "description": "Student-focused desktop app inspired by TokenSmith.",
+  "main": "./out/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "preview": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "setup:python-dev": "node scripts/python-dev.mjs setup",
+    "test:unit:ts": "node --test tests/unit/typescript/*.test.mjs",
+    "test:unit:python": "node scripts/python-dev.mjs unit",
+    "test:coverage:ts": "c8 node --test tests/unit/typescript/*.test.mjs",
+    "test:coverage:python": "node scripts/python-dev.mjs coverage",
+    "test:integration": "node scripts/python-dev.mjs integration",
+    "test:integration:gguf": "node scripts/python-dev.mjs integration:gguf",
+    "test": "npm run test:unit:ts && npm run test:unit:python && npm run test:integration",
+    "coverage": "npm run test:coverage:ts && npm run test:coverage:python",
+    "build": "npm run typecheck && electron-vite build",
+    "package:mac": "node scripts/package-mac.mjs",
+    "package:win": "node scripts/package-win.mjs",
+    "package:linux": "node scripts/package-linux.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.16.0",
+    "pdfjs-dist": "^5.6.205",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "c8": "^11.0.0",
+    "electron": "^41.7.0",
+    "electron-vite": "^5.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.3"
+  }
+}

@@ -1,0 +1,6 @@
+faiss-cpu
+jinja2
+llama-cpp-python
+numpy
+Pillow>=10
+pypdfium2>=4.30

@@ -1,286 +1,75 @@
-# TokenSmith
+# TokenSmith Electron
 
-**TokenSmith** is a local-first database system for students to query textbooks, lecture slides, and notes and get fast, cited answers on their own machines using local LLMs. It is based on retrieval augmented generation (RAG) and applies database-inspired principles like indexing, latency-focused querying, caching, and incremental builds, to optimize the ingestion -> retrieval -> generation pipeline.
+Student-focused desktop app inspired by the TokenSmith desktop flow and TokenSmith's RAG study pipeline.
 
-<img width="1255" height="843" alt="tokensmith" src="https://github.com/user-attachments/assets/b36d6227-8cec-4f71-aacc-fccdd1285378" />
+## What Works Now
 
+- TokenSmith-style Electron shell with Chat, Library, Models, and Settings.
+- Local material import for PDF, Markdown, text files, and folders.
+- Python-backed extraction/indexing for readable PDFs through pypdfium2, plus Markdown, text files, and folders.
+- TokenSmith-style chunking with word counts, page estimates for PDFs, and local app-data storage.
+- Local FAISS vector retrieval over embedded chunks before chat responses.
+- Source cards under answers when matching chunks are found.
+- Python Study Engine routing for extraction, retrieval, and source-backed chat.
+- Optional GGUF inference through `llama-cpp-python` when it is installed in the local Python environment.
 
-## Capabilities
+## Scripts
 
-* Parse and index PDF documents
-* Semantic retrieval with FAISS
-* Local inference via `llama.cpp` (GGUF models)
-* Acceleration: Metal (Apple Silicon), CUDA (NVIDIA), or CPU
-* Configurable chunking (tokens or characters)
-* Optional indexing progress visualization
-* Table preservation during indexing (flag-based)
+- `npm run dev` starts the Electron app with the Vite renderer.
+- `npm run typecheck` checks the Electron, preload, shared, and React code.
+- `npm test` runs TypeScript unit tests, Python unit tests, and the toy-PDF integration test.
+- `npm run coverage` runs c8 for TypeScript unit coverage and coverage.py for the Python engine.
+- `npm run build` creates production bundles.
+- `npm run package:mac` creates a versioned student DMG at `release/TokenSmith-<version>-mac-<arch>.dmg`.
+- `npm run package:win` creates a versioned portable Windows zip at `release/TokenSmith-<version>-win-<arch>.zip`.
+- `npm run preview` runs the built app locally.
 
-## Requirements
+## Student DMG
 
-* **Python** 3.9+
-* **Conda/Miniconda**
-* **System prerequisites**:
+Run this on macOS:
 
-  * macOS: Xcode Command Line Tools
-  * Linux: GCC, make, CMake
-  * Windows: Visual Studio Build Tools
-
-## Quick Start
-
-### 1) Clone the repository and Download the models
-
-```shell
-git clone https://github.com/georgia-tech-db/TokenSmith.git
-cd TokenSmith
+```sh
+npm run package:mac
 ```
 
-Create the model directories and put in the appropriate models in them.
-```shell
-mkdir -p models/generators models/embedders
+The script builds the app, creates `release/mac/TokenSmith.app`, ad-hoc signs it when possible, and writes a versioned DMG named from `package.json`, for example `TokenSmith-0.1.0-mac-arm64.dmg`.
+
+The DMG includes the Electron app and Python worker. Students still need a working `python3` available on their Mac until a bundled Python runtime is added.
+
+## Student Windows Package
+
+Run this on Windows:
+
+```sh
+npm run package:win
 ```
 
-Now, let's say config.yaml has following configs:
-```yaml
-embed_model: "models/embedders/Qwen3-Embedding-4B-Q5_K_M.gguf"
-model_path: "models/generators/qwen2.5-1.5b-instruct-q5_k_m.gguf"
+The script builds the app, creates `release/win/TokenSmith`, and writes a portable zip named from `package.json`.
+
+The GitHub Actions workflow `.github/workflows/windows-build.yml` can produce the same Windows zip from `windows-latest` and upload it as a workflow artifact. It runs manually through `workflow_dispatch` and on version tags like `v0.1.3`.
+
+## Student Flow
+
+1. Open Library and add a readable course file or folder.
+2. TokenSmith extracts text and creates searchable study chunks.
+3. Open Chat and ask a course question.
+4. Chat retrieves matching chunks, answers in a tutor style, and shows the source cards.
+
+## Python Engine
+
+Electron starts `python_engine/tokensmith_engine.py` as a local worker and speaks newline-delimited JSON over stdin/stdout. The worker supports:
+
+- `health`
+- `index_material`
+- `search`
+- `chat`
+
+Set `TOKENSMITH_PYTHON=/path/to/python` before starting the app to choose a specific Python runtime.
+
+The Python test scripts pick the first usable runtime from `TOKENSMITH_TEST_PYTHON`, `TOKENSMITH_PYTHON`, `PYTHON`, `python`, `python3`, and `.venv/bin/python`.
+
+For Python coverage tooling in a fresh development environment, install the local dev virtualenv:
+
+```sh
+npm run setup:python-dev
 ```
-For above config file, download appropriate files from the below link 
-and put them in the `models/embedders/` and `models/generators/` folders with the expected file name.
-- https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/tree/main
-- https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/main
-
-### 2) Build (creates env, builds llama.cpp, installs deps)
-
-```shell
-make build
-```
-
-#### Troubleshooting: NumPy Version Conflict
-
-If you encounter `NumPy 1.x cannot be run in NumPy 2.x` errors after installation:
-
-```shell
-# Remove conflicting package
-conda activate tokensmith
-conda uninstall faiss-cpu -y
-# Reinstall with compatible versions
-conda install -c conda-forge faiss-cpu
-```
-
-This ensures FAISS and NumPy are compatible. Above will downgrade the numpy version.
-We can not use later version of faiss from pip (which is compatible with newer numpy version),
-because of multiple instantiations of OpenMP on Apple Silicon.
-
-Creates a Conda env `tokensmith`, installs Python deps, and builds/detects `llama.cpp`.
-
-### 3) Activate the environment
-
-```shell
-conda activate tokensmith
-```
-
-### 4) Prepare documents
-
-```shell
-mkdir -p data/chapters
-cp your-documents.pdf data/chapters/
-```
-
-### 5) Extract PDF to markdown
-
-```shell
-make run-extract
-```
-This generates markdown file(s) under `TOKENSMITH/data/`
-
-### 6) Index documents
-
-```shell
-make run-index
-```
-
-With custom parameters:
-
-```shell
-make run-index ARGS="--chunk_mode chars --visualize"
-```
-
-If you want to index a portion of the textbook:
-
-```shell
-make run-index-partial CHAPTERS="1 2"
-```
-
-If you want to add chapters to the index later:
-
-```shell
-make run-add-chapters-partial CHAPTERS="3"
-```
-
-### 7) Chat
-
-```shell
-python -m src.main chat
-```
-
-Note: if you only indexed a portion of your documents, use
-
-```shell
-python -m src.main chat --partial
-```
-
-or
-
-```shell
-make run-chat-partial
-```
-
-> If you see a missing-model error, download `qwen2.5-0.5b-instruct-q5_k_m.gguf` into `llama.cpp/models`.
-
-### 8) Deactivate
-
-```shell
-conda deactivate
-```
-
-## Configuration
-
-Priority (highest → lowest):
-
-1. `--config` CLI argument
-2. `~/.config/tokensmith/config.yaml`
-3. `config/config.yaml`
-
-### Example
-
-```yaml
-embed_model: "models/embedders/all-MiniLM-L6-v2"
-top_k: 5
-max_gen_tokens: 400
-halo_mode: "none"
-seg_filter: null
-
-# Model settings
-model_path: "models/generators/qwen2.5-0.5b-instruct-q5_k_m.gguf"
-
-# Indexing settings
-chunk_mode: "tokens" # or "chars"
-chunk_tokens: 500
-chunk_size_char: 20000
-```
-
-## Usage
-
-### Basic indexing
-
-```shell
-make run-index
-```
-
-### Partial indexing
-
-```shell
-make run-index-partial CHAPTERS="1 2"
-```
-
-Adding to the index:
-
-```shell
-make run-add-chapters-partial CHAPTERS="3"
-```
-
-### Index a specific PDF range
-
-```shell
-make run-index ARGS="--pdf_range <start>-<end> --chunk_mode <tokens|chars>"
-```
-
-### Index with tables/visualization
-
-```shell
-make run-index ARGS="--keep_tables --visualize --chunk_tokens <num_tokens>"
-```
-
-### Custom paths/settings
-
-```shell
-make run-index ARGS="--pdf_dir <path_to_pdf> --index_prefix book_index --config <path_to_yaml>"
-```
-
-### Chat with custom settings
-
-```shell
-python -m src.main chat --config <path_to_yaml> --model_path <path_to_gguf>
-```
-
-### Use an existing llama.cpp build
-
-```shell
-export LLAMA_CPP_BINARY=/usr/local/bin/llama-cli
-make build
-```
-
-### Environment maintenance
-
-```shell
-make update-env
-make export-env
-make show-deps
-```
-
-## Command-Line Arguments
-
-### Core
-
-* `mode`: `index` or `chat`
-* `--config`: path to YAML config
-* `--pdf_dir`: directory with PDFs
-* `--index_prefix`: prefix for index files
-* `--model_path`: path to GGUF model
-* `--partial`: instantiate chat based on partial index
-
-### Indexing
-
-* `--pdf_range`: e.g., `1-10`
-* `--chunk_mode`: `tokens` or `chars`
-* `--chunk_tokens`: default 500
-* `--chunk_size_char`: default 20000
-* `--keep_tables`
-* `--visualize`
-
-## Development
-
-```shell
-make help
-make env
-make build-llama
-make install
-make build
-make test
-make clean
-make show-deps
-make update-env
-make export-env
-```
-
-## Testing
-
-```shell
-pytest tests/
-pytest tests/ -s
-pytest tests/ --benchmark-ids="test" -s
-```
-
-* Tests call the same `get_answer()` pipeline used by chat
-* Metrics: semantic similarity, BLEU, keyword matching, text similarity
-* Outputs: terminal logs and HTML report
-* System prompts: baseline, tutor, concise, detailed
-* Component isolation: run with/without chunks or with golden chunks
-
-Artifacts:
-
-* `tests/results/benchmark_results.json`
-* `tests/results/benchmark_summary.html`
-* `tests/results/failed_tests.log`
-
-Documentation: see `tests/README.md`.

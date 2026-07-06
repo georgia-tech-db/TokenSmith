@@ -1,0 +1,11 @@
+{
+  "all": false,
+  "include": [
+    ".coverage-ts-runtime/**/*.ts"
+  ],
+  "reporter": [
+    "text",
+    "lcov"
+  ],
+  "reports-dir": ".coverage-reports/typescript"
+}
