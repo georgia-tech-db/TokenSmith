@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   package-windows:
     name: Package Windows App
@@ -52,3 +55,22 @@ jobs:
           name: TokenSmith-windows-${{ github.run_number }}
           path: release/TokenSmith-*-win-*.zip
           if-no-files-found: error
+
+      - name: Publish Windows package to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: TokenSmith ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            TokenSmith ${{ github.ref_name }} packages the new Electron desktop app experience.
+
+            Major changes:
+            - TokenSmith-style desktop shell with Chat, Library, Models, and Settings.
+            - Local material import for PDFs, Markdown, text files, and folders.
+            - Python-backed extraction, chunking, indexing, retrieval, and source-backed chat.
+            - Bundled Python runtime in release packages so students can run the app with fewer setup steps.
+            - Optional GGUF/local model support plus remote model provider configuration.
+
+            Assets for each platform are attached as their workflows finish. The Windows asset is a portable zip containing `TokenSmith.exe`.
+          files: release/TokenSmith-*-win-*.zip
