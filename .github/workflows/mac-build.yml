@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   package-macos:
     name: Package macOS App
@@ -50,3 +53,20 @@ jobs:
           name: TokenSmith-macos-${{ github.run_number }}
           path: release/TokenSmith-*-mac-*.dmg
           if-no-files-found: error
+
+      - name: Publish macOS package to GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            TokenSmith packages the desktop app for local study workflows.
+
+            Major changes in this release:
+            - Desktop app shell with Chat, Library, Models, and Settings views.
+            - Local import support for PDFs, Markdown, text files, and folders.
+            - Python-backed extraction, chunking, indexing, retrieval, and source-backed chat.
+            - Bundled Python runtime in release packages for fewer setup steps.
+            - Local model support and remote provider configuration.
+
+            Platform assets are attached as their packaging workflows finish.
+          files: release/TokenSmith-*-mac-*.dmg
