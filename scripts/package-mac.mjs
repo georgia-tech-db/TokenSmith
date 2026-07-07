@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { copyFile, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { existsSync, readdirSync } from 'node:fs'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -61,6 +61,119 @@ async function renameIfExists(from, to) {
   await rm(from, { recursive: true, force: true })
 }
 
+function runtimeMachOCandidates(directoryPath, pythonBinPath, candidates = []) {
+  for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
+    const entryPath = join(directoryPath, entry.name)
+    if (entry.isSymbolicLink()) {
+      continue
+    }
+    if (entry.isDirectory()) {
+      runtimeMachOCandidates(entryPath, pythonBinPath, candidates)
+      continue
+    }
+    if (
+      entry.name === 'Python' ||
+      entry.name.endsWith('.dylib') ||
+      entry.name.endsWith('.so') ||
+      (directoryPath === pythonBinPath && entry.name.startsWith('python'))
+    ) {
+      candidates.push(entryPath)
+    }
+  }
+
+  return candidates
+}
+
+function loaderPathReference(fromPath, toPath) {
+  const relativePath = relative(dirname(fromPath), toPath).replaceAll('\\', '/')
+  return `@loader_path/${relativePath}`
+}
+
+function rpathReference(rootPath, toPath) {
+  const relativePath = relative(rootPath, toPath).replaceAll('\\', '/')
+  return `@rpath/${relativePath}`
+}
+
+async function patchMacPythonRuntime(appRuntimePath) {
+  const pythonRoot = join(appRuntimePath, 'python')
+  const pythonLibrary = join(pythonRoot, 'Python')
+  const pythonBinPath = join(pythonRoot, 'bin')
+
+  if (process.platform !== 'darwin' || !existsSync(pythonLibrary) || !existsSync(pythonBinPath)) {
+    return
+  }
+
+  const installName = await run('/usr/bin/otool', ['-D', pythonLibrary])
+  const oldPythonLibraryName = installName.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.endsWith(':'))
+
+  if (!oldPythonLibraryName || oldPythonLibraryName.startsWith('@')) {
+    return
+  }
+  const oldPythonRoot = dirname(oldPythonLibraryName)
+  const machOCandidates = runtimeMachOCandidates(pythonRoot, pythonBinPath)
+
+  for (const binaryPath of machOCandidates) {
+    try {
+      const installName = await run('/usr/bin/otool', ['-D', binaryPath])
+      const oldInstallName = installName.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !line.endsWith(':'))
+      if (oldInstallName?.startsWith(`${oldPythonRoot}/`)) {
+        await run('/usr/bin/install_name_tool', [
+          '-id',
+          rpathReference(pythonRoot, binaryPath),
+          binaryPath
+        ])
+      }
+    } catch {
+      // Executables and extension modules may not have install IDs.
+    }
+
+    try {
+      const linkedLibraries = await run('/usr/bin/otool', ['-L', binaryPath])
+      for (const line of linkedLibraries.stdout.split(/\r?\n/)) {
+        const linkedLibrary = line.trim().split(/\s+/)[0]
+        if (!linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
+          continue
+        }
+
+        const bundledLibrary = join(pythonRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+        if (!existsSync(bundledLibrary)) {
+          continue
+        }
+
+        await run('/usr/bin/install_name_tool', [
+          '-change',
+          linkedLibrary,
+          loaderPathReference(binaryPath, bundledLibrary),
+          binaryPath
+        ])
+      }
+    } catch {
+      // Some python* entries are shell scripts or symlinks; only Mach-O binaries need rewriting.
+    }
+  }
+
+  for (const binaryPath of machOCandidates) {
+    try {
+      await run('/usr/bin/codesign', ['--force', '--sign', '-', binaryPath])
+    } catch {
+      // Only successfully parsed Mach-O binaries need refreshed signatures.
+    }
+  }
+
+  const pythonAppPath = join(pythonRoot, 'Resources', 'Python.app')
+  if (existsSync(pythonAppPath)) {
+    await run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', pythonAppPath])
+  }
+
+  log('Rewrote and signed bundled Python framework links.')
+}
+
 async function prepareAppPayload(resourcesPath) {
   const appPayloadPath = join(resourcesPath, 'app')
   const appRuntimePath = join(rootDir, 'app_runtime')
@@ -76,7 +189,9 @@ async function prepareAppPayload(resourcesPath) {
     filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc')
   })
   if (existsSync(appRuntimePath)) {
-    await run('/usr/bin/ditto', [appRuntimePath, join(appPayloadPath, 'app_runtime')])
+    const packagedRuntimePath = join(appPayloadPath, 'app_runtime')
+    await run('/usr/bin/ditto', [appRuntimePath, packagedRuntimePath])
+    await patchMacPythonRuntime(packagedRuntimePath)
   }
   await writeJson(join(appPayloadPath, 'package.json'), {
     name: packageJson.name,

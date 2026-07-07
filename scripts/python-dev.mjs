@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { basename, delimiter, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
@@ -152,6 +152,126 @@ function copyRuntime(sourceRoot) {
   })
 }
 
+function runCommand(command, args, { allowFailure = false } = {}) {
+  const result = spawnSync(command, args, {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  if (result.status !== 0 && !allowFailure) {
+    throw new Error(result.stderr || `${command} ${args.join(' ')} failed.`)
+  }
+
+  return result
+}
+
+function runtimeMachOCandidates(directoryPath, pythonBinPath, candidates = []) {
+  for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
+    const entryPath = join(directoryPath, entry.name)
+    if (entry.isSymbolicLink()) {
+      continue
+    }
+    if (entry.isDirectory()) {
+      runtimeMachOCandidates(entryPath, pythonBinPath, candidates)
+      continue
+    }
+    if (
+      entry.name === 'Python' ||
+      entry.name.endsWith('.dylib') ||
+      entry.name.endsWith('.so') ||
+      (directoryPath === pythonBinPath && entry.name.startsWith('python'))
+    ) {
+      candidates.push(entryPath)
+    }
+  }
+
+  return candidates
+}
+
+function loaderPathReference(fromPath, toPath) {
+  const relativePath = relative(dirname(fromPath), toPath).replaceAll('\\', '/')
+  return `@loader_path/${relativePath}`
+}
+
+function rpathReference(rootPath, toPath) {
+  const relativePath = relative(rootPath, toPath).replaceAll('\\', '/')
+  return `@rpath/${relativePath}`
+}
+
+function patchMacPythonRuntime() {
+  const pythonLibrary = join(appRuntimeRoot, 'Python')
+  const pythonBinPath = join(appRuntimeRoot, 'bin')
+
+  if (process.platform !== 'darwin' || !existsSync(pythonLibrary) || !existsSync(pythonBinPath)) {
+    return
+  }
+
+  const installName = runCommand('/usr/bin/otool', ['-D', pythonLibrary])
+  const oldPythonLibraryName = installName.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.endsWith(':'))
+
+  if (!oldPythonLibraryName || oldPythonLibraryName.startsWith('@')) {
+    return
+  }
+  const oldPythonRoot = dirname(oldPythonLibraryName)
+  const machOCandidates = runtimeMachOCandidates(appRuntimeRoot, pythonBinPath)
+
+  for (const binaryPath of machOCandidates) {
+    const installName = runCommand('/usr/bin/otool', ['-D', binaryPath], { allowFailure: true })
+    if (installName.status === 0) {
+      const oldInstallName = installName.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !line.endsWith(':'))
+      if (oldInstallName?.startsWith(`${oldPythonRoot}/`)) {
+        runCommand('/usr/bin/install_name_tool', [
+          '-id',
+          rpathReference(appRuntimeRoot, binaryPath),
+          binaryPath
+        ])
+      }
+    }
+
+    const linkedLibraries = runCommand('/usr/bin/otool', ['-L', binaryPath], { allowFailure: true })
+    if (linkedLibraries.status !== 0) {
+      continue
+    }
+
+    for (const line of linkedLibraries.stdout.split(/\r?\n/)) {
+      const linkedLibrary = line.trim().split(/\s+/)[0]
+      if (!linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
+        continue
+      }
+
+      const bundledLibrary = join(appRuntimeRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+      if (!existsSync(bundledLibrary)) {
+        continue
+      }
+
+      runCommand('/usr/bin/install_name_tool', [
+        '-change',
+        linkedLibrary,
+        loaderPathReference(binaryPath, bundledLibrary),
+        binaryPath
+      ])
+    }
+  }
+
+  for (const binaryPath of machOCandidates) {
+    runCommand('/usr/bin/codesign', ['--force', '--sign', '-', binaryPath], { allowFailure: true })
+  }
+
+  const pythonAppPath = join(appRuntimeRoot, 'Resources', 'Python.app')
+  if (existsSync(pythonAppPath)) {
+    runCommand('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', pythonAppPath])
+  }
+
+  console.log('[python-runtime] Rewrote and signed bundled Python framework links.')
+}
+
 function setup() {
   const buildPythonInfo = inspectPython('python')
 
@@ -173,6 +293,7 @@ function setup() {
 
   console.log(`[python-runtime] Copying ${buildPythonInfo.root} -> ${appRuntimeRoot}`)
   copyRuntime(buildPythonInfo.root)
+  patchMacPythonRuntime()
 
   if (!existsSync(appRuntimePython)) {
     console.error(`Copied runtime did not contain ${appRuntimePython}.`)
