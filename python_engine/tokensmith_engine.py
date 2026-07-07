@@ -47,6 +47,7 @@ if _NEEDS_STORE:
             list_materials,
             set_material_active,
             source_document_for_source,
+            starter_source_rows,
             upsert_material,
             vector_search,
         )
@@ -64,6 +65,7 @@ if _NEEDS_STORE:
             list_materials,
             set_material_active,
             source_document_for_source,
+            starter_source_rows,
             upsert_material,
             vector_search,
         )
@@ -1747,6 +1749,39 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"sources": sources, "reason": None if sources else "no_matching_sources"}
 
 
+def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user_data_path = payload["userDataPath"]
+    limit = int(payload.get("limit") or 4)
+    materials = payload.get("materials") or []
+    requested_active_materials = [
+        material
+        for material in materials
+        if material.get("id") and material.get("status") == "ready" and material.get("isActive") is not False
+    ]
+    requested_active_ids = [material["id"] for material in requested_active_materials]
+    active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
+    if len(active_ids) != len(requested_active_ids):
+        log_event(
+            "starter_sources_ignored_inactive_or_unknown_materials",
+            requested=len(requested_active_ids),
+            enabled=len(active_ids),
+        )
+
+    if not active_ids:
+        return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
+
+    if not has_chunks(user_data_path, active_ids):
+        return {"sources": [], "reason": "no_indexed_chunks"}
+
+    rows = starter_source_rows(user_data_path, active_ids, limit)
+    for row in rows:
+        row["retrieval_mode"] = "starter"
+        row["query_embedding_model"] = row.get("embedding_model")
+
+    sources = [source_from_sqlite_chunk(row, []) for row in rows]
+    return {"sources": sources, "reason": None if sources else "no_indexed_chunks"}
+
+
 DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = (
     "Suggest {count} very short factual follow-up questions that have not been answered yet "
     "or cannot be found inspired by the previous conversation and excerpts."
@@ -2278,6 +2313,7 @@ COMMANDS = {
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,
     "search": search_library,
+    "starter_sources": starter_sources,
     "chat": chat,
     "list_materials": list_indexed_materials,
     "set_material_enabled": set_material_enabled,

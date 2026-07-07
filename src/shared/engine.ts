@@ -35,6 +35,20 @@ export interface EngineChatResponse {
   followUpSuggestions?: string[]
 }
 
+export interface EngineQuestionSuggestionRequest {
+  messages: ChatMessage[]
+  materials: CourseMaterial[]
+  model: LocalModel
+  settings: TokenSmithSettings
+  applicationSettings?: ApplicationSettings
+  modelSettings?: ModelRuntimeSettings
+  retrievedSources?: ChatSource[]
+}
+
+export interface EngineQuestionSuggestionResponse {
+  suggestions: string[]
+}
+
 export interface PdfSourceDocument {
   title: string
   dataUrl: string

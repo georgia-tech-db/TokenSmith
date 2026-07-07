@@ -1,5 +1,11 @@
-import type { EngineChatRequest, EngineChatResponse, EngineInfo } from '../../shared/engine'
-import { runRemoteStudyEngine } from './remote-chat-service'
+import type {
+  EngineChatRequest,
+  EngineChatResponse,
+  EngineInfo,
+  EngineQuestionSuggestionRequest,
+  EngineQuestionSuggestionResponse
+} from '../../shared/engine'
+import { generateRemoteStudyQuestionSuggestions, runRemoteStudyEngine } from './remote-chat-service'
 import {
   modelWithRememberedRemoteApiKey,
   rememberRemoteModelApiKey
@@ -11,6 +17,7 @@ export interface PythonEngineHealth {
 
 export interface StudyEngineDependencies {
   getPythonEngineHealth: () => Promise<PythonEngineHealth>
+  generateOllamaStudyQuestionSuggestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   runOllamaStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
   runPythonStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
 }
@@ -36,6 +43,26 @@ export async function listStudyEngines(dependencies: StudyEngineDependencies): P
       }
     ]
   }
+}
+
+export async function generateStudyQuestionSuggestions(
+  request: EngineQuestionSuggestionRequest,
+  dependencies: StudyEngineDependencies
+): Promise<EngineQuestionSuggestionResponse> {
+  if (request.model.engine === 'ollama') {
+    return dependencies.generateOllamaStudyQuestionSuggestions(request)
+  }
+
+  if (request.model.engine === 'remote') {
+    const remoteModel = modelWithRememberedRemoteApiKey(request.model)
+    rememberRemoteModelApiKey(remoteModel)
+    return generateRemoteStudyQuestionSuggestions({
+      ...request,
+      model: remoteModel
+    })
+  }
+
+  return { suggestions: [] }
 }
 
 export async function sendStudyChatMessage(

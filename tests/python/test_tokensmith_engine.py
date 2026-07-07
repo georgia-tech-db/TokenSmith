@@ -1287,6 +1287,100 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(store.enabled_material_ids(user_data_path, []), [])
             self.assertEqual(store.enabled_material_ids(user_data_path, [""]), [])
 
+    def test_starter_sources_use_first_chunks_from_first_selected_document(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            user_data_path = str(root / "user-data")
+            first_material_path = root / "first"
+            second_material_path = root / "second"
+            first_material_path.mkdir()
+            second_material_path.mkdir()
+            intro_pdf = first_material_path / "a-intro.pdf"
+            appendix_pdf = first_material_path / "z-appendix.pdf"
+            later_pdf = second_material_path / "a-other.pdf"
+            intro_pdf.write_text("intro", encoding="utf-8")
+            appendix_pdf.write_text("appendix", encoding="utf-8")
+            later_pdf.write_text("later", encoding="utf-8")
+
+            first_material = {
+                "id": "101",
+                "title": "First Course Folder",
+                "status": "ready",
+                "kind": "folder",
+                "path": str(first_material_path),
+                "addedAt": store.now_iso(),
+                "isActive": True,
+            }
+            second_material = {
+                "id": "202",
+                "title": "Second Course Folder",
+                "status": "ready",
+                "kind": "folder",
+                "path": str(second_material_path),
+                "addedAt": store.now_iso(),
+                "isActive": True,
+            }
+
+            store.upsert_material(
+                user_data_path,
+                first_material,
+                [
+                    {"id": "appendix", "path": str(appendix_pdf)},
+                    {"id": "intro", "path": str(intro_pdf)},
+                ],
+                [
+                    {
+                        "documentId": "appendix",
+                        "path": str(appendix_pdf),
+                        "documentTitle": "Appendix",
+                        "text": "Appendix chunk",
+                        "wordCount": 2,
+                        "pageStart": 1,
+                    },
+                    *[
+                        {
+                            "documentId": "intro",
+                            "path": str(intro_pdf),
+                            "documentTitle": "Intro",
+                            "text": f"Intro chunk {index}",
+                            "wordCount": 3,
+                            "pageStart": index,
+                        }
+                        for index in range(1, 6)
+                    ],
+                ],
+                embedding_model="unit-embedding",
+            )
+            store.upsert_material(
+                user_data_path,
+                second_material,
+                [{"id": "later", "path": str(later_pdf)}],
+                [
+                    {
+                        "documentId": "later",
+                        "path": str(later_pdf),
+                        "documentTitle": "Later",
+                        "text": "Later material chunk",
+                        "wordCount": 3,
+                        "pageStart": 1,
+                    }
+                ],
+                embedding_model="unit-embedding",
+            )
+
+            response = engine.starter_sources(
+                {
+                    "userDataPath": user_data_path,
+                    "materials": [first_material, second_material],
+                    "limit": 4,
+                }
+            )
+
+            self.assertIsNone(response["reason"])
+            self.assertEqual([source["context"] for source in response["sources"]], [f"Intro chunk {index}" for index in range(1, 5)])
+            self.assertTrue(all(source["path"] == str(intro_pdf) for source in response["sources"]))
+            self.assertTrue(all(source["retrievalMode"] == "starter" for source in response["sources"]))
+
     def test_sqlite_schema_matches_tokensmith_index_shape(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             user_data_path = str(Path(temp_dir) / "user-data")

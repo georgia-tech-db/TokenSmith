@@ -1,10 +1,18 @@
 import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
-import type { EngineChatRequest, EngineChatResponse } from '../../shared/engine'
+import type {
+  EngineChatRequest,
+  EngineChatResponse,
+  EngineQuestionSuggestionRequest,
+  EngineQuestionSuggestionResponse
+} from '../../shared/engine'
 import {
+  answerWithOrderedSources,
   defaultFollowUpPrompt,
   followUpSuggestionCount,
   formatFollowUpInstruction,
   parseFollowUpSuggestions,
+  questionSuggestionCount,
+  questionSuggestionMessages,
   shouldGenerateFollowUps,
   studyChatMessages,
   type StudyChatMessage
@@ -265,13 +273,41 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     settings
   }
   const text = await runRemoteChatCompletion(config, studyChatMessages(request))
-  const followUpSuggestions = await generateRemoteFollowUpSuggestions(request, text, config)
+  const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  const followUpSuggestions = await generateRemoteFollowUpSuggestions(request, answer.text, config)
 
   return {
     engineId: 'tokensmith',
     modelName: request.model.name,
-    text,
-    sources: request.retrievedSources ?? [],
+    text: answer.text,
+    sources: answer.sources,
     followUpSuggestions
+  }
+}
+
+export async function generateRemoteStudyQuestionSuggestions(
+  request: EngineQuestionSuggestionRequest
+): Promise<EngineQuestionSuggestionResponse> {
+  assertRemoteModel(request.model)
+
+  const count = questionSuggestionCount(request.applicationSettings)
+  if (count === 0) {
+    return { suggestions: [] }
+  }
+
+  const config = {
+    endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
+    modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
+    apiKey: request.model.apiKey,
+    settings: request.modelSettings
+  }
+  const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
+  const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
+
+  try {
+    const text = await runRemoteChatCompletion(config, questionSuggestionMessages(request), { maxTokens, temperature })
+    return { suggestions: parseFollowUpSuggestions(text, count) }
+  } catch {
+    return { suggestions: [] }
   }
 }

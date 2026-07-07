@@ -12,6 +12,10 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('engine:chat', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['sendChatMessage']>>
     >,
+  suggestChatQuestions: (request) =>
+    ipcRenderer.invoke('engine:suggest-questions', request) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['suggestChatQuestions']>>
+    >,
   searchLibrary: (query, materials, limit, embeddingModels) =>
     ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>
@@ -77,6 +81,10 @@ const tokenSmithBridge: TokenSmithBridge = {
   startOllamaService: () =>
     ipcRenderer.invoke('ollama:start-service') as Promise<
       Awaited<ReturnType<TokenSmithBridge['startOllamaService']>>
+    >,
+  searchOllamaModels: (query, role, limit) =>
+    ipcRenderer.invoke('ollama:search-models', query, role, limit) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['searchOllamaModels']>>
     >,
   pullOllamaModel: (modelName, baseUrl) =>
     ipcRenderer.invoke('ollama:pull-model', modelName, baseUrl) as Promise<

@@ -45,6 +45,7 @@ import {
   recommendedOllamaEmbeddingModel,
   type OllamaModelInfo,
   type OllamaPullProgress,
+  type OllamaSearchResult,
   type OllamaStatus
 } from '@shared/ollama'
 import {
@@ -2321,6 +2322,8 @@ function ChatScreen({
   const [ollamaPullingModel, setOllamaPullingModel] = useState<'chat' | 'embedder' | null>(null)
   const [ollamaPullProgress, setOllamaPullProgress] = useState<OllamaPullProgress | null>(null)
   const [ollamaSetupError, setOllamaSetupError] = useState<string | null>(null)
+  const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
+  const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading'>('idle')
   const requestSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<HTMLInputElement | null>(null)
@@ -2343,6 +2346,15 @@ function ChatScreen({
     () => selectedSourceMessage?.sources?.slice(0, maxSourceTrayCards) ?? [],
     [selectedSourceMessage]
   )
+  const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
+  const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
+  const canSuggestStarterQuestions =
+    activeConversation.messages.length === 0 &&
+    !isPending &&
+    Boolean(selectedModel) &&
+    selectedModel?.status === 'ready' &&
+    activeMaterials.length > 0 &&
+    settings.application.suggestionMode !== 'off'
   const selectableModels = useMemo(() => {
     const readyModels = models.filter((model) => model.status === 'ready' && modelCanGenerate(model))
     if (!selectedModel) {
@@ -2432,6 +2444,56 @@ function ChatScreen({
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (!canSuggestStarterQuestions || !selectedModel || !window.tokensmith?.suggestChatQuestions) {
+      setStarterQuestionSuggestions([])
+      setStarterQuestionStatus('idle')
+      return
+    }
+
+    let cancelled = false
+    setStarterQuestionSuggestions([])
+    setStarterQuestionStatus('loading')
+
+    void window.tokensmith
+      .suggestChatQuestions({
+        messages: activeConversation.messages,
+        materials: activeMaterials,
+        model: selectedModel,
+        settings,
+        applicationSettings: settings.application,
+        modelSettings: selectedModelSettings,
+        retrievedSources: []
+      })
+      .then((response) => {
+        if (cancelled) {
+          return
+        }
+        setStarterQuestionSuggestions(response.suggestions)
+        setStarterQuestionStatus('idle')
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+        setStarterQuestionSuggestions([])
+        setStarterQuestionStatus('idle')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeConversation.id,
+    activeConversation.messages.length,
+    activeMaterialKey,
+    canSuggestStarterQuestions,
+    selectedModel?.id,
+    selectedModelSettings.suggestedFollowUpPrompt,
+    settings.application.followUpSuggestionCount,
+    settings.application.suggestionMode
+  ])
 
   function handleNewChat() {
     requestSequenceRef.current += 1
@@ -2614,6 +2676,10 @@ function ChatScreen({
 
   function handleUseFollowUpSuggestion(suggestion: string) {
     void submitPrompt(suggestion)
+  }
+
+  function handleUseStarterQuestion(question: string) {
+    void submitPrompt(question)
   }
 
   async function refreshOllamaStatus() {
@@ -3246,6 +3312,38 @@ function ChatScreen({
     )
   }
 
+  function renderStarterQuestions() {
+    if (starterQuestionStatus !== 'loading' && starterQuestionSuggestions.length === 0) {
+      return null
+    }
+
+    return (
+      <section className="starter-question-panel" aria-label="Suggested first questions">
+        <div className="follow-up-title">
+          <Sparkles size={18} aria-hidden="true" />
+          <span>Suggested questions</span>
+        </div>
+        {starterQuestionStatus === 'loading' ? (
+          <p className="starter-question-status">Preparing suggestions...</p>
+        ) : (
+          <div className="follow-up-list">
+            {starterQuestionSuggestions.map((question) => (
+              <button
+                className="follow-up-row"
+                key={question}
+                type="button"
+                onClick={() => handleUseStarterQuestion(question)}
+              >
+                <span>{question}</span>
+                <Plus size={18} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    )
+  }
+
   async function handleOpenSource(source: ChatSource) {
     setSourceTrayError(null)
 
@@ -3506,7 +3604,10 @@ function ChatScreen({
         <div className="chat-body">
           <div className="message-list">
             {activeConversation.messages.length === 0 && !isPending ? (
-              renderChatSetupCard()
+              <>
+                {renderChatSetupCard()}
+                {renderStarterQuestions()}
+              </>
             ) : (
               activeConversation.messages.map((message) =>
                 message.role === 'user' ? (
@@ -5167,7 +5268,9 @@ function ModelsScreen({
   const [ollamaError, setOllamaError] = useState<string | null>(null)
   const [ollamaDraftName, setOllamaDraftName] = useState('')
   const [ollamaDraftRole, setOllamaDraftRole] = useState<LocalModelRole>('generator')
-  const [dismissedOllamaDraftKeys, setDismissedOllamaDraftKeys] = useState<Set<string>>(() => new Set())
+  const [ollamaSearchResults, setOllamaSearchResults] = useState<OllamaSearchResult[]>([])
+  const [ollamaSearchStatus, setOllamaSearchStatus] = useState<'idle' | 'searching' | 'error'>('idle')
+  const [ollamaSearchError, setOllamaSearchError] = useState<string | null>(null)
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
   const firstRunRecommendedModelIdSet = useMemo(() => new Set<string>(firstRunRecommendedModelIds), [])
   const filteredCatalogModels = tokenSmithTunedModels.filter((model) => {
@@ -5196,7 +5299,10 @@ function ModelsScreen({
   }, [models.length])
 
   useEffect(() => {
-    if (mode !== 'explore' || exploreTab !== 'ollama' || !window.tokensmith?.getOllamaStatus) {
+    const shouldRefreshOllamaStatus =
+      (mode === 'explore' && exploreTab === 'ollama') ||
+      models.some((model) => model.engine === 'ollama' || model.source === 'ollama')
+    if (!shouldRefreshOllamaStatus || !window.tokensmith?.getOllamaStatus) {
       return
     }
 
@@ -5225,53 +5331,28 @@ function ModelsScreen({
     return () => {
       cancelled = true
     }
-  }, [exploreTab, mode])
+  }, [exploreTab, mode, models])
 
   function modelByCatalogItem(catalogModel: ModelCatalogItem) {
     return models.find((model) => normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(catalogModel.filename))
   }
 
-  function ollamaDraftKey(modelName: string, role: LocalModelRole) {
-    return `${role}:${modelName.trim().toLowerCase().replace(/:latest$/, '')}`
-  }
-
   function handleOllamaDraftNameChange(value: string) {
     setOllamaDraftName(value)
-    const normalizedValue = value.trim()
-    if (!normalizedValue) {
-      return
-    }
-    const key = ollamaDraftKey(normalizedValue, ollamaDraftRole)
-    setDismissedOllamaDraftKeys((current) => {
-      if (!current.has(key)) {
-        return current
-      }
-      const next = new Set(current)
-      next.delete(key)
-      return next
-    })
+    setOllamaSearchResults([])
+    setOllamaSearchStatus('idle')
+    setOllamaSearchError(null)
   }
 
   function handleOllamaDraftRoleChange(role: LocalModelRole) {
     setOllamaDraftRole(role)
-    const normalizedValue = ollamaDraftName.trim()
-    if (!normalizedValue) {
-      return
-    }
-    const key = ollamaDraftKey(normalizedValue, role)
-    setDismissedOllamaDraftKeys((current) => {
-      if (!current.has(key)) {
-        return current
-      }
-      const next = new Set(current)
-      next.delete(key)
-      return next
-    })
+    setOllamaSearchResults([])
+    setOllamaSearchStatus('idle')
+    setOllamaSearchError(null)
   }
 
   function handleRemoveModel(model: LocalModel) {
     if (model.engine === 'ollama' && model.ollamaModelName) {
-      setDismissedOllamaDraftKeys((current) => new Set(current).add(ollamaDraftKey(model.ollamaModelName ?? model.name, modelRole(model))))
       if (ollamaModelNameMatches(ollamaDraftName, model.ollamaModelName)) {
         setOllamaDraftName('')
       }
@@ -5293,6 +5374,31 @@ function ModelsScreen({
     return ollamaStatus?.models.find((model) => ollamaModelInfoMatches(model, modelName))
   }
 
+  function ollamaInfoForLocalModel(model: LocalModel) {
+    if (model.engine !== 'ollama' && model.source !== 'ollama') {
+      return undefined
+    }
+
+    const modelName = model.ollamaModelName ?? modelFilename(model) ?? model.name
+    return ollamaInfoForModel(modelName)
+  }
+
+  function withOllamaInfo(model: LocalModel, modelInfo?: OllamaModelInfo): LocalModel {
+    if (!modelInfo) {
+      return model
+    }
+
+    return {
+      ...model,
+      filename: model.filename ?? modelInfo.name,
+      ollamaModelName: model.ollamaModelName ?? modelInfo.name,
+      sizeBytes: model.sizeBytes ?? modelInfo.size,
+      parameters: model.parameters ?? modelInfo.details?.parameterSize,
+      quant: model.quant ?? modelInfo.details?.quantizationLevel,
+      type: model.type ?? (modelInfo.details?.family ? `Ollama ${modelInfo.details.family}` : undefined)
+    }
+  }
+
   async function refreshOllamaModels() {
     if (!window.tokensmith?.getOllamaStatus) {
       setOllamaStatusState('error')
@@ -5311,6 +5417,38 @@ function ModelsScreen({
     } catch (error) {
       setOllamaStatusState('error')
       setOllamaError(readableOllamaError(error, 'Could not check Ollama.'))
+    }
+  }
+
+  async function searchOllamaModels(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault()
+
+    const query = ollamaDraftName.trim()
+    if (!query) {
+      setOllamaSearchResults([])
+      setOllamaSearchStatus('idle')
+      setOllamaSearchError(null)
+      return
+    }
+
+    if (!window.tokensmith?.searchOllamaModels) {
+      setOllamaSearchStatus('error')
+      setOllamaSearchError('Ollama model search is only available in the desktop app.')
+      return
+    }
+
+    setOllamaSearchStatus('searching')
+    setOllamaSearchError(null)
+
+    try {
+      const results = await window.tokensmith.searchOllamaModels(query, ollamaDraftRole, 20)
+      setOllamaSearchResults(results)
+      setOllamaSearchStatus('idle')
+      setOllamaSearchError(results.length === 0 ? 'No Ollama models found for this search.' : null)
+    } catch (error) {
+      setOllamaSearchResults([])
+      setOllamaSearchStatus('error')
+      setOllamaSearchError(error instanceof Error ? error.message : 'Ollama model search failed.')
     }
   }
 
@@ -5438,7 +5576,7 @@ function ModelsScreen({
     if (model.engine === 'ollama') {
       const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
       const stats = [
-        { label: 'Role', value: isOllamaEmbedder ? 'Ollama Embedder Model' : 'Ollama Chat Model' },
+        { label: 'Role', value: isOllamaEmbedder ? 'Embedder Model' : 'Chat Model' },
         { label: 'Provider', value: 'Ollama' },
         { label: 'Model', value: model.ollamaModelName ?? model.name },
         { label: 'Endpoint', value: (model.ollamaBaseUrl ?? defaultOllamaBaseUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '') }
@@ -5498,6 +5636,18 @@ function ModelsScreen({
     ]
   }
 
+  function ollamaSearchStats(result: OllamaSearchResult, role: LocalModelRole) {
+    return [
+      { label: 'Role', value: modelRoleLabelForRole(role) },
+      { label: 'Model', value: result.name },
+      result.pulls ? { label: 'Pulls', value: result.pulls } : undefined,
+      result.tagCount ? { label: 'Tags', value: String(result.tagCount) } : undefined,
+      result.sizes.length > 0 ? { label: 'Sizes', value: result.sizes.join(', ') } : undefined,
+      result.capabilities.length > 0 ? { label: 'Capabilities', value: result.capabilities.join(', ') } : undefined,
+      result.updated ? { label: 'Updated', value: result.updated } : undefined
+    ].filter((stat): stat is { label: string; value: string } => Boolean(stat))
+  }
+
   function renderStats(stats: Array<{ label: string; value: string }>) {
     return (
       <div className="model-stats">
@@ -5547,7 +5697,7 @@ function ModelsScreen({
 
   function modelRoleLabel(model: LocalModel) {
     if (model.engine === 'ollama') {
-      return modelCanEmbed(model) && !modelCanGenerate(model) ? 'Ollama Embedder Model' : 'Ollama Chat Model'
+      return modelCanEmbed(model) && !modelCanGenerate(model) ? 'Embedder Model' : 'Chat Model'
     }
 
     if (model.engine === 'remote') {
@@ -5653,6 +5803,7 @@ function ModelsScreen({
 
     if (model?.status === 'ready') {
       const roleLabel = modelRoleLabel(model)
+      const selectedLabel = isSelected ? (model.engine === 'ollama' ? 'Active Model' : `Active ${roleLabel}`) : `Use ${roleLabel}`
 
       return (
         <aside className="model-action-box">
@@ -5663,7 +5814,7 @@ function ModelsScreen({
             disabled={isSelected}
           >
             <Check size={17} aria-hidden="true" />
-            <span>{isSelected ? `Active ${roleLabel}` : `Use ${roleLabel}`}</span>
+            <span>{selectedLabel}</span>
           </button>
           {canRemoveModel(model) && (
             <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(model)}>
@@ -5676,6 +5827,10 @@ function ModelsScreen({
               ? isEmbedderOnly
                 ? 'Remote embedding model'
                 : 'Remote chat model'
+              : model.engine === 'ollama'
+                ? isEmbedderOnly
+                  ? 'Used for PDF search'
+                  : 'Used for local chat answers'
               : isEmbedderOnly
                 ? 'Used for collection and question embeddings'
                 : runtimeDetail}
@@ -5707,13 +5862,14 @@ function ModelsScreen({
 
   function renderInstalledModelCard(model: LocalModel) {
     const catalog = catalogForModel(model)
-    const filename = modelFilename(model)
-    const title = catalog?.name ?? displayModelName(model)
-    const isEmbedderOnly = modelCanEmbed(model) && !modelCanGenerate(model)
+    const displayModel = withOllamaInfo(model, ollamaInfoForLocalModel(model))
+    const filename = modelFilename(displayModel)
+    const title = catalog?.name ?? displayModelName(displayModel)
+    const isEmbedderOnly = modelCanEmbed(displayModel) && !modelCanGenerate(displayModel)
     const bullets =
-      model.description ??
+      displayModel.description ??
       catalog?.description ??
-      (model.engine === 'ollama'
+      (displayModel.engine === 'ollama'
         ? isEmbedderOnly
           ? [
               'Local embedding model served by Ollama',
@@ -5748,7 +5904,7 @@ function ModelsScreen({
             <div className="model-title-heading">
               <h2>{title}</h2>
               <span className={`model-role-badge ${isEmbedderOnly ? 'is-embedder' : 'is-chat'}`}>
-                {modelRoleLabel(model)}
+                {modelRoleLabel(displayModel)}
               </span>
             </div>
             {filename && <p>{filename}</p>}
@@ -5758,9 +5914,9 @@ function ModelsScreen({
               <li key={bullet}>{bullet}</li>
             ))}
           </ul>
-          {renderStats(modelStats(model, catalog))}
+          {renderStats(modelStats(displayModel, catalog))}
         </div>
-        {renderActionBox(model, catalog)}
+        {renderActionBox(displayModel, catalog)}
       </section>
     )
   }
@@ -5928,7 +6084,7 @@ function ModelsScreen({
           <DownloadIcon size={17} aria-hidden="true" />
           <span>Download</span>
         </button>
-        <small>{ollamaStatus?.running ? 'Downloaded by Ollama' : 'Start Ollama first'}</small>
+        <small>{ollamaStatus?.running ? 'Download with Ollama' : 'Start Ollama first'}</small>
       </aside>
     )
   }
@@ -5938,12 +6094,14 @@ function ModelsScreen({
     modelInfo,
     modelName,
     role,
+    searchResult,
     title
   }: {
     description?: string[]
     modelInfo?: OllamaModelInfo
     modelName: string
     role: LocalModelRole
+    searchResult?: OllamaSearchResult
     title?: string
   }) {
     const existingModel = modelByOllamaName(modelName, role)
@@ -5957,26 +6115,41 @@ function ModelsScreen({
         modelInfo,
         isInstalledInOllama ? 'ready' : 'missing'
       )
+    const displayModel = withOllamaInfo(model, modelInfo)
+    const isPlaceholderCard = !existingModel && !isInstalledInOllama && !searchResult
+    const bullets =
+      isPlaceholderCard
+        ? []
+        : description ??
+          (searchResult?.description ? [searchResult.description] : undefined) ??
+          displayModel.description ??
+          []
     const roleClassName = modelCanEmbed(model) && !modelCanGenerate(model) ? 'is-embedder' : 'is-chat'
+    const stats =
+      searchResult && !existingModel && !isInstalledInOllama
+        ? ollamaSearchStats(searchResult, role)
+        : modelStats(displayModel)
 
     return (
       <section className="model-card" key={`${role}-${modelName}`}>
         <div className="model-card-main">
           <div className="model-title-row">
             <div className="model-title-heading">
-              <h2>{title ?? displayModelName(model)}</h2>
-              <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(model)}</span>
+              <h2>{title ?? searchResult?.name ?? (isPlaceholderCard ? modelName : displayModelName(displayModel))}</h2>
+              <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(displayModel)}</span>
             </div>
-            <p>{model.ollamaModelName ?? modelName}</p>
+            <p>{isPlaceholderCard ? 'Not installed in Ollama' : displayModel.ollamaModelName ?? modelName}</p>
           </div>
-          <ul className="model-description-list">
-            {(description ?? model.description ?? []).map((bullet) => (
-              <li key={bullet}>{bullet}</li>
-            ))}
-          </ul>
-          {renderStats(modelStats(model))}
+          {bullets.length > 0 && (
+            <ul className="model-description-list">
+              {bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+          )}
+          {!isPlaceholderCard && renderStats(stats)}
         </div>
-        {renderOllamaModelAction(model, isInstalledInOllama)}
+        {renderOllamaModelAction(displayModel, isInstalledInOllama)}
       </section>
     )
   }
@@ -6009,15 +6182,7 @@ function ModelsScreen({
       (model) => !recommendedNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
     )
     const customModelName = ollamaDraftName.trim()
-    const customModelInfo = customModelName ? ollamaInfoForModel(customModelName) : undefined
-    const customModelDismissed = customModelName
-      ? dismissedOllamaDraftKeys.has(ollamaDraftKey(customModelName, ollamaDraftRole))
-      : false
-    const shouldShowCustomCard =
-      customModelName &&
-      !customModelDismissed &&
-      !recommendedCards.some((card) => ollamaModelNameMatches(card.modelName, customModelName)) &&
-      !otherInstalledModels.some((model) => ollamaModelInfoMatches(model, customModelName))
+    const hasSearchResults = ollamaSearchResults.length > 0
 
     return (
       <>
@@ -6046,19 +6211,14 @@ function ModelsScreen({
 
         <form
           className="ollama-model-form"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (customModelName) {
-              onDownloadOllamaModel(customModelName, ollamaDraftRole, ollamaStatus?.baseUrl ?? defaultOllamaBaseUrl)
-            }
-          }}
+          onSubmit={searchOllamaModels}
         >
           <input
             type="search"
             value={ollamaDraftName}
             onChange={(event) => handleOllamaDraftNameChange(event.target.value)}
-            placeholder="Enter an Ollama model name..."
-            aria-label="Ollama model name"
+            placeholder="Search Ollama models..."
+            aria-label="Search Ollama models"
             list="ollama-installed-models"
           />
           <datalist id="ollama-installed-models">
@@ -6074,32 +6234,45 @@ function ModelsScreen({
             <option value="generator">Chat Model</option>
             <option value="embedder">Embedder Model</option>
           </select>
-          <button className="hf-search-submit" type="submit" disabled={!customModelName || !ollamaStatus?.running}>
-            <DownloadIcon size={17} aria-hidden="true" />
-            <span>{customModelInfo ? 'Download Again' : 'Download'}</span>
+          <button className="hf-search-submit" type="submit" disabled={!customModelName || ollamaSearchStatus === 'searching'}>
+            {ollamaSearchStatus === 'searching' ? (
+              <Loader2 size={17} aria-hidden="true" className="spin" />
+            ) : (
+              <Search size={17} aria-hidden="true" />
+            )}
+            <span>{ollamaSearchStatus === 'searching' ? 'Searching...' : 'Search'}</span>
           </button>
         </form>
 
+        {ollamaSearchError && <p className={ollamaSearchStatus === 'error' ? 'inline-error' : 'model-explore-copy'}>{ollamaSearchError}</p>}
+
         <div className="model-list">
-          {shouldShowCustomCard &&
-            renderOllamaModelCard({
-              modelName: customModelName,
-              role: ollamaDraftRole,
-              modelInfo: customModelInfo
-            })}
-          {recommendedCards.map((card) =>
-            renderOllamaModelCard({
-              ...card,
-              modelInfo: ollamaInfoForModel(card.modelName)
-            })
-          )}
-          {otherInstalledModels.map((modelInfo) =>
-            renderOllamaModelCard({
-              modelInfo,
-              modelName: modelInfo.name,
-              role: inferOllamaModelRole(modelInfo)
-            })
-          )}
+          {hasSearchResults
+            ? ollamaSearchResults.map((result) =>
+                renderOllamaModelCard({
+                  modelName: result.name,
+                  role: ollamaDraftRole,
+                  modelInfo: ollamaInfoForModel(result.name),
+                  searchResult: result
+                })
+              )
+            : (
+                <>
+                  {recommendedCards.map((card) =>
+                    renderOllamaModelCard({
+                      ...card,
+                      modelInfo: ollamaInfoForModel(card.modelName)
+                    })
+                  )}
+                  {otherInstalledModels.map((modelInfo) =>
+                    renderOllamaModelCard({
+                      modelInfo,
+                      modelName: modelInfo.name,
+                      role: inferOllamaModelRole(modelInfo)
+                    })
+                  )}
+                </>
+              )}
         </div>
       </>
     )

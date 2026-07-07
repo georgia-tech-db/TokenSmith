@@ -621,6 +621,17 @@ button {
   margin-top: 28px;
 }
 
+.starter-question-panel {
+  width: min(760px, 100%);
+  margin: 8px 0 32px 46px;
+}
+
+.starter-question-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .follow-up-title {
   display: inline-flex;
   align-items: center;
@@ -2260,6 +2271,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 210px;
   gap: 18px;
+  overflow: hidden;
   padding: 22px;
 }
 
@@ -2354,6 +2366,7 @@ button {
 .model-action-box {
   display: grid;
   width: 200px;
+  min-width: 200px;
   min-height: 0;
   align-content: start;
   gap: 10px;
@@ -2378,7 +2391,10 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
+  padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 8px;
   color: var(--green-strong);
@@ -2386,6 +2402,17 @@ button {
   text-decoration: none;
   font-weight: 650;
   cursor: pointer;
+}
+
+.model-action-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-action-button svg {
+  flex: 0 0 auto;
 }
 
 .model-action-button.is-selected {
@@ -2647,7 +2674,7 @@ button {
 
 .ollama-model-form {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px auto;
+  grid-template-columns: minmax(260px, 1fr) 180px 160px;
   align-items: center;
   gap: 10px;
   margin: 14px 0 18px;
@@ -2680,6 +2707,8 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
   padding: 0 16px;
   border: 0;
@@ -2688,6 +2717,17 @@ button {
   background: var(--accent-soft);
   font-weight: 700;
   cursor: pointer;
+}
+
+.ollama-model-form button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ollama-model-form button svg {
+  flex: 0 0 auto;
 }
 
 .ollama-model-form button:disabled {
@@ -2927,6 +2967,20 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .model-action-box {
+    width: min(100%, 260px);
+    min-width: 0;
+    justify-self: start;
+  }
+
+  .ollama-model-form {
+    grid-template-columns: minmax(0, 1fr) 160px;
+  }
+
+  .ollama-model-form input {
+    grid-column: 1 / -1;
+  }
+
   .chat-setup-step {
     grid-template-columns: 42px minmax(0, 1fr);
   }
@@ -2972,6 +3026,10 @@ button {
   .message-list {
     padding-right: 28px;
     padding-left: 28px;
+  }
+
+  .starter-question-panel {
+    margin-left: 0;
   }
 }
 
@@ -3076,6 +3134,14 @@ button {
 
   .chat-setup-card {
     padding: 18px;
+  }
+
+  .ollama-model-form {
+    grid-template-columns: 1fr;
+  }
+
+  .ollama-model-form input {
+    grid-column: auto;
   }
 
   .chat-setup-step {

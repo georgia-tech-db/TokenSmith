@@ -1,14 +1,37 @@
 import {
   getPythonEngineHealth,
-  runPythonStudyEngine
+  runPythonStudyEngine,
+  starterSourcesWithPython
 } from '../python/python-engine-service'
-import type { EngineChatRequest, EngineChatResponse, EngineInfo } from '../../shared/engine'
-import { listStudyEngines, sendStudyChatMessage } from './study-engine-core'
-import { runOllamaStudyEngine } from './ollama-service'
+import type {
+  EngineChatRequest,
+  EngineChatResponse,
+  EngineInfo,
+  EngineQuestionSuggestionRequest,
+  EngineQuestionSuggestionResponse
+} from '../../shared/engine'
+import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
+import { generateOllamaStudyQuestionSuggestions, runOllamaStudyEngine } from './ollama-service'
+
+async function withStarterSources(
+  request: EngineQuestionSuggestionRequest
+): Promise<EngineQuestionSuggestionRequest> {
+  if (request.messages.length > 0 || (request.retrievedSources?.length ?? 0) > 0) {
+    return request
+  }
+
+  try {
+    const starterSources = await starterSourcesWithPython(request.materials, 4)
+    return starterSources.length > 0 ? { ...request, retrievedSources: starterSources } : request
+  } catch {
+    return request
+  }
+}
 
 export async function listEngines(): Promise<EngineInfo[]> {
   return listStudyEngines({
     getPythonEngineHealth,
+    generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine,
     runPythonStudyEngine
   })
@@ -17,6 +40,19 @@ export async function listEngines(): Promise<EngineInfo[]> {
 export async function sendChatMessage(request: EngineChatRequest): Promise<EngineChatResponse> {
   return sendStudyChatMessage(request, {
     getPythonEngineHealth,
+    generateOllamaStudyQuestionSuggestions,
+    runOllamaStudyEngine,
+    runPythonStudyEngine
+  })
+}
+
+export async function suggestChatQuestions(
+  request: EngineQuestionSuggestionRequest
+): Promise<EngineQuestionSuggestionResponse> {
+  const suggestionRequest = await withStarterSources(request)
+  return generateStudyQuestionSuggestions(suggestionRequest, {
+    getPythonEngineHealth,
+    generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine,
     runPythonStudyEngine
   })

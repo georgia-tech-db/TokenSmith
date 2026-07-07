@@ -922,6 +922,73 @@ def fetch_sources(
     return result
 
 
+def starter_source_rows(
+    user_data_path: str,
+    active_material_ids: Sequence[str],
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    init_db(user_data_path)
+
+    if limit <= 0 or not active_material_ids:
+        return []
+
+    material_ids = [str(material_id) for material_id in active_material_ids if str(material_id).strip()]
+    if not material_ids:
+        return []
+
+    with connect(user_data_path) as conn:
+        for material_id in material_ids:
+            document = conn.execute(
+                """
+                SELECT d.id
+                FROM documents d
+                JOIN folders f ON f.id = d.folder_id
+                JOIN collection_items ci ON ci.folder_id = f.id
+                JOIN collections col ON col.id = ci.collection_id
+                JOIN tokensmith_collection_state s ON s.collection_id = col.id
+                WHERE CAST(col.id AS TEXT) = ?
+                  AND s.status = 'ready'
+                  AND s.is_active = 1
+                  AND EXISTS (
+                      SELECT 1
+                      FROM chunks ch
+                      WHERE ch.document_id = d.id
+                  )
+                ORDER BY d.document_path COLLATE NOCASE, d.id
+                LIMIT 1
+                """,
+                (material_id,),
+            ).fetchone()
+
+            if not document:
+                continue
+
+            rows = conn.execute(
+                f"""
+                {source_row_select()}
+                WHERE d.id = ?
+                  AND CAST(col.id AS TEXT) = ?
+                  AND s.status = 'ready'
+                  AND s.is_active = 1
+                ORDER BY COALESCE(ch.page, 0), ch.id
+                LIMIT ?
+                """,
+                (document["id"], material_id, limit),
+            ).fetchall()
+
+            result: List[Dict[str, Any]] = []
+            for row in rows:
+                source_row = dict(row)
+                source_row["score"] = 0.0
+                if not source_row.get("document_title"):
+                    source_row["document_title"] = Path(str(source_row.get("path") or "")).stem
+                result.append(source_row)
+            if result:
+                return result
+
+    return []
+
+
 def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     init_db(user_data_path)
 

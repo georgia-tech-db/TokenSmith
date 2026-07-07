@@ -42,6 +42,17 @@ export interface OllamaDeleteResult {
   status: string
 }
 
+export interface OllamaSearchResult {
+  name: string
+  description: string
+  url: string
+  capabilities: string[]
+  sizes: string[]
+  pulls?: string
+  tagCount?: number
+  updated?: string
+}
+
 export interface OllamaPullProgress {
   model: string
   status: 'starting' | 'downloading' | 'complete' | 'incomplete' | 'removed' | 'error'

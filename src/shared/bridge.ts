@@ -12,6 +12,8 @@ import type {
   EngineChatRequest,
   EngineChatResponse,
   EngineInfo,
+  EngineQuestionSuggestionRequest,
+  EngineQuestionSuggestionResponse,
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
@@ -21,7 +23,14 @@ import type {
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { ModelCatalogItem } from './model-catalog'
 import type { HuggingFaceSearchOptions } from './model-providers'
-import type { OllamaDeleteResult, OllamaOpenResult, OllamaPullProgress, OllamaPullResult, OllamaStatus } from './ollama'
+import type {
+  OllamaDeleteResult,
+  OllamaOpenResult,
+  OllamaPullProgress,
+  OllamaPullResult,
+  OllamaSearchResult,
+  OllamaStatus
+} from './ollama'
 
 export interface TokenSmithBridge {
   platform: string
@@ -30,6 +39,7 @@ export interface TokenSmithBridge {
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>
   sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
+  suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
@@ -62,6 +72,7 @@ export interface TokenSmithBridge {
   openOllamaDownloadPage: () => Promise<void>
   openOllamaApp: () => Promise<OllamaOpenResult>
   startOllamaService: () => Promise<OllamaOpenResult>
+  searchOllamaModels: (query: string, role?: LocalModelRole, limit?: number) => Promise<OllamaSearchResult[]>
   pullOllamaModel: (modelName: string, baseUrl?: string) => Promise<OllamaPullResult>
   cancelOllamaPull: (modelName: string, baseUrl?: string) => Promise<void>
   deleteOllamaModel: (modelName: string, baseUrl?: string) => Promise<OllamaDeleteResult>

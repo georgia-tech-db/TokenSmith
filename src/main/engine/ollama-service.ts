@@ -3,7 +3,12 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
-import type { EngineChatRequest, EngineChatResponse } from '../../shared/engine'
+import type {
+  EngineChatRequest,
+  EngineChatResponse,
+  EngineQuestionSuggestionRequest,
+  EngineQuestionSuggestionResponse
+} from '../../shared/engine'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -16,10 +21,13 @@ import {
   type OllamaStatus
 } from '../../shared/ollama'
 import {
+  answerWithOrderedSources,
   defaultFollowUpPrompt,
   followUpSuggestionCount,
   formatFollowUpInstruction,
   parseFollowUpSuggestions,
+  questionSuggestionCount,
+  questionSuggestionMessages,
   shouldGenerateFollowUps,
   studyChatMessages,
   type StudyChatMessage
@@ -769,13 +777,43 @@ export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   const text = await runOllamaChatCompletion(baseUrl, modelName, studyChatMessages(request), request.modelSettings)
-  const followUpSuggestions = await generateOllamaFollowUpSuggestions(request, text, baseUrl, modelName)
+  const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  const followUpSuggestions = await generateOllamaFollowUpSuggestions(request, answer.text, baseUrl, modelName)
 
   return {
     engineId: 'tokensmith',
     modelName: request.model.name,
-    text,
-    sources: request.retrievedSources ?? [],
+    text: answer.text,
+    sources: answer.sources,
     followUpSuggestions
+  }
+}
+
+export async function generateOllamaStudyQuestionSuggestions(
+  request: EngineQuestionSuggestionRequest
+): Promise<EngineQuestionSuggestionResponse> {
+  assertOllamaModel(request.model)
+
+  const count = questionSuggestionCount(request.applicationSettings)
+  if (count === 0) {
+    return { suggestions: [] }
+  }
+
+  const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
+  const modelName = request.model.ollamaModelName
+  const maxTokens = Math.min(request.modelSettings?.maxLength ?? 160, 160)
+  const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
+
+  try {
+    const text = await runOllamaChatCompletion(
+      baseUrl,
+      modelName,
+      questionSuggestionMessages(request),
+      request.modelSettings,
+      { maxTokens, temperature }
+    )
+    return { suggestions: parseFollowUpSuggestions(text, count) }
+  } catch {
+    return { suggestions: [] }
   }
 }

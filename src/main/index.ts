@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
-import { listEngines, sendChatMessage } from './engine/engine-service'
+import { listEngines, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   cancelMaterialIndexingWithPython,
   indexMaterialWithPython,
@@ -30,6 +30,7 @@ import {
   pullOllamaModel,
   startOllamaService
 } from './engine/ollama-service'
+import { searchOllamaLibrary } from './engine/ollama-library-search'
 import {
   rememberRemoteModelApiKeys,
   sanitizeAppStateSecrets
@@ -38,6 +39,7 @@ import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalMod
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
+  EngineQuestionSuggestionRequest,
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
@@ -434,6 +436,9 @@ app.whenReady().then(() => {
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
+  ipcMain.handle('engine:suggest-questions', (_event, request: EngineQuestionSuggestionRequest) =>
+    suggestChatQuestions(request)
+  )
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
   ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) =>
@@ -483,6 +488,9 @@ app.whenReady().then(() => {
   ipcMain.handle('ollama:open-download-page', () => openOllamaDownloadPage())
   ipcMain.handle('ollama:open-app', () => openOllamaApp())
   ipcMain.handle('ollama:start-service', () => startOllamaService())
+  ipcMain.handle('ollama:search-models', (_event, query: string, role?: LocalModelRole, limit?: number) =>
+    searchOllamaLibrary(query, role, limit)
+  )
   ipcMain.handle('ollama:pull-model', (_event, modelName: string, baseUrl?: string) => pullOllamaModel(modelName, baseUrl))
   ipcMain.handle('ollama:cancel-pull', (_event, modelName: string, baseUrl?: string) => cancelOllamaPullModel(modelName, baseUrl))
   ipcMain.handle('ollama:delete-model', (_event, modelName: string, baseUrl?: string) => deleteOllamaModel(modelName, baseUrl))

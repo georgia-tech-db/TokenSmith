@@ -61,13 +61,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            TokenSmith 0.1.8 improves first-time setup for students and cleans up the packaged app runtime.
+            TokenSmith 0.1.9 improves Ollama model management and makes first-turn study questions come from loaded PDFs.
 
             Major changes in this release:
-            - Adds an Ollama-based first-time setup flow for installing Ollama, downloading Nomic Embedder Model and Llama 3 Chat Model, and adding PDFs.
-            - Lets students download the embedder first so PDFs can be prepared before local chat is installed.
-            - Rebuilds the bundled Python runtime from a clean app-local prefix and removes the llama-cpp-python runtime package.
-            - Fixes macOS Python framework linkage for packaged builds.
+            - Adds Ollama library search and clearer model cards for local chat and embedder models.
+            - Shows real model download progress with pause, resume, and remove controls.
+            - Avoids activating incomplete model downloads.
+            - Uses the first indexed chunks from loaded PDFs to suggest first-turn study questions.
+            - Cleans answer wording so source and excerpt labels do not leak into chat responses.
 
             Platform assets are attached as their packaging workflows finish.
           files: release/TokenSmith-*-win-*.zip

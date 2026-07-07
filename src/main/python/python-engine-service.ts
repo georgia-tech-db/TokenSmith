@@ -13,6 +13,7 @@ interface PythonRequest {
     | 'health'
     | 'index_material'
     | 'search'
+    | 'starter_sources'
     | 'chat'
     | 'list_materials'
     | 'set_material_enabled'
@@ -545,6 +546,20 @@ export async function searchLibraryWithPython(
       materials,
       limit,
       embeddingModels: resolvedEmbeddingModels,
+      userDataPath: app.getPath('userData')
+    },
+    30_000
+  )
+
+  return result.sources
+}
+
+export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4): Promise<ChatSource[]> {
+  const result = await requestPython<SearchResult>(
+    'starter_sources',
+    {
+      materials,
+      limit,
       userDataPath: app.getPath('userData')
     },
     30_000
