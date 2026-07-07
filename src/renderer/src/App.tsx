@@ -394,6 +394,10 @@ function firstEmbeddingModel(models: LocalModel[]) {
   return models.find(modelCanEmbed)
 }
 
+function recommendedLocalModelName(modelId: string, fallback: string) {
+  return tokenSmithTunedModels.find((model) => model.id === modelId)?.name ?? fallback
+}
+
 function createDefaultAppState(appVersion = 'dev'): AppStateSnapshot {
   return {
     ...defaultAppState,
@@ -798,6 +802,11 @@ function getConversationTitle(prompt: string) {
   }
 
   return `${cleaned.slice(0, 28).trim()}...`
+}
+
+function readableErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback
+  return message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, '').trim() || fallback
 }
 
 function cleanMaterialTitle(title?: string) {
@@ -1294,6 +1303,7 @@ export function App() {
       firstEmbeddingModel(appState.models)
 
     if (!embeddingModel) {
+      const recommendedName = recommendedLocalModelName('nomic-embed-text-v1-5', 'Nomic Embed Text v1.5')
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((material) =>
@@ -1302,7 +1312,7 @@ export function App() {
                 ...material,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download or select an embedder model before indexing this collection.',
+                error: `Add a local or cloud-based embedder before indexing. Suggested local embedder: ${recommendedName}.`,
                 indexing: undefined,
                 isActive: false
               }
@@ -1380,7 +1390,7 @@ export function App() {
                   ...material,
                   status: 'needsReview',
                   detail: 'Processing failed',
-                  error: error instanceof Error ? error.message : 'Processing failed',
+                  error: readableErrorMessage(error, 'Processing failed'),
                   indexing: {
                     materialId,
                     phase: 'error',
@@ -1664,6 +1674,7 @@ export function App() {
       firstEmbeddingModel(appState.models)
 
     if (!embeddingModel) {
+      const recommendedName = recommendedLocalModelName('nomic-embed-text-v1-5', 'Nomic Embed Text v1.5')
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((item) =>
@@ -1672,7 +1683,7 @@ export function App() {
                 ...item,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download or select an embedder model before rebuilding this collection.',
+                error: `Add a local or cloud-based embedder before rebuilding. Suggested local embedder: ${recommendedName}.`,
                 indexing: undefined,
                 isActive: false
               }
@@ -1804,6 +1815,8 @@ export function App() {
             selectedModel={selectedModel}
             settings={appState.settings}
             onChatStateChange={updateChatState}
+            onCancelModelDownload={cancelModelDownload}
+            onDownloadModel={downloadModel}
             onOpenLibrary={() =>
               updateAppState((current) => ({
                 ...current,
@@ -1871,6 +1884,8 @@ function ChatScreen({
   selectedModel,
   settings,
   onChatStateChange,
+  onCancelModelDownload,
+  onDownloadModel,
   onOpenLibrary,
   onSelectModel,
   onToggleMaterialActive
@@ -1882,7 +1897,9 @@ function ChatScreen({
   models: LocalModel[]
   selectedModel?: LocalModel
   settings: TokenSmithSettings
+  onCancelModelDownload: (filename: string) => void
   onOpenLibrary: () => void
+  onDownloadModel: (model: ModelCatalogItem) => void
   onSelectModel: (modelId: string) => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
@@ -1932,6 +1949,18 @@ function ChatScreen({
       ? readyModels
       : [selectedModel, ...readyModels]
   }, [models, selectedModel])
+  const firstRunRecommendedModelIdSet = useMemo(() => new Set<string>(firstRunRecommendedModelIds), [])
+  const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
+  const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
+  const recommendedChatModel = tokenSmithTunedModels.find((model) => {
+    const role = model.role ?? 'generator'
+    return firstRunRecommendedModelIdSet.has(model.id) && (role === 'generator' || role === 'both')
+  })
+  const recommendedEmbeddingModel = tokenSmithTunedModels.find((model) => {
+    const role = model.role ?? 'generator'
+    return firstRunRecommendedModelIdSet.has(model.id) && (role === 'embedder' || role === 'both')
+  })
+  const needsModelSetup = !readyChatModel || !readyEmbeddingModel
 
   useEffect(() => {
     if (!hasMountedMessagesRef.current) {
@@ -2125,6 +2154,137 @@ function ChatScreen({
     void submitPrompt(suggestion)
   }
 
+  function modelByCatalogItem(catalogModel: ModelCatalogItem) {
+    return models.find((model) => normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(catalogModel.filename))
+  }
+
+  function setupProgressLine(progress?: ModelDownloadProgress) {
+    if (!progress) {
+      return undefined
+    }
+
+    const received = formatBytes(progress.bytesReceived)
+    const total = progress.bytesTotal ? formatBytes(progress.bytesTotal) : 'unknown'
+    const speed = progress.speedBytesPerSecond ? ` · ${formatBytes(progress.speedBytesPerSecond)}/s` : ''
+    return `${progress.percent}% · ${received} of ${total}${speed}`
+  }
+
+  function renderSetupDownloadProgress(progress?: ModelDownloadProgress) {
+    if (!progress) {
+      return null
+    }
+
+    return (
+      <>
+        <div className="model-download-progress" aria-label={`Download progress ${progress.percent}%`}>
+          <span style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} />
+        </div>
+        <small>{setupProgressLine(progress)}</small>
+        {progress.error && <small className="model-download-error">{progress.error}</small>}
+      </>
+    )
+  }
+
+  function renderChatSetupAction(catalogModel: ModelCatalogItem | undefined, readyModel: LocalModel | undefined) {
+    if (readyModel) {
+      return (
+        <span className="chat-setup-status is-ready">
+          <Check size={16} aria-hidden="true" />
+          <span>Ready</span>
+        </span>
+      )
+    }
+
+    if (!catalogModel) {
+      return (
+        <span className="chat-setup-status">
+          <span>Unavailable</span>
+        </span>
+      )
+    }
+
+    const installedModel = modelByCatalogItem(catalogModel)
+    const filename = installedModel ? modelFilename(installedModel) : catalogModel.filename
+
+    if (installedModel?.status === 'downloading') {
+      return (
+        <div className="chat-setup-action">
+          <button
+            className="model-action-button"
+            type="button"
+            onClick={() => filename && onCancelModelDownload(filename)}
+            disabled={!filename}
+          >
+            <span>Cancel</span>
+          </button>
+          {renderSetupDownloadProgress(installedModel.download)}
+        </div>
+      )
+    }
+
+    if (installedModel?.status === 'incomplete' || installedModel?.status === 'downloadError') {
+      return (
+        <div className="chat-setup-action">
+          <button className="model-action-button is-download" type="button" onClick={() => onDownloadModel(catalogModel)}>
+            <RefreshCw size={16} aria-hidden="true" />
+            <span>Resume</span>
+          </button>
+          {renderSetupDownloadProgress(installedModel.download)}
+        </div>
+      )
+    }
+
+    return (
+      <button className="model-action-button is-download" type="button" onClick={() => onDownloadModel(catalogModel)}>
+        <DownloadIcon size={16} aria-hidden="true" />
+        <span>Download</span>
+      </button>
+    )
+  }
+
+  function renderChatSetupCard() {
+    if (!needsModelSetup) {
+      return null
+    }
+
+    return (
+      <section className="chat-setup-card" aria-label="Model setup">
+        <div className="chat-setup-heading">
+          <p className="section-kicker">First setup</p>
+          <h2>Set up chat and embedding models</h2>
+          <p>Download the recommended local pair to study offline, or add cloud-based models from Models.</p>
+        </div>
+        <div className="chat-setup-steps">
+          <div className="chat-setup-step">
+            <div className={`chat-setup-icon ${readyChatModel ? 'is-ready' : ''}`}>
+              {readyChatModel ? <Check size={18} aria-hidden="true" /> : <MessageSquare size={18} aria-hidden="true" />}
+            </div>
+            <div className="chat-setup-copy">
+              <strong>Chat model</strong>
+              <span>{readyChatModel ? displayModelName(readyChatModel) : recommendedChatModel?.name ?? 'Recommended local chat model'}</span>
+            </div>
+            {renderChatSetupAction(recommendedChatModel, readyChatModel)}
+          </div>
+
+          <div className="chat-setup-step">
+            <div className={`chat-setup-icon ${readyEmbeddingModel ? 'is-ready' : ''}`}>
+              {readyEmbeddingModel ? <Check size={18} aria-hidden="true" /> : <Database size={18} aria-hidden="true" />}
+            </div>
+            <div className="chat-setup-copy">
+              <strong>Embedder</strong>
+              <span>
+                {readyEmbeddingModel
+                  ? displayModelName(readyEmbeddingModel)
+                  : recommendedEmbeddingModel?.name ?? 'Recommended local embedder'}
+              </span>
+            </div>
+            {renderChatSetupAction(recommendedEmbeddingModel, readyEmbeddingModel)}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   async function handleOpenSource(source: ChatSource) {
     setSourceTrayError(null)
 
@@ -2258,11 +2418,14 @@ function ChatScreen({
         return
       }
 
+      const recommendedName = recommendedLocalModelName('llama-3-8b-instruct', 'Llama 3 8B Instruct')
       const assistantMessage: ChatMessage = {
         id: createId('assistant'),
         role: 'assistant',
-        text:
-          'I could not reach the local engine service yet. The app kept your message, and you can try again after the engine is configured.',
+        text: `I could not complete the chat request. ${readableErrorMessage(
+          error,
+          `Add a local or cloud-based chat model before chatting. Suggested local chat model: ${recommendedName}.`
+        )}`,
         sources: []
       }
 
@@ -2383,7 +2546,7 @@ function ChatScreen({
         <div className="chat-body">
           <div className="message-list">
             {activeConversation.messages.length === 0 && !isPending ? (
-              null
+              renderChatSetupCard()
             ) : (
               activeConversation.messages.map((message) =>
                 message.role === 'user' ? (
@@ -2436,7 +2599,7 @@ function ChatScreen({
                 disabled={Boolean(pendingConversationId) || !selectedModel}
                 ref={composerInputRef}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={selectedModel ? 'Ask about your course materials...' : 'Download a chat model to start...'}
+                placeholder={selectedModel ? 'Ask about your course materials...' : 'Add or connect a chat model to start...'}
                 value={draft}
               />
               <button
@@ -3598,7 +3761,7 @@ function LibraryScreen({
                   {displayModelName(model)}
                 </option>
               ))}
-              {embeddingModels.length === 0 && <option value="">No embedder models installed</option>}
+              {embeddingModels.length === 0 && <option value="">No embedder configured</option>}
             </select>
           </label>
 
@@ -3661,7 +3824,12 @@ function LibraryScreen({
 
           {importStatus === 'error' && (
             <p className="inline-error">
-              {embeddingModels.length === 0 ? 'Download an embedder model before creating a collection.' : 'Choose a readable folder first.'}
+              {embeddingModels.length === 0
+                ? `Add a local or cloud-based embedder before creating a collection. Suggested local embedder: ${recommendedLocalModelName(
+                    'nomic-embed-text-v1-5',
+                    'Nomic Embed Text v1.5'
+                  )}.`
+                : 'Choose a readable folder first.'}
             </p>
           )}
 
@@ -4698,7 +4866,7 @@ function ModelsScreen({
           <>
             <p className="model-explore-copy">
               {models.length === 0
-                ? 'Download one chat model and one embedder model to start. Choose smaller models for a quicker first run.'
+                ? 'Download the recommended local pair below, or use Remote Providers to connect cloud-based chat and embedding models.'
                 : 'These local chat and embedder models have been selected for TokenSmith. Download only models that fit in available memory.'}
             </p>
             {models.length > 0 && (
@@ -4761,7 +4929,7 @@ function ModelsScreen({
       {installedModels.length === 0 && (
         <div className="model-empty-state">
           <h2>No Models Installed</h2>
-          <p>Add a chat model to answer questions, or an embedder model to index collections.</p>
+          <p>Add or connect a chat model for answers and an embedder model for collection search.</p>
         </div>
       )}
     </div>
@@ -4894,7 +5062,7 @@ function SettingsScreen({
                   options={
                     generatorModels.length > 0
                       ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                      : [{ label: 'No chat models installed', value: '' }]
+                      : [{ label: 'No chat model configured', value: '' }]
                   }
                 />
               </SettingsRow>
@@ -4985,7 +5153,7 @@ function SettingsScreen({
                 options={
                   generatorModels.length > 0
                     ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                    : [{ label: 'No chat models installed', value: '' }]
+                    : [{ label: 'No chat model configured', value: '' }]
                 }
               />
             </div>
@@ -5167,8 +5335,8 @@ function SettingsScreen({
               </>
             ) : (
               <div className="model-empty-state">
-                <h2>No Chat Model Installed</h2>
-                <p>Download a chat model before changing model-specific prompts and generation settings.</p>
+                <h2>No Chat Model Configured</h2>
+                <p>Add a local or cloud-based chat model before changing model-specific prompts and generation settings.</p>
               </div>
             )}
           </>

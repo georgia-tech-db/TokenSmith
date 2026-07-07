@@ -184,8 +184,11 @@ class EngineError(Exception):
     pass
 
 
-def env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def env_int(name: str, default: int) -> int:
@@ -1278,10 +1281,10 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
 def llama_embedder_config() -> Dict[str, Any]:
     return {
         "n_ctx": env_int("TOKENSMITH_EMBED_N_CTX", 512),
-        "n_batch": env_int("TOKENSMITH_EMBED_N_BATCH", 64),
-        "n_threads": env_int("TOKENSMITH_EMBED_N_THREADS", 2),
-        "n_gpu_layers": env_int("TOKENSMITH_EMBED_N_GPU_LAYERS", 0),
-        "use_mmap": env_flag("TOKENSMITH_EMBED_USE_MMAP"),
+        "n_batch": env_int("TOKENSMITH_EMBED_N_BATCH", 128),
+        "n_threads": env_int("TOKENSMITH_EMBED_N_THREADS", 4),
+        "n_gpu_layers": env_int("TOKENSMITH_EMBED_N_GPU_LAYERS", -1),
+        "use_mmap": env_flag("TOKENSMITH_EMBED_USE_MMAP", True),
     }
 
 

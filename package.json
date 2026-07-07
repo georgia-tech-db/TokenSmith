@@ -10,7 +10,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "setup:python-dev": "node scripts/python-dev.mjs setup",
+    "setup:python-runtime": "node scripts/python-dev.mjs setup",
     "test:unit:ts": "node --test tests/unit/typescript/*.test.mjs",
     "test:unit:python": "node scripts/python-dev.mjs unit",
     "test:coverage:ts": "c8 node --test tests/unit/typescript/*.test.mjs",

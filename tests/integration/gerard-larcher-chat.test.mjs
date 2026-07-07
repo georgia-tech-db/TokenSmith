@@ -1,47 +1,58 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { once } from 'node:events'
 
 const rootDir = resolve(new URL('../..', import.meta.url).pathname)
 const workerPath = join(rootDir, 'python_engine', 'tokensmith_engine.py')
-const bundledPythonPath = join(rootDir, 'app_runtime', 'python', 'bin', 'python')
-const venvPythonPath = process.platform === 'win32'
-  ? join(rootDir, '.venv', 'Scripts', 'python.exe')
-  : join(rootDir, '.venv', 'bin', 'python')
-const pythonPath =
-  process.env.TOKENSMITH_TEST_PYTHON ??
-  process.env.TOKENSMITH_PYTHON ??
-  (existsSync(venvPythonPath) ? venvPythonPath : null) ??
-  (existsSync(bundledPythonPath) ? bundledPythonPath : 'python3')
+const bundledPythonPath = process.platform === 'win32'
+  ? join(rootDir, 'app_runtime', 'python', 'python.exe')
+  : join(rootDir, 'app_runtime', 'python', 'bin', 'python')
+if (!existsSync(bundledPythonPath)) {
+  throw new Error('TokenSmith app_runtime/python was not found. Run npm run setup:python-runtime first.')
+}
+const pythonPath = bundledPythonPath
 const explicitPdfPath = process.env.TOKENSMITH_GERARD_PDF_PATH
 const pdfPath = explicitPdfPath ?? '/Users/aj/Desktop/Gérard Larcher - Wikipedia.pdf'
 const embeddingPath =
   process.env.TOKENSMITH_TEST_EMBEDDING_MODEL_PATH ??
   join(rootDir, 'bundled_models', 'embedders', 'nomic-embed-text-v1.5.f16.gguf')
-const requireGgufIntegration = process.env.TOKENSMITH_REQUIRE_GGUF_INTEGRATION === '1'
+const requireGgufIntegration = process.argv.includes('--require-gguf')
 const configuredTimeoutMs = Number(process.env.TOKENSMITH_TEST_WORKER_TIMEOUT_MS ?? (requireGgufIntegration ? 900_000 : 180_000))
 const workerTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0 ? configuredTimeoutMs : 180_000
 
 function appPythonEnv() {
-  if (pythonPath !== bundledPythonPath) {
+  if (process.platform === 'win32') {
     return {
       PYTHONIOENCODING: 'utf-8'
     }
   }
 
-  const runtimeRoot = dirname(dirname(pythonPath))
+  const runtimeRoot = dirname(dirname(resolve(pythonPath)))
   const libRoot = join(runtimeRoot, 'lib')
-  const pythonLib = join(libRoot, 'python3.10')
+  const pythonLibName = existsSync(libRoot)
+    ? readdirSync(libRoot).find((name) => /^python3\.\d+$/.test(name))
+    : undefined
+  const pythonLib = pythonLibName ? join(libRoot, pythonLibName) : join(libRoot, 'python3.10')
   const sitePackages = join(pythonLib, 'site-packages')
+  const pythonPathParts = []
+  const hasStdlib = existsSync(join(pythonLib, 'encodings', '__init__.py'))
+
+  if (hasStdlib) {
+    pythonPathParts.push(pythonLib)
+  }
+  if (existsSync(sitePackages)) {
+    pythonPathParts.push(sitePackages)
+  }
 
   return {
-    PYTHONHOME: runtimeRoot,
-    PYTHONPATH: `${pythonLib}:${sitePackages}`,
+    ...(hasStdlib ? { PYTHONHOME: runtimeRoot } : {}),
+    ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {}),
     DYLD_FALLBACK_LIBRARY_PATH: libRoot,
+    LD_LIBRARY_PATH: libRoot,
     PYTHONIOENCODING: 'utf-8'
   }
 }

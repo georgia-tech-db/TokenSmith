@@ -1,6 +1,7 @@
 import io
 import json
 import hashlib
+import os
 import struct
 import subprocess
 import sys
@@ -728,6 +729,36 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         finally:
             engine.get_llama_embedder_worker = original_get_worker
             engine._EMBEDDER_CACHE = original_cache
+
+    def test_llama_embedder_config_matches_local_runtime_defaults(self):
+        keys = {
+            "TOKENSMITH_EMBED_N_CTX",
+            "TOKENSMITH_EMBED_N_BATCH",
+            "TOKENSMITH_EMBED_N_THREADS",
+            "TOKENSMITH_EMBED_N_GPU_LAYERS",
+            "TOKENSMITH_EMBED_USE_MMAP",
+        }
+        original_env = {key: os.environ.get(key) for key in keys}
+        try:
+            for key in keys:
+                os.environ.pop(key, None)
+
+            self.assertEqual(
+                engine.llama_embedder_config(),
+                {
+                    "n_ctx": 512,
+                    "n_batch": 128,
+                    "n_threads": 4,
+                    "n_gpu_layers": -1,
+                    "use_mmap": True,
+                },
+            )
+        finally:
+            for key, value in original_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     def test_create_llama_embedder_and_resolve_provider_branches(self):
         class FakeLlama:

@@ -17,6 +17,7 @@ Student-focused desktop app for local, source-backed study chat with TokenSmith'
 
 - `npm run dev` starts the Electron app with the Vite renderer.
 - `npm run typecheck` checks the Electron, preload, shared, and React code.
+- `npm run setup:python-runtime` builds the local `app_runtime/python` bundle used by `npm run dev` and packaging.
 - `npm test` runs TypeScript unit tests, Python unit tests, and the toy-PDF integration test.
 - `npm run coverage` runs c8 for TypeScript unit coverage and coverage.py for the Python engine.
 - `npm run build` creates production bundles.
@@ -34,7 +35,7 @@ npm run package:mac
 
 The script builds the app, creates `release/mac/TokenSmith.app`, ad-hoc signs it when possible, and writes a versioned DMG named from `package.json`, for example `TokenSmith-0.1.0-mac-arm64.dmg`.
 
-The DMG includes the Electron app and Python worker. Students still need a working `python3` available on their Mac until a bundled Python runtime is added.
+The DMG includes the Electron app, Python worker, and bundled `app_runtime/python` runtime produced during packaging.
 
 ## Student Windows Package
 
@@ -64,12 +65,10 @@ Electron starts `python_engine/tokensmith_engine.py` as a local worker and speak
 - `search`
 - `chat`
 
-Set `TOKENSMITH_PYTHON=/path/to/python` before starting the app to choose a specific Python runtime.
-
-The Python test scripts pick the first usable runtime from `TOKENSMITH_TEST_PYTHON`, `TOKENSMITH_PYTHON`, `PYTHON`, `python`, `python3`, and `.venv/bin/python`.
-
-For Python coverage tooling in a fresh development environment, install the local dev virtualenv:
+For local development, build the same `app_runtime/python` layout used by GitHub Actions:
 
 ```sh
-npm run setup:python-dev
+npm run setup:python-runtime
 ```
+
+The setup script follows the GitHub Actions shape: it runs `python -m pip install -r requirements-runtime.txt`, computes that Python root, and copies it into `app_runtime/python`. Local dev, tests, and packaging then use `app_runtime/python` directly.

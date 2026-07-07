@@ -119,10 +119,6 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
 }
 
 function getPythonExecutable(): string {
-  if (process.env.TOKENSMITH_PYTHON) {
-    return process.env.TOKENSMITH_PYTHON
-  }
-
   const runtimeCandidates =
     process.platform === 'win32'
       ? [
@@ -142,7 +138,7 @@ function getPythonExecutable(): string {
     }
   }
 
-  return process.platform === 'win32' ? 'python' : 'python3'
+  throw new Error('The bundled TokenSmith Python runtime was not found. Run npm run setup:python-runtime before starting the app locally.')
 }
 
 function getWorkerPath(): string {

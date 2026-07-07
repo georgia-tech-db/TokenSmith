@@ -132,7 +132,7 @@ export const tokenSmithTunedModels: ModelCatalogItem[] = [
   }
 ]
 
-export const firstRunRecommendedModelIds = ['llama-3-2-3b-instruct', 'bge-small-en-v1-5-q8'] as const
+export const firstRunRecommendedModelIds = ['llama-3-8b-instruct', 'nomic-embed-text-v1-5'] as const
 
 export function normalizeModelFilename(filename?: string): string | undefined {
   return filename?.toLowerCase()
