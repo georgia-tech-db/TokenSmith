@@ -61,6 +61,7 @@ interface OllamaPullStreamMessage {
 interface ActiveOllamaPull {
   baseUrl: string
   controller: AbortController
+  latestProgress?: OllamaPullProgress
   model: string
   reader?: ReadableStreamDefaultReader<Uint8Array>
 }
@@ -424,6 +425,7 @@ export async function pullOllamaModel(
 
   const emit = (progress: OllamaPullProgress) => {
     latestProgress = progress
+    activePull.latestProgress = progress
     emitPullProgress(progress)
   }
 
@@ -578,12 +580,18 @@ export async function cancelOllamaPullModel(model: string, baseUrl = defaultOlla
   const activePull = activeOllamaPullFor(model, baseUrl)
 
   if (activePull) {
+    const latestProgress = activePull.latestProgress ?? {
+      model,
+      status: 'starting' as const,
+      percent: 0,
+      message: 'Starting download'
+    }
     activePull.controller.abort()
     await activePull.reader?.cancel().catch(() => undefined)
     emitPullProgress({
-      model,
+      ...latestProgress,
+      model: latestProgress.model || model,
       status: 'incomplete',
-      percent: 0,
       message: 'Download paused'
     })
     return

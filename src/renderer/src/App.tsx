@@ -2703,6 +2703,17 @@ function ChatScreen({
     }
   }
 
+  function pausedOllamaProgress(modelName: string, current: OllamaPullProgress | null): OllamaPullProgress {
+    return current && ollamaModelNameMatches(current.model, modelName)
+      ? { ...current, status: 'incomplete', message: 'Download paused' }
+      : {
+          model: modelName,
+          status: 'incomplete',
+          percent: 0,
+          message: 'Download paused'
+        }
+  }
+
   async function handlePullOllamaChatModel() {
     if (!window.tokensmith?.pullOllamaModel) {
       setOllamaSetupError('Ollama setup is not available in this build.')
@@ -2725,12 +2736,7 @@ function ChatScreen({
       if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress({
-          model: recommendedOllamaChatModel,
-          status: 'incomplete',
-          percent: 0,
-          message: 'Download paused'
-        })
+        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaChatModel, current))
         return
       }
       onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl)
@@ -2741,16 +2747,7 @@ function ChatScreen({
       if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) =>
-          current && ollamaModelNameMatches(current.model, recommendedOllamaChatModel)
-            ? { ...current, status: 'incomplete', message: 'Download paused' }
-            : {
-                model: recommendedOllamaChatModel,
-                status: 'incomplete',
-                percent: 0,
-                message: 'Download paused'
-              }
-        )
+        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaChatModel, current))
         return
       }
       setOllamaSetupPhase('error')
@@ -2781,12 +2778,7 @@ function ChatScreen({
       if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaEmbeddingModel))) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress({
-          model: recommendedOllamaEmbeddingModel,
-          status: 'incomplete',
-          percent: 0,
-          message: 'Download paused'
-        })
+        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaEmbeddingModel, current))
         return
       }
       onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl)
@@ -2797,16 +2789,7 @@ function ChatScreen({
       if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) =>
-          current && ollamaModelNameMatches(current.model, recommendedOllamaEmbeddingModel)
-            ? { ...current, status: 'incomplete', message: 'Download paused' }
-            : {
-                model: recommendedOllamaEmbeddingModel,
-                status: 'incomplete',
-                percent: 0,
-                message: 'Download paused'
-              }
-        )
+        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaEmbeddingModel, current))
         return
       }
       setOllamaSetupPhase('error')
@@ -2850,16 +2833,7 @@ function ChatScreen({
     try {
       await window.tokensmith.cancelOllamaPull(modelName, ollamaStatus?.baseUrl)
       setOllamaPullingModel(null)
-      setOllamaPullProgress((current) =>
-        current && ollamaModelNameMatches(current.model, modelName)
-          ? { ...current, status: 'incomplete', message: 'Download paused' }
-          : {
-              model: modelName,
-              status: 'incomplete',
-              percent: 0,
-              message: 'Download paused'
-            }
-      )
+      setOllamaPullProgress((current) => pausedOllamaProgress(modelName, current))
     } catch (error) {
       setOllamaSetupPhase('error')
       setOllamaSetupError(readableErrorMessage(error, 'Could not pause the download.'))
