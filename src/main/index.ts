@@ -22,6 +22,8 @@ import {
 import { searchHuggingFaceModels } from './models/huggingface-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
 import {
+  cancelOllamaPullModel,
+  deleteOllamaModel,
   getOllamaStatus,
   openOllamaApp,
   openOllamaDownloadPage,
@@ -481,7 +483,9 @@ app.whenReady().then(() => {
   ipcMain.handle('ollama:open-download-page', () => openOllamaDownloadPage())
   ipcMain.handle('ollama:open-app', () => openOllamaApp())
   ipcMain.handle('ollama:start-service', () => startOllamaService())
-  ipcMain.handle('ollama:pull-model', (_event, modelName: string) => pullOllamaModel(modelName))
+  ipcMain.handle('ollama:pull-model', (_event, modelName: string, baseUrl?: string) => pullOllamaModel(modelName, baseUrl))
+  ipcMain.handle('ollama:cancel-pull', (_event, modelName: string, baseUrl?: string) => cancelOllamaPullModel(modelName, baseUrl))
+  ipcMain.handle('ollama:delete-model', (_event, modelName: string, baseUrl?: string) => deleteOllamaModel(modelName, baseUrl))
   ipcMain.handle('models:pick-model', (_event, role?: LocalModelRole) => pickModel(role))
   ipcMain.handle('models:list-remote-provider-models', (_event, apiKey: string, baseUrl: string, role?: LocalModelRole) =>
     listOpenAiCompatibleModels(apiKey, baseUrl, role)
@@ -493,7 +497,12 @@ app.whenReady().then(() => {
     downloadModelFromCatalog(model, modelId)
   )
   ipcMain.handle('models:cancel-download', (_event, filename: string) => cancelModelDownload(filename))
-  ipcMain.handle('models:remove-model', (_event, model: LocalModel) => removeDownloadedModel(model))
+  ipcMain.handle('models:remove-model', (_event, model: LocalModel) => {
+    if (model.engine === 'ollama' || model.source === 'ollama') {
+      return deleteOllamaModel(model.ollamaModelName ?? model.name, model.ollamaBaseUrl)
+    }
+    return removeDownloadedModel(model)
+  })
 
   createMainWindow()
 

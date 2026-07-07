@@ -8,6 +8,7 @@ import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
   recommendedOllamaEmbeddingModel,
+  type OllamaDeleteResult,
   type OllamaModelInfo,
   type OllamaOpenResult,
   type OllamaPullProgress,
@@ -56,6 +57,15 @@ interface OllamaPullStreamMessage {
   completed?: number
   error?: string
 }
+
+interface ActiveOllamaPull {
+  baseUrl: string
+  controller: AbortController
+  model: string
+  reader?: ReadableStreamDefaultReader<Uint8Array>
+}
+
+const activeOllamaPulls = new Map<string, ActiveOllamaPull>()
 
 function normalizeOllamaBaseUrl(baseUrl = defaultOllamaBaseUrl): string {
   let normalized = baseUrl.trim().replace(/\/+$/, '')
@@ -121,14 +131,24 @@ function emitPullProgress(progress: OllamaPullProgress): void {
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
   const controller = new AbortController()
+  const inputSignal = init.signal
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const abortFromInput = () => controller.abort(inputSignal?.reason)
+
+  if (inputSignal?.aborted) {
+    controller.abort(inputSignal.reason)
+  } else {
+    inputSignal?.addEventListener('abort', abortFromInput, { once: true })
+  }
 
   try {
+    const { signal: _signal, ...fetchInit } = init
     return await fetch(url, {
-      ...init,
+      ...fetchInit,
       signal: controller.signal
     })
   } finally {
+    inputSignal?.removeEventListener('abort', abortFromInput)
     clearTimeout(timeout)
   }
 }
@@ -141,6 +161,10 @@ async function responseErrorDetail(response: Response): Promise<string> {
   } catch {
     return ''
   }
+}
+
+function isMissingOllamaModelError(status: number, detail: string): boolean {
+  return status === 404 || /file does not exist|model.*not found|not found|does not exist/i.test(detail)
 }
 
 function normalizeModelInfo(model: NonNullable<OllamaTagsResponse['models']>[number]): OllamaModelInfo | undefined {
@@ -165,6 +189,86 @@ function normalizeModelInfo(model: NonNullable<OllamaTagsResponse['models']>[num
 
 function normalizedModelName(name: string): string {
   return name.trim().toLowerCase().replace(/:latest$/, '')
+}
+
+function ollamaPullKey(model: string, baseUrl = defaultOllamaBaseUrl): string {
+  return `${normalizeOllamaBaseUrl(baseUrl)}::${normalizedModelName(model)}`
+}
+
+function activeOllamaPullFor(model: string, baseUrl = defaultOllamaBaseUrl): ActiveOllamaPull | undefined {
+  const exactPull = activeOllamaPulls.get(ollamaPullKey(model, baseUrl))
+  if (exactPull) {
+    return exactPull
+  }
+
+  const requestedModel = normalizedModelName(model)
+  return Array.from(activeOllamaPulls.values()).find((pull) => normalizedModelName(pull.model) === requestedModel)
+}
+
+function runOllamaCli(args: string[], timeoutMs = 120_000): Promise<string> {
+  const candidates = ollamaCliCandidates()
+
+  return new Promise((resolve, reject) => {
+    let candidateIndex = 0
+    const errors: string[] = []
+
+    const tryNextCandidate = () => {
+      const cliPath = candidates[candidateIndex]
+      candidateIndex += 1
+
+      if (!cliPath) {
+        reject(new Error(errors.join('\n') || 'The Ollama command was not found.'))
+        return
+      }
+
+      const child = spawn(cliPath, args, {
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      let stdout = ''
+      let stderr = ''
+      const timeout = setTimeout(() => {
+        child.kill('SIGTERM')
+      }, timeoutMs)
+
+      child.stdout?.on('data', (chunk) => {
+        stdout += chunk.toString()
+      })
+      child.stderr?.on('data', (chunk) => {
+        stderr += chunk.toString()
+      })
+      child.once('error', (error) => {
+        clearTimeout(timeout)
+        errors.push(`${cliPath}: ${error.message}`)
+        tryNextCandidate()
+      })
+      child.once('close', (code, signal) => {
+        clearTimeout(timeout)
+        if (code === 0) {
+          resolve(stdout.trim())
+          return
+        }
+
+        const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n')
+        errors.push(`${cliPath}: ${detail || `exited with ${signal ?? code}`}`)
+        tryNextCandidate()
+      })
+    }
+
+    tryNextCandidate()
+  })
+}
+
+async function deleteOllamaModelWithCli(model: string): Promise<'removed' | 'missing'> {
+  try {
+    await runOllamaCli(['rm', model])
+    return 'removed'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (isMissingOllamaModelError(404, message)) {
+      return 'missing'
+    }
+    throw error
+  }
 }
 
 export function ollamaModelMatches(installedModel: OllamaModelInfo, requestedModel: string): boolean {
@@ -299,6 +403,17 @@ export async function pullOllamaModel(
   baseUrl = defaultOllamaBaseUrl
 ): Promise<OllamaPullResult> {
   const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl)
+  const key = ollamaPullKey(model, normalizedBaseUrl)
+  if (activeOllamaPulls.has(key)) {
+    throw new Error('This Ollama model is already downloading.')
+  }
+
+  const controller = new AbortController()
+  const activePull: ActiveOllamaPull = {
+    baseUrl: normalizedBaseUrl,
+    controller,
+    model
+  }
   let latestStatus = 'starting'
   let latestProgress: OllamaPullProgress = {
     model,
@@ -313,6 +428,7 @@ export async function pullOllamaModel(
   }
 
   emit(latestProgress)
+  activeOllamaPulls.set(key, activePull)
 
   try {
     const response = await fetchWithTimeout(`${ollamaApiBaseUrl(normalizedBaseUrl)}/pull`, {
@@ -321,7 +437,8 @@ export async function pullOllamaModel(
         'Content-Type': 'application/json',
         Accept: 'application/x-ndjson, application/json'
       },
-      body: JSON.stringify({ model, stream: true })
+      body: JSON.stringify({ model, stream: true }),
+      signal: controller.signal
     }, 60 * 60_000)
 
     if (!response.ok) {
@@ -341,8 +458,10 @@ export async function pullOllamaModel(
     }
 
     const reader = response.body.getReader()
+    activePull.reader = reader
     const decoder = new TextDecoder()
     let buffer = ''
+    const layerProgress = new Map<string, { completed: number; total: number }>()
 
     const processLine = (line: string) => {
       const trimmed = line.trim()
@@ -356,8 +475,23 @@ export async function pullOllamaModel(
       }
 
       latestStatus = payload.status || latestStatus
-      const completed = Number.isFinite(payload.completed) ? payload.completed : latestProgress.completed
-      const total = Number.isFinite(payload.total) ? payload.total : latestProgress.total
+      let completed = latestProgress.completed
+      let total = latestProgress.total
+
+      if (typeof payload.completed === 'number' && typeof payload.total === 'number' && Number.isFinite(payload.completed) && Number.isFinite(payload.total)) {
+        layerProgress.set(payload.digest || latestStatus, {
+          completed: payload.completed,
+          total: payload.total
+        })
+
+        completed = 0
+        total = 0
+        for (const progress of layerProgress.values()) {
+          completed += progress.completed
+          total += progress.total
+        }
+      }
+
       const percent = total ? pullProgressPercent(completed, total) : latestProgress.percent
       const isComplete = latestStatus.toLowerCase() === 'success'
 
@@ -389,6 +523,20 @@ export async function pullOllamaModel(
     buffer += decoder.decode()
     processLine(buffer)
 
+    if (controller.signal.aborted) {
+      throw new Error('Download paused.')
+    }
+
+    if (latestStatus.toLowerCase() !== 'success') {
+      emit({
+        ...latestProgress,
+        model,
+        status: 'incomplete',
+        message: latestStatus === 'starting' ? 'Download did not complete' : latestStatus
+      })
+      throw new Error('Ollama model download did not complete.')
+    }
+
     emit({
       ...latestProgress,
       model,
@@ -402,6 +550,16 @@ export async function pullOllamaModel(
       status: latestStatus
     }
   } catch (error) {
+    if (controller.signal.aborted) {
+      emit({
+        ...latestProgress,
+        model,
+        status: 'incomplete',
+        message: 'Download paused'
+      })
+      throw new Error('Download paused.')
+    }
+
     const message = error instanceof Error ? error.message : 'Ollama model download failed.'
     emit({
       ...latestProgress,
@@ -411,6 +569,92 @@ export async function pullOllamaModel(
       message
     })
     throw error
+  } finally {
+    activeOllamaPulls.delete(key)
+  }
+}
+
+export async function cancelOllamaPullModel(model: string, baseUrl = defaultOllamaBaseUrl): Promise<void> {
+  const activePull = activeOllamaPullFor(model, baseUrl)
+
+  if (activePull) {
+    activePull.controller.abort()
+    await activePull.reader?.cancel().catch(() => undefined)
+    emitPullProgress({
+      model,
+      status: 'incomplete',
+      percent: 0,
+      message: 'Download paused'
+    })
+    return
+  }
+
+  emitPullProgress({
+    model,
+    status: 'incomplete',
+    percent: 0,
+    message: 'Download paused'
+  })
+}
+
+export async function deleteOllamaModel(
+  model: string,
+  baseUrl = defaultOllamaBaseUrl
+): Promise<OllamaDeleteResult> {
+  const normalizedModel = model.trim()
+  if (!normalizedModel) {
+    throw new Error('Ollama model name is required.')
+  }
+
+  await cancelOllamaPullModel(normalizedModel, baseUrl)
+
+  const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl)
+  let response = await fetchWithTimeout(`${ollamaApiBaseUrl(normalizedBaseUrl)}/delete`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({ model: normalizedModel })
+  }, 30_000)
+
+  let deleteStatus: 'removed' | 'missing' = response.status === 404 ? 'missing' : 'removed'
+
+  if (!response.ok && (response.status === 404 || response.status === 405)) {
+    response = await fetchWithTimeout(`${ollamaApiBaseUrl(normalizedBaseUrl)}/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ model: normalizedModel })
+    }, 30_000)
+    deleteStatus = response.status === 404 ? 'missing' : 'removed'
+  }
+
+  if (!response.ok) {
+    const detail = await responseErrorDetail(response)
+    if (isMissingOllamaModelError(response.status, detail)) {
+      deleteStatus = 'missing'
+    } else {
+      try {
+        deleteStatus = await deleteOllamaModelWithCli(normalizedModel)
+      } catch {
+        throw new Error(`Ollama model removal failed with HTTP ${response.status}${detail}.`)
+      }
+    }
+  }
+
+  emitPullProgress({
+    model: normalizedModel,
+    status: 'removed',
+    percent: 0,
+    message: 'Removed'
+  })
+
+  return {
+    model: normalizedModel,
+    status: deleteStatus
   }
 }
 

@@ -37,9 +37,14 @@ export interface OllamaPullResult {
   status: string
 }
 
+export interface OllamaDeleteResult {
+  model: string
+  status: string
+}
+
 export interface OllamaPullProgress {
   model: string
-  status: 'starting' | 'downloading' | 'complete' | 'error'
+  status: 'starting' | 'downloading' | 'complete' | 'incomplete' | 'removed' | 'error'
   percent: number
   completed?: number
   total?: number

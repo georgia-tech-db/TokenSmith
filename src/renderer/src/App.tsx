@@ -43,6 +43,7 @@ import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
   recommendedOllamaEmbeddingModel,
+  type OllamaModelInfo,
   type OllamaPullProgress,
   type OllamaStatus
 } from '@shared/ollama'
@@ -74,6 +75,7 @@ import {
   Library,
   Loader2,
   MessageSquare,
+  Pause,
   Pencil,
   Plus,
   RefreshCw,
@@ -427,7 +429,19 @@ function ollamaModelNameMatches(installedModelName: string, requestedModelName: 
   return installed === requested || installed.startsWith(`${requested}:`)
 }
 
-function createOllamaChatModel(modelName = recommendedOllamaChatModel, baseUrl = defaultOllamaBaseUrl): LocalModel {
+function ollamaModelInfoMatches(modelInfo: OllamaModelInfo, modelName: string) {
+  return [modelInfo.name, modelInfo.model]
+    .filter((name): name is string => Boolean(name))
+    .some((name) => ollamaModelNameMatches(name, modelName))
+}
+
+function createOllamaChatModel(
+  modelName = recommendedOllamaChatModel,
+  baseUrl = defaultOllamaBaseUrl,
+  modelInfo?: OllamaModelInfo,
+  status: LocalModel['status'] = 'ready',
+  download?: ModelDownloadProgress
+): LocalModel {
   const normalizedModelName = modelName.trim() || recommendedOllamaChatModel
 
   return {
@@ -435,21 +449,32 @@ function createOllamaChatModel(modelName = recommendedOllamaChatModel, baseUrl =
     name: `Ollama ${normalizedModelName}`,
     engine: 'ollama',
     role: 'generator',
-    status: 'ready',
+    status,
     source: 'ollama',
+    filename: normalizedModelName,
     ollamaModelName: normalizedModelName,
     ollamaBaseUrl: baseUrl,
-    type: 'Ollama chat',
+    sizeBytes: modelInfo?.size,
+    parameters: modelInfo?.details?.parameterSize,
+    quant: modelInfo?.details?.quantizationLevel,
+    type: modelInfo?.details?.family ? `Ollama ${modelInfo.details.family}` : 'Ollama chat',
     description: [
       'Local chat model served by Ollama',
       'Used for answers after TokenSmith retrieves enabled source excerpts',
       'Works with enabled PDFs prepared by TokenSmith'
     ],
+    download,
     addedAt: new Date().toISOString()
   }
 }
 
-function createOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, baseUrl = defaultOllamaBaseUrl): LocalModel {
+function createOllamaEmbedderModel(
+  modelName = recommendedOllamaEmbeddingModel,
+  baseUrl = defaultOllamaBaseUrl,
+  modelInfo?: OllamaModelInfo,
+  status: LocalModel['status'] = 'ready',
+  download?: ModelDownloadProgress
+): LocalModel {
   const normalizedModelName = modelName.trim() || recommendedOllamaEmbeddingModel
 
   return {
@@ -457,18 +482,73 @@ function createOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, 
     name: `Ollama ${normalizedModelName}`,
     engine: 'ollama',
     role: 'embedder',
-    status: 'ready',
+    status,
     source: 'ollama',
+    filename: normalizedModelName,
     ollamaModelName: normalizedModelName,
     ollamaBaseUrl: baseUrl,
-    type: 'Ollama embedder',
+    sizeBytes: modelInfo?.size,
+    parameters: modelInfo?.details?.parameterSize,
+    quant: modelInfo?.details?.quantizationLevel,
+    type: modelInfo?.details?.family ? `Ollama ${modelInfo.details.family}` : 'Ollama embedder',
     description: [
       'Local embedding model served by Ollama',
       'Prepares PDFs for search',
       'Embeds questions before source retrieval',
       'Collections record the embedder used during indexing'
     ],
+    download,
     addedAt: new Date().toISOString()
+  }
+}
+
+function createOllamaModelForRole(
+  modelName: string,
+  role: LocalModelRole,
+  baseUrl = defaultOllamaBaseUrl,
+  modelInfo?: OllamaModelInfo,
+  status: LocalModel['status'] = 'ready',
+  download?: ModelDownloadProgress
+) {
+  return role === 'embedder'
+    ? createOllamaEmbedderModel(modelName, baseUrl, modelInfo, status, download)
+    : createOllamaChatModel(modelName, baseUrl, modelInfo, status, download)
+}
+
+function inferOllamaModelRole(modelInfo: OllamaModelInfo): LocalModelRole {
+  const label = `${modelInfo.name} ${modelInfo.model ?? ''} ${modelInfo.details?.family ?? ''}`.toLowerCase()
+  return /\b(embed|embedding|nomic|bge|minilm|e5)\b/.test(label) ? 'embedder' : 'generator'
+}
+
+function ollamaProgressStatus(progress: OllamaPullProgress): ModelDownloadProgress['status'] {
+  if (progress.status === 'complete') {
+    return 'complete'
+  }
+  if (progress.status === 'incomplete') {
+    return 'incomplete'
+  }
+  if (progress.status === 'removed') {
+    return 'removed'
+  }
+  if (progress.status === 'error') {
+    return 'error'
+  }
+  return 'downloading'
+}
+
+function ollamaProgressToModelDownloadProgress(
+  progress: OllamaPullProgress,
+  modelId = `ollama:${progress.model.trim().toLowerCase()}`
+): ModelDownloadProgress {
+  return {
+    modelId,
+    filename: progress.model,
+    status: ollamaProgressStatus(progress),
+    percent: Math.max(0, Math.min(100, Math.round(progress.percent ?? 0))),
+    bytesReceived: progress.completed ?? 0,
+    bytesTotal: progress.total,
+    message: progress.message,
+    error: progress.error
   }
 }
 
@@ -901,6 +981,14 @@ function readableErrorMessage(error: unknown, fallback: string) {
   return message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, '').trim() || fallback
 }
 
+function readableOllamaError(error: unknown, fallback = 'Could not reach Ollama.') {
+  const message = readableErrorMessage(error, fallback)
+  if (/fetch failed|failed to fetch|econnrefused|connection refused|connect.*11434/i.test(message)) {
+    return 'Ollama is not running yet.'
+  }
+  return message
+}
+
 function cleanMaterialTitle(title?: string) {
   return (title ?? '')
     .replace(/\.(pdf|md|markdown|txt)$/i, '')
@@ -1048,7 +1136,13 @@ function mergeModelDownloadProgress(model: LocalModel, progress: ModelDownloadPr
 }
 
 function modelMatchesDownload(model: LocalModel, progress: ModelDownloadProgress) {
-  return model.id === progress.modelId || normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(progress.filename)
+  return (
+    model.id === progress.modelId ||
+    normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(progress.filename) ||
+    (model.engine === 'ollama' &&
+      typeof model.ollamaModelName === 'string' &&
+      ollamaModelNameMatches(model.ollamaModelName, progress.filename))
+  )
 }
 
 export function App() {
@@ -1227,6 +1321,51 @@ export function App() {
             }
           })
         }
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!window.tokensmith?.onOllamaPullProgress) {
+      return undefined
+    }
+
+    return window.tokensmith.onOllamaPullProgress((progress) => {
+      const download = ollamaProgressToModelDownloadProgress(progress)
+      updateAppState((current) => {
+        if (download.status === 'removed') {
+          const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
+          const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
+          const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, download))
+
+          return {
+            ...current,
+            models: remainingModels,
+            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, download)
+              ? firstGeneratorModel(remainingModels)?.id ?? ''
+              : current.selectedModelId,
+            selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, download)
+              ? firstEmbeddingModel(remainingModels)?.id ?? ''
+              : current.selectedEmbeddingModelId
+          }
+        }
+
+        let didUpdate = false
+        const models = current.models.map((model) => {
+          if (!modelMatchesDownload(model, download)) {
+            return model
+          }
+
+          didUpdate = true
+          return mergeModelDownloadProgress(model, {
+            ...download,
+            modelId: model.id,
+            bytesTotal: download.bytesTotal ?? model.download?.bytesTotal ?? model.sizeBytes,
+            bytesReceived: download.bytesReceived || model.download?.bytesReceived || 0
+          })
+        })
+
+        return didUpdate ? { ...current, models } : current
       })
     })
   }, [])
@@ -1555,8 +1694,8 @@ export function App() {
         ...current,
         activeScreen: nextScreen ?? current.activeScreen,
         models: [model, ...existingModels],
-        selectedModelId: shouldSelect && modelCanGenerate(model) ? model.id : current.selectedModelId,
-        selectedEmbeddingModelId: shouldSelect && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
+        selectedModelId: shouldSelect && model.status === 'ready' && modelCanGenerate(model) ? model.id : current.selectedModelId,
+        selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
       }
     })
   }
@@ -1567,6 +1706,131 @@ export function App() {
 
   function installOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, baseUrl = defaultOllamaBaseUrl) {
     upsertModel(createOllamaEmbedderModel(modelName, baseUrl), true, null)
+  }
+
+  async function latestOllamaModelInfo(modelName: string, baseUrl = defaultOllamaBaseUrl) {
+    if (!window.tokensmith?.getOllamaStatus) {
+      return undefined
+    }
+
+    try {
+      const status = await window.tokensmith.getOllamaStatus()
+      return status.models.find((model) => ollamaModelInfoMatches(model, modelName))
+    } catch {
+      return undefined
+    }
+  }
+
+  function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl) {
+    const normalizedModelName = modelName.trim()
+    if (!normalizedModelName || !window.tokensmith?.pullOllamaModel) {
+      return
+    }
+
+    const existingModel = appState.models.find(
+      (model) =>
+        model.engine === 'ollama' &&
+        typeof model.ollamaModelName === 'string' &&
+        ollamaModelNameMatches(model.ollamaModelName, normalizedModelName) &&
+        modelRole(model) === role
+    )
+    const modelId = existingModel?.id ?? (role === 'embedder' ? ollamaEmbedderModelId(normalizedModelName) : ollamaChatModelId(normalizedModelName))
+    const startingProgress: ModelDownloadProgress = {
+      modelId,
+      filename: normalizedModelName,
+      status: 'downloading',
+      percent: existingModel?.download?.percent ?? 0,
+      bytesReceived: existingModel?.download?.bytesReceived ?? 0,
+      bytesTotal: existingModel?.download?.bytesTotal ?? existingModel?.sizeBytes,
+      message: 'Starting download'
+    }
+
+    upsertModel(
+      {
+        ...createOllamaModelForRole(
+          normalizedModelName,
+          role,
+          baseUrl,
+          undefined,
+          'downloading',
+          startingProgress
+        ),
+        id: modelId,
+        addedAt: existingModel?.addedAt ?? new Date().toISOString()
+      },
+      false
+    )
+
+    void window.tokensmith
+      .pullOllamaModel(normalizedModelName, baseUrl)
+      .then(async () => {
+        const modelInfo = await latestOllamaModelInfo(normalizedModelName, baseUrl)
+        if (!modelInfo) {
+          updateAppState((current) => ({
+            ...current,
+            models: current.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    status: 'incomplete',
+                    download: {
+                      ...(model.download ?? startingProgress),
+                      status: 'incomplete',
+                      message: 'Download paused'
+                    }
+                  }
+                : model
+            )
+          }))
+          return
+        }
+        const bytesTotal = modelInfo?.size ?? existingModel?.sizeBytes
+        upsertModel(
+          {
+            ...createOllamaModelForRole(normalizedModelName, role, baseUrl, modelInfo, 'ready', {
+              modelId,
+              filename: normalizedModelName,
+              status: 'complete',
+              percent: 100,
+              bytesReceived: bytesTotal ?? 0,
+              bytesTotal,
+              message: 'Downloaded'
+            }),
+            id: modelId,
+            addedAt: existingModel?.addedAt ?? new Date().toISOString()
+          },
+          true
+        )
+      })
+      .catch((error) => {
+        if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
+          return
+        }
+
+        updateAppState((current) => ({
+          ...current,
+          models: current.models.map((model) =>
+            model.id === modelId
+              ? {
+                  ...model,
+                  status: 'downloadError',
+                  download: {
+                    ...(model.download ?? startingProgress),
+                    status: 'error',
+                    error: readableErrorMessage(error, 'Download failed'),
+                    message: 'Download failed'
+                  }
+                }
+              : model
+          )
+        }))
+      })
+  }
+
+  function cancelOllamaModelDownload(modelName: string, baseUrl = defaultOllamaBaseUrl) {
+    void window.tokensmith?.cancelOllamaPull(modelName, baseUrl).catch(() => {
+      setSaveStatus('error')
+    })
   }
 
   function selectModel(modelId: string) {
@@ -1673,6 +1937,7 @@ export function App() {
   function removeModel(model: LocalModel) {
     const selectedModelWillBeRemoved = appState.selectedModelId === model.id
     const selectedEmbeddingModelWillBeRemoved = appState.selectedEmbeddingModelId === model.id
+    const shouldRestoreOnRemoveFailure = !(model.engine === 'ollama' && model.status !== 'ready')
 
     updateAppState((current) => {
       const remainingModels = current.models.filter((item) => item.id !== model.id)
@@ -1688,7 +1953,9 @@ export function App() {
 
     void window.tokensmith?.removeModel(model).catch(() => {
       setSaveStatus('error')
-      upsertModel(model, selectedModelWillBeRemoved || selectedEmbeddingModelWillBeRemoved)
+      if (shouldRestoreOnRemoveFailure) {
+        upsertModel(model, selectedModelWillBeRemoved || selectedEmbeddingModelWillBeRemoved)
+      }
     })
   }
 
@@ -1944,6 +2211,7 @@ export function App() {
                 activeScreen: 'library'
               }))
             }}
+            onRemoveModel={removeModel}
             onSelectModel={selectModel}
             onToggleMaterialActive={toggleMaterialActive}
           />
@@ -1968,8 +2236,10 @@ export function App() {
             engines={engines}
             models={appState.models}
             onAddModel={addModel}
+            onCancelOllamaModelDownload={cancelOllamaModelDownload}
             onCancelModelDownload={cancelModelDownload}
             onDownloadModel={downloadModel}
+            onDownloadOllamaModel={downloadOllamaModel}
             onRemoveModel={removeModel}
             onSelectEmbeddingModel={selectEmbeddingModel}
             onSelectModel={selectModel}
@@ -2011,6 +2281,7 @@ function ChatScreen({
   onInstallOllamaChatModel,
   onInstallOllamaEmbedderModel,
   onOpenLibrary,
+  onRemoveModel,
   onSelectModel,
   onToggleMaterialActive
 }: {
@@ -2026,6 +2297,7 @@ function ChatScreen({
   onInstallOllamaChatModel: (modelName?: string, baseUrl?: string) => void
   onInstallOllamaEmbedderModel: (modelName?: string, baseUrl?: string) => void
   onOpenLibrary: () => void
+  onRemoveModel: (model: LocalModel) => void
   onSelectModel: (modelId: string) => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
@@ -2125,7 +2397,7 @@ function ChatScreen({
       } catch (error) {
         if (!cancelled) {
           setOllamaSetupPhase('error')
-          setOllamaSetupError(readableErrorMessage(error, 'Could not check Ollama.'))
+          setOllamaSetupError(readableOllamaError(error, 'Could not check Ollama.'))
         }
       }
     }
@@ -2151,11 +2423,12 @@ function ChatScreen({
       }
 
       setOllamaPullProgress(progress)
+      const isTerminalPullStatus = progress.status === 'complete' || progress.status === 'error' || progress.status === 'incomplete' || progress.status === 'removed'
       if (ollamaModelNameMatches(progress.model, recommendedOllamaChatModel)) {
-        setOllamaPullingModel(progress.status === 'complete' || progress.status === 'error' ? null : 'chat')
+        setOllamaPullingModel(isTerminalPullStatus ? null : 'chat')
       }
       if (ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)) {
-        setOllamaPullingModel(progress.status === 'complete' || progress.status === 'error' ? null : 'embedder')
+        setOllamaPullingModel(isTerminalPullStatus ? null : 'embedder')
       }
     })
   }, [])
@@ -2361,7 +2634,7 @@ function ChatScreen({
       setOllamaSetupPhase('idle')
     } catch (error) {
       setOllamaSetupPhase('error')
-      setOllamaSetupError(readableErrorMessage(error, 'Could not check Ollama.'))
+      setOllamaSetupError(readableOllamaError(error, 'Could not check Ollama.'))
     }
   }
 
@@ -2449,11 +2722,37 @@ function ChatScreen({
       await window.tokensmith.pullOllamaModel(recommendedOllamaChatModel)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
+      if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))) {
+        setOllamaSetupPhase('idle')
+        setOllamaPullingModel(null)
+        setOllamaPullProgress({
+          model: recommendedOllamaChatModel,
+          status: 'incomplete',
+          percent: 0,
+          message: 'Download paused'
+        })
+        return
+      }
       onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
     } catch (error) {
+      if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
+        setOllamaSetupPhase('idle')
+        setOllamaPullingModel(null)
+        setOllamaPullProgress((current) =>
+          current && ollamaModelNameMatches(current.model, recommendedOllamaChatModel)
+            ? { ...current, status: 'incomplete', message: 'Download paused' }
+            : {
+                model: recommendedOllamaChatModel,
+                status: 'incomplete',
+                percent: 0,
+                message: 'Download paused'
+              }
+        )
+        return
+      }
       setOllamaSetupPhase('error')
       setOllamaPullingModel(null)
       setOllamaSetupError(readableErrorMessage(error, 'Could not download Llama 3 with Ollama.'))
@@ -2479,14 +2778,127 @@ function ChatScreen({
       await window.tokensmith.pullOllamaModel(recommendedOllamaEmbeddingModel)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
+      if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaEmbeddingModel))) {
+        setOllamaSetupPhase('idle')
+        setOllamaPullingModel(null)
+        setOllamaPullProgress({
+          model: recommendedOllamaEmbeddingModel,
+          status: 'incomplete',
+          percent: 0,
+          message: 'Download paused'
+        })
+        return
+      }
       onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
     } catch (error) {
+      if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
+        setOllamaSetupPhase('idle')
+        setOllamaPullingModel(null)
+        setOllamaPullProgress((current) =>
+          current && ollamaModelNameMatches(current.model, recommendedOllamaEmbeddingModel)
+            ? { ...current, status: 'incomplete', message: 'Download paused' }
+            : {
+                model: recommendedOllamaEmbeddingModel,
+                status: 'incomplete',
+                percent: 0,
+                message: 'Download paused'
+              }
+        )
+        return
+      }
       setOllamaSetupPhase('error')
       setOllamaPullingModel(null)
       setOllamaSetupError(readableErrorMessage(error, 'Could not download the Nomic Embedder Model.'))
+    }
+  }
+
+  function setupModelNameForRole(role: 'chat' | 'embedder') {
+    return role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+  }
+
+  function setupReadyModelForRole(role: 'chat' | 'embedder') {
+    const expectedModel = setupModelNameForRole(role)
+    const roleMatches = role === 'chat' ? modelCanGenerate : modelCanEmbed
+    const recommendedModel = models.find(
+      (model) =>
+        model.status === 'ready' &&
+        roleMatches(model) &&
+        (model.engine === 'ollama' || model.source === 'ollama') &&
+        ollamaModelNameMatches(model.ollamaModelName ?? modelFilename(model) ?? model.name, expectedModel)
+    )
+
+    return recommendedModel ?? (role === 'chat' ? readyChatModel : readyEmbeddingModel)
+  }
+
+  function setupRemovableModelForRole(role: 'chat' | 'embedder') {
+    const model = setupReadyModelForRole(role)
+    return model && (model.engine === 'ollama' || model.source === 'ollama') ? model : undefined
+  }
+
+  async function handlePauseOllamaPull(role: 'chat' | 'embedder') {
+    if (!window.tokensmith?.cancelOllamaPull) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    const modelName = setupModelNameForRole(role)
+    setOllamaSetupError(null)
+
+    try {
+      await window.tokensmith.cancelOllamaPull(modelName, ollamaStatus?.baseUrl)
+      setOllamaPullingModel(null)
+      setOllamaPullProgress((current) =>
+        current && ollamaModelNameMatches(current.model, modelName)
+          ? { ...current, status: 'incomplete', message: 'Download paused' }
+          : {
+              model: modelName,
+              status: 'incomplete',
+              percent: 0,
+              message: 'Download paused'
+            }
+      )
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError(readableErrorMessage(error, 'Could not pause the download.'))
+    }
+  }
+
+  async function handleDeleteOllamaSetupModel(role: 'chat' | 'embedder') {
+    const modelName = setupModelNameForRole(role)
+    const readyModel = setupRemovableModelForRole(role)
+    setOllamaSetupError(null)
+
+    if (ollamaPullingModel === role) {
+      setOllamaPullingModel(null)
+    }
+    setOllamaPullProgress((current) => (current && ollamaModelNameMatches(current.model, modelName) ? null : current))
+
+    if (readyModel) {
+      onRemoveModel(readyModel)
+    } else if (window.tokensmith?.deleteOllamaModel) {
+      try {
+        await window.tokensmith.deleteOllamaModel(modelName, ollamaStatus?.baseUrl)
+      } catch (error) {
+        setOllamaSetupPhase('error')
+        setOllamaSetupError(readableErrorMessage(error, `Could not delete ${role === 'chat' ? 'Llama 3' : 'Nomic'}.`))
+        return
+      }
+    } else {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    if (window.tokensmith?.getOllamaStatus) {
+      try {
+        const status = await window.tokensmith.getOllamaStatus()
+        setOllamaStatus(status)
+        setOllamaSetupPhase('idle')
+      } catch {
+        setOllamaSetupPhase('idle')
+      }
     }
   }
 
@@ -2554,7 +2966,7 @@ function ChatScreen({
     }
 
     if (!readyEmbeddingModel) {
-      return 'Download Nomic first so TokenSmith can prepare your PDFs.'
+      return 'Download models first so TokenSmith can prepare your PDFs.'
     }
 
     return 'Choose the folder with your PDFs.'
@@ -2582,7 +2994,7 @@ function ChatScreen({
     if (!readyEmbeddingModel) {
       return (
         <span className="chat-setup-status">
-          <span>Download Nomic first</span>
+          <span>Download models first</span>
         </span>
       )
     }
@@ -2667,7 +3079,7 @@ function ChatScreen({
           </button>
         )}
         {(ollamaSetupError || ollamaStatus?.error) && (
-          <small className="model-download-error">{ollamaSetupError ?? ollamaStatus?.error}</small>
+          <small className="model-download-error">{ollamaSetupError ?? readableOllamaError(new Error(ollamaStatus?.error), 'Ollama is not running yet.')}</small>
         )}
       </div>
     )
@@ -2703,29 +3115,70 @@ function ChatScreen({
 
   function renderDownloadModelControl(role: 'embedder' | 'chat') {
     const isEmbedder = role === 'embedder'
-    const isReady = isEmbedder ? Boolean(readyEmbeddingModel) : Boolean(readyChatModel)
+    const readyModel = setupReadyModelForRole(role)
+    const isReady = Boolean(readyModel)
+    const removableModel = setupRemovableModelForRole(role)
     const shortLabel = isEmbedder ? 'Nomic Embedder Model' : 'Llama 3 Chat Model'
     const downloadLabel = isEmbedder ? 'Download Nomic' : 'Download Llama 3'
     const busyLabel = isEmbedder ? 'Downloading Nomic...' : 'Downloading Llama...'
     const isPulling = ollamaPullingModel === role
+    const progress = ollamaPullProgressFor(role)
+    const canResume = progress?.status === 'incomplete' || progress?.status === 'error'
+    const otherModelIsPulling = Boolean(ollamaPullingModel && ollamaPullingModel !== role)
     const handleDownload = isEmbedder ? handlePullOllamaEmbedderModel : handlePullOllamaChatModel
 
     if (isReady) {
       return (
-        <span className="chat-setup-model-pill is-ready">
-          <Check size={15} aria-hidden="true" />
-          <span>{shortLabel} ready</span>
-        </span>
+        <div className="chat-setup-model-download">
+          <span className="chat-setup-model-pill is-ready">
+            <Check size={15} aria-hidden="true" />
+            <span>{shortLabel} ready</span>
+          </span>
+          {removableModel && (
+            <button className="model-action-button is-danger" type="button" onClick={() => handleDeleteOllamaSetupModel(role)}>
+              <Trash2 size={16} aria-hidden="true" />
+              <span>Delete</span>
+            </button>
+          )}
+        </div>
       )
     }
 
     if (isPulling) {
       return (
         <div className="chat-setup-model-download">
-          <button className="model-action-button" type="button" disabled>
-            <Loader2 size={16} aria-hidden="true" />
-            <span>{busyLabel}</span>
-          </button>
+          <div className="chat-setup-model-actions">
+            <button className="model-action-button" type="button" onClick={() => handlePauseOllamaPull(role)}>
+              <Pause size={16} aria-hidden="true" />
+              <span>Pause</span>
+            </button>
+            <button className="model-action-button is-danger" type="button" onClick={() => handleDeleteOllamaSetupModel(role)}>
+              <Trash2 size={16} aria-hidden="true" />
+              <span>Delete</span>
+            </button>
+          </div>
+          {renderOllamaPullProgress(role)}
+        </div>
+      )
+    }
+
+    if (canResume) {
+      return (
+        <div className="chat-setup-model-download">
+          <div className="chat-setup-model-actions">
+            <button
+              className="model-action-button"
+              type="button"
+              disabled={!ollamaStatus?.running || otherModelIsPulling}
+              onClick={handleDownload}
+            >
+              <span>{progress?.status === 'incomplete' ? 'Resume' : downloadLabel}</span>
+            </button>
+            <button className="model-action-button is-danger" type="button" onClick={() => handleDeleteOllamaSetupModel(role)}>
+              <Trash2 size={16} aria-hidden="true" />
+              <span>Delete</span>
+            </button>
+          </div>
           {renderOllamaPullProgress(role)}
         </div>
       )
@@ -2735,7 +3188,7 @@ function ChatScreen({
       <button
         className="model-action-button"
         type="button"
-        disabled={!ollamaStatus?.running || Boolean(ollamaPullingModel)}
+        disabled={!ollamaStatus?.running || otherModelIsPulling}
         onClick={handleDownload}
       >
         <span>{downloadLabel}</span>
@@ -4673,8 +5126,10 @@ function ModelsScreen({
   engines,
   models,
   onAddModel,
+  onCancelOllamaModelDownload,
   onCancelModelDownload,
   onDownloadModel,
+  onDownloadOllamaModel,
   onRemoveModel,
   onSelectEmbeddingModel,
   onSelectModel,
@@ -4684,8 +5139,10 @@ function ModelsScreen({
   engines: EngineInfo[]
   models: LocalModel[]
   onAddModel: (model: LocalModel) => void
+  onCancelOllamaModelDownload: (modelName: string, baseUrl?: string) => void
   onCancelModelDownload: (filename: string) => void
   onDownloadModel: (model: ModelCatalogItem) => void
+  onDownloadOllamaModel: (modelName: string, role: LocalModelRole, baseUrl?: string) => void
   onRemoveModel: (model: LocalModel) => void
   onSelectEmbeddingModel: (modelId: string) => void
   onSelectModel: (modelId: string) => void
@@ -4703,7 +5160,7 @@ function ModelsScreen({
   }
 
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
-  const [exploreTab, setExploreTab] = useState<'tokensmith' | 'remote' | 'huggingface'>('remote')
+  const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'chat' | 'embedder'>('all')
   const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
     remoteProviderCatalog.reduce(
@@ -4731,6 +5188,12 @@ function ModelsScreen({
   const [hfSort, setHfSort] = useState<HuggingFaceSort>('likes')
   const [hfSortDirection, setHfSortDirection] = useState<HuggingFaceSortDirection>('desc')
   const [hfLimit, setHfLimit] = useState(20)
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
+  const [ollamaStatusState, setOllamaStatusState] = useState<'idle' | 'checking' | 'error'>('idle')
+  const [ollamaError, setOllamaError] = useState<string | null>(null)
+  const [ollamaDraftName, setOllamaDraftName] = useState('')
+  const [ollamaDraftRole, setOllamaDraftRole] = useState<LocalModelRole>('generator')
+  const [dismissedOllamaDraftKeys, setDismissedOllamaDraftKeys] = useState<Set<string>>(() => new Set())
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
   const firstRunRecommendedModelIdSet = useMemo(() => new Set<string>(firstRunRecommendedModelIds), [])
   const filteredCatalogModels = tokenSmithTunedModels.filter((model) => {
@@ -4754,12 +5217,127 @@ function ModelsScreen({
   useEffect(() => {
     if (models.length === 0) {
       setMode('explore')
-      setExploreTab('remote')
+      setExploreTab('ollama')
     }
   }, [models.length])
 
+  useEffect(() => {
+    if (mode !== 'explore' || exploreTab !== 'ollama' || !window.tokensmith?.getOllamaStatus) {
+      return
+    }
+
+    let cancelled = false
+    setOllamaStatusState('checking')
+    setOllamaError(null)
+
+    window.tokensmith
+      .getOllamaStatus()
+      .then((status) => {
+        if (cancelled) {
+          return
+        }
+        setOllamaStatus(status)
+        setOllamaStatusState('idle')
+        setOllamaError(status.error ? readableOllamaError(new Error(status.error), 'Ollama is not running yet.') : null)
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return
+        }
+        setOllamaStatusState('error')
+        setOllamaError(readableOllamaError(error, 'Could not check Ollama.'))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [exploreTab, mode])
+
   function modelByCatalogItem(catalogModel: ModelCatalogItem) {
     return models.find((model) => normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(catalogModel.filename))
+  }
+
+  function ollamaDraftKey(modelName: string, role: LocalModelRole) {
+    return `${role}:${modelName.trim().toLowerCase().replace(/:latest$/, '')}`
+  }
+
+  function handleOllamaDraftNameChange(value: string) {
+    setOllamaDraftName(value)
+    const normalizedValue = value.trim()
+    if (!normalizedValue) {
+      return
+    }
+    const key = ollamaDraftKey(normalizedValue, ollamaDraftRole)
+    setDismissedOllamaDraftKeys((current) => {
+      if (!current.has(key)) {
+        return current
+      }
+      const next = new Set(current)
+      next.delete(key)
+      return next
+    })
+  }
+
+  function handleOllamaDraftRoleChange(role: LocalModelRole) {
+    setOllamaDraftRole(role)
+    const normalizedValue = ollamaDraftName.trim()
+    if (!normalizedValue) {
+      return
+    }
+    const key = ollamaDraftKey(normalizedValue, role)
+    setDismissedOllamaDraftKeys((current) => {
+      if (!current.has(key)) {
+        return current
+      }
+      const next = new Set(current)
+      next.delete(key)
+      return next
+    })
+  }
+
+  function handleRemoveModel(model: LocalModel) {
+    if (model.engine === 'ollama' && model.ollamaModelName) {
+      setDismissedOllamaDraftKeys((current) => new Set(current).add(ollamaDraftKey(model.ollamaModelName ?? model.name, modelRole(model))))
+      if (ollamaModelNameMatches(ollamaDraftName, model.ollamaModelName)) {
+        setOllamaDraftName('')
+      }
+    }
+    onRemoveModel(model)
+  }
+
+  function modelByOllamaName(modelName: string, role: LocalModelRole) {
+    return models.find(
+      (model) =>
+        model.engine === 'ollama' &&
+        typeof model.ollamaModelName === 'string' &&
+        ollamaModelNameMatches(model.ollamaModelName, modelName) &&
+        modelRole(model) === role
+    )
+  }
+
+  function ollamaInfoForModel(modelName: string) {
+    return ollamaStatus?.models.find((model) => ollamaModelInfoMatches(model, modelName))
+  }
+
+  async function refreshOllamaModels() {
+    if (!window.tokensmith?.getOllamaStatus) {
+      setOllamaStatusState('error')
+      setOllamaError('Ollama model management is only available in the desktop app.')
+      return
+    }
+
+    setOllamaStatusState('checking')
+    setOllamaError(null)
+
+    try {
+      const status = await window.tokensmith.getOllamaStatus()
+      setOllamaStatus(status)
+      setOllamaStatusState('idle')
+      setOllamaError(status.error ? readableOllamaError(new Error(status.error), 'Ollama is not running yet.') : null)
+    } catch (error) {
+      setOllamaStatusState('error')
+      setOllamaError(readableOllamaError(error, 'Could not check Ollama.'))
+    }
   }
 
   function updateRemoteDraft(providerId: RemoteProviderId, draft: Partial<(typeof remoteDrafts)[RemoteProviderId]>) {
@@ -4885,12 +5463,22 @@ function ModelsScreen({
   function modelStats(model: LocalModel, catalog?: ModelCatalogItem) {
     if (model.engine === 'ollama') {
       const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
-      return [
+      const stats = [
         { label: 'Role', value: isOllamaEmbedder ? 'Ollama Embedder Model' : 'Ollama Chat Model' },
         { label: 'Provider', value: 'Ollama' },
         { label: 'Model', value: model.ollamaModelName ?? model.name },
         { label: 'Endpoint', value: (model.ollamaBaseUrl ?? defaultOllamaBaseUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '') }
       ]
+      if (model.sizeBytes) {
+        stats.push({ label: 'Size', value: formatBytes(model.sizeBytes) })
+      }
+      if (model.parameters) {
+        stats.push({ label: 'Parameters', value: model.parameters })
+      }
+      if (model.quant) {
+        stats.push({ label: 'Quant', value: model.quant })
+      }
+      return stats
     }
 
     if (model.engine === 'remote') {
@@ -4954,10 +5542,17 @@ function ModelsScreen({
       return undefined
     }
 
+    if (progress.status === 'incomplete') {
+      return progress.bytesTotal
+        ? `Paused · ${formatBytes(progress.bytesReceived)} of ${formatBytes(progress.bytesTotal)}`
+        : 'Paused'
+    }
+
     const received = formatBytes(progress.bytesReceived)
     const total = progress.bytesTotal ? formatBytes(progress.bytesTotal) : 'unknown'
     const speed = progress.speedBytesPerSecond ? ` · ${formatBytes(progress.speedBytesPerSecond)}/s` : ''
-    return `${progress.percent}% · ${received} of ${total}${speed}`
+    const message = progress.message ? ` · ${progress.message}` : ''
+    return `${progress.percent}% · ${received} of ${total}${speed}${message}`
   }
 
   function renderDownloadProgress(progress?: ModelDownloadProgress) {
@@ -5020,7 +5615,8 @@ function ModelsScreen({
     )
   }
 
-  const modelExploreTabs: Array<{ id: 'tokensmith' | 'remote' | 'huggingface'; label: string }> = [
+  const modelExploreTabs: Array<{ id: 'ollama' | 'remote'; label: string }> = [
+    { id: 'ollama', label: 'Ollama' },
     { id: 'remote', label: 'Providers' }
   ]
 
@@ -5035,26 +5631,43 @@ function ModelsScreen({
     const isEmbedderOnly = model ? modelCanEmbed(model) && !modelCanGenerate(model) : false
     const isSelected = model?.id === (isEmbedderOnly ? selectedEmbeddingModelId : selectedModelId)
     const progress = model?.download
+    const isOllama = model?.engine === 'ollama'
 
     if (model?.status === 'downloading' && filename) {
       return (
         <aside className="model-action-box">
-          <button className="model-action-button" type="button" onClick={() => onCancelModelDownload(filename)}>
-            <span>Cancel</span>
+          <button
+            className="model-action-button"
+            type="button"
+            onClick={() =>
+              isOllama
+                ? onCancelOllamaModelDownload(model.ollamaModelName ?? filename, model.ollamaBaseUrl)
+                : onCancelModelDownload(filename)
+            }
+          >
+            <span>{isOllama ? 'Pause' : 'Cancel'}</span>
           </button>
           {renderDownloadProgress(progress)}
         </aside>
       )
     }
 
-    if ((model?.status === 'incomplete' || model?.status === 'downloadError') && catalog) {
+    if ((model?.status === 'incomplete' || model?.status === 'downloadError') && (catalog || isOllama)) {
       return (
         <aside className="model-action-box">
-          <button className="model-action-button" type="button" onClick={() => onDownloadModel(catalog)}>
+          <button
+            className="model-action-button"
+            type="button"
+            onClick={() =>
+              isOllama
+                ? onDownloadOllamaModel(model.ollamaModelName ?? model.name, modelRole(model), model.ollamaBaseUrl)
+                : catalog && onDownloadModel(catalog)
+            }
+          >
             <span>Resume</span>
           </button>
           {model && canRemoveModel(model) && (
-            <button className="model-action-button is-danger" type="button" onClick={() => onRemoveModel(model)}>
+            <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(model)}>
               <Trash2 size={16} aria-hidden="true" />
               <span>Remove</span>
             </button>
@@ -5079,7 +5692,7 @@ function ModelsScreen({
             <span>{isSelected ? `Active ${roleLabel}` : `Use ${roleLabel}`}</span>
           </button>
           {canRemoveModel(model) && (
-            <button className="model-action-button is-danger" type="button" onClick={() => onRemoveModel(model)}>
+            <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(model)}>
               <Trash2 size={16} aria-hidden="true" />
               <span>Remove</span>
             </button>
@@ -5132,13 +5745,13 @@ function ModelsScreen({
               'Local embedding model served by Ollama',
               'Prepares PDFs for search',
               'Embeds questions before source retrieval',
-              'Removing this model from TokenSmith does not delete it from Ollama'
+              'Removing this model deletes it from Ollama'
             ]
           : [
               'Local chat model served by Ollama',
               'Used for answers after TokenSmith retrieves enabled source excerpts',
               'Works with PDFs prepared by TokenSmith',
-              'Removing this model from TokenSmith does not delete it from Ollama'
+              'Removing this model deletes it from Ollama'
             ]
         : isEmbedderOnly
         ? [
@@ -5310,6 +5923,214 @@ function ModelsScreen({
     )
   }
 
+  function renderOllamaModelAction(model: LocalModel, isInstalledInOllama: boolean) {
+    const isEmbedderOnly = modelCanEmbed(model) && !modelCanGenerate(model)
+    const roleLabel = modelRoleLabel(model)
+
+    if (model.status !== 'missing' && models.some((item) => item.id === model.id)) {
+      return renderActionBox(model)
+    }
+
+    if (isInstalledInOllama) {
+      return (
+        <aside className="model-action-box">
+          <button className="model-action-button" type="button" onClick={() => onAddModel(model)}>
+            <Check size={17} aria-hidden="true" />
+            <span>{`Use ${roleLabel}`}</span>
+          </button>
+          <small>{isEmbedderOnly ? 'Available in Ollama for PDF preparation' : 'Available in Ollama for local chat'}</small>
+        </aside>
+      )
+    }
+
+    return (
+      <aside className="model-action-box">
+        <button
+          className="model-action-button is-download"
+          type="button"
+          disabled={!ollamaStatus?.running}
+          onClick={() => onDownloadOllamaModel(model.ollamaModelName ?? model.name, modelRole(model), model.ollamaBaseUrl)}
+        >
+          <DownloadIcon size={17} aria-hidden="true" />
+          <span>Download</span>
+        </button>
+        <small>{ollamaStatus?.running ? 'Downloaded by Ollama' : 'Start Ollama first'}</small>
+      </aside>
+    )
+  }
+
+  function renderOllamaModelCard({
+    description,
+    modelInfo,
+    modelName,
+    role,
+    title
+  }: {
+    description?: string[]
+    modelInfo?: OllamaModelInfo
+    modelName: string
+    role: LocalModelRole
+    title?: string
+  }) {
+    const existingModel = modelByOllamaName(modelName, role)
+    const isInstalledInOllama = Boolean(modelInfo)
+    const model =
+      existingModel ??
+      createOllamaModelForRole(
+        modelName,
+        role,
+        ollamaStatus?.baseUrl ?? defaultOllamaBaseUrl,
+        modelInfo,
+        isInstalledInOllama ? 'ready' : 'missing'
+      )
+    const roleClassName = modelCanEmbed(model) && !modelCanGenerate(model) ? 'is-embedder' : 'is-chat'
+
+    return (
+      <section className="model-card" key={`${role}-${modelName}`}>
+        <div className="model-card-main">
+          <div className="model-title-row">
+            <div className="model-title-heading">
+              <h2>{title ?? displayModelName(model)}</h2>
+              <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(model)}</span>
+            </div>
+            <p>{model.ollamaModelName ?? modelName}</p>
+          </div>
+          <ul className="model-description-list">
+            {(description ?? model.description ?? []).map((bullet) => (
+              <li key={bullet}>{bullet}</li>
+            ))}
+          </ul>
+          {renderStats(modelStats(model))}
+        </div>
+        {renderOllamaModelAction(model, isInstalledInOllama)}
+      </section>
+    )
+  }
+
+  function renderOllamaExplore() {
+    const recommendedCards = [
+      {
+        modelName: recommendedOllamaEmbeddingModel,
+        role: 'embedder' as LocalModelRole,
+        title: 'Nomic Embedder Model',
+        description: [
+          'Local embedding model served by Ollama',
+          'Prepares PDFs for search',
+          'Download this first if you only want to add PDFs'
+        ]
+      },
+      {
+        modelName: recommendedOllamaChatModel,
+        role: 'generator' as LocalModelRole,
+        title: 'Llama 3 Chat Model',
+        description: [
+          'Local chat model served by Ollama',
+          'Answers after TokenSmith retrieves PDF sources',
+          'Download this when you want local chat'
+        ]
+      }
+    ]
+    const recommendedNames = new Set(recommendedCards.map((card) => card.modelName.toLowerCase()))
+    const otherInstalledModels = (ollamaStatus?.models ?? []).filter(
+      (model) => !recommendedNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
+    )
+    const customModelName = ollamaDraftName.trim()
+    const customModelInfo = customModelName ? ollamaInfoForModel(customModelName) : undefined
+    const customModelDismissed = customModelName
+      ? dismissedOllamaDraftKeys.has(ollamaDraftKey(customModelName, ollamaDraftRole))
+      : false
+    const shouldShowCustomCard =
+      customModelName &&
+      !customModelDismissed &&
+      !recommendedCards.some((card) => ollamaModelNameMatches(card.modelName, customModelName)) &&
+      !otherInstalledModels.some((model) => ollamaModelInfoMatches(model, customModelName))
+
+    return (
+      <>
+        <p className="model-explore-copy">
+          Download or connect Ollama models for local chat and PDF search.
+        </p>
+
+        <div className="ollama-model-toolbar">
+          <button className="model-action-button" type="button" onClick={refreshOllamaModels} disabled={ollamaStatusState === 'checking'}>
+            <RefreshCw size={16} aria-hidden="true" />
+            <span>{ollamaStatusState === 'checking' ? 'Checking...' : 'Refresh Ollama'}</span>
+          </button>
+          {ollamaStatus?.running ? (
+            <span className="chat-setup-model-pill is-ready">
+              <Check size={15} aria-hidden="true" />
+              <span>Ollama ready</span>
+            </span>
+          ) : (
+            <span className="chat-setup-status">
+              <span>Start Ollama first</span>
+            </span>
+          )}
+        </div>
+
+        {ollamaError && <p className="inline-error">{ollamaError}</p>}
+
+        <form
+          className="ollama-model-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (customModelName) {
+              onDownloadOllamaModel(customModelName, ollamaDraftRole, ollamaStatus?.baseUrl ?? defaultOllamaBaseUrl)
+            }
+          }}
+        >
+          <input
+            type="search"
+            value={ollamaDraftName}
+            onChange={(event) => handleOllamaDraftNameChange(event.target.value)}
+            placeholder="Enter an Ollama model name..."
+            aria-label="Ollama model name"
+            list="ollama-installed-models"
+          />
+          <datalist id="ollama-installed-models">
+            {(ollamaStatus?.models ?? []).map((model) => (
+              <option key={model.name} value={model.name} />
+            ))}
+          </datalist>
+          <select
+            aria-label="Ollama model type"
+            value={ollamaDraftRole}
+            onChange={(event) => handleOllamaDraftRoleChange(event.target.value as LocalModelRole)}
+          >
+            <option value="generator">Chat Model</option>
+            <option value="embedder">Embedder Model</option>
+          </select>
+          <button className="hf-search-submit" type="submit" disabled={!customModelName || !ollamaStatus?.running}>
+            <DownloadIcon size={17} aria-hidden="true" />
+            <span>{customModelInfo ? 'Download Again' : 'Download'}</span>
+          </button>
+        </form>
+
+        <div className="model-list">
+          {shouldShowCustomCard &&
+            renderOllamaModelCard({
+              modelName: customModelName,
+              role: ollamaDraftRole,
+              modelInfo: customModelInfo
+            })}
+          {recommendedCards.map((card) =>
+            renderOllamaModelCard({
+              ...card,
+              modelInfo: ollamaInfoForModel(card.modelName)
+            })
+          )}
+          {otherInstalledModels.map((modelInfo) =>
+            renderOllamaModelCard({
+              modelInfo,
+              modelName: modelInfo.name,
+              role: inferOllamaModelRole(modelInfo)
+            })
+          )}
+        </div>
+      </>
+    )
+  }
+
   function renderHuggingFaceSearch() {
     return (
       <>
@@ -5428,32 +6249,7 @@ function ModelsScreen({
           ))}
         </div>
 
-        {exploreTab === 'tokensmith' && (
-          <>
-            <p className="model-explore-copy">
-              {models.length === 0
-                ? 'Use the Chat setup card for Ollama models, or add provider models here.'
-                : 'These local chat and embedder models were previously selected for TokenSmith.'}
-            </p>
-            {models.length > 0 && (
-              <div className="model-filter-row">
-                {modelCatalogFilters.map(({ id, label }) => (
-                  <button
-                    className={catalogFilter === id ? 'is-active' : ''}
-                    key={id}
-                    type="button"
-                    onClick={() => setCatalogFilter(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="model-list">
-              {visibleCatalogModels.map((model) => renderCatalogModelCard(model))}
-            </div>
-          </>
-        )}
+        {exploreTab === 'ollama' && renderOllamaExplore()}
 
         {exploreTab === 'remote' && (
           <>
@@ -5467,7 +6263,6 @@ function ModelsScreen({
           </>
         )}
 
-        {exploreTab === 'huggingface' && renderHuggingFaceSearch()}
       </div>
     )
   }

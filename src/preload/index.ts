@@ -78,9 +78,17 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('ollama:start-service') as Promise<
       Awaited<ReturnType<TokenSmithBridge['startOllamaService']>>
     >,
-  pullOllamaModel: (modelName) =>
-    ipcRenderer.invoke('ollama:pull-model', modelName) as Promise<
+  pullOllamaModel: (modelName, baseUrl) =>
+    ipcRenderer.invoke('ollama:pull-model', modelName, baseUrl) as Promise<
       Awaited<ReturnType<TokenSmithBridge['pullOllamaModel']>>
+    >,
+  cancelOllamaPull: (modelName, baseUrl) =>
+    ipcRenderer.invoke('ollama:cancel-pull', modelName, baseUrl) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['cancelOllamaPull']>>
+    >,
+  deleteOllamaModel: (modelName, baseUrl) =>
+    ipcRenderer.invoke('ollama:delete-model', modelName, baseUrl) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['deleteOllamaModel']>>
     >,
   onOllamaPullProgress: (callback) => {
     const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => {
