@@ -6,6 +6,61 @@ const { listOpenAiCompatibleModels, runRemoteStudyEngine } = requireTranspiledTs
   'src/main/engine/remote-chat-service.ts'
 )
 
+const addedAt = new Date(0).toISOString()
+const databaseSource = {
+  title: 'Database Systems.pdf',
+  locator: 'Page 4',
+  excerpt: 'Transactions preserve atomicity and durability.'
+}
+
+function geminiChatModel(overrides = {}) {
+  return {
+    id: 'remote-gemini',
+    name: 'Gemini 2.5 Flash',
+    engine: 'remote',
+    source: 'remote',
+    status: 'ready',
+    providerId: 'gemini',
+    providerName: 'Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    apiKey: 'gemini-key',
+    remoteModelName: 'gemini-2.5-flash',
+    addedAt,
+    ...overrides
+  }
+}
+
+function remoteStudyRequest(overrides = {}) {
+  return {
+    prompt: 'What is atomicity?',
+    messages: [],
+    materials: [],
+    retrievedSources: [databaseSource],
+    model: geminiChatModel(),
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'off'
+    },
+    modelSettings: {
+      maxLength: 512,
+      temperature: 0.2,
+      topP: 0.95
+    },
+    ...overrides
+  }
+}
+
+async function withMockFetch(fetchImplementation, callback) {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = fetchImplementation
+
+  try {
+    return await callback()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts recent Gemini models first', async () => {
   const originalFetch = globalThis.fetch
   const requestedUrls = []
@@ -86,11 +141,10 @@ test('listOpenAiCompatibleModels lists Gemini embedding models when requested', 
 })
 
 test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat completions', async () => {
-  const originalFetch = globalThis.fetch
   let requestedUrl = ''
   let requestBody = null
 
-  globalThis.fetch = async (url, options) => {
+  await withMockFetch(async (url, options) => {
     requestedUrl = String(url)
     requestBody = JSON.parse(String(options.body))
     assert.equal(options.headers['Content-Type'], 'application/json')
@@ -108,63 +162,34 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
         ]
       })
     }
-  }
-
-  try {
-    const response = await runRemoteStudyEngine({
-      prompt: 'Who is Annita Demetriou?',
-      messages: [],
-      materials: [],
-      retrievedSources: [
-        {
-          title: 'Annita Demetriou - Wikipedia.pdf',
-          locator: 'Page 1',
-          excerpt: 'Annita Demetriou is a Cypriot politician.'
-        }
-      ],
-      model: {
-        id: 'remote-gemini',
-        name: 'Gemini 2.5 Flash',
-        engine: 'remote',
-        source: 'remote',
-        status: 'ready',
-        providerId: 'gemini',
-        providerName: 'Gemini',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-        apiKey: 'gemini-key',
-        remoteModelName: 'models/gemini-2.5-flash',
-        addedAt: new Date(0).toISOString()
-      },
-      settings: {},
-      applicationSettings: {
-        suggestionMode: 'off'
-      },
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      model: geminiChatModel({
+        remoteModelName: 'models/gemini-2.5-flash'
+      }),
       modelSettings: {
         systemMessage: 'Answer from sources.',
         maxLength: 512,
         temperature: 0.2,
         topP: 0.95
       }
-    })
+    }))
 
     assert.equal(requestedUrl, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions')
     assert.equal(requestBody.model, 'gemini-2.5-flash')
     assert.equal(requestBody.messages[0].content, 'Answer from sources.')
-    assert.match(requestBody.messages.at(-1).content, /Annita Demetriou is a Cypriot politician/)
+    assert.match(requestBody.messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.equal(requestBody.max_tokens, 512)
     assert.equal(response.engineId, 'tokensmith')
     assert.equal(response.text, 'Gemini answer.')
     assert.deepEqual(response.followUpSuggestions, [])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+  })
 })
 
 test('runRemoteStudyEngine asks the selected remote model for follow-up suggestions when enabled', async () => {
-  const originalFetch = globalThis.fetch
   const requestBodies = []
 
-  globalThis.fetch = async (_url, options) => {
+  await withMockFetch(async (_url, options) => {
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -176,41 +201,15 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
             message: {
               content:
                 requestBodies.length === 1
-                  ? 'Annita Demetriou is a Cypriot politician.'
-                  : '1. What office does Annita Demetriou hold?\n2. Which party does Annita Demetriou lead?\n3. When was Annita Demetriou born?'
+                  ? 'Atomicity makes a transaction all-or-nothing.'
+                  : '1. How does durability differ from atomicity?\n2. Why does rollback matter for atomicity?\n3. Which ACID property covers isolation?'
             }
           }
         ]
       })
     }
-  }
-
-  try {
-    const response = await runRemoteStudyEngine({
-      prompt: 'Who is Annita Demetriou?',
-      messages: [],
-      materials: [],
-      retrievedSources: [
-        {
-          title: 'Annita Demetriou - Wikipedia.pdf',
-          locator: 'Page 1',
-          excerpt: 'Annita Demetriou is a Cypriot politician.'
-        }
-      ],
-      model: {
-        id: 'remote-gemini',
-        name: 'Gemini 2.5 Flash',
-        engine: 'remote',
-        source: 'remote',
-        status: 'ready',
-        providerId: 'gemini',
-        providerName: 'Gemini',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-        apiKey: 'gemini-key',
-        remoteModelName: 'gemini-2.5-flash',
-        addedAt: new Date(0).toISOString()
-      },
-      settings: {},
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
       applicationSettings: {
         suggestionMode: 'on',
         followUpSuggestionCount: 2
@@ -221,26 +220,23 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
         topP: 0.95,
         suggestedFollowUpPrompt: 'Suggest follow-up questions.'
       }
-    })
+    }))
 
     assert.equal(requestBodies.length, 2)
     assert.equal(requestBodies[1].messages.at(-2).role, 'assistant')
-    assert.equal(requestBodies[1].messages.at(-2).content, 'Annita Demetriou is a Cypriot politician.')
+    assert.equal(requestBodies[1].messages.at(-2).content, 'Atomicity makes a transaction all-or-nothing.')
     assert.equal(requestBodies[1].messages.at(-1).content, 'Generate 2 suggested follow-up questions.\nSuggest follow-up questions.')
     assert.deepEqual(response.followUpSuggestions, [
-      'What office does Annita Demetriou hold?',
-      'Which party does Annita Demetriou lead?'
+      'How does durability differ from atomicity?',
+      'Why does rollback matter for atomicity?'
     ])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+  })
 })
 
 test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', async () => {
-  const originalFetch = globalThis.fetch
   const requestBodies = []
 
-  globalThis.fetch = async (_url, options) => {
+  await withMockFetch(async (_url, options) => {
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -259,13 +255,9 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
         ]
       })
     }
-  }
-
-  try {
-    const response = await runRemoteStudyEngine({
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
       prompt: 'What are the key ideas in this chapter?',
-      messages: [],
-      materials: [],
       retrievedSources: [
         {
           title: 'Chapter 12',
@@ -273,20 +265,6 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
           excerpt: 'The chapter discusses physical storage media.'
         }
       ],
-      model: {
-        id: 'remote-gemini',
-        name: 'Gemini 2.5 Flash',
-        engine: 'remote',
-        source: 'remote',
-        status: 'ready',
-        providerId: 'gemini',
-        providerName: 'Gemini',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-        apiKey: 'gemini-key',
-        remoteModelName: 'gemini-2.5-flash',
-        addedAt: new Date(0).toISOString()
-      },
-      settings: {},
       applicationSettings: {
         suggestionMode: 'on',
         followUpSuggestionCount: 4
@@ -296,7 +274,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
         temperature: 0.2,
         topP: 0.95
       }
-    })
+    }))
 
     assert.equal(requestBodies.length, 2)
     const followUpPrompt = requestBodies[1].messages.at(-1).content
@@ -309,48 +287,67 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
       'Why does storage reliability matter?',
       'How do storage choices affect system design?'
     ])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+  })
+})
+
+test('runRemoteStudyEngine surfaces follow-up generation failures without replacing the answer', async () => {
+  let requestCount = 0
+
+  await withMockFetch(async () => {
+    requestCount += 1
+    if (requestCount === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: 'Atomicity makes a transaction all-or-nothing.'
+              }
+            }
+          ]
+        })
+      }
+    }
+
+    return {
+      ok: false,
+      status: 500,
+      text: async () => 'suggestion model failed'
+    }
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      applicationSettings: {
+        suggestionMode: 'on',
+        followUpSuggestionCount: 2
+      }
+    }))
+
+    assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
+    assert.deepEqual(response.followUpSuggestions, undefined)
+    assert.match(response.followUpError, /suggestion model failed/)
+  })
 })
 
 test('runRemoteStudyEngine includes the remote endpoint and model when a provider returns an error', async () => {
-  const originalFetch = globalThis.fetch
-
-  globalThis.fetch = async () => ({
+  await withMockFetch(async () => ({
     ok: false,
     status: 404,
     text: async () => '{"error":{"message":"model not found"}}'
-  })
-
-  try {
+  }), async () => {
     await assert.rejects(
-      runRemoteStudyEngine({
+      runRemoteStudyEngine(remoteStudyRequest({
         prompt: 'What is RAID?',
-        messages: [],
-        materials: [],
         retrievedSources: [],
-        model: {
-          id: 'remote-gemini',
+        model: geminiChatModel({
           name: 'Gemini 2.0 Flash',
-          engine: 'remote',
-          source: 'remote',
-          status: 'ready',
-          providerId: 'gemini',
-          providerName: 'Gemini',
-          baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-          apiKey: 'gemini-key',
-          remoteModelName: 'models/gemini-2.0-flash',
-          addedAt: new Date(0).toISOString()
-        },
-        settings: {},
+          remoteModelName: 'models/gemini-2.0-flash'
+        }),
         modelSettings: {}
-      }),
+      })),
       /HTTP 404 at POST https:\/\/generativelanguage\.googleapis\.com\/v1beta\/openai\/chat\/completions using model gemini-2\.0-flash/
     )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+  })
 })
 
 test('listOpenAiCompatibleModels preserves generic OpenAI-compatible model ids', async () => {

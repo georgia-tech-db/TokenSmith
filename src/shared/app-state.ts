@@ -148,6 +148,7 @@ export interface ChatMessage {
   text: string
   sources?: ChatSource[]
   followUpSuggestions?: string[]
+  followUpError?: string
 }
 
 export interface Conversation {

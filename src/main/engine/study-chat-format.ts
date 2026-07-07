@@ -1,4 +1,4 @@
-import type { ChatSource, CourseMaterial, ModelRuntimeSettings } from '../../shared/app-state'
+import type { ChatSource, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import {
   defaultFollowUpSuggestionCount,
@@ -14,14 +14,11 @@ export function sourceContext(sources: ChatSource[]): string {
   }
 
   return [
-    [
-      'Use the following course text when it is relevant. If the course text does not contain the answer, say that plainly.',
-      'Answer directly. TokenSmith shows evidence separately after your response.'
-    ].join(' '),
-    ...sources.map((source) => {
-      const title = source.title || 'Untitled PDF'
+    'Use these excerpts when they are relevant. If the excerpts do not contain the answer, say that plainly.',
+    ...sources.map((source, index) => {
+      const title = source.title || `Source ${index + 1}`
       const locator = source.locator ? ` (${source.locator})` : ''
-      return `PDF: ${title}${locator}\n${source.excerpt}`
+      return `Source ${index + 1}: ${title}${locator}\n${source.excerpt}`
     })
   ].join('\n\n')
 }
@@ -119,38 +116,6 @@ export function questionSuggestionCount(applicationSettings?: EngineChatRequest[
   return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
 }
 
-function cleanMaterialTitle(title?: string): string {
-  return (title ?? '')
-    .replace(/\.(pdf|md|markdown|txt)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function materialSuggestionContext(materials: CourseMaterial[]): string {
-  const materialLines = materials
-    .slice(0, 8)
-    .map((material) => {
-      const title = cleanMaterialTitle(material.title) || material.title || 'Untitled PDF'
-      const detail = [material.pageCount ? `${material.pageCount} pages` : '', material.chunkCount ? `${material.chunkCount} chunks` : '']
-        .filter(Boolean)
-        .join(', ')
-      return detail ? `- ${title} (${detail})` : `- ${title}`
-    })
-
-  if (materialLines.length === 0) {
-    return ''
-  }
-
-  const remainingCount = Math.max(0, materials.length - materialLines.length)
-  return [
-    'Loaded PDFs:',
-    ...materialLines,
-    remainingCount > 0 ? `- ${remainingCount} more PDF${remainingCount === 1 ? '' : 's'}` : ''
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
-
 export function questionSuggestionMessages(request: EngineQuestionSuggestionRequest): StudyChatMessage[] {
   const systemMessage = request.modelSettings?.systemMessage?.trim()
   const count = questionSuggestionCount(request.applicationSettings)
@@ -159,7 +124,6 @@ export function questionSuggestionMessages(request: EngineQuestionSuggestionRequ
     count
   )
   const context = sourceContext(request.retrievedSources ?? [])
-  const materialContext = materialSuggestionContext(request.materials)
   const messages: StudyChatMessage[] = []
 
   if (systemMessage) {
@@ -175,20 +139,11 @@ export function questionSuggestionMessages(request: EngineQuestionSuggestionRequ
     messages.push({ role: message.role, content })
   }
 
-  messages.push({
-    role: 'user',
-    content: [
-      request.messages.length === 0
-        ? 'The user has loaded PDFs but has not asked a first question yet.'
-        : 'Suggest questions the user can ask next.',
-      materialContext,
-      context,
-      'Use the same suggestion prompt below. Return only the questions.',
-      suggestionPrompt
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-  })
+  if (context) {
+    messages.push({ role: 'user', content: context })
+  }
+
+  messages.push({ role: 'user', content: suggestionPrompt })
 
   return messages
 }

@@ -1773,11 +1773,12 @@ export function App() {
               model.id === modelId
                 ? {
                     ...model,
-                    status: 'incomplete',
+                    status: 'downloadError',
                     download: {
                       ...(model.download ?? startingProgress),
-                      status: 'incomplete',
-                      message: 'Download paused'
+                      status: 'error',
+                      error: 'Ollama finished the download, but TokenSmith could not verify the model.',
+                      message: 'Verification failed'
                     }
                   }
                 : model
@@ -2312,6 +2313,7 @@ function ChatScreen({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
+  const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
@@ -2323,7 +2325,8 @@ function ChatScreen({
   const [ollamaPullProgress, setOllamaPullProgress] = useState<OllamaPullProgress | null>(null)
   const [ollamaSetupError, setOllamaSetupError] = useState<string | null>(null)
   const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
-  const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading'>('idle')
+  const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [starterQuestionError, setStarterQuestionError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<HTMLInputElement | null>(null)
@@ -2449,12 +2452,14 @@ function ChatScreen({
     if (!canSuggestStarterQuestions || !selectedModel || !window.tokensmith?.suggestChatQuestions) {
       setStarterQuestionSuggestions([])
       setStarterQuestionStatus('idle')
+      setStarterQuestionError(null)
       return
     }
 
     let cancelled = false
     setStarterQuestionSuggestions([])
     setStarterQuestionStatus('loading')
+    setStarterQuestionError(null)
 
     void window.tokensmith
       .suggestChatQuestions({
@@ -2473,12 +2478,13 @@ function ChatScreen({
         setStarterQuestionSuggestions(response.suggestions)
         setStarterQuestionStatus('idle')
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) {
           return
         }
         setStarterQuestionSuggestions([])
-        setStarterQuestionStatus('idle')
+        setStarterQuestionStatus('error')
+        setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
       })
 
     return () => {
@@ -2512,6 +2518,7 @@ function ChatScreen({
     setDraft('')
     setPendingConversationId(null)
     setPendingStatusText(null)
+    setChatError(null)
     setExpandedMessageId(null)
     setPdfViewer(null)
     setSourceTrayError(null)
@@ -2530,6 +2537,7 @@ function ChatScreen({
     setRenameDraft('')
     setPdfViewer(null)
     setSourceTrayError(null)
+    setChatError(null)
     onChatStateChange((current) => ({
       ...current,
       activeConversationId: conversationId
@@ -2614,6 +2622,7 @@ function ChatScreen({
     setExpandedMessageId(null)
     setPdfViewer(null)
     setSourceTrayError(null)
+    setChatError(null)
   }
 
   function handleClearConversations() {
@@ -2635,6 +2644,7 @@ function ChatScreen({
     setExpandedMessageId(null)
     setPdfViewer(null)
     setSourceTrayError(null)
+    setChatError(null)
     setRenamingConversationId(null)
     setRenameDraft('')
   }
@@ -2653,6 +2663,7 @@ function ChatScreen({
     setPendingConversationId(null)
     setPendingStatusText(null)
     setExpandedMessageId(null)
+    setChatError(null)
 
     onChatStateChange((current) => ({
       ...current,
@@ -2800,9 +2811,15 @@ function ChatScreen({
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
       if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))) {
-        setOllamaSetupPhase('idle')
+        const message = 'Ollama finished the download, but TokenSmith could not verify Llama 3.'
+        setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaChatModel, current))
+        setOllamaPullProgress((current) =>
+          current && ollamaModelNameMatches(current.model, recommendedOllamaChatModel)
+            ? { ...current, status: 'error', message, error: message }
+            : { model: recommendedOllamaChatModel, status: 'error', percent: 0, message, error: message }
+        )
+        setOllamaSetupError(message)
         return
       }
       onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl)
@@ -2842,9 +2859,15 @@ function ChatScreen({
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
       if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaEmbeddingModel))) {
-        setOllamaSetupPhase('idle')
+        const message = 'Ollama finished the download, but TokenSmith could not verify the Nomic Embedder Model.'
+        setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaEmbeddingModel, current))
+        setOllamaPullProgress((current) =>
+          current && ollamaModelNameMatches(current.model, recommendedOllamaEmbeddingModel)
+            ? { ...current, status: 'error', message, error: message }
+            : { model: recommendedOllamaEmbeddingModel, status: 'error', percent: 0, message, error: message }
+        )
+        setOllamaSetupError(message)
         return
       }
       onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl)
@@ -3313,7 +3336,7 @@ function ChatScreen({
   }
 
   function renderStarterQuestions() {
-    if (starterQuestionStatus !== 'loading' && starterQuestionSuggestions.length === 0) {
+    if (starterQuestionStatus !== 'loading' && starterQuestionStatus !== 'error' && starterQuestionSuggestions.length === 0) {
       return null
     }
 
@@ -3325,6 +3348,8 @@ function ChatScreen({
         </div>
         {starterQuestionStatus === 'loading' ? (
           <p className="starter-question-status">Preparing suggestions...</p>
+        ) : starterQuestionStatus === 'error' ? (
+          <p className="starter-question-status is-error">{starterQuestionError}</p>
         ) : (
           <div className="follow-up-list">
             {starterQuestionSuggestions.map((question) => (
@@ -3391,6 +3416,7 @@ function ChatScreen({
     setExpandedMessageId(null)
     setPdfViewer(null)
     setSourceTrayError(null)
+    setChatError(null)
     setPendingConversationId(targetConversationId)
     const requestSequence = requestSequenceRef.current + 1
     requestSequenceRef.current = requestSequence
@@ -3405,16 +3431,12 @@ function ChatScreen({
           .filter((label): label is string => Boolean(label))
         setPendingStatusText(`searching ${searchLabels.length ? searchLabels.join(', ') : 'Library'} ...`)
         const searchStartedAt = performance.now()
-        try {
-          retrievedSources = await window.tokensmith.searchLibrary(
-            prompt,
-            activeMaterials,
-            settings.maxSources,
-            searchEmbeddingModels
-          )
-        } catch {
-          retrievedSources = []
-        }
+        retrievedSources = await window.tokensmith.searchLibrary(
+          prompt,
+          activeMaterials,
+          settings.maxSources,
+          searchEmbeddingModels
+        )
 
         if (requestSequenceRef.current !== requestSequence) {
           return
@@ -3456,7 +3478,8 @@ function ChatScreen({
         role: 'assistant',
         text: reply.text,
         sources: settings.application.showSources ? reply.sources : [],
-        followUpSuggestions: reply.followUpSuggestions ?? []
+        followUpSuggestions: reply.followUpSuggestions ?? [],
+        followUpError: reply.followUpError
       }
 
       onChatStateChange((current) => ({
@@ -3477,29 +3500,7 @@ function ChatScreen({
         return
       }
 
-      const assistantMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: `I could not complete the chat request. ${readableErrorMessage(
-          error,
-          'Download Llama 3 before chatting.'
-        )}`,
-        sources: []
-      }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) => {
-          if (conversation.id !== targetConversationId) {
-            return conversation
-          }
-
-          return {
-            ...conversation,
-            messages: [...conversation.messages, assistantMessage]
-          }
-        })
-      }))
+      setChatError(readableErrorMessage(error, 'Chat request failed.'))
     } finally {
       if (requestSequenceRef.current === requestSequence) {
         setPendingConversationId(null)
@@ -3631,6 +3632,7 @@ function ChatScreen({
               )
             )}
             {isPending && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
+            {chatError && <p className="chat-error-banner">{chatError}</p>}
             <div ref={messagesEndRef} />
           </div>
 
@@ -3864,6 +3866,7 @@ function AssistantMessage({
             </div>
           </section>
         )}
+        {message.followUpError && <p className="follow-up-error">{message.followUpError}</p>}
         {sources.length > 0 && (
           <>
             <button

@@ -2,57 +2,123 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { listStudyEngines, sendStudyChatMessage } = requireTranspiledTs('src/main/engine/study-engine-core.ts')
+const {
+  generateStudyQuestionSuggestions,
+  listStudyEngines,
+  sendStudyChatMessage
+} = requireTranspiledTs('src/main/engine/study-engine-core.ts')
 
-const baseRequest = {
-  prompt: 'Who is Annita Demetriou?',
-  messages: [],
-  materials: [],
-  model: {
+const addedAt = new Date(0).toISOString()
+const databaseSource = {
+  title: 'Database Systems.pdf',
+  locator: 'Page 4',
+  excerpt: 'Transactions preserve atomicity and durability.'
+}
+const applicationSettings = {
+  theme: 'light',
+  fontSize: 'small',
+  defaultModelId: 'llama-3-2-3b-instruct',
+  suggestionMode: 'on',
+  followUpSuggestionCount: 4,
+  showSources: true,
+  cpuThreads: 4
+}
+const modelSettings = {
+  systemMessage: '',
+  chatTemplate: '',
+  suggestedFollowUpPrompt: '',
+  contextLength: 2048,
+  maxLength: 4096,
+  promptBatchSize: 128,
+  temperature: 0.7,
+  topP: 0.4,
+  topK: 40,
+  minP: 0,
+  repeatPenaltyTokens: 64,
+  repeatPenalty: 1.18,
+  gpuLayers: -1,
+  device: 'applicationDefault'
+}
+
+function pythonChatModel(overrides = {}) {
+  return {
     id: 'llama-3-2-3b-instruct',
     name: 'Llama 3.2 3B Instruct',
     engine: 'python',
     status: 'ready',
-    addedAt: new Date(0).toISOString()
-  },
-  settings: {
-    maxSources: 4,
-    application: {
-      theme: 'light',
-      fontSize: 'small',
-      defaultModelId: 'llama-3-2-3b-instruct',
-      suggestionMode: 'on',
-      followUpSuggestionCount: 4,
-      showSources: true,
-      cpuThreads: 4
+    addedAt,
+    ...overrides
+  }
+}
+
+function ollamaChatModel(overrides = {}) {
+  return {
+    id: 'ollama:llama3',
+    name: 'Ollama llama3',
+    engine: 'ollama',
+    role: 'generator',
+    status: 'ready',
+    source: 'ollama',
+    ollamaModelName: 'llama3',
+    addedAt,
+    ...overrides
+  }
+}
+
+function remoteChatModel(overrides = {}) {
+  return {
+    id: 'remote-openai-gpt-test',
+    name: 'gpt-test',
+    engine: 'remote',
+    source: 'remote',
+    status: 'ready',
+    providerId: 'openai',
+    providerName: 'OpenAI',
+    baseUrl: 'https://example.test/v1/',
+    apiKey: 'test-key',
+    remoteModelName: 'gpt-test',
+    addedAt,
+    ...overrides
+  }
+}
+
+function chatRequest(overrides = {}) {
+  return {
+    prompt: 'What is atomicity?',
+    messages: [],
+    materials: [],
+    retrievedSources: [databaseSource],
+    model: pythonChatModel(),
+    settings: {
+      maxSources: 4,
+      application: applicationSettings,
+      modelDefaults: modelSettings,
+      modelSettingsById: {}
     },
-    modelDefaults: {
-      systemMessage: '',
-      chatTemplate: '',
-      suggestedFollowUpPrompt: '',
-      contextLength: 2048,
-      maxLength: 4096,
-      promptBatchSize: 128,
-      temperature: 0.7,
-      topP: 0.4,
-      topK: 40,
-      minP: 0,
-      repeatPenaltyTokens: 64,
-      repeatPenalty: 1.18,
-      gpuLayers: -1,
-      device: 'applicationDefault'
+    applicationSettings,
+    modelSettings,
+    ...overrides
+  }
+}
+
+function engineDependencies(overrides = {}) {
+  return {
+    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
+    generateOllamaStudyQuestionSuggestions: async () => {
+      throw new Error('ollama suggestions should not be used')
     },
-    modelSettingsById: {}
+    runOllamaStudyEngine: async () => {
+      throw new Error('ollama should not be used')
+    },
+    runPythonStudyEngine: async () => {
+      throw new Error('python should not be used')
+    },
+    ...overrides
   }
 }
 
 test('listStudyEngines reports TokenSmith as ready when health succeeds', async () => {
-  const engines = await listStudyEngines({
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-    runPythonStudyEngine: async () => {
-      throw new Error('not used')
-    }
-  })
+  const engines = await listStudyEngines(engineDependencies())
 
   assert.deepEqual(engines, [
     {
@@ -65,14 +131,11 @@ test('listStudyEngines reports TokenSmith as ready when health succeeds', async 
 })
 
 test('listStudyEngines explains when the local TokenSmith runtime is unavailable', async () => {
-  const engines = await listStudyEngines({
+  const engines = await listStudyEngines(engineDependencies({
     getPythonEngineHealth: async () => {
       throw new Error('worker missing')
-    },
-    runPythonStudyEngine: async () => {
-      throw new Error('not used')
     }
-  })
+  }))
 
   assert.equal(engines.length, 1)
   assert.equal(engines[0].id, 'tokensmith')
@@ -81,12 +144,9 @@ test('listStudyEngines explains when the local TokenSmith runtime is unavailable
 })
 
 test('listStudyEngines reports retrieval-only mode without llama.cpp', async () => {
-  const engines = await listStudyEngines({
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: false }),
-    runPythonStudyEngine: async () => {
-      throw new Error('not used')
-    }
-  })
+  const engines = await listStudyEngines(engineDependencies({
+    getPythonEngineHealth: async () => ({ llamaCppAvailable: false })
+  }))
 
   assert.equal(engines.length, 1)
   assert.equal(engines[0].status, 'ready')
@@ -94,34 +154,15 @@ test('listStudyEngines reports retrieval-only mode without llama.cpp', async () 
   assert.match(engines[0].detail, /Ollama chat and embedding models/i)
 })
 
-test('sendStudyChatMessage sends Ollama models to the Ollama study engine', async () => {
-  let ollamaWasCalled = false
+test('sendStudyChatMessage routes Ollama models to the Ollama study engine', async () => {
+  let ollamaRequest = null
   let pythonWasCalled = false
+
   const response = await sendStudyChatMessage(
-    {
-      ...baseRequest,
-      retrievedSources: [
-        {
-          title: 'Annita Demetriou - Wikipedia.pdf',
-          locator: 'Page 1',
-          excerpt: 'Annita Demetriou is a Cypriot politician.'
-        }
-      ],
-      model: {
-        id: 'ollama:llama3',
-        name: 'Ollama llama3',
-        engine: 'ollama',
-        role: 'generator',
-        status: 'ready',
-        source: 'ollama',
-        ollamaModelName: 'llama3',
-        addedAt: new Date(0).toISOString()
-      }
-    },
-    {
-      getPythonEngineHealth: async () => ({ llamaCppAvailable: false }),
+    chatRequest({ model: ollamaChatModel() }),
+    engineDependencies({
       runOllamaStudyEngine: async (request) => {
-        ollamaWasCalled = true
+        ollamaRequest = request
         return {
           engineId: 'tokensmith',
           modelName: request.model.name,
@@ -133,42 +174,66 @@ test('sendStudyChatMessage sends Ollama models to the Ollama study engine', asyn
         pythonWasCalled = true
         throw new Error('python should not be used')
       }
-    }
+    })
   )
 
+  assert.equal(ollamaRequest.model.ollamaModelName, 'llama3')
   assert.equal(response.engineId, 'tokensmith')
   assert.equal(response.modelName, 'Ollama llama3')
   assert.equal(response.text, 'Ollama answer.')
-  assert.equal(response.sources.length, 1)
-  assert.equal(ollamaWasCalled, true)
+  assert.deepEqual(response.sources, [databaseSource])
   assert.equal(pythonWasCalled, false)
 })
 
-test('sendStudyChatMessage explains that packaged local chat is disabled', async () => {
+test('sendStudyChatMessage rejects unsupported packaged local chat models', async () => {
   let pythonWasCalled = false
-  const response = await sendStudyChatMessage({
-    ...baseRequest,
-    retrievedSources: [
-      {
-        title: 'Annita Demetriou - Wikipedia.pdf',
-        locator: 'Page 1',
-        excerpt: 'Annita Demetriou is a Cypriot politician.'
-      }
-    ]
-  }, {
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-    runPythonStudyEngine: async () => {
-      pythonWasCalled = true
-      throw new Error('python should not be used')
-    }
+
+  await assert.rejects(
+    sendStudyChatMessage(
+      chatRequest(),
+      engineDependencies({
+        runPythonStudyEngine: async () => {
+          pythonWasCalled = true
+          throw new Error('python should not be used')
+        }
+      })
+    ),
+    /Python\/GGUF chat models are not packaged/i
+  )
+
+  assert.equal(pythonWasCalled, false)
+})
+
+test('sendStudyChatMessage propagates Ollama chat failures', async () => {
+  await assert.rejects(
+    sendStudyChatMessage(
+      chatRequest({ model: ollamaChatModel() }),
+      engineDependencies({
+        runOllamaStudyEngine: async () => {
+          throw new Error('Ollama is down')
+        }
+      })
+    ),
+    /Ollama is down/
+  )
+})
+
+test('sendStudyChatMessage propagates remote chat failures', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 500,
+    text: async () => 'remote failed'
   })
 
-  assert.equal(response.engineId, 'tokensmith')
-  assert.equal(response.modelName, 'Llama 3.2 3B Instruct')
-  assert.match(response.text, /Python\/GGUF chat models are not packaged/i)
-  assert.match(response.text, /Use Ollama for local chat/i)
-  assert.equal(response.sources.length, 1)
-  assert.equal(pythonWasCalled, false)
+  try {
+    await assert.rejects(
+      sendStudyChatMessage(chatRequest({ model: remoteChatModel() }), engineDependencies()),
+      /remote failed/
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('sendStudyChatMessage sends remote models to an OpenAI-compatible chat endpoint', async () => {
@@ -196,49 +261,30 @@ test('sendStudyChatMessage sends remote models to an OpenAI-compatible chat endp
 
   try {
     const response = await sendStudyChatMessage(
-      {
-        ...baseRequest,
-        prompt: 'Who is Annita Demetriou?',
+      chatRequest({
+        model: remoteChatModel(),
         applicationSettings: {
-          ...baseRequest.settings.application,
+          ...applicationSettings,
           suggestionMode: 'off'
-        },
-        retrievedSources: [
-          {
-            title: 'Annita Demetriou - Wikipedia.pdf',
-            locator: 'Page 1',
-            excerpt: 'Annita Demetriou is a Cypriot politician.'
-          }
-        ],
-        model: {
-          id: 'remote-openai-gpt-test',
-          name: 'gpt-test',
-          engine: 'remote',
-          source: 'remote',
-          status: 'ready',
-          providerId: 'openai',
-          providerName: 'OpenAI',
-          baseUrl: 'https://example.test/v1/',
-          apiKey: 'test-key',
-          remoteModelName: 'gpt-test',
-          addedAt: new Date(0).toISOString()
         }
-      },
-      {
-        getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-        runPythonStudyEngine: async () => {
-          throw new Error('python should not be used')
-        }
-      }
+      }),
+      engineDependencies()
     )
 
     assert.equal(requestUrl, 'https://example.test/v1/chat/completions')
     assert.equal(requestBody.model, 'gpt-test')
-    assert.match(requestBody.messages.at(-1).content, /Annita Demetriou is a Cypriot politician/)
+    assert.match(requestBody.messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.equal(response.engineId, 'tokensmith')
     assert.equal(response.modelName, 'gpt-test')
     assert.equal(response.text, 'Remote answer.')
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('generateStudyQuestionSuggestions rejects unsupported local chat models', async () => {
+  await assert.rejects(
+    generateStudyQuestionSuggestions(chatRequest(), engineDependencies()),
+    /Question suggestions require an Ollama or remote chat model/
+  )
 })

@@ -62,7 +62,7 @@ export async function generateStudyQuestionSuggestions(
     })
   }
 
-  return { suggestions: [] }
+  throw new Error('Question suggestions require an Ollama or remote chat model.')
 }
 
 export async function sendStudyChatMessage(
@@ -70,49 +70,22 @@ export async function sendStudyChatMessage(
   dependencies: StudyEngineDependencies
 ): Promise<EngineChatResponse> {
   if (request.model.engine === 'ollama') {
-    try {
-      const response = await dependencies.runOllamaStudyEngine(request)
-      return {
-        ...response,
-        engineId: 'tokensmith',
-        modelName: response.modelName || request.model.name
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Ollama could not answer.'
-
-      return {
-        engineId: 'tokensmith',
-        modelName: request.model.name,
-        text: `The Ollama chat model was not available: ${reason}\n\nOpen Ollama, make sure llama3 is downloaded, then try again.`,
-        sources: request.retrievedSources ?? []
-      }
+    const response = await dependencies.runOllamaStudyEngine(request)
+    return {
+      ...response,
+      engineId: 'tokensmith',
+      modelName: response.modelName || request.model.name
     }
   }
 
   if (request.model.engine === 'remote') {
-    try {
-      const remoteModel = modelWithRememberedRemoteApiKey(request.model)
-      rememberRemoteModelApiKey(remoteModel)
-      return await runRemoteStudyEngine({
-        ...request,
-        model: remoteModel
-      })
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'The remote provider could not answer.'
-
-      return {
-        engineId: 'tokensmith',
-        modelName: request.model.name,
-        text: `The remote model was not available: ${reason}`,
-        sources: request.retrievedSources ?? []
-      }
-    }
+    const remoteModel = modelWithRememberedRemoteApiKey(request.model)
+    rememberRemoteModelApiKey(remoteModel)
+    return await runRemoteStudyEngine({
+      ...request,
+      model: remoteModel
+    })
   }
 
-  return {
-    engineId: 'tokensmith',
-    modelName: request.model.name,
-    text: 'Python/GGUF chat models are not packaged in this app version. Use Ollama for local chat or add a cloud-based chat model from Models.',
-    sources: request.retrievedSources ?? []
-  }
+  throw new Error('Python/GGUF chat models are not packaged in this app version. Use Ollama for local chat or add a cloud-based chat model from Models.')
 }

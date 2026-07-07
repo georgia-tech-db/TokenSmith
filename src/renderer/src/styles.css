@@ -632,6 +632,24 @@ button {
   font-size: 0.86rem;
 }
 
+.starter-question-status.is-error,
+.follow-up-error,
+.chat-error-banner {
+  color: var(--danger);
+}
+
+.follow-up-error,
+.chat-error-banner {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.chat-error-banner {
+  width: min(760px, 100%);
+  margin-left: 46px;
+}
+
 .follow-up-title {
   display: inline-flex;
   align-items: center;
@@ -823,7 +841,7 @@ button {
 
 .chat-setup-step {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) minmax(150px, auto);
+  grid-template-columns: 42px minmax(0, 1fr) clamp(300px, 42%, 390px);
   gap: 12px;
   align-items: center;
   min-height: 78px;
@@ -885,16 +903,19 @@ button {
 
 .chat-setup-action {
   display: grid;
-  min-width: 176px;
+  width: 100%;
+  min-width: 0;
   gap: 8px;
 }
 
 .chat-setup-action.is-wide {
-  min-width: 260px;
+  min-width: 0;
 }
 
 .chat-setup-model-download {
   display: grid;
+  width: 100%;
+  min-width: 0;
   gap: 8px;
 }
 
@@ -934,6 +955,22 @@ button {
   color: var(--muted);
   background: var(--green-soft);
   font-weight: 650;
+}
+
+.chat-setup-step > .model-action-button,
+.chat-setup-action,
+.chat-setup-status {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.chat-setup-model-download small {
+  display: block;
+  min-width: 0;
+  min-height: 1.25em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-setup-status.is-ready {

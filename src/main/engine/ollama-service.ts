@@ -172,6 +172,10 @@ async function responseErrorDetail(response: Response): Promise<string> {
   }
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 function isMissingOllamaModelError(status: number, detail: string): boolean {
   return status === 404 || /file does not exist|model.*not found|not found|does not exist/i.test(detail)
 }
@@ -757,18 +761,18 @@ async function generateOllamaFollowUpSuggestions(
   const maxTokens = Math.min(request.modelSettings?.maxLength ?? 160, 160)
   const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
 
-  try {
-    const text = await runOllamaChatCompletion(
-      baseUrl,
-      modelName,
-      [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
-      request.modelSettings,
-      { maxTokens, temperature }
-    )
-    return parseFollowUpSuggestions(text, count)
-  } catch {
-    return []
+  const text = await runOllamaChatCompletion(
+    baseUrl,
+    modelName,
+    [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
+    request.modelSettings,
+    { maxTokens, temperature }
+  )
+  const suggestions = parseFollowUpSuggestions(text, count)
+  if (suggestions.length === 0) {
+    throw new Error('Ollama did not return any suggested questions.')
   }
+  return suggestions
 }
 
 export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
@@ -778,14 +782,21 @@ export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<
   const modelName = request.model.ollamaModelName
   const text = await runOllamaChatCompletion(baseUrl, modelName, studyChatMessages(request), request.modelSettings)
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
-  const followUpSuggestions = await generateOllamaFollowUpSuggestions(request, answer.text, baseUrl, modelName)
+  let followUpSuggestions: string[] | undefined
+  let followUpError: string | undefined
+  try {
+    followUpSuggestions = await generateOllamaFollowUpSuggestions(request, answer.text, baseUrl, modelName)
+  } catch (error) {
+    followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'Ollama could not generate suggestions.')}`
+  }
 
   return {
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
-    followUpSuggestions
+    followUpSuggestions,
+    followUpError
   }
 }
 
@@ -804,16 +815,16 @@ export async function generateOllamaStudyQuestionSuggestions(
   const maxTokens = Math.min(request.modelSettings?.maxLength ?? 160, 160)
   const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
 
-  try {
-    const text = await runOllamaChatCompletion(
-      baseUrl,
-      modelName,
-      questionSuggestionMessages(request),
-      request.modelSettings,
-      { maxTokens, temperature }
-    )
-    return { suggestions: parseFollowUpSuggestions(text, count) }
-  } catch {
-    return { suggestions: [] }
+  const text = await runOllamaChatCompletion(
+    baseUrl,
+    modelName,
+    questionSuggestionMessages(request),
+    request.modelSettings,
+    { maxTokens, temperature }
+  )
+  const suggestions = parseFollowUpSuggestions(text, count)
+  if (suggestions.length === 0) {
+    throw new Error('Ollama did not return any suggested questions.')
   }
+  return { suggestions }
 }

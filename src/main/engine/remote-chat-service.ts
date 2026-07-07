@@ -49,6 +49,10 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '')
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 function isGeminiOpenAiBaseUrl(baseUrl: string): boolean {
   try {
     return new URL(baseUrl).hostname === 'generativelanguage.googleapis.com'
@@ -248,16 +252,16 @@ async function generateRemoteFollowUpSuggestions(
   const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  try {
-    const text = await runRemoteChatCompletion(
-      config,
-      [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
-      { maxTokens, temperature }
-    )
-    return parseFollowUpSuggestions(text, count)
-  } catch {
-    return []
+  const text = await runRemoteChatCompletion(
+    config,
+    [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
+    { maxTokens, temperature }
+  )
+  const suggestions = parseFollowUpSuggestions(text, count)
+  if (suggestions.length === 0) {
+    throw new Error('The remote model did not return any suggested questions.')
   }
+  return suggestions
 }
 
 export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
@@ -274,14 +278,21 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
   }
   const text = await runRemoteChatCompletion(config, studyChatMessages(request))
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
-  const followUpSuggestions = await generateRemoteFollowUpSuggestions(request, answer.text, config)
+  let followUpSuggestions: string[] | undefined
+  let followUpError: string | undefined
+  try {
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(request, answer.text, config)
+  } catch (error) {
+    followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
+  }
 
   return {
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
-    followUpSuggestions
+    followUpSuggestions,
+    followUpError
   }
 }
 
@@ -304,10 +315,10 @@ export async function generateRemoteStudyQuestionSuggestions(
   const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  try {
-    const text = await runRemoteChatCompletion(config, questionSuggestionMessages(request), { maxTokens, temperature })
-    return { suggestions: parseFollowUpSuggestions(text, count) }
-  } catch {
-    return { suggestions: [] }
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(request), { maxTokens, temperature })
+  const suggestions = parseFollowUpSuggestions(text, count)
+  if (suggestions.length === 0) {
+    throw new Error('The remote model did not return any suggested questions.')
   }
+  return { suggestions }
 }

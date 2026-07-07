@@ -20,12 +20,12 @@ async function withStarterSources(
     return request
   }
 
-  try {
-    const starterSources = await starterSourcesWithPython(request.materials, 4)
-    return starterSources.length > 0 ? { ...request, retrievedSources: starterSources } : request
-  } catch {
-    return request
+  const starterSources = await starterSourcesWithPython(request.materials, 4)
+  if (starterSources.length === 0) {
+    throw new Error('No indexed PDF text was available for starter questions.')
   }
+
+  return { ...request, retrievedSources: starterSources }
 }
 
 export async function listEngines(): Promise<EngineInfo[]> {
