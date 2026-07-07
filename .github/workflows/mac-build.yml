@@ -59,14 +59,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            TokenSmith packages the desktop app for local study workflows.
+            TokenSmith 0.1.8 improves first-time setup for students and cleans up the packaged app runtime.
 
             Major changes in this release:
-            - Desktop app shell with Chat, Library, Models, and Settings views.
-            - Local import support for PDFs, Markdown, text files, and folders.
-            - Python-backed extraction, chunking, indexing, retrieval, and source-backed chat.
-            - Bundled Python runtime in release packages for fewer setup steps.
-            - Local model support and remote provider configuration.
+            - Adds an Ollama-based first-time setup flow for installing Ollama, downloading Nomic Embedder Model and Llama 3 Chat Model, and adding PDFs.
+            - Lets students download the embedder first so PDFs can be prepared before local chat is installed.
+            - Rebuilds the bundled Python runtime from a clean app-local prefix and removes the llama-cpp-python runtime package.
+            - Fixes macOS Python framework linkage for packaged builds.
 
             Platform assets are attached as their packaging workflows finish.
           files: release/TokenSmith-*-mac-*.dmg
