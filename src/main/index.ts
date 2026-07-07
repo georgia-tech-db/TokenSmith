@@ -22,6 +22,13 @@ import {
 import { searchHuggingFaceModels } from './models/huggingface-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
 import {
+  getOllamaStatus,
+  openOllamaApp,
+  openOllamaDownloadPage,
+  pullOllamaModel,
+  startOllamaService
+} from './engine/ollama-service'
+import {
   rememberRemoteModelApiKeys,
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
@@ -105,7 +112,7 @@ function createId(prefix: string): string {
 
 async function pickMaterials(): Promise<PickMaterialsResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Add document collection',
+    title: 'Add PDFs',
     buttonLabel: 'Choose Folder',
     properties: ['openDirectory']
   })
@@ -127,7 +134,7 @@ async function pickMaterials(): Promise<PickMaterialsResult> {
 
 async function pickMaterialFolder(): Promise<PickMaterialFolderResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Choose document collection folder',
+    title: 'Choose PDF folder',
     buttonLabel: 'Choose Folder',
     properties: ['openDirectory']
   })
@@ -470,6 +477,11 @@ app.whenReady().then(() => {
   ipcMain.handle('library:remove-material', (_event, materialId: string, materialPath?: string) =>
     removeMaterialWithPython(materialId, materialPath)
   )
+  ipcMain.handle('ollama:status', () => getOllamaStatus())
+  ipcMain.handle('ollama:open-download-page', () => openOllamaDownloadPage())
+  ipcMain.handle('ollama:open-app', () => openOllamaApp())
+  ipcMain.handle('ollama:start-service', () => startOllamaService())
+  ipcMain.handle('ollama:pull-model', (_event, modelName: string) => pullOllamaModel(modelName))
   ipcMain.handle('models:pick-model', (_event, role?: LocalModelRole) => pickModel(role))
   ipcMain.handle('models:list-remote-provider-models', (_event, apiKey: string, baseUrl: string, role?: LocalModelRole) =>
     listOpenAiCompatibleModels(apiKey, baseUrl, role)

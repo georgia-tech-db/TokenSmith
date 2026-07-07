@@ -123,6 +123,7 @@ PDF_THUMBNAIL_SCALE = 0.2
 PDF_THUMBNAIL_MAX_SIZE = (180, 240)
 LLAMA_EMBEDDING_TEXT_LIMIT = 300
 REMOTE_EMBEDDING_TEXT_LIMIT = 8000
+OLLAMA_EMBEDDING_TEXT_LIMIT = 8000
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END = "<<<END>>>"
 STOP_WORDS = {
@@ -365,8 +366,35 @@ def is_remote_embedding_spec(model: Dict[str, Any]) -> bool:
     )
 
 
+def is_ollama_embedding_spec(model: Dict[str, Any]) -> bool:
+    return (
+        model.get("engine") == "ollama"
+        and model.get("role") in {"embedder", "both"}
+        and bool(str(model.get("ollamaModelName") or "").strip())
+    )
+
+
 def normalize_remote_base_url(base_url: str) -> str:
     return base_url.strip().rstrip("/")
+
+
+def normalize_ollama_base_url(base_url: str) -> str:
+    normalized = (base_url or "http://127.0.0.1:11434").strip().rstrip("/")
+    if normalized.endswith("/api"):
+        normalized = normalized[:-4].rstrip("/")
+    if normalized in {"", "http://localhost:11434"}:
+        return "http://127.0.0.1:11434"
+    return normalized
+
+
+def ollama_embedding_model_key(model: Dict[str, Any]) -> str:
+    base_url = normalize_ollama_base_url(str(model.get("ollamaBaseUrl") or model.get("baseUrl") or ""))
+    model_name = str(model.get("ollamaModelName") or "").strip()
+    safe_name = re.sub(r"[^a-z0-9_.:-]+", "-", model_name.lower()).strip("-") or "model"
+    if base_url == "http://127.0.0.1:11434":
+        return f"ollama:{safe_name}"
+    digest = hashlib.sha256(f"{base_url}\0{model_name}".encode("utf-8")).hexdigest()[:12]
+    return f"ollama:{safe_name}:{digest}"
 
 
 def remote_embedding_model_key(model: Dict[str, Any]) -> str:
@@ -380,6 +408,8 @@ def remote_embedding_model_key(model: Dict[str, Any]) -> str:
 def embedding_model_key_from_spec(model: Dict[str, Any]) -> str:
     if is_remote_embedding_spec(model):
         return remote_embedding_model_key(model)
+    if is_ollama_embedding_spec(model):
+        return ollama_embedding_model_key(model)
     return embedding_model_key(embedding_model_path_from_spec(model))
 
 
@@ -1095,7 +1125,7 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
     embedding_key = embedding_model_key_from_spec(model)
     embed_text = None
     if total_embeddings:
-        if not embedding_model_path and not is_remote_embedding_spec(model):
+        if not embedding_model_path and not is_remote_embedding_spec(model) and not is_ollama_embedding_spec(model):
             raise EngineError("An embedding model is required to index document collections.")
 
         emit_index_progress(
@@ -1457,6 +1487,46 @@ def remote_openai_embedding(text: str, model: Dict[str, Any]) -> List[float]:
     return [float(value) for value in embedding]
 
 
+def ollama_embedding(text: str, model: Dict[str, Any]) -> List[float]:
+    base_url = normalize_ollama_base_url(str(model.get("ollamaBaseUrl") or model.get("baseUrl") or ""))
+    model_name = str(model.get("ollamaModelName") or "").strip()
+    if not model_name:
+        raise EngineError("Ollama embedding model configuration is incomplete.")
+
+    endpoint = f"{base_url}/api/embed"
+    payload = json.dumps(
+        {
+            "model": model_name,
+            "input": normalize_text(text)[:OLLAMA_EMBEDDING_TEXT_LIMIT],
+            "truncate": True,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:300]
+        raise EngineError(f"Ollama embedding request failed with HTTP {error.code}: {detail}") from error
+    except Exception as error:
+        raise EngineError(f"Ollama embedding request failed: {error}") from error
+
+    embeddings = response_payload.get("embeddings") if isinstance(response_payload, dict) else None
+    embedding = embeddings[0] if isinstance(embeddings, list) and embeddings else None
+    if not isinstance(embedding, list) or not embedding:
+        raise EngineError("Ollama embedding model returned no embedding vector.")
+    return [float(value) for value in embedding]
+
+
 def resolve_embedding_provider(model_path: Optional[str]) -> Tuple[str, Any, Optional[str]]:
     if not model_path:
         return "", None, "An embedding model is required."
@@ -1476,6 +1546,10 @@ def resolve_embedding_provider_from_spec(model: Dict[str, Any]) -> Tuple[str, An
             return remote_embedding_model_key(model), None, "Remote embedding model API key is missing."
         key = remote_embedding_model_key(model)
         return key, lambda text: remote_openai_embedding(text, model), None
+
+    if is_ollama_embedding_spec(model):
+        key = ollama_embedding_model_key(model)
+        return key, lambda text: ollama_embedding(text, model), None
 
     return resolve_embedding_provider(embedding_model_path_from_spec(model))
 
@@ -1500,6 +1574,12 @@ def resolve_embedding_provider_for_key(
     for spec in specs:
         if is_remote_embedding_spec(spec):
             if remote_embedding_model_key(spec) != target_key:
+                continue
+            _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec)
+            return embed_text, reason
+
+        if is_ollama_embedding_spec(spec):
+            if ollama_embedding_model_key(spec) != target_key:
                 continue
             _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec)
             return embed_text, reason

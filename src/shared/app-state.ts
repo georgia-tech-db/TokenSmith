@@ -60,14 +60,16 @@ export interface CourseMaterial {
 export interface LocalModel {
   id: string
   name: string
-  engine: 'python' | 'remote'
+  engine: 'python' | 'ollama' | 'remote'
   role?: LocalModelRole
   status: 'ready' | 'needsRuntime' | 'missing' | 'downloading' | 'incomplete' | 'downloadError'
-  source?: 'bundled' | 'local' | 'downloaded' | 'remote'
+  source?: 'bundled' | 'local' | 'downloaded' | 'ollama' | 'remote'
   catalogId?: string
   filename?: string
   path?: string
   embeddingPath?: string
+  ollamaModelName?: string
+  ollamaBaseUrl?: string
   providerId?: 'groq' | 'openai' | 'gemini' | 'mistral' | 'custom'
   providerName?: string
   baseUrl?: string

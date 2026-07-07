@@ -21,6 +21,7 @@ import type {
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { ModelCatalogItem } from './model-catalog'
 import type { HuggingFaceSearchOptions } from './model-providers'
+import type { OllamaOpenResult, OllamaPullProgress, OllamaPullResult, OllamaStatus } from './ollama'
 
 export interface TokenSmithBridge {
   platform: string
@@ -57,6 +58,12 @@ export interface TokenSmithBridge {
   listMaterials: () => Promise<CourseMaterial[]>
   setMaterialEnabled: (materialId: string, isActive: boolean) => Promise<void>
   removeMaterial: (materialId: string, materialPath?: string) => Promise<void>
+  getOllamaStatus: () => Promise<OllamaStatus>
+  openOllamaDownloadPage: () => Promise<void>
+  openOllamaApp: () => Promise<OllamaOpenResult>
+  startOllamaService: () => Promise<OllamaOpenResult>
+  pullOllamaModel: (modelName: string) => Promise<OllamaPullResult>
+  onOllamaPullProgress: (callback: (progress: OllamaPullProgress) => void) => () => void
   pickModel: (role?: LocalModelRole) => Promise<PickModelResult>
   listRemoteProviderModels: (apiKey: string, baseUrl: string, role?: LocalModelRole) => Promise<string[]>
   searchHuggingFaceModels: (query: string, options: HuggingFaceSearchOptions) => Promise<ModelCatalogItem[]>

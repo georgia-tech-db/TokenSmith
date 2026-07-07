@@ -40,6 +40,13 @@ import {
   type ModelCatalogItem
 } from '@shared/model-catalog'
 import {
+  defaultOllamaBaseUrl,
+  recommendedOllamaChatModel,
+  recommendedOllamaEmbeddingModel,
+  type OllamaPullProgress,
+  type OllamaStatus
+} from '@shared/ollama'
+import {
   remoteProviderCatalog,
   type HuggingFaceSearchOptions,
   type HuggingFaceSort,
@@ -184,7 +191,7 @@ const starterConversations: Conversation[] = [
 const defaultAppState: AppStateSnapshot = {
   version: 1,
   appVersion: 'dev',
-  activeScreen: 'models',
+  activeScreen: 'chat',
   activeConversationId: starterConversations[0].id,
   conversations: starterConversations,
   materials: defaultMaterials,
@@ -377,11 +384,19 @@ function modelRole(model: LocalModel): LocalModelRole {
 }
 
 function modelCanGenerate(model: LocalModel) {
+  if (model.engine === 'python') {
+    return false
+  }
+
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'generator' || role === 'both')
 }
 
 function modelCanEmbed(model: LocalModel) {
+  if (model.engine === 'python') {
+    return false
+  }
+
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
 }
@@ -396,6 +411,65 @@ function firstEmbeddingModel(models: LocalModel[]) {
 
 function recommendedLocalModelName(modelId: string, fallback: string) {
   return tokenSmithTunedModels.find((model) => model.id === modelId)?.name ?? fallback
+}
+
+function ollamaChatModelId(modelName: string) {
+  return `ollama:${modelName.trim().toLowerCase() || recommendedOllamaChatModel}`
+}
+
+function ollamaEmbedderModelId(modelName: string) {
+  return `ollama:${modelName.trim().toLowerCase() || recommendedOllamaEmbeddingModel}`
+}
+
+function ollamaModelNameMatches(installedModelName: string, requestedModelName: string) {
+  const installed = installedModelName.trim().toLowerCase().replace(/:latest$/, '')
+  const requested = requestedModelName.trim().toLowerCase().replace(/:latest$/, '')
+  return installed === requested || installed.startsWith(`${requested}:`)
+}
+
+function createOllamaChatModel(modelName = recommendedOllamaChatModel, baseUrl = defaultOllamaBaseUrl): LocalModel {
+  const normalizedModelName = modelName.trim() || recommendedOllamaChatModel
+
+  return {
+    id: ollamaChatModelId(normalizedModelName),
+    name: `Ollama ${normalizedModelName}`,
+    engine: 'ollama',
+    role: 'generator',
+    status: 'ready',
+    source: 'ollama',
+    ollamaModelName: normalizedModelName,
+    ollamaBaseUrl: baseUrl,
+    type: 'Ollama chat',
+    description: [
+      'Local chat model served by Ollama',
+      'Used for answers after TokenSmith retrieves enabled source excerpts',
+      'Works with enabled PDFs prepared by TokenSmith'
+    ],
+    addedAt: new Date().toISOString()
+  }
+}
+
+function createOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, baseUrl = defaultOllamaBaseUrl): LocalModel {
+  const normalizedModelName = modelName.trim() || recommendedOllamaEmbeddingModel
+
+  return {
+    id: ollamaEmbedderModelId(normalizedModelName),
+    name: `Ollama ${normalizedModelName}`,
+    engine: 'ollama',
+    role: 'embedder',
+    status: 'ready',
+    source: 'ollama',
+    ollamaModelName: normalizedModelName,
+    ollamaBaseUrl: baseUrl,
+    type: 'Ollama embedder',
+    description: [
+      'Local embedding model served by Ollama',
+      'Prepares PDFs for search',
+      'Embeds questions before source retrieval',
+      'Collections record the embedder used during indexing'
+    ],
+    addedAt: new Date().toISOString()
+  }
 }
 
 function createDefaultAppState(appVersion = 'dev'): AppStateSnapshot {
@@ -461,9 +535,27 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         return false
       }
 
-      return model.engine === 'python' || model.engine === 'remote'
+      return model.engine === 'python' || model.engine === 'ollama' || model.engine === 'remote'
     })
     .map((model, index) => {
+      if (model.engine === 'ollama') {
+        const ollamaModelName = model.ollamaModelName || model.name
+        const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
+        return {
+          id: model.id ?? `ollama:${ollamaModelName}`,
+          name: model.name || `Ollama ${ollamaModelName}`,
+          engine: 'ollama' as const,
+          role,
+          status: model.status ?? 'ready',
+          source: 'ollama' as const,
+          ollamaModelName,
+          ollamaBaseUrl: model.ollamaBaseUrl ?? defaultOllamaBaseUrl,
+          type: model.type ?? (role === 'embedder' ? 'Ollama embedder' : 'Ollama chat'),
+          description: model.description,
+          addedAt: model.addedAt ?? new Date(index).toISOString()
+        }
+      }
+
       if (model.engine === 'remote') {
         const hasApiKey = Boolean(model.apiKey?.trim())
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
@@ -712,7 +804,7 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     ...createDefaultAppState(appVersion),
     ...savedState,
     appVersion,
-    activeScreen: models.length === 0 ? 'models' : 'chat',
+    activeScreen: 'chat',
     activeConversationId: freshChatState.activeConversationId,
     conversations: freshChatState.conversations,
     materials,
@@ -967,11 +1059,13 @@ export function App() {
       id: 'tokensmith',
       name: 'TokenSmith',
       status: 'needsSetup',
-      detail: 'Local indexing, source-backed chat, and configured model runtimes.'
+      detail: 'Local PDF preparation, source-backed chat, and configured model runtimes.'
     }
   ])
   const [, setSaveStatus] = useState<'loading' | 'saved' | 'saving' | 'local' | 'error'>('loading')
   const [hasLoadedState, setHasLoadedState] = useState(false)
+  const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
+  const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
   const cancelledIndexRequestsRef = useRef(new Set<string>())
@@ -1019,7 +1113,7 @@ export function App() {
                     ? {
                         ...engine,
                         status: 'unavailable',
-                        detail: 'The local TokenSmith runtime is not available. Material indexing and source-backed chat need it.'
+                        detail: 'The local TokenSmith runtime is not available. PDF preparation and source-backed chat need it.'
                       }
                     : engine
                 )
@@ -1106,6 +1200,16 @@ export function App() {
           materials: current.materials.map((material) => {
             if (material.id !== progress.materialId) {
               return material
+            }
+
+            if (progress.phase === 'complete') {
+              return {
+                ...material,
+                status: 'ready',
+                detail: 'Ready for chat',
+                indexing: undefined,
+                isActive: true
+              }
             }
 
             const nextMaterial: CourseMaterial = {
@@ -1303,7 +1407,6 @@ export function App() {
       firstEmbeddingModel(appState.models)
 
     if (!embeddingModel) {
-      const recommendedName = recommendedLocalModelName('nomic-embed-text-v1-5', 'Nomic Embed Text v1.5')
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((material) =>
@@ -1312,7 +1415,7 @@ export function App() {
                 ...material,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: `Add a local or cloud-based embedder before indexing. Suggested local embedder: ${recommendedName}.`,
+                error: 'Download the Nomic Embedder Model before preparing PDFs.',
                 indexing: undefined,
                 isActive: false
               }
@@ -1409,7 +1512,7 @@ export function App() {
     upsertModel(model, true)
   }
 
-  function upsertModel(model: LocalModel, shouldSelect = false) {
+  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models') {
     updateAppState((current) => {
       const modelFile = normalizeModelFilename(modelFilename(model))
       const isSameModel = (existingModel: LocalModel) => {
@@ -1434,6 +1537,14 @@ export function App() {
           )
         }
 
+        if (model.engine === 'ollama' && existingModel.engine === 'ollama') {
+          return (
+            existingModel.ollamaModelName === model.ollamaModelName &&
+            existingModel.ollamaBaseUrl === model.ollamaBaseUrl &&
+            modelRole(existingModel) === modelRole(model)
+          )
+        }
+
         return false
       }
       const existingModels = current.models.filter((existingModel) => {
@@ -1442,12 +1553,20 @@ export function App() {
 
       return {
         ...current,
-        activeScreen: 'models',
+        activeScreen: nextScreen ?? current.activeScreen,
         models: [model, ...existingModels],
         selectedModelId: shouldSelect && modelCanGenerate(model) ? model.id : current.selectedModelId,
         selectedEmbeddingModelId: shouldSelect && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
       }
     })
+  }
+
+  function installOllamaChatModel(modelName = recommendedOllamaChatModel, baseUrl = defaultOllamaBaseUrl) {
+    upsertModel(createOllamaChatModel(modelName, baseUrl), true, null)
+  }
+
+  function installOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, baseUrl = defaultOllamaBaseUrl) {
+    upsertModel(createOllamaEmbedderModel(modelName, baseUrl), true, null)
   }
 
   function selectModel(modelId: string) {
@@ -1674,7 +1793,6 @@ export function App() {
       firstEmbeddingModel(appState.models)
 
     if (!embeddingModel) {
-      const recommendedName = recommendedLocalModelName('nomic-embed-text-v1-5', 'Nomic Embed Text v1.5')
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((item) =>
@@ -1683,7 +1801,7 @@ export function App() {
                 ...item,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: `Add a local or cloud-based embedder before rebuilding. Suggested local embedder: ${recommendedName}.`,
+                error: 'Download the Nomic Embedder Model before preparing PDFs.',
                 indexing: undefined,
                 isActive: false
               }
@@ -1812,17 +1930,20 @@ export function App() {
             materials={appState.materials}
             models={appState.models}
             embeddingModels={embeddingModels}
+            isSetupCardDismissed={isChatSetupCardDismissed}
             selectedModel={selectedModel}
             settings={appState.settings}
             onChatStateChange={updateChatState}
-            onCancelModelDownload={cancelModelDownload}
-            onDownloadModel={downloadModel}
-            onOpenLibrary={() =>
+            onDismissSetupCard={() => setChatSetupCardDismissed(true)}
+            onInstallOllamaChatModel={installOllamaChatModel}
+            onInstallOllamaEmbedderModel={installOllamaEmbedderModel}
+            onOpenLibrary={() => {
+              setLibraryCreateRequest((request) => request + 1)
               updateAppState((current) => ({
                 ...current,
                 activeScreen: 'library'
               }))
-            }
+            }}
             onSelectModel={selectModel}
             onToggleMaterialActive={toggleMaterialActive}
           />
@@ -1830,6 +1951,7 @@ export function App() {
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
             embeddingModels={embeddingModels}
+            createRequest={libraryCreateRequest}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
             onAddMaterials={addMaterials}
@@ -1870,7 +1992,7 @@ function LoadingScreen() {
         <Sparkles size={30} />
       </div>
       <h1>Preparing your library</h1>
-      <p>Loading chats, indexed materials, and the local study engine.</p>
+      <p>Loading chats, PDFs, and the local study engine.</p>
     </div>
   )
 }
@@ -1879,13 +2001,15 @@ function ChatScreen({
   activeConversationId,
   conversations,
   embeddingModels,
+  isSetupCardDismissed,
   materials,
   models,
   selectedModel,
   settings,
   onChatStateChange,
-  onCancelModelDownload,
-  onDownloadModel,
+  onDismissSetupCard,
+  onInstallOllamaChatModel,
+  onInstallOllamaEmbedderModel,
   onOpenLibrary,
   onSelectModel,
   onToggleMaterialActive
@@ -1893,13 +2017,15 @@ function ChatScreen({
   activeConversationId: string
   conversations: Conversation[]
   embeddingModels: LocalModel[]
+  isSetupCardDismissed: boolean
   materials: CourseMaterial[]
   models: LocalModel[]
   selectedModel?: LocalModel
   settings: TokenSmithSettings
-  onCancelModelDownload: (filename: string) => void
+  onDismissSetupCard: () => void
+  onInstallOllamaChatModel: (modelName?: string, baseUrl?: string) => void
+  onInstallOllamaEmbedderModel: (modelName?: string, baseUrl?: string) => void
   onOpenLibrary: () => void
-  onDownloadModel: (model: ModelCatalogItem) => void
   onSelectModel: (modelId: string) => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
@@ -1918,6 +2044,11 @@ function ChatScreen({
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
+  const [ollamaSetupPhase, setOllamaSetupPhase] = useState<'idle' | 'checking' | 'opening' | 'starting' | 'error'>('idle')
+  const [ollamaPullingModel, setOllamaPullingModel] = useState<'chat' | 'embedder' | null>(null)
+  const [ollamaPullProgress, setOllamaPullProgress] = useState<OllamaPullProgress | null>(null)
+  const [ollamaSetupError, setOllamaSetupError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<HTMLInputElement | null>(null)
@@ -1949,18 +2080,21 @@ function ChatScreen({
       ? readyModels
       : [selectedModel, ...readyModels]
   }, [models, selectedModel])
-  const firstRunRecommendedModelIdSet = useMemo(() => new Set<string>(firstRunRecommendedModelIds), [])
   const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
   const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
-  const recommendedChatModel = tokenSmithTunedModels.find((model) => {
-    const role = model.role ?? 'generator'
-    return firstRunRecommendedModelIdSet.has(model.id) && (role === 'generator' || role === 'both')
-  })
-  const recommendedEmbeddingModel = tokenSmithTunedModels.find((model) => {
-    const role = model.role ?? 'generator'
-    return firstRunRecommendedModelIdSet.has(model.id) && (role === 'embedder' || role === 'both')
-  })
-  const needsModelSetup = !readyChatModel || !readyEmbeddingModel
+  const hasReadyMaterials = materials.some((material) => material.status === 'ready')
+  const hasIndexingMaterials = materials.some((material) => material.status === 'indexing')
+  const needsChatModelSetup = !readyChatModel
+  const needsEmbeddingModelSetup = !readyEmbeddingModel
+  const needsDocumentSetup = Boolean(readyEmbeddingModel) && !hasReadyMaterials && !hasIndexingMaterials
+  const needsModelSetup = needsChatModelSetup || needsEmbeddingModelSetup
+  const needsSetupCard = needsModelSetup || needsDocumentSetup
+  const shouldShowSetupCard = needsSetupCard && !isSetupCardDismissed
+  const composerPlaceholder = selectedModel
+    ? 'Ask about your PDFs...'
+    : needsDocumentSetup
+      ? 'Add your PDFs, then download Llama 3...'
+      : 'Download Llama 3 to ask questions...'
 
   useEffect(() => {
     if (!hasMountedMessagesRef.current) {
@@ -1970,6 +2104,61 @@ function ChatScreen({
 
     messagesEndRef.current?.scrollIntoView({ block: 'end' })
   }, [activeConversation.id, activeConversation.messages.length, isPending])
+
+  useEffect(() => {
+    if ((!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
+      return
+    }
+
+    let cancelled = false
+
+    async function refresh() {
+      setOllamaSetupPhase('checking')
+      setOllamaSetupError(null)
+
+      try {
+        const status = await window.tokensmith?.getOllamaStatus()
+        if (!cancelled && status) {
+          setOllamaStatus(status)
+          setOllamaSetupPhase('idle')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOllamaSetupPhase('error')
+          setOllamaSetupError(readableErrorMessage(error, 'Could not check Ollama.'))
+        }
+      }
+    }
+
+    void refresh()
+
+    return () => {
+      cancelled = true
+    }
+  }, [needsModelSetup, needsDocumentSetup])
+
+  useEffect(() => {
+    if (!window.tokensmith?.onOllamaPullProgress) {
+      return undefined
+    }
+
+    return window.tokensmith.onOllamaPullProgress((progress) => {
+      if (
+        !ollamaModelNameMatches(progress.model, recommendedOllamaChatModel) &&
+        !ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)
+      ) {
+        return
+      }
+
+      setOllamaPullProgress(progress)
+      if (ollamaModelNameMatches(progress.model, recommendedOllamaChatModel)) {
+        setOllamaPullingModel(progress.status === 'complete' || progress.status === 'error' ? null : 'chat')
+      }
+      if (ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)) {
+        setOllamaPullingModel(progress.status === 'complete' || progress.status === 'error' ? null : 'embedder')
+      }
+    })
+  }, [])
 
   function handleNewChat() {
     requestSequenceRef.current += 1
@@ -2154,39 +2343,225 @@ function ChatScreen({
     void submitPrompt(suggestion)
   }
 
-  function modelByCatalogItem(catalogModel: ModelCatalogItem) {
-    return models.find((model) => normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(catalogModel.filename))
-  }
-
-  function setupProgressLine(progress?: ModelDownloadProgress) {
-    if (!progress) {
-      return undefined
+  async function refreshOllamaStatus() {
+    if (!window.tokensmith?.getOllamaStatus) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
     }
 
-    const received = formatBytes(progress.bytesReceived)
-    const total = progress.bytesTotal ? formatBytes(progress.bytesTotal) : 'unknown'
-    const speed = progress.speedBytesPerSecond ? ` · ${formatBytes(progress.speedBytesPerSecond)}/s` : ''
-    return `${progress.percent}% · ${received} of ${total}${speed}`
+    setOllamaSetupPhase('checking')
+    setOllamaPullingModel(null)
+    setOllamaPullProgress(null)
+    setOllamaSetupError(null)
+
+    try {
+      const status = await window.tokensmith.getOllamaStatus()
+      setOllamaStatus(status)
+      setOllamaSetupPhase('idle')
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError(readableErrorMessage(error, 'Could not check Ollama.'))
+    }
   }
 
-  function renderSetupDownloadProgress(progress?: ModelDownloadProgress) {
+  async function handleOpenOllamaDownloadPage() {
+    if (!window.tokensmith?.openOllamaDownloadPage) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    try {
+      await window.tokensmith.openOllamaDownloadPage()
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError(readableErrorMessage(error, 'Could not open the Ollama download page.'))
+    }
+  }
+
+  async function handleOpenOllamaApp() {
+    if (!window.tokensmith?.openOllamaApp) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    setOllamaSetupPhase('opening')
+    setOllamaSetupError(null)
+
+    try {
+      const result = await window.tokensmith.openOllamaApp()
+      if (!result.opened) {
+        setOllamaSetupPhase('error')
+        setOllamaSetupError(result.message ?? 'Could not open Ollama.')
+        return
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1500))
+      await refreshOllamaStatus()
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError(readableErrorMessage(error, 'Could not open Ollama.'))
+    }
+  }
+
+  async function handleStartOllamaService() {
+    if (!window.tokensmith?.startOllamaService) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    setOllamaSetupPhase('starting')
+    setOllamaPullingModel(null)
+    setOllamaPullProgress(null)
+    setOllamaSetupError(null)
+
+    try {
+      const result = await window.tokensmith.startOllamaService()
+      if (!result.opened) {
+        setOllamaSetupPhase('error')
+        setOllamaSetupError(result.message ?? 'Could not start Ollama.')
+        return
+      }
+
+      await refreshOllamaStatus()
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaSetupError(readableErrorMessage(error, 'Could not start Ollama.'))
+    }
+  }
+
+  async function handlePullOllamaChatModel() {
+    if (!window.tokensmith?.pullOllamaModel) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    setOllamaPullingModel('chat')
+    setOllamaPullProgress({
+      model: recommendedOllamaChatModel,
+      status: 'starting',
+      percent: 0,
+      message: 'Starting download'
+    })
+    setOllamaSetupError(null)
+
+    try {
+      await window.tokensmith.pullOllamaModel(recommendedOllamaChatModel)
+      const status = await window.tokensmith.getOllamaStatus()
+      setOllamaStatus(status)
+      onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl)
+      setOllamaSetupPhase('idle')
+      setOllamaPullingModel(null)
+      setOllamaPullProgress(null)
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaPullingModel(null)
+      setOllamaSetupError(readableErrorMessage(error, 'Could not download Llama 3 with Ollama.'))
+    }
+  }
+
+  async function handlePullOllamaEmbedderModel() {
+    if (!window.tokensmith?.pullOllamaModel) {
+      setOllamaSetupError('Ollama setup is not available in this build.')
+      return
+    }
+
+    setOllamaPullingModel('embedder')
+    setOllamaPullProgress({
+      model: recommendedOllamaEmbeddingModel,
+      status: 'starting',
+      percent: 0,
+      message: 'Starting download'
+    })
+    setOllamaSetupError(null)
+
+    try {
+      await window.tokensmith.pullOllamaModel(recommendedOllamaEmbeddingModel)
+      const status = await window.tokensmith.getOllamaStatus()
+      setOllamaStatus(status)
+      onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl)
+      setOllamaSetupPhase('idle')
+      setOllamaPullingModel(null)
+      setOllamaPullProgress(null)
+    } catch (error) {
+      setOllamaSetupPhase('error')
+      setOllamaPullingModel(null)
+      setOllamaSetupError(readableErrorMessage(error, 'Could not download the Nomic Embedder Model.'))
+    }
+  }
+
+  function ollamaPullProgressFor(role: 'chat' | 'embedder') {
+    if (!ollamaPullProgress) {
+      return null
+    }
+
+    const expectedModel = role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+    return ollamaModelNameMatches(ollamaPullProgress.model, expectedModel) ? ollamaPullProgress : null
+  }
+
+  function ollamaPullProgressLine(progress: OllamaPullProgress) {
+    if (progress.error) {
+      return 'Download failed'
+    }
+
+    const rawMessage = progress.message ?? 'Downloading'
+    const message = rawMessage.startsWith('pulling ')
+      ? rawMessage === 'pulling manifest'
+        ? 'Checking model files...'
+        : 'Downloading model files...'
+      : rawMessage.startsWith('verifying ')
+        ? 'Verifying download...'
+        : rawMessage.startsWith('writing ')
+          ? 'Finishing download...'
+          : rawMessage === 'success'
+            ? 'Downloaded'
+            : rawMessage
+    if (!progress.total) {
+      return message
+    }
+
+    const completed = formatBytes(progress.completed)
+    const total = formatBytes(progress.total)
+    return `${progress.percent}% · ${completed} of ${total} · ${message}`
+  }
+
+  function renderOllamaPullProgress(role: 'chat' | 'embedder') {
+    const progress = ollamaPullProgressFor(role)
     if (!progress) {
       return null
     }
 
+    const width = progress.total ? progress.percent : progress.status === 'downloading' ? 8 : 0
+
     return (
       <>
         <div className="model-download-progress" aria-label={`Download progress ${progress.percent}%`}>
-          <span style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} />
+          <span style={{ width: `${Math.max(0, Math.min(100, width))}%` }} />
         </div>
-        <small>{setupProgressLine(progress)}</small>
+        <small>{ollamaPullProgressLine(progress)}</small>
         {progress.error && <small className="model-download-error">{progress.error}</small>}
       </>
     )
   }
 
-  function renderChatSetupAction(catalogModel: ModelCatalogItem | undefined, readyModel: LocalModel | undefined) {
-    if (readyModel) {
+  function documentSetupLabel() {
+    if (hasReadyMaterials) {
+      return 'PDFs are ready for chat.'
+    }
+
+    if (hasIndexingMaterials) {
+      return 'Preparing your PDFs...'
+    }
+
+    if (!readyEmbeddingModel) {
+      return 'Download Nomic first so TokenSmith can prepare your PDFs.'
+    }
+
+    return 'Choose the folder with your PDFs.'
+  }
+
+  function renderDocumentSetupAction() {
+    if (hasReadyMaterials) {
       return (
         <span className="chat-setup-status is-ready">
           <Check size={16} aria-hidden="true" />
@@ -2195,90 +2570,249 @@ function ChatScreen({
       )
     }
 
-    if (!catalogModel) {
+    if (hasIndexingMaterials) {
       return (
         <span className="chat-setup-status">
-          <span>Unavailable</span>
+          <Loader2 size={16} aria-hidden="true" />
+          <span>Preparing...</span>
         </span>
       )
     }
 
-    const installedModel = modelByCatalogItem(catalogModel)
-    const filename = installedModel ? modelFilename(installedModel) : catalogModel.filename
-
-    if (installedModel?.status === 'downloading') {
+    if (!readyEmbeddingModel) {
       return (
-        <div className="chat-setup-action">
-          <button
-            className="model-action-button"
-            type="button"
-            onClick={() => filename && onCancelModelDownload(filename)}
-            disabled={!filename}
-          >
-            <span>Cancel</span>
-          </button>
-          {renderSetupDownloadProgress(installedModel.download)}
-        </div>
+        <span className="chat-setup-status">
+          <span>Download Nomic first</span>
+        </span>
       )
     }
 
-    if (installedModel?.status === 'incomplete' || installedModel?.status === 'downloadError') {
+    return (
+      <button className="model-action-button" type="button" onClick={onOpenLibrary}>
+        <span>Choose Folder</span>
+      </button>
+    )
+  }
+
+  function renderSetupStepNumber(step: number, isReady: boolean) {
+    return <div className={`chat-setup-step-number ${isReady ? 'is-ready' : ''}`}>{step}</div>
+  }
+
+  function ollamaInstallSetupLabel() {
+    if (ollamaStatus?.running) {
+      return 'Ollama is ready.'
+    }
+
+    if (ollamaSetupPhase === 'checking') {
+      return 'Checking for Ollama...'
+    }
+
+    if (ollamaSetupPhase === 'starting') {
+      return 'Starting Ollama...'
+    }
+
+    if (ollamaSetupPhase === 'opening') {
+      return 'Opening Ollama...'
+    }
+
+    return ollamaStatus?.installedApp ? 'Start Ollama to continue.' : 'Install Ollama to run local models.'
+  }
+
+  function renderOllamaInstallAction() {
+    const isBusy = ollamaSetupPhase === 'checking' || ollamaSetupPhase === 'opening' || ollamaSetupPhase === 'starting'
+    const busyLabel =
+      ollamaSetupPhase === 'starting'
+        ? 'Starting...'
+        : ollamaSetupPhase === 'opening'
+          ? 'Opening...'
+          : 'Checking...'
+
+    if (ollamaStatus?.running) {
+      return (
+        <span className="chat-setup-status is-ready">
+          <Check size={16} aria-hidden="true" />
+          <span>Ready</span>
+        </span>
+      )
+    }
+
+    if (isBusy) {
       return (
         <div className="chat-setup-action">
-          <button className="model-action-button is-download" type="button" onClick={() => onDownloadModel(catalogModel)}>
-            <RefreshCw size={16} aria-hidden="true" />
-            <span>Resume</span>
+          <button className="model-action-button" type="button" disabled>
+            <Loader2 size={16} aria-hidden="true" />
+            <span>{busyLabel}</span>
           </button>
-          {renderSetupDownloadProgress(installedModel.download)}
         </div>
       )
     }
 
     return (
-      <button className="model-action-button is-download" type="button" onClick={() => onDownloadModel(catalogModel)}>
-        <DownloadIcon size={16} aria-hidden="true" />
-        <span>Download</span>
+      <div className="chat-setup-action">
+        <button
+          className="model-action-button"
+          type="button"
+          onClick={ollamaStatus?.installedApp ? handleStartOllamaService : handleOpenOllamaDownloadPage}
+        >
+          <span>{ollamaStatus?.installedApp ? 'Start Ollama' : 'Install Ollama'}</span>
+        </button>
+        {ollamaStatus?.installedApp && (
+          <button className="model-action-button is-muted" type="button" onClick={handleOpenOllamaApp}>
+            <span>Open App</span>
+          </button>
+        )}
+        {ollamaStatus && (
+          <button className="model-action-button is-muted" type="button" onClick={refreshOllamaStatus}>
+            <span>Recheck</span>
+          </button>
+        )}
+        {(ollamaSetupError || ollamaStatus?.error) && (
+          <small className="model-download-error">{ollamaSetupError ?? ollamaStatus?.error}</small>
+        )}
+      </div>
+    )
+  }
+
+  function downloadModelsSetupLabel() {
+    if (!ollamaStatus?.running) {
+      return 'Start Ollama, then download the models.'
+    }
+
+    if (ollamaPullingModel === 'embedder') {
+      return 'Downloading Nomic Embedder Model...'
+    }
+
+    if (ollamaPullingModel === 'chat') {
+      return 'Downloading Llama 3 Chat Model...'
+    }
+
+    if (readyEmbeddingModel && readyChatModel) {
+      return 'Both models are ready.'
+    }
+
+    if (readyEmbeddingModel) {
+      return 'Nomic Embedder Model is ready.'
+    }
+
+    if (readyChatModel) {
+      return 'Llama 3 Chat Model is ready.'
+    }
+
+    return 'Download the Nomic Embedder Model and Llama 3 Chat Model.'
+  }
+
+  function renderDownloadModelControl(role: 'embedder' | 'chat') {
+    const isEmbedder = role === 'embedder'
+    const isReady = isEmbedder ? Boolean(readyEmbeddingModel) : Boolean(readyChatModel)
+    const shortLabel = isEmbedder ? 'Nomic Embedder Model' : 'Llama 3 Chat Model'
+    const downloadLabel = isEmbedder ? 'Download Nomic' : 'Download Llama 3'
+    const busyLabel = isEmbedder ? 'Downloading Nomic...' : 'Downloading Llama...'
+    const isPulling = ollamaPullingModel === role
+    const handleDownload = isEmbedder ? handlePullOllamaEmbedderModel : handlePullOllamaChatModel
+
+    if (isReady) {
+      return (
+        <span className="chat-setup-model-pill is-ready">
+          <Check size={15} aria-hidden="true" />
+          <span>{shortLabel} ready</span>
+        </span>
+      )
+    }
+
+    if (isPulling) {
+      return (
+        <div className="chat-setup-model-download">
+          <button className="model-action-button" type="button" disabled>
+            <Loader2 size={16} aria-hidden="true" />
+            <span>{busyLabel}</span>
+          </button>
+          {renderOllamaPullProgress(role)}
+        </div>
+      )
+    }
+
+    return (
+      <button
+        className="model-action-button"
+        type="button"
+        disabled={!ollamaStatus?.running || Boolean(ollamaPullingModel)}
+        onClick={handleDownload}
+      >
+        <span>{downloadLabel}</span>
       </button>
     )
   }
 
+  function renderDownloadModelsAction() {
+    if (!ollamaStatus?.running) {
+      return (
+        <span className="chat-setup-status">
+          <span>Start Ollama first</span>
+        </span>
+      )
+    }
+
+    if (readyEmbeddingModel && readyChatModel) {
+      return (
+        <span className="chat-setup-status is-ready">
+          <Check size={16} aria-hidden="true" />
+          <span>Ready</span>
+        </span>
+      )
+    }
+
+    return (
+      <div className="chat-setup-action is-wide">
+        {renderDownloadModelControl('embedder')}
+        {renderDownloadModelControl('chat')}
+        {ollamaSetupError && <small className="model-download-error">{ollamaSetupError}</small>}
+      </div>
+    )
+  }
+
   function renderChatSetupCard() {
-    if (!needsModelSetup) {
+    if (!shouldShowSetupCard) {
       return null
     }
 
     return (
       <section className="chat-setup-card" aria-label="Model setup">
-        <div className="chat-setup-heading">
-          <p className="section-kicker">First setup</p>
-          <h2>Set up chat and embedding models</h2>
-          <p>Download the recommended local pair to study offline, or add cloud-based models from Models.</p>
+        <div className="chat-setup-header">
+          <div className="chat-setup-heading">
+            <p className="section-kicker">FIRST-TIME TOKENSMITH SETUP</p>
+            <h2>Set up TokenSmith</h2>
+            <p>Install Ollama, download the models, then add your PDFs.</p>
+          </div>
+          <button className="chat-setup-dismiss" type="button" onClick={onDismissSetupCard} aria-label="Hide setup guide" title="Hide setup guide">
+            <X size={18} aria-hidden="true" />
+          </button>
         </div>
         <div className="chat-setup-steps">
           <div className="chat-setup-step">
-            <div className={`chat-setup-icon ${readyChatModel ? 'is-ready' : ''}`}>
-              {readyChatModel ? <Check size={18} aria-hidden="true" /> : <MessageSquare size={18} aria-hidden="true" />}
-            </div>
+            {renderSetupStepNumber(1, Boolean(ollamaStatus?.running))}
             <div className="chat-setup-copy">
-              <strong>Chat model</strong>
-              <span>{readyChatModel ? displayModelName(readyChatModel) : recommendedChatModel?.name ?? 'Recommended local chat model'}</span>
+              <strong>Install Ollama</strong>
+              <span>{ollamaInstallSetupLabel()}</span>
             </div>
-            {renderChatSetupAction(recommendedChatModel, readyChatModel)}
+            {renderOllamaInstallAction()}
           </div>
 
           <div className="chat-setup-step">
-            <div className={`chat-setup-icon ${readyEmbeddingModel ? 'is-ready' : ''}`}>
-              {readyEmbeddingModel ? <Check size={18} aria-hidden="true" /> : <Database size={18} aria-hidden="true" />}
-            </div>
+            {renderSetupStepNumber(2, Boolean(readyEmbeddingModel && readyChatModel))}
             <div className="chat-setup-copy">
-              <strong>Embedder</strong>
-              <span>
-                {readyEmbeddingModel
-                  ? displayModelName(readyEmbeddingModel)
-                  : recommendedEmbeddingModel?.name ?? 'Recommended local embedder'}
-              </span>
+              <strong>Download models</strong>
+              <span>{downloadModelsSetupLabel()}</span>
             </div>
-            {renderChatSetupAction(recommendedEmbeddingModel, readyEmbeddingModel)}
+            {renderDownloadModelsAction()}
+          </div>
+
+          <div className="chat-setup-step">
+            {renderSetupStepNumber(3, hasReadyMaterials)}
+            <div className="chat-setup-copy">
+              <strong>Add PDFs</strong>
+              <span>{documentSetupLabel()}</span>
+            </div>
+            {renderDocumentSetupAction()}
           </div>
         </div>
       </section>
@@ -2418,13 +2952,12 @@ function ChatScreen({
         return
       }
 
-      const recommendedName = recommendedLocalModelName('llama-3-8b-instruct', 'Llama 3 8B Instruct')
       const assistantMessage: ChatMessage = {
         id: createId('assistant'),
         role: 'assistant',
         text: `I could not complete the chat request. ${readableErrorMessage(
           error,
-          `Add a local or cloud-based chat model before chatting. Suggested local chat model: ${recommendedName}.`
+          'Download Llama 3 before chatting.'
         )}`,
         sources: []
       }
@@ -2599,7 +3132,7 @@ function ChatScreen({
                 disabled={Boolean(pendingConversationId) || !selectedModel}
                 ref={composerInputRef}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={selectedModel ? 'Ask about your course materials...' : 'Add or connect a chat model to start...'}
+                placeholder={composerPlaceholder}
                 value={draft}
               />
               <button
@@ -2616,14 +3149,14 @@ function ChatScreen({
         </div>
       </section>
 
-      <aside className="context-panel" aria-label="Selected course materials">
+      <aside className="context-panel" aria-label="Selected PDFs">
         <div className="context-header">
           <p>Library</p>
           <strong>{libraryTitle}</strong>
         </div>
         <div className="mini-material-list">
           {materials.length === 0 ? (
-            <div className="mini-empty">No course materials added</div>
+            <div className="mini-empty">No PDFs added</div>
           ) : (
             materials.slice(0, 2).map((item) => (
               <MaterialRow
@@ -3521,6 +4054,7 @@ function createIndexingCollection(
 }
 
 function LibraryScreen({
+  createRequest,
   embeddingModels,
   materials,
   selectedEmbeddingModelId,
@@ -3532,6 +4066,7 @@ function LibraryScreen({
   onStartMaterialIndexing,
   onToggleMaterialActive
 }: {
+  createRequest: number
   embeddingModels: LocalModel[]
   materials: CourseMaterial[]
   selectedEmbeddingModelId: string
@@ -3575,6 +4110,12 @@ function LibraryScreen({
 
     setMode(materials.length === 0 ? 'empty' : 'list')
   }, [materials.length, mode])
+
+  useEffect(() => {
+    if (createRequest > 0) {
+      setMode('create')
+    }
+  }, [createRequest])
 
   useEffect(() => {
     if (embeddingModels.some((model) => model.id === collectionEmbeddingModelId)) {
@@ -3677,7 +4218,7 @@ function LibraryScreen({
       return
     }
 
-    const title = collectionName.trim() || pathLeaf(normalizedPath) || 'Course materials'
+    const title = collectionName.trim() || pathLeaf(normalizedPath) || 'PDFs'
     const embeddingModel =
       embeddingModels.find((model) => model.id === collectionEmbeddingModelId) ?? embeddingModels[0]
 
@@ -3719,8 +4260,8 @@ function LibraryScreen({
       <div className="view-frame collection-create-frame">
         <form className="collection-create-form" onSubmit={handleCreateCollection}>
           <div>
-            <h1>Add Document Collection</h1>
-            <p>Add a folder containing plain text files, PDFs, or Markdown.</p>
+            <h1>Add PDFs</h1>
+            <p>Choose a folder containing your PDFs.</p>
           </div>
 
           <label className="collection-field">
@@ -3825,10 +4366,7 @@ function LibraryScreen({
           {importStatus === 'error' && (
             <p className="inline-error">
               {embeddingModels.length === 0
-                ? `Add a local or cloud-based embedder before creating a collection. Suggested local embedder: ${recommendedLocalModelName(
-                    'nomic-embed-text-v1-5',
-                    'Nomic Embed Text v1.5'
-                  )}.`
+                ? 'Download the Nomic Embedder Model before preparing PDFs.'
                 : 'Choose a readable folder first.'}
             </p>
           )}
@@ -3904,7 +4442,7 @@ function LibraryScreen({
               Cancel
             </button>
             <button className="primary-action" type="submit" disabled={embeddingModels.length === 0}>
-              Create Collection
+              Prepare PDFs
             </button>
           </div>
         </form>
@@ -3916,11 +4454,11 @@ function LibraryScreen({
     return (
       <div className="view-frame collection-empty-frame">
         <div className="collection-empty-state">
-          <h1>No Collections Installed</h1>
-          <p>Install a collection of local documents to get started using this feature</p>
+          <h1>No PDFs Added</h1>
+          <p>Choose a folder of PDFs to get started.</p>
           <button className="primary-action" type="button" onClick={() => setMode('create')}>
             <Plus size={17} aria-hidden="true" />
-            <span>Add Collection</span>
+            <span>Add PDFs</span>
           </button>
         </div>
       </div>
@@ -3932,11 +4470,11 @@ function LibraryScreen({
       <header className="screen-header">
         <div>
           <p className="section-kicker">Library</p>
-          <h1>Document Collections</h1>
+          <h1>PDFs</h1>
         </div>
         <button className="primary-action" type="button" onClick={() => setMode('create')}>
           <Plus size={17} aria-hidden="true" />
-          <span>Add Collection</span>
+          <span>Add PDFs</span>
         </button>
       </header>
 
@@ -4165,7 +4703,7 @@ function ModelsScreen({
   }
 
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
-  const [exploreTab, setExploreTab] = useState<'tokensmith' | 'remote' | 'huggingface'>('tokensmith')
+  const [exploreTab, setExploreTab] = useState<'tokensmith' | 'remote' | 'huggingface'>('remote')
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'chat' | 'embedder'>('all')
   const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
     remoteProviderCatalog.reduce(
@@ -4216,7 +4754,7 @@ function ModelsScreen({
   useEffect(() => {
     if (models.length === 0) {
       setMode('explore')
-      setExploreTab('tokensmith')
+      setExploreTab('remote')
     }
   }, [models.length])
 
@@ -4345,6 +4883,16 @@ function ModelsScreen({
   }
 
   function modelStats(model: LocalModel, catalog?: ModelCatalogItem) {
+    if (model.engine === 'ollama') {
+      const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
+      return [
+        { label: 'Role', value: isOllamaEmbedder ? 'Ollama Embedder Model' : 'Ollama Chat Model' },
+        { label: 'Provider', value: 'Ollama' },
+        { label: 'Model', value: model.ollamaModelName ?? model.name },
+        { label: 'Endpoint', value: (model.ollamaBaseUrl ?? defaultOllamaBaseUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '') }
+      ]
+    }
+
     if (model.engine === 'remote') {
       const isRemoteEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
       return [
@@ -4429,6 +4977,10 @@ function ModelsScreen({
   }
 
   function modelRoleLabel(model: LocalModel) {
+    if (model.engine === 'ollama') {
+      return modelCanEmbed(model) && !modelCanGenerate(model) ? 'Ollama Embedder Model' : 'Ollama Chat Model'
+    }
+
     if (model.engine === 'remote') {
       return modelCanEmbed(model) && !modelCanGenerate(model) ? 'Remote Embedder Model' : 'Remote Chat Model'
     }
@@ -4458,7 +5010,9 @@ function ModelsScreen({
 
   function canRemoveModel(model: LocalModel) {
     return (
+      model.engine === 'ollama' ||
       model.engine === 'remote' ||
+      model.source === 'ollama' ||
       model.source === 'remote' ||
       model.source === 'downloaded' ||
       model.source === 'local' ||
@@ -4467,9 +5021,7 @@ function ModelsScreen({
   }
 
   const modelExploreTabs: Array<{ id: 'tokensmith' | 'remote' | 'huggingface'; label: string }> = [
-    { id: 'tokensmith', label: 'TokenSmith' },
-    { id: 'remote', label: 'Remote Providers' },
-    { id: 'huggingface', label: 'HuggingFace' }
+    { id: 'remote', label: 'Providers' }
   ]
 
   const modelCatalogFilters: Array<{ id: 'all' | 'chat' | 'embedder'; label: string }> = [
@@ -4574,18 +5126,32 @@ function ModelsScreen({
     const bullets =
       model.description ??
       catalog?.description ??
-      (isEmbedderOnly
+      (model.engine === 'ollama'
+        ? isEmbedderOnly
+          ? [
+              'Local embedding model served by Ollama',
+              'Prepares PDFs for search',
+              'Embeds questions before source retrieval',
+              'Removing this model from TokenSmith does not delete it from Ollama'
+            ]
+          : [
+              'Local chat model served by Ollama',
+              'Used for answers after TokenSmith retrieves enabled source excerpts',
+              'Works with PDFs prepared by TokenSmith',
+              'Removing this model from TokenSmith does not delete it from Ollama'
+            ]
+        : isEmbedderOnly
         ? [
             'Local GGUF embedding model',
-            'Builds vectors for document collections',
+            'Prepares PDFs for search',
             'Used to embed questions before source retrieval',
-            'Collections record the embedder used during indexing'
+            'PDFs record the embedder used during preparation'
           ]
         : [
             'Local GGUF chat model',
             'Runs through the TokenSmith Python runtime',
             'Used for answers after document retrieval',
-            'Works with enabled document collections'
+            'Works with PDFs prepared by TokenSmith'
           ])
 
     return (
@@ -4866,8 +5432,8 @@ function ModelsScreen({
           <>
             <p className="model-explore-copy">
               {models.length === 0
-                ? 'Download the recommended local pair below, or use Remote Providers to connect cloud-based chat and embedding models.'
-                : 'These local chat and embedder models have been selected for TokenSmith. Download only models that fit in available memory.'}
+                ? 'Use the Chat setup card for Ollama models, or add provider models here.'
+                : 'These local chat and embedder models were previously selected for TokenSmith.'}
             </p>
             {models.length > 0 && (
               <div className="model-filter-row">
@@ -4892,7 +5458,7 @@ function ModelsScreen({
         {exploreTab === 'remote' && (
           <>
             <p className="model-explore-copy">
-              Add OpenAI-compatible hosted models. TokenSmith still retrieves enabled collection sources locally before
+              Add OpenAI-compatible models. TokenSmith still retrieves enabled PDF sources locally before
               sending a chat request to the provider.
             </p>
             <div className="remote-provider-grid">
@@ -5164,12 +5730,13 @@ function SettingsScreen({
                   <SettingsRow label="Name" description="The display name of the model.">
                     <TextField ariaLabel="Model name" value={displayModelName(selectedModel)} readOnly />
                   </SettingsRow>
-                  <SettingsRow label="Model File" description="The local GGUF file used by this model.">
+                  <SettingsRow label="Model Identifier" description="The configured provider model name or local file for this model.">
                     <TextField
                       ariaLabel="Model file"
                       value={
                         modelFilename(selectedModel) ??
                         selectedModel.path ??
+                        selectedModel.ollamaModelName ??
                         selectedModel.remoteModelName ??
                         'Remote model'
                       }
@@ -5336,7 +5903,7 @@ function SettingsScreen({
             ) : (
               <div className="model-empty-state">
                 <h2>No Chat Model Configured</h2>
-                <p>Add a local or cloud-based chat model before changing model-specific prompts and generation settings.</p>
+                <p>Add a chat model before changing model-specific prompts and generation settings.</p>
               </div>
             )}
           </>

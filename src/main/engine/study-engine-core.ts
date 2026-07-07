@@ -11,20 +11,19 @@ export interface PythonEngineHealth {
 
 export interface StudyEngineDependencies {
   getPythonEngineHealth: () => Promise<PythonEngineHealth>
+  runOllamaStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
   runPythonStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
 }
 
 export async function listStudyEngines(dependencies: StudyEngineDependencies): Promise<EngineInfo[]> {
   try {
-    const health = await dependencies.getPythonEngineHealth()
+    await dependencies.getPythonEngineHealth()
     return [
       {
         id: 'tokensmith',
         name: 'TokenSmith',
         status: 'ready',
-        detail: health.llamaCppAvailable
-          ? 'Local indexing, vector retrieval, local GGUF models, and configured remote models are available.'
-          : 'Local indexing and vector retrieval are available. Local GGUF models need llama-cpp-python.'
+        detail: 'Local indexing and vector retrieval are available. Ollama chat and embedding models are supported alongside cloud-based providers.'
       }
     ]
   } catch {
@@ -43,6 +42,26 @@ export async function sendStudyChatMessage(
   request: EngineChatRequest,
   dependencies: StudyEngineDependencies
 ): Promise<EngineChatResponse> {
+  if (request.model.engine === 'ollama') {
+    try {
+      const response = await dependencies.runOllamaStudyEngine(request)
+      return {
+        ...response,
+        engineId: 'tokensmith',
+        modelName: response.modelName || request.model.name
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Ollama could not answer.'
+
+      return {
+        engineId: 'tokensmith',
+        modelName: request.model.name,
+        text: `The Ollama chat model was not available: ${reason}\n\nOpen Ollama, make sure llama3 is downloaded, then try again.`,
+        sources: request.retrievedSources ?? []
+      }
+    }
+  }
+
   if (request.model.engine === 'remote') {
     try {
       const remoteModel = modelWithRememberedRemoteApiKey(request.model)
@@ -63,21 +82,10 @@ export async function sendStudyChatMessage(
     }
   }
 
-  try {
-    const response = await dependencies.runPythonStudyEngine(request)
-    return {
-      ...response,
-      engineId: 'tokensmith',
-      modelName: response.modelName || request.model.name
-    }
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'The Python engine could not start.'
-
-    return {
-      engineId: 'tokensmith',
-      modelName: request.model.name,
-      text: `The local TokenSmith runtime was not available: ${reason}\n\nOpen Settings or restart the app after choosing a working Python runtime.`,
-      sources: []
-    }
+  return {
+    engineId: 'tokensmith',
+    modelName: request.model.name,
+    text: 'Python/GGUF chat models are not packaged in this app version. Use Ollama for local chat or add a cloud-based chat model from Models.',
+    sources: request.retrievedSources ?? []
   }
 }

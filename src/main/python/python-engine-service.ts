@@ -167,7 +167,7 @@ function resolveEmbeddingModel(model?: LocalModel): LocalModel | undefined {
     return undefined
   }
 
-  if (model.engine === 'remote') {
+  if (model.engine === 'remote' || model.engine === 'ollama') {
     return model
   }
 
@@ -214,13 +214,11 @@ function appPythonEnv(pythonExecutable: string): Record<string, string> {
   if (existsSync(sitePackages)) {
     pythonPathParts.push(sitePackages)
   }
-  if (process.env.PYTHONPATH) {
-    pythonPathParts.push(process.env.PYTHONPATH)
-  }
-
   const runtimeEnv: Record<string, string> = {
     ...(hasStdlib ? { PYTHONHOME: runtimeRoot } : {}),
-    ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {})
+    ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {}),
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONNOUSERSITE: '1'
   }
 
   return process.platform === 'darwin'

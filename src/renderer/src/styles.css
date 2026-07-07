@@ -762,6 +762,13 @@ button {
   background: #fbfbfa;
 }
 
+.chat-setup-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 14px;
+  align-items: start;
+}
+
 .chat-setup-heading {
   display: grid;
   gap: 8px;
@@ -781,6 +788,23 @@ button {
   line-height: 1.4;
 }
 
+.chat-setup-dismiss {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.chat-setup-dismiss:hover {
+  color: var(--ink);
+  background: var(--green-soft);
+}
+
 .chat-setup-steps {
   display: grid;
   gap: 10px;
@@ -796,6 +820,22 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.chat-setup-step-number {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--green-strong);
+  background: var(--green-soft);
+  font-weight: 800;
+}
+
+.chat-setup-step-number.is-ready {
+  color: #ffffff;
+  background: var(--green);
 }
 
 .chat-setup-icon {
@@ -836,6 +876,33 @@ button {
   display: grid;
   min-width: 176px;
   gap: 8px;
+}
+
+.chat-setup-action.is-wide {
+  min-width: 260px;
+}
+
+.chat-setup-model-download {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-setup-model-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--green-soft);
+  font-weight: 650;
+}
+
+.chat-setup-model-pill.is-ready {
+  color: #ffffff;
+  background: var(--green);
 }
 
 .chat-setup-status {
@@ -912,7 +979,7 @@ button {
 
 .composer input:disabled {
   color: #9a9da3;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .send-button {

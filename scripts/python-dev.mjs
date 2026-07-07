@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
 import { basename, delimiter, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -49,7 +49,8 @@ function pythonEnv(python) {
     ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {}),
     DYLD_FALLBACK_LIBRARY_PATH: libRoot,
     LD_LIBRARY_PATH: libRoot,
-    PYTHONIOENCODING: 'utf-8'
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONNOUSERSITE: '1'
   }
 }
 
@@ -88,6 +89,63 @@ function inspectPython(python) {
 function versionIsSupported(info) {
   const [major, minor] = info.version ?? []
   return major > 3 || (major === 3 && minor >= 10)
+}
+
+function isCondaPython(info) {
+  const normalizedRoot = resolve(info.root)
+  const loweredRoot = normalizedRoot.toLowerCase()
+  return (
+    existsSync(join(normalizedRoot, 'conda-meta')) ||
+    existsSync(join(normalizedRoot, 'pkgs')) ||
+    loweredRoot.includes('/miniforge') ||
+    loweredRoot.includes('/miniconda') ||
+    loweredRoot.includes('/anaconda')
+  )
+}
+
+function buildPythonCandidates() {
+  const candidates = []
+
+  if (process.platform === 'darwin') {
+    candidates.push(
+      '/opt/homebrew/opt/python@3.12/bin/python3.12',
+      '/usr/local/opt/python@3.12/bin/python3.12',
+      '/opt/homebrew/bin/python3.12',
+      '/usr/local/bin/python3.12'
+    )
+  }
+
+  candidates.push('python3.12', 'python3', 'python')
+  return [...new Set(candidates)]
+}
+
+function selectBuildPython() {
+  const skipped = []
+
+  for (const candidate of buildPythonCandidates()) {
+    const info = inspectPython(candidate)
+    if (!info) {
+      continue
+    }
+    if (!versionIsSupported(info)) {
+      skipped.push(`${candidate} (${info.version?.join('.') ?? 'unknown'} is too old)`)
+      continue
+    }
+    if (isCondaPython(info)) {
+      skipped.push(`${candidate} (${info.root} is a Conda root)`)
+      continue
+    }
+    return info
+  }
+
+  if (skipped.length) {
+    console.error('Skipped Python runtimes:')
+    for (const reason of skipped) {
+      console.error(`  - ${reason}`)
+    }
+  }
+
+  return null
 }
 
 function canRun(python, code) {
@@ -144,12 +202,57 @@ function copyRuntime(sourceRoot) {
   mkdirSync(dirname(appRuntimeRoot), { recursive: true })
   cpSync(sourceRoot, appRuntimeRoot, {
     recursive: true,
+    dereference: true,
     preserveTimestamps: true,
     filter: (source) => {
       const name = basename(source)
-      return name !== '__pycache__' && !source.endsWith('.pyc')
+      return (
+        name !== '__pycache__' &&
+        name !== 'conda-meta' &&
+        name !== 'envs' &&
+        name !== 'EXTERNALLY-MANAGED' &&
+        name !== 'pkgs' &&
+        !source.endsWith('.pyc')
+      )
     }
   })
+}
+
+function ensureRuntimePythonAlias() {
+  if (process.platform === 'win32' || existsSync(appRuntimePython)) {
+    return
+  }
+
+  const binPath = join(appRuntimeRoot, 'bin')
+  const pythonBinary = readdirSync(binPath)
+    .filter((name) => /^python3(?:\.\d+)?$/.test(name))
+    .sort((left, right) => right.length - left.length)[0]
+
+  if (!pythonBinary) {
+    return
+  }
+
+  try {
+    symlinkSync(pythonBinary, appRuntimePython)
+  } catch {
+    copyFileSync(join(binPath, pythonBinary), appRuntimePython)
+  }
+}
+
+function runtimePythonLib() {
+  const libRoot = join(appRuntimeRoot, 'lib')
+  const pythonLibName = readdirSync(libRoot).find((name) => /^python3\.\d+$/.test(name))
+  if (!pythonLibName) {
+    throw new Error(`Could not find Python stdlib under ${libRoot}.`)
+  }
+  return join(libRoot, pythonLibName)
+}
+
+function resetRuntimeSitePackages() {
+  const sitePackages = join(runtimePythonLib(), 'site-packages')
+  rmSync(sitePackages, { recursive: true, force: true })
+  mkdirSync(sitePackages, { recursive: true })
+  return sitePackages
 }
 
 function runCommand(command, args, { allowFailure = false } = {}) {
@@ -199,6 +302,16 @@ function rpathReference(rootPath, toPath) {
   return `@rpath/${relativePath}`
 }
 
+function bundledLibraryForLink(linkedLibrary, oldPythonRoot, pythonLibrary) {
+  if (linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
+    return join(appRuntimeRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+  }
+  if (linkedLibrary?.startsWith('/') && linkedLibrary.endsWith('/Python') && existsSync(pythonLibrary)) {
+    return pythonLibrary
+  }
+  return null
+}
+
 function patchMacPythonRuntime() {
   const pythonLibrary = join(appRuntimeRoot, 'Python')
   const pythonBinPath = join(appRuntimeRoot, 'bin')
@@ -242,11 +355,7 @@ function patchMacPythonRuntime() {
 
     for (const line of linkedLibraries.stdout.split(/\r?\n/)) {
       const linkedLibrary = line.trim().split(/\s+/)[0]
-      if (!linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
-        continue
-      }
-
-      const bundledLibrary = join(appRuntimeRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+      const bundledLibrary = bundledLibraryForLink(linkedLibrary, oldPythonRoot, pythonLibrary)
       if (!existsSync(bundledLibrary)) {
         continue
       }
@@ -273,26 +382,23 @@ function patchMacPythonRuntime() {
 }
 
 function setup() {
-  const buildPythonInfo = inspectPython('python')
+  const buildPythonInfo = selectBuildPython()
 
   if (!buildPythonInfo || !versionIsSupported(buildPythonInfo)) {
     console.error('No usable Python 3.10+ runtime was found for building app_runtime.')
-    console.error('GitHub Actions uses `python`; install or activate the same Python before running this setup.')
+    console.error('Install a non-Conda Python 3.10+ runtime, then run npm run setup:python-runtime again.')
     process.exit(1)
   }
 
-  let status = runPython(buildPythonInfo.executable, ['-m', 'pip', 'install', '--upgrade', 'pip'])
-  if (status !== 0) {
-    process.exit(status)
+  if (isCondaPython(buildPythonInfo)) {
+    console.error(`Refusing to build app_runtime from Conda root: ${buildPythonInfo.root}`)
+    process.exit(1)
   }
 
-  status = runPython(buildPythonInfo.executable, ['-m', 'pip', 'install', '-r', 'requirements-runtime.txt'])
-  if (status !== 0) {
-    process.exit(status)
-  }
-
-  console.log(`[python-runtime] Copying ${buildPythonInfo.root} -> ${appRuntimeRoot}`)
+  console.log(`[python-runtime] Copying clean Python ${buildPythonInfo.root} -> ${appRuntimeRoot}`)
   copyRuntime(buildPythonInfo.root)
+  ensureRuntimePythonAlias()
+  const sitePackages = resetRuntimeSitePackages()
   patchMacPythonRuntime()
 
   if (!existsSync(appRuntimePython)) {
@@ -300,9 +406,37 @@ function setup() {
     process.exit(1)
   }
 
+  const runtimeInfo = inspectPython(appRuntimePython)
+  if (!runtimeInfo || !versionIsSupported(runtimeInfo)) {
+    console.error('Copied runtime could not start as a usable Python 3.10+ runtime.')
+    process.exit(1)
+  }
+  if (!resolve(runtimeInfo.root).startsWith(resolve(appRuntimeRoot))) {
+    console.error(`Copied runtime resolved outside app_runtime: ${runtimeInfo.root}`)
+    process.exit(1)
+  }
+  if (isCondaPython(runtimeInfo)) {
+    console.error(`Copied runtime still looks like Conda: ${runtimeInfo.root}`)
+    process.exit(1)
+  }
+
+  let status = runPython(buildPythonInfo.executable, [
+    '-m',
+    'pip',
+    'install',
+    '--upgrade',
+    '--target',
+    sitePackages,
+    '-r',
+    'requirements-runtime.txt'
+  ], { PYTHONNOUSERSITE: '1' })
+  if (status !== 0) {
+    process.exit(1)
+  }
+
   status = runPython(appRuntimePython, [
     '-c',
-    'import faiss, numpy, pypdfium2, PIL; print("TokenSmith app_runtime ready:", __import__("sys").executable)'
+    'import faiss, importlib.util, numpy, pypdfium2, PIL, sys; assert importlib.util.find_spec("llama_cpp") is None; print("TokenSmith app_runtime ready:", sys.executable)'
   ])
   if (status !== 0) {
     process.exit(status)

@@ -59,7 +59,7 @@ test('listStudyEngines reports TokenSmith as ready when health succeeds', async 
       id: 'tokensmith',
       name: 'TokenSmith',
       status: 'ready',
-      detail: 'Local indexing, vector retrieval, local GGUF models, and configured remote models are available.'
+      detail: 'Local indexing and vector retrieval are available. Ollama chat and embedding models are supported alongside cloud-based providers.'
     }
   ])
 })
@@ -91,30 +91,84 @@ test('listStudyEngines reports retrieval-only mode without llama.cpp', async () 
   assert.equal(engines.length, 1)
   assert.equal(engines[0].status, 'ready')
   assert.match(engines[0].detail, /Local indexing and vector retrieval/i)
-  assert.match(engines[0].detail, /llama-cpp-python/i)
+  assert.match(engines[0].detail, /Ollama chat and embedding models/i)
 })
 
-test('sendStudyChatMessage delegates to the Python study engine', async () => {
-  const response = await sendStudyChatMessage(baseRequest, {
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-    runPythonStudyEngine: async (request) => ({
-      engineId: 'tokensmith',
-      modelName: request.model.name,
-      text: 'Annita Demetriou is described in the active material.',
-      sources: [
+test('sendStudyChatMessage sends Ollama models to the Ollama study engine', async () => {
+  let ollamaWasCalled = false
+  let pythonWasCalled = false
+  const response = await sendStudyChatMessage(
+    {
+      ...baseRequest,
+      retrievedSources: [
         {
           title: 'Annita Demetriou - Wikipedia.pdf',
           locator: 'Page 1',
           excerpt: 'Annita Demetriou is a Cypriot politician.'
         }
-      ]
-    })
+      ],
+      model: {
+        id: 'ollama:llama3',
+        name: 'Ollama llama3',
+        engine: 'ollama',
+        role: 'generator',
+        status: 'ready',
+        source: 'ollama',
+        ollamaModelName: 'llama3',
+        addedAt: new Date(0).toISOString()
+      }
+    },
+    {
+      getPythonEngineHealth: async () => ({ llamaCppAvailable: false }),
+      runOllamaStudyEngine: async (request) => {
+        ollamaWasCalled = true
+        return {
+          engineId: 'tokensmith',
+          modelName: request.model.name,
+          text: 'Ollama answer.',
+          sources: request.retrievedSources ?? []
+        }
+      },
+      runPythonStudyEngine: async () => {
+        pythonWasCalled = true
+        throw new Error('python should not be used')
+      }
+    }
+  )
+
+  assert.equal(response.engineId, 'tokensmith')
+  assert.equal(response.modelName, 'Ollama llama3')
+  assert.equal(response.text, 'Ollama answer.')
+  assert.equal(response.sources.length, 1)
+  assert.equal(ollamaWasCalled, true)
+  assert.equal(pythonWasCalled, false)
+})
+
+test('sendStudyChatMessage explains that packaged local chat is disabled', async () => {
+  let pythonWasCalled = false
+  const response = await sendStudyChatMessage({
+    ...baseRequest,
+    retrievedSources: [
+      {
+        title: 'Annita Demetriou - Wikipedia.pdf',
+        locator: 'Page 1',
+        excerpt: 'Annita Demetriou is a Cypriot politician.'
+      }
+    ]
+  }, {
+    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
+    runPythonStudyEngine: async () => {
+      pythonWasCalled = true
+      throw new Error('python should not be used')
+    }
   })
 
   assert.equal(response.engineId, 'tokensmith')
   assert.equal(response.modelName, 'Llama 3.2 3B Instruct')
-  assert.match(response.text, /active material/i)
+  assert.match(response.text, /Python\/GGUF chat models are not packaged/i)
+  assert.match(response.text, /Use Ollama for local chat/i)
   assert.equal(response.sources.length, 1)
+  assert.equal(pythonWasCalled, false)
 })
 
 test('sendStudyChatMessage sends remote models to an OpenAI-compatible chat endpoint', async () => {
@@ -187,32 +241,4 @@ test('sendStudyChatMessage sends remote models to an OpenAI-compatible chat endp
   } finally {
     globalThis.fetch = originalFetch
   }
-})
-
-test('sendStudyChatMessage returns a student-facing Python error', async () => {
-  const response = await sendStudyChatMessage(baseRequest, {
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-    runPythonStudyEngine: async () => {
-      throw new Error('The Python engine stopped.')
-    }
-  })
-
-  assert.equal(response.engineId, 'tokensmith')
-  assert.equal(response.modelName, 'Llama 3.2 3B Instruct')
-  assert.match(response.text, /local TokenSmith runtime was not available/i)
-  assert.match(response.text, /Python engine stopped/i)
-  assert.deepEqual(response.sources, [])
-})
-
-test('sendStudyChatMessage handles non-Error failures', async () => {
-  const response = await sendStudyChatMessage(baseRequest, {
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
-    runPythonStudyEngine: async () => {
-      throw 'worker failed'
-    }
-  })
-
-  assert.equal(response.engineId, 'tokensmith')
-  assert.match(response.text, /Python engine could not start/i)
-  assert.deepEqual(response.sources, [])
 })

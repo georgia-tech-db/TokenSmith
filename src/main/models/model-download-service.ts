@@ -323,7 +323,7 @@ export async function cancelModelDownload(filename: string): Promise<void> {
 }
 
 export async function removeDownloadedModel(model: LocalModel): Promise<void> {
-  if (model.engine === 'remote' || model.source === 'remote') {
+  if (model.engine === 'remote' || model.engine === 'ollama' || model.source === 'remote' || model.source === 'ollama') {
     return
   }
 

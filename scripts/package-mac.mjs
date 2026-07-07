@@ -94,6 +94,16 @@ function rpathReference(rootPath, toPath) {
   return `@rpath/${relativePath}`
 }
 
+function bundledLibraryForLink(linkedLibrary, oldPythonRoot, pythonRoot, pythonLibrary) {
+  if (linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
+    return join(pythonRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+  }
+  if (linkedLibrary?.startsWith('/') && linkedLibrary.endsWith('/Python') && existsSync(pythonLibrary)) {
+    return pythonLibrary
+  }
+  return null
+}
+
 async function patchMacPythonRuntime(appRuntimePath) {
   const pythonRoot = join(appRuntimePath, 'python')
   const pythonLibrary = join(pythonRoot, 'Python')
@@ -137,11 +147,7 @@ async function patchMacPythonRuntime(appRuntimePath) {
       const linkedLibraries = await run('/usr/bin/otool', ['-L', binaryPath])
       for (const line of linkedLibraries.stdout.split(/\r?\n/)) {
         const linkedLibrary = line.trim().split(/\s+/)[0]
-        if (!linkedLibrary?.startsWith(`${oldPythonRoot}/`)) {
-          continue
-        }
-
-        const bundledLibrary = join(pythonRoot, linkedLibrary.slice(oldPythonRoot.length + 1))
+        const bundledLibrary = bundledLibraryForLink(linkedLibrary, oldPythonRoot, pythonRoot, pythonLibrary)
         if (!existsSync(bundledLibrary)) {
           continue
         }

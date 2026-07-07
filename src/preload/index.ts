@@ -66,6 +66,32 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:remove-material', materialId, materialPath) as Promise<
       Awaited<ReturnType<TokenSmithBridge['removeMaterial']>>
     >,
+  getOllamaStatus: () =>
+    ipcRenderer.invoke('ollama:status') as Promise<Awaited<ReturnType<TokenSmithBridge['getOllamaStatus']>>>,
+  openOllamaDownloadPage: () =>
+    ipcRenderer.invoke('ollama:open-download-page') as Promise<
+      Awaited<ReturnType<TokenSmithBridge['openOllamaDownloadPage']>>
+    >,
+  openOllamaApp: () =>
+    ipcRenderer.invoke('ollama:open-app') as Promise<Awaited<ReturnType<TokenSmithBridge['openOllamaApp']>>>,
+  startOllamaService: () =>
+    ipcRenderer.invoke('ollama:start-service') as Promise<
+      Awaited<ReturnType<TokenSmithBridge['startOllamaService']>>
+    >,
+  pullOllamaModel: (modelName) =>
+    ipcRenderer.invoke('ollama:pull-model', modelName) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['pullOllamaModel']>>
+    >,
+  onOllamaPullProgress: (callback) => {
+    const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => {
+      callback(progress)
+    }
+
+    ipcRenderer.on('ollama:pull-progress', listener)
+    return () => {
+      ipcRenderer.off('ollama:pull-progress', listener)
+    }
+  },
   pickModel: (role) =>
     ipcRenderer.invoke('models:pick-model', role) as Promise<Awaited<ReturnType<TokenSmithBridge['pickModel']>>>,
   listRemoteProviderModels: (apiKey, baseUrl, role) =>

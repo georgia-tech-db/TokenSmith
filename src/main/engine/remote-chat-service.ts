@@ -1,10 +1,14 @@
-import type { ChatSource, LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
+import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineChatResponse } from '../../shared/engine'
 import {
-  defaultFollowUpSuggestionCount,
-  defaultSuggestedFollowUpPrompt,
-  minFollowUpSuggestionCount
-} from '../../shared/model-defaults'
+  defaultFollowUpPrompt,
+  followUpSuggestionCount,
+  formatFollowUpInstruction,
+  parseFollowUpSuggestions,
+  shouldGenerateFollowUps,
+  studyChatMessages,
+  type StudyChatMessage
+} from './study-chat-format'
 
 interface OpenAiCompatibleModelList {
   data?: Array<{ id?: string }>
@@ -25,8 +29,6 @@ interface OpenAiCompatibleChatResponse {
     text?: string
   }>
 }
-
-type RemoteChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 interface RemoteCompletionConfig {
   endpoint: string
@@ -181,48 +183,9 @@ export async function listOpenAiCompatibleModels(
     .sort(compareModelIds)
 }
 
-function sourceContext(sources: ChatSource[]): string {
-  if (sources.length === 0) {
-    return ''
-  }
-
-  return [
-    'Use these excerpts when they are relevant. If the excerpts do not contain the answer, say that plainly.',
-    ...sources.map((source, index) => {
-      const title = source.title || `Source ${index + 1}`
-      const locator = source.locator ? ` (${source.locator})` : ''
-      return `Source ${index + 1}: ${title}${locator}\n${source.excerpt}`
-    })
-  ].join('\n\n')
-}
-
-function remoteMessages(request: EngineChatRequest): RemoteChatMessage[] {
-  const modelSettings = request.modelSettings as Partial<ModelRuntimeSettings> | undefined
-  const systemMessage = modelSettings?.systemMessage?.trim()
-  const context = sourceContext(request.retrievedSources ?? [])
-  const userContent = context ? `${context}\n\nQuestion: ${request.prompt}` : request.prompt
-  const messages: RemoteChatMessage[] = []
-
-  if (systemMessage) {
-    messages.push({ role: 'system', content: systemMessage })
-  }
-
-  for (const message of request.messages.slice(-12)) {
-    const content = message.text.trim()
-    if (!content) {
-      continue
-    }
-
-    messages.push({ role: message.role, content })
-  }
-
-  messages.push({ role: 'user', content: userContent })
-  return messages
-}
-
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
-  messages: RemoteChatMessage[],
+  messages: StudyChatMessage[],
   overrides: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
   const response = await fetch(config.endpoint, {
@@ -257,72 +220,6 @@ async function runRemoteChatCompletion(
   return text.trim()
 }
 
-function shouldGenerateFollowUps(request: EngineChatRequest): boolean {
-  return request.applicationSettings?.suggestionMode !== 'off'
-}
-
-function followUpSuggestionCount(request: EngineChatRequest): number {
-  if (request.applicationSettings?.suggestionMode === 'off') {
-    return 0
-  }
-
-  const count = Number(request.applicationSettings?.followUpSuggestionCount)
-  if (!Number.isFinite(count)) {
-    return defaultFollowUpSuggestionCount
-  }
-
-  return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
-}
-
-function stripSuggestionPrefix(value: string): string {
-  return value
-    .trim()
-    .replace(/^[-*•\s]+/, '')
-    .replace(/^\d+[.)]\s*/, '')
-    .replace(/^["']|["']$/g, '')
-    .trim()
-}
-
-function parseFollowUpSuggestions(text: string, limit: number): string[] {
-  const suggestions: string[] = []
-
-  try {
-    const parsed = JSON.parse(text)
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) {
-        const suggestion = stripSuggestionPrefix(String(item))
-        if (suggestion.endsWith('?')) {
-          suggestions.push(suggestion)
-        }
-      }
-    }
-  } catch {
-    // Plain text suggestions are common across OpenAI-compatible providers.
-  }
-
-  if (suggestions.length === 0) {
-    const questionMatches = text.match(/\b(?:What|Where|How|Why|When|Who|Which|Whose|Whom)\b[^?\n]*\?/g) ?? []
-    suggestions.push(...questionMatches.map(stripSuggestionPrefix))
-  }
-
-  if (suggestions.length === 0) {
-    suggestions.push(
-      ...text
-        .split('\n')
-        .map(stripSuggestionPrefix)
-        .filter((line) => line.endsWith('?'))
-    )
-  }
-
-  return Array.from(new Set(suggestions.filter((suggestion) => suggestion.length > 0 && suggestion.length <= 180))).slice(0, limit)
-}
-
-function formatFollowUpInstruction(prompt: string, count: number): string {
-  return prompt.includes('{count}')
-    ? prompt.replaceAll('{count}', String(count))
-    : `Generate ${count} suggested follow-up question${count === 1 ? '' : 's'}.\n${prompt}`
-}
-
 async function generateRemoteFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
@@ -337,7 +234,7 @@ async function generateRemoteFollowUpSuggestions(
     return []
   }
   const prompt = formatFollowUpInstruction(
-    request.modelSettings?.suggestedFollowUpPrompt?.trim() || defaultSuggestedFollowUpPrompt,
+    request.modelSettings?.suggestedFollowUpPrompt?.trim() || defaultFollowUpPrompt(),
     count
   )
   const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
@@ -346,7 +243,7 @@ async function generateRemoteFollowUpSuggestions(
   try {
     const text = await runRemoteChatCompletion(
       config,
-      [...remoteMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
+      [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
       { maxTokens, temperature }
     )
     return parseFollowUpSuggestions(text, count)
@@ -367,7 +264,7 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     apiKey: request.model.apiKey,
     settings
   }
-  const text = await runRemoteChatCompletion(config, remoteMessages(request))
+  const text = await runRemoteChatCompletion(config, studyChatMessages(request))
   const followUpSuggestions = await generateRemoteFollowUpSuggestions(request, text, config)
 
   return {
