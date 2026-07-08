@@ -116,8 +116,3 @@ export interface PickMaterialFolderResult {
   path?: string
   title?: string
 }
-
-export interface PickModelResult {
-  canceled: boolean
-  model?: LocalModel
-}

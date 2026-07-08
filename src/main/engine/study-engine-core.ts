@@ -12,14 +12,13 @@ import {
 } from './remote-model-secrets'
 
 export interface PythonEngineHealth {
-  llamaCppAvailable: boolean
+  ok?: boolean
 }
 
 export interface StudyEngineDependencies {
   getPythonEngineHealth: () => Promise<PythonEngineHealth>
   generateOllamaStudyQuestionSuggestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   runOllamaStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
-  runPythonStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
 }
 
 export async function listStudyEngines(dependencies: StudyEngineDependencies): Promise<EngineInfo[]> {
@@ -87,5 +86,5 @@ export async function sendStudyChatMessage(
     })
   }
 
-  throw new Error('Python/GGUF chat models are not packaged in this app version. Use Ollama for local chat or add a cloud-based chat model from Models.')
+  throw new Error('Local GGUF chat models are not supported in this app version. Use Ollama for local chat or add a remote chat model from Models.')
 }

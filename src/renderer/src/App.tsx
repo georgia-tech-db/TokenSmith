@@ -32,14 +32,6 @@ import {
   type CleaningRuleId
 } from '@shared/cleaning'
 import {
-  catalogItemForFilename,
-  catalogItemToLocalModel,
-  firstRunRecommendedModelIds,
-  normalizeModelFilename,
-  tokenSmithTunedModels,
-  type ModelCatalogItem
-} from '@shared/model-catalog'
-import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
   recommendedOllamaEmbeddingModel,
@@ -50,9 +42,6 @@ import {
 } from '@shared/ollama'
 import {
   remoteProviderCatalog,
-  type HuggingFaceSearchOptions,
-  type HuggingFaceSort,
-  type HuggingFaceSortDirection,
   type RemoteProviderCatalogItem,
   type RemoteProviderId
 } from '@shared/model-providers'
@@ -62,6 +51,7 @@ import {
   followUpSuggestionCountOptions,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
+import { buildRetrievalContext, mergeChatSources } from '@shared/chat-context'
 import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
@@ -246,12 +236,8 @@ function modelFilename(model: LocalModel) {
   return model.filename ?? pathLeaf(model.path)
 }
 
-function catalogForModel(model: LocalModel) {
-  if (model.catalogId) {
-    return tokenSmithTunedModels.find((item) => item.id === model.catalogId)
-  }
-
-  return catalogItemForFilename(modelFilename(model))
+function normalizeModelFilename(filename?: string) {
+  return filename?.toLowerCase()
 }
 
 function modelQuantFromFilename(filename?: string) {
@@ -410,10 +396,6 @@ function firstGeneratorModel(models: LocalModel[]) {
 
 function firstEmbeddingModel(models: LocalModel[]) {
   return models.find(modelCanEmbed)
-}
-
-function recommendedLocalModelName(modelId: string, fallback: string) {
-  return tokenSmithTunedModels.find((model) => model.id === modelId)?.name ?? fallback
 }
 
 function ollamaChatModelId(modelName: string) {
@@ -660,9 +642,6 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
       }
 
       const filename = model.filename ?? pathLeaf(model.path)
-      const catalog = model.catalogId
-        ? tokenSmithTunedModels.find((item) => item.id === model.catalogId)
-        : catalogItemForFilename(filename)
       const modelId = model.id ?? createId('model')
       const savedStatus: LocalModel['status'] = model.status === 'downloading'
         ? 'incomplete'
@@ -670,9 +649,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
       const download = model.download && filename
         ? {
             ...model.download,
-            modelId,
-            catalogId: model.catalogId ?? catalog?.id,
             filename,
+            modelId,
             status: model.download.status === 'downloading' ? 'incomplete' as const : model.download.status
           }
         : undefined
@@ -681,20 +659,19 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         id: modelId,
         name: model.name,
         engine: 'python' as const,
-        role: model.role ?? catalog?.role ?? 'generator',
+        role: model.role ?? 'generator',
         status: savedStatus,
         source: model.source,
-        catalogId: model.catalogId ?? catalog?.id,
         filename,
         path: model.path,
         embeddingPath: model.embeddingPath,
-        url: model.url ?? catalog?.url,
-        sizeBytes: model.sizeBytes ?? catalog?.sizeBytes,
-        ramRequiredGb: model.ramRequiredGb ?? catalog?.ramRequiredGb,
-        parameters: model.parameters ?? catalog?.parameters,
-        quant: model.quant ?? catalog?.quant,
-        type: model.type ?? catalog?.type,
-        description: model.description ?? catalog?.description,
+        url: model.url,
+        sizeBytes: model.sizeBytes,
+        ramRequiredGb: model.ramRequiredGb,
+        parameters: model.parameters,
+        quant: model.quant,
+        type: model.type,
+        description: model.description,
         download,
         addedAt: model.addedAt ?? new Date(index).toISOString()
       }
@@ -1372,72 +1349,6 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!window.tokensmith) {
-      return undefined
-    }
-
-    return window.tokensmith.onModelDownloadProgress((progress) => {
-      updateAppState((current) => {
-        if (progress.status === 'removed') {
-          const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
-          const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
-          const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, progress))
-
-          return {
-            ...current,
-            models: remainingModels,
-            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, progress)
-              ? firstGeneratorModel(remainingModels)?.id ?? ''
-              : current.selectedModelId,
-            selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, progress)
-              ? firstEmbeddingModel(remainingModels)?.id ?? ''
-              : current.selectedEmbeddingModelId
-          }
-        }
-
-        let didUpdate = false
-        const models = current.models.map((model) => {
-          if (!modelMatchesDownload(model, progress)) {
-            return model
-          }
-
-          didUpdate = true
-          return mergeModelDownloadProgress(model, progress)
-        })
-
-        if (didUpdate) {
-          return {
-            ...current,
-            models
-          }
-        }
-
-        const catalogItem = catalogItemForFilename(progress.filename)
-        if (!catalogItem) {
-          return current
-        }
-
-        return {
-          ...current,
-          models: [
-            mergeModelDownloadProgress(
-              catalogItemToLocalModel(
-                catalogItem,
-                progress.modelId,
-                progress.path,
-                new Date().toISOString(),
-                modelStatusFromDownload(progress)
-              ),
-              progress
-            ),
-            ...current.models
-          ]
-        }
-      })
-    })
-  }, [])
-
-  useEffect(() => {
     if (!hasLoadedState || !window.tokensmith) {
       return
     }
@@ -1861,81 +1772,6 @@ export function App() {
     })
   }
 
-  function downloadModel(model: ModelCatalogItem) {
-    const existingModel = appState.models.find(
-      (item) => normalizeModelFilename(modelFilename(item)) === normalizeModelFilename(model.filename)
-    )
-    const modelId = existingModel?.id ?? createId('model')
-    const startedAt = new Date().toISOString()
-    const optimisticModel = {
-      ...catalogItemToLocalModel(model, modelId, existingModel?.path, existingModel?.addedAt ?? startedAt, 'downloading'),
-      download: {
-        modelId,
-        catalogId: model.id,
-        filename: model.filename,
-        status: 'downloading' as const,
-        percent: existingModel?.download?.percent ?? 0,
-        bytesReceived: existingModel?.download?.bytesReceived ?? 0,
-        bytesTotal: model.sizeBytes,
-        message: 'Starting download'
-      }
-    }
-
-    upsertModel(optimisticModel, false)
-
-    if (!window.tokensmith) {
-      return
-    }
-
-    void window.tokensmith
-      .downloadModel(model, modelId)
-      .then((downloadedModel) => {
-        upsertModel({
-          ...downloadedModel,
-          download: {
-            modelId,
-            catalogId: model.id,
-            filename: model.filename,
-            status: 'complete',
-            percent: 100,
-            bytesReceived: downloadedModel.sizeBytes ?? model.sizeBytes,
-            bytesTotal: downloadedModel.sizeBytes ?? model.sizeBytes,
-            path: downloadedModel.path,
-            message: 'Downloaded'
-          }
-        }, true)
-      })
-      .catch((error) => {
-        if (error instanceof Error && /cancelled/i.test(error.message)) {
-          return
-        }
-
-        updateAppState((current) => ({
-          ...current,
-          models: current.models.map((item) =>
-            item.id === modelId
-              ? {
-                  ...item,
-                  status: 'downloadError',
-                  download: {
-                    ...(item.download ?? optimisticModel.download),
-                    status: 'error',
-                    error: error instanceof Error ? error.message : 'Download failed',
-                    message: 'Download failed'
-                  }
-                }
-              : item
-          )
-        }))
-      })
-  }
-
-  function cancelModelDownload(filename: string) {
-    void window.tokensmith?.cancelModelDownload(filename).catch(() => {
-      setSaveStatus('error')
-    })
-  }
-
   function removeModel(model: LocalModel) {
     const selectedModelWillBeRemoved = appState.selectedModelId === model.id
     const selectedEmbeddingModelWillBeRemoved = appState.selectedEmbeddingModelId === model.id
@@ -2239,8 +2075,6 @@ export function App() {
             models={appState.models}
             onAddModel={addModel}
             onCancelOllamaModelDownload={cancelOllamaModelDownload}
-            onCancelModelDownload={cancelModelDownload}
-            onDownloadModel={downloadModel}
             onDownloadOllamaModel={downloadOllamaModel}
             onRemoveModel={removeModel}
             onSelectEmbeddingModel={selectEmbeddingModel}
@@ -3422,6 +3256,10 @@ function ChatScreen({
     requestSequenceRef.current = requestSequence
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
     const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
+    const retrievalContext = buildRetrievalContext(prompt, activeConversation.messages, {
+      turnCount: 1,
+      carriedSourceLimit: Math.min(2, settings.maxSources)
+    })
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
 
     try {
@@ -3431,12 +3269,13 @@ function ChatScreen({
           .filter((label): label is string => Boolean(label))
         setPendingStatusText(`searching ${searchLabels.length ? searchLabels.join(', ') : 'Library'} ...`)
         const searchStartedAt = performance.now()
-        retrievedSources = await window.tokensmith.searchLibrary(
-          prompt,
+        const searchResults = await window.tokensmith.searchLibrary(
+          retrievalContext.query,
           activeMaterials,
           settings.maxSources,
           searchEmbeddingModels
         )
+        retrievedSources = mergeChatSources(retrievalContext.carriedSources, searchResults, settings.maxSources)
 
         if (requestSequenceRef.current !== requestSequence) {
           return
@@ -5205,8 +5044,6 @@ function ModelsScreen({
   models,
   onAddModel,
   onCancelOllamaModelDownload,
-  onCancelModelDownload,
-  onDownloadModel,
   onDownloadOllamaModel,
   onRemoveModel,
   onSelectEmbeddingModel,
@@ -5218,8 +5055,6 @@ function ModelsScreen({
   models: LocalModel[]
   onAddModel: (model: LocalModel) => void
   onCancelOllamaModelDownload: (modelName: string, baseUrl?: string) => void
-  onCancelModelDownload: (filename: string) => void
-  onDownloadModel: (model: ModelCatalogItem) => void
   onDownloadOllamaModel: (modelName: string, role: LocalModelRole, baseUrl?: string) => void
   onRemoveModel: (model: LocalModel) => void
   onSelectEmbeddingModel: (modelId: string) => void
@@ -5239,7 +5074,6 @@ function ModelsScreen({
 
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
   const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
-  const [catalogFilter, setCatalogFilter] = useState<'all' | 'chat' | 'embedder'>('all')
   const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
     remoteProviderCatalog.reduce(
       (drafts, provider) => {
@@ -5257,15 +5091,6 @@ function ModelsScreen({
       {} as Record<RemoteProviderId, RemoteProviderDraft>
     )
   )
-  const [hfQuery, setHfQuery] = useState('')
-  const [hfResults, setHfResults] = useState<ModelCatalogItem[]>([])
-  const [hfStatus, setHfStatus] = useState<'idle' | 'searching' | 'error'>('idle')
-  const [hfError, setHfError] = useState<string | null>(null)
-  const [hfShowTools, setHfShowTools] = useState(false)
-  const [hfRole, setHfRole] = useState<LocalModelRole>('generator')
-  const [hfSort, setHfSort] = useState<HuggingFaceSort>('likes')
-  const [hfSortDirection, setHfSortDirection] = useState<HuggingFaceSortDirection>('desc')
-  const [hfLimit, setHfLimit] = useState(20)
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaStatusState, setOllamaStatusState] = useState<'idle' | 'checking' | 'error'>('idle')
   const [ollamaError, setOllamaError] = useState<string | null>(null)
@@ -5275,24 +5100,6 @@ function ModelsScreen({
   const [ollamaSearchStatus, setOllamaSearchStatus] = useState<'idle' | 'searching' | 'error'>('idle')
   const [ollamaSearchError, setOllamaSearchError] = useState<string | null>(null)
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
-  const firstRunRecommendedModelIdSet = useMemo(() => new Set<string>(firstRunRecommendedModelIds), [])
-  const filteredCatalogModels = tokenSmithTunedModels.filter((model) => {
-    const role = model.role ?? 'generator'
-    if (catalogFilter === 'all') {
-      return true
-    }
-    if (catalogFilter === 'chat') {
-      return role === 'generator' || role === 'both'
-    }
-    if (catalogFilter === 'embedder') {
-      return role === 'embedder' || role === 'both'
-    }
-    return true
-  })
-  const visibleCatalogModels =
-    models.length === 0
-      ? tokenSmithTunedModels.filter((model) => firstRunRecommendedModelIdSet.has(model.id))
-      : filteredCatalogModels
 
   useEffect(() => {
     if (models.length === 0) {
@@ -5335,10 +5142,6 @@ function ModelsScreen({
       cancelled = true
     }
   }, [exploreTab, mode, models])
-
-  function modelByCatalogItem(catalogModel: ModelCatalogItem) {
-    return models.find((model) => normalizeModelFilename(modelFilename(model)) === normalizeModelFilename(catalogModel.filename))
-  }
 
   function handleOllamaDraftNameChange(value: string) {
     setOllamaDraftName(value)
@@ -5539,43 +5342,7 @@ function ModelsScreen({
     setMode('installed')
   }
 
-  async function searchHuggingFace(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault()
-
-    const query = hfQuery.trim()
-    if (!query) {
-      setHfResults([])
-      setHfStatus('idle')
-      setHfError(null)
-      return
-    }
-
-    if (!window.tokensmith) {
-      setHfStatus('error')
-      setHfError('HuggingFace search is only available in the desktop app.')
-      return
-    }
-
-    const options: HuggingFaceSearchOptions = {
-      sort: hfSort,
-      direction: hfSortDirection,
-      limit: hfLimit
-    }
-
-    setHfStatus('searching')
-    setHfError(null)
-
-    try {
-      const results = await window.tokensmith.searchHuggingFaceModels(query, options)
-      setHfResults(results.map((result) => ({ ...result, role: hfRole })))
-      setHfStatus('idle')
-    } catch (error) {
-      setHfStatus('error')
-      setHfError(error instanceof Error ? error.message : 'HuggingFace search failed.')
-    }
-  }
-
-  function modelStats(model: LocalModel, catalog?: ModelCatalogItem) {
+  function modelStats(model: LocalModel) {
     if (model.engine === 'ollama') {
       const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
       const stats = [
@@ -5616,26 +5383,14 @@ function ModelsScreen({
     }
 
     const filename = modelFilename(model)
-    const ramRequiredGb = catalog?.ramRequiredGb ?? model.ramRequiredGb
 
     return [
       { label: 'Role', value: modelCanEmbed(model) ? 'Chat + Embedder Model' : 'Chat Model' },
-      { label: 'File size', value: formatBytes(catalog?.sizeBytes ?? model.sizeBytes) },
-      { label: 'RAM required', value: ramRequiredGb ? `${ramRequiredGb} GB` : 'Unknown' },
-      { label: 'Parameters', value: catalog?.parameters ?? model.parameters ?? 'Unknown' },
-      { label: 'Quant', value: catalog?.quant ?? model.quant ?? modelQuantFromFilename(filename) },
-      { label: 'Type', value: catalog?.type ?? model.type ?? modelTypeFromFilename(filename) }
-    ]
-  }
-
-  function catalogStats(model: ModelCatalogItem) {
-    return [
-      { label: 'Role', value: modelRoleLabelForRole(model.role ?? 'generator') },
       { label: 'File size', value: formatBytes(model.sizeBytes) },
       { label: 'RAM required', value: model.ramRequiredGb ? `${model.ramRequiredGb} GB` : 'Unknown' },
-      { label: 'Parameters', value: model.parameters },
-      { label: 'Quant', value: model.quant },
-      { label: 'Type', value: model.type }
+      { label: 'Parameters', value: model.parameters ?? 'Unknown' },
+      { label: 'Quant', value: model.quant ?? modelQuantFromFilename(filename) },
+      { label: 'Type', value: model.type ?? modelTypeFromFilename(filename) }
     ]
   }
 
@@ -5747,49 +5502,35 @@ function ModelsScreen({
     { id: 'remote', label: 'Providers' }
   ]
 
-  const modelCatalogFilters: Array<{ id: 'all' | 'chat' | 'embedder'; label: string }> = [
-    { id: 'all', label: 'All' },
-    { id: 'chat', label: 'Chat' },
-    { id: 'embedder', label: 'Embedder' }
-  ]
-
-  function renderActionBox(model?: LocalModel, catalog?: ModelCatalogItem) {
-    const filename = model ? modelFilename(model) : catalog?.filename
+  function renderActionBox(model?: LocalModel) {
+    const filename = model ? modelFilename(model) : undefined
     const isEmbedderOnly = model ? modelCanEmbed(model) && !modelCanGenerate(model) : false
     const isSelected = model?.id === (isEmbedderOnly ? selectedEmbeddingModelId : selectedModelId)
     const progress = model?.download
     const isOllama = model?.engine === 'ollama'
 
-    if (model?.status === 'downloading' && filename) {
+    if (model?.status === 'downloading' && filename && isOllama) {
       return (
         <aside className="model-action-box">
           <button
             className="model-action-button"
             type="button"
-            onClick={() =>
-              isOllama
-                ? onCancelOllamaModelDownload(model.ollamaModelName ?? filename, model.ollamaBaseUrl)
-                : onCancelModelDownload(filename)
-            }
+            onClick={() => onCancelOllamaModelDownload(model.ollamaModelName ?? filename, model.ollamaBaseUrl)}
           >
-            <span>{isOllama ? 'Pause' : 'Cancel'}</span>
+            <span>Pause</span>
           </button>
           {renderDownloadProgress(progress)}
         </aside>
       )
     }
 
-    if ((model?.status === 'incomplete' || model?.status === 'downloadError') && (catalog || isOllama)) {
+    if ((model?.status === 'incomplete' || model?.status === 'downloadError') && isOllama) {
       return (
         <aside className="model-action-box">
           <button
             className="model-action-button"
             type="button"
-            onClick={() =>
-              isOllama
-                ? onDownloadOllamaModel(model.ollamaModelName ?? model.name, modelRole(model), model.ollamaBaseUrl)
-                : catalog && onDownloadModel(catalog)
-            }
+            onClick={() => onDownloadOllamaModel(model.ollamaModelName ?? model.name, modelRole(model), model.ollamaBaseUrl)}
           >
             <span>Resume</span>
           </button>
@@ -5842,17 +5583,6 @@ function ModelsScreen({
       )
     }
 
-    if (catalog) {
-      return (
-        <aside className="model-action-box">
-          <button className="model-action-button is-download" type="button" onClick={() => onDownloadModel(catalog)}>
-            <DownloadIcon size={17} aria-hidden="true" />
-            <span>Download</span>
-          </button>
-        </aside>
-      )
-    }
-
     return (
       <aside className="model-action-box">
         <button className="model-action-button is-muted" type="button" disabled>
@@ -5864,14 +5594,12 @@ function ModelsScreen({
   }
 
   function renderInstalledModelCard(model: LocalModel) {
-    const catalog = catalogForModel(model)
     const displayModel = withOllamaInfo(model, ollamaInfoForLocalModel(model))
     const filename = modelFilename(displayModel)
-    const title = catalog?.name ?? displayModelName(displayModel)
+    const title = displayModelName(displayModel)
     const isEmbedderOnly = modelCanEmbed(displayModel) && !modelCanGenerate(displayModel)
     const bullets =
       displayModel.description ??
-      catalog?.description ??
       (displayModel.engine === 'ollama'
         ? isEmbedderOnly
           ? [
@@ -5917,41 +5645,14 @@ function ModelsScreen({
               <li key={bullet}>{bullet}</li>
             ))}
           </ul>
-          {renderStats(modelStats(displayModel, catalog))}
+          {renderStats(modelStats(displayModel))}
         </div>
-        {renderActionBox(displayModel, catalog)}
+        {renderActionBox(displayModel)}
       </section>
     )
   }
 
   const installedModels = models.filter((model) => model.status !== 'needsRuntime' && model.status !== 'missing')
-
-  function renderCatalogModelCard(catalogModel: ModelCatalogItem) {
-    const installedModel = modelByCatalogItem(catalogModel)
-    const role = catalogModel.role ?? 'generator'
-    const roleClassName = role === 'embedder' ? 'is-embedder' : 'is-chat'
-
-    return (
-      <section className="model-card" key={catalogModel.id}>
-        <div className="model-card-main">
-          <div className="model-title-row">
-            <div className="model-title-heading">
-              <h2>{catalogModel.name}</h2>
-              <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabelForRole(role)}</span>
-            </div>
-            <p>{catalogModel.sourceFilename ?? catalogModel.filename}</p>
-          </div>
-          <ul className="model-description-list">
-            {catalogModel.description.map((bullet) => (
-              <li key={bullet}>{bullet}</li>
-            ))}
-          </ul>
-          {renderStats(catalogStats(catalogModel))}
-        </div>
-        {renderActionBox(installedModel, catalogModel)}
-      </section>
-    )
-  }
 
   function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
     const draft = remoteDrafts[provider.id]
@@ -6119,9 +5820,9 @@ function ModelsScreen({
         isInstalledInOllama ? 'ready' : 'missing'
       )
     const displayModel = withOllamaInfo(model, modelInfo)
-    const isPlaceholderCard = !existingModel && !isInstalledInOllama && !searchResult
+    const isUninstalledDefaultModel = !existingModel && !isInstalledInOllama && !searchResult
     const bullets =
-      isPlaceholderCard
+      isUninstalledDefaultModel
         ? []
         : description ??
           (searchResult?.description ? [searchResult.description] : undefined) ??
@@ -6138,10 +5839,10 @@ function ModelsScreen({
         <div className="model-card-main">
           <div className="model-title-row">
             <div className="model-title-heading">
-              <h2>{title ?? searchResult?.name ?? (isPlaceholderCard ? modelName : displayModelName(displayModel))}</h2>
+              <h2>{title ?? searchResult?.name ?? (isUninstalledDefaultModel ? modelName : displayModelName(displayModel))}</h2>
               <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(displayModel)}</span>
             </div>
-            <p>{isPlaceholderCard ? 'Not installed in Ollama' : displayModel.ollamaModelName ?? modelName}</p>
+            <p>{isUninstalledDefaultModel ? 'Not installed in Ollama' : displayModel.ollamaModelName ?? modelName}</p>
           </div>
           {bullets.length > 0 && (
             <ul className="model-description-list">
@@ -6150,7 +5851,7 @@ function ModelsScreen({
               ))}
             </ul>
           )}
-          {!isPlaceholderCard && renderStats(stats)}
+          {!isUninstalledDefaultModel && renderStats(stats)}
         </div>
         {renderOllamaModelAction(displayModel, isInstalledInOllama)}
       </section>
@@ -6237,7 +5938,7 @@ function ModelsScreen({
             <option value="generator">Chat Model</option>
             <option value="embedder">Embedder Model</option>
           </select>
-          <button className="hf-search-submit" type="submit" disabled={!customModelName || ollamaSearchStatus === 'searching'}>
+          <button type="submit" disabled={!customModelName || ollamaSearchStatus === 'searching'}>
             {ollamaSearchStatus === 'searching' ? (
               <Loader2 size={17} aria-hidden="true" className="spin" />
             ) : (
@@ -6276,98 +5977,6 @@ function ModelsScreen({
                   )}
                 </>
               )}
-        </div>
-      </>
-    )
-  }
-
-  function renderHuggingFaceSearch() {
-    return (
-      <>
-        <p className="model-explore-copy">
-          Search HuggingFace for GGUF models. TokenSmith downloads the selected model locally; many community
-          models may require extra configuration before they work well.
-        </p>
-        <form className="hf-search-form" onSubmit={searchHuggingFace}>
-          <input
-            type="search"
-            value={hfQuery}
-            onChange={(event) => setHfQuery(event.target.value)}
-            placeholder="Discover and download models by keyword search..."
-            readOnly={hfStatus === 'searching'}
-            aria-label="Search HuggingFace models"
-          />
-          <button type="button" aria-label="Search options" onClick={() => setHfShowTools((current) => !current)}>
-            <Settings size={17} aria-hidden="true" />
-          </button>
-          <button className="hf-search-submit" type="submit" disabled={hfStatus === 'searching'}>
-            {hfStatus === 'searching' ? (
-              <>
-                <Loader2 size={16} aria-hidden="true" />
-                <span>Searching</span>
-              </>
-            ) : (
-              <>
-                <SendHorizonal size={17} aria-hidden="true" />
-                <span>Search</span>
-              </>
-            )}
-          </button>
-        </form>
-
-        {hfShowTools && (
-          <div className="hf-tools">
-            <select
-              aria-label="Sort HuggingFace results"
-              value={hfSort}
-              onChange={(event) => setHfSort(event.target.value as HuggingFaceSort)}
-            >
-              <option value="default">Sort by: Default</option>
-              <option value="likes">Sort by: Likes</option>
-              <option value="downloads">Sort by: Downloads</option>
-              <option value="recent">Sort by: Recent</option>
-            </select>
-            <select
-              aria-label="HuggingFace sort direction"
-              value={hfSortDirection}
-              onChange={(event) => setHfSortDirection(event.target.value as HuggingFaceSortDirection)}
-            >
-              <option value="desc">Sort dir: Desc</option>
-              <option value="asc">Sort dir: Asc</option>
-            </select>
-            <select
-              aria-label="HuggingFace result limit"
-              value={hfLimit}
-              onChange={(event) => setHfLimit(Number(event.target.value))}
-            >
-              {[5, 10, 20, 50, 100].map((limit) => (
-                <option key={limit} value={limit}>
-                  Limit: {limit}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {hfError && <p className="inline-error">{hfError}</p>}
-
-        <div className="hf-tools hf-role-tools">
-          <select
-            aria-label="Install HuggingFace results as"
-            value={hfRole}
-            onChange={(event) => {
-              const role = event.target.value as LocalModelRole
-              setHfRole(role)
-              setHfResults((current) => current.map((model) => ({ ...model, role })))
-            }}
-          >
-            <option value="generator">Install as: Chat Model</option>
-            <option value="embedder">Install as: Embedder Model</option>
-          </select>
-        </div>
-
-        <div className="model-list">
-          {hfResults.map((model) => renderCatalogModelCard(model))}
         </div>
       </>
     )

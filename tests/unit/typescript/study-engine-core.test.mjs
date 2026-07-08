@@ -103,15 +103,12 @@ function chatRequest(overrides = {}) {
 
 function engineDependencies(overrides = {}) {
   return {
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: true }),
+    getPythonEngineHealth: async () => ({ ok: true }),
     generateOllamaStudyQuestionSuggestions: async () => {
       throw new Error('ollama suggestions should not be used')
     },
     runOllamaStudyEngine: async () => {
       throw new Error('ollama should not be used')
-    },
-    runPythonStudyEngine: async () => {
-      throw new Error('python should not be used')
     },
     ...overrides
   }
@@ -143,20 +140,8 @@ test('listStudyEngines explains when the local TokenSmith runtime is unavailable
   assert.match(engines[0].detail, /local TokenSmith runtime is not available/i)
 })
 
-test('listStudyEngines reports retrieval-only mode without llama.cpp', async () => {
-  const engines = await listStudyEngines(engineDependencies({
-    getPythonEngineHealth: async () => ({ llamaCppAvailable: false })
-  }))
-
-  assert.equal(engines.length, 1)
-  assert.equal(engines[0].status, 'ready')
-  assert.match(engines[0].detail, /Local indexing and vector retrieval/i)
-  assert.match(engines[0].detail, /Ollama chat and embedding models/i)
-})
-
 test('sendStudyChatMessage routes Ollama models to the Ollama study engine', async () => {
   let ollamaRequest = null
-  let pythonWasCalled = false
 
   const response = await sendStudyChatMessage(
     chatRequest({ model: ollamaChatModel() }),
@@ -169,10 +154,6 @@ test('sendStudyChatMessage routes Ollama models to the Ollama study engine', asy
           text: 'Ollama answer.',
           sources: request.retrievedSources ?? []
         }
-      },
-      runPythonStudyEngine: async () => {
-        pythonWasCalled = true
-        throw new Error('python should not be used')
       }
     })
   )
@@ -182,26 +163,13 @@ test('sendStudyChatMessage routes Ollama models to the Ollama study engine', asy
   assert.equal(response.modelName, 'Ollama llama3')
   assert.equal(response.text, 'Ollama answer.')
   assert.deepEqual(response.sources, [databaseSource])
-  assert.equal(pythonWasCalled, false)
 })
 
-test('sendStudyChatMessage rejects unsupported packaged local chat models', async () => {
-  let pythonWasCalled = false
-
+test('sendStudyChatMessage rejects unsupported local GGUF chat models', async () => {
   await assert.rejects(
-    sendStudyChatMessage(
-      chatRequest(),
-      engineDependencies({
-        runPythonStudyEngine: async () => {
-          pythonWasCalled = true
-          throw new Error('python should not be used')
-        }
-      })
-    ),
-    /Python\/GGUF chat models are not packaged/i
+    sendStudyChatMessage(chatRequest(), engineDependencies()),
+    /Local GGUF chat models are not supported/i
   )
-
-  assert.equal(pythonWasCalled, false)
 })
 
 test('sendStudyChatMessage propagates Ollama chat failures', async () => {
@@ -287,4 +255,23 @@ test('generateStudyQuestionSuggestions rejects unsupported local chat models', a
     generateStudyQuestionSuggestions(chatRequest(), engineDependencies()),
     /Question suggestions require an Ollama or remote chat model/
   )
+})
+
+test('generateStudyQuestionSuggestions routes Ollama models to the Ollama suggestion engine', async () => {
+  let suggestionRequest = null
+
+  const response = await generateStudyQuestionSuggestions(
+    chatRequest({ model: ollamaChatModel() }),
+    engineDependencies({
+      generateOllamaStudyQuestionSuggestions: async (request) => {
+        suggestionRequest = request
+        return {
+          suggestions: ['How does rollback support atomicity?']
+        }
+      }
+    })
+  )
+
+  assert.equal(suggestionRequest.model.ollamaModelName, 'llama3')
+  assert.deepEqual(response.suggestions, ['How does rollback support atomicity?'])
 })

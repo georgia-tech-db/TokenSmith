@@ -1957,19 +1957,27 @@ def local_source_context(sources: List[Dict[str, Any]], *, max_chars: Optional[i
     if not sources:
         return ""
 
-    parts = ["### Context:\n"]
+    parts = [
+        "Use the context below only when it is relevant to the question.\n",
+        "Answer directly. Do not quote the context before answering. Do not mention context labels.\n",
+        "If the context does not contain the answer, say that plainly.\n\n",
+        "### Context:\n",
+    ]
     for source in sources:
         text = normalize_text(source.get("context") or source.get("excerpt", ""))
         if max_chars is not None:
             text = text[:max_chars]
         section_header = str(source.get("sectionHeader") or "").strip()
+        locator = str(source.get("locator") or "").strip()
+        locator_line = f"Locator: {locator}\n" if locator else ""
         section_line = f"Section: {section_header}\n" if section_header else ""
         parts.append(
             "Collection: "
             f"{source.get('materialTitle') or source.get('collectionName') or source.get('collection') or 'Library'}\n"
             f"Path: {source.get('path') or source.get('title') or ''}\n"
+            f"{locator_line}"
             f"{section_line}"
-            f"Excerpt: {text}\n\n"
+            f"Text: {text}\n\n"
         )
     return "".join(parts)
 

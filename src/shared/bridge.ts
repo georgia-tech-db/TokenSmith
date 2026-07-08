@@ -4,8 +4,7 @@ import type {
   CourseMaterial,
   LocalModel,
   LocalModelRole,
-  MaterialIndexProgress,
-  ModelDownloadProgress
+  MaterialIndexProgress
 } from './app-state'
 import type {
   CleaningPreviewResult,
@@ -17,12 +16,9 @@ import type {
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
-  PickMaterialsResult,
-  PickModelResult
+  PickMaterialsResult
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
-import type { ModelCatalogItem } from './model-catalog'
-import type { HuggingFaceSearchOptions } from './model-providers'
 import type {
   OllamaDeleteResult,
   OllamaOpenResult,
@@ -77,11 +73,6 @@ export interface TokenSmithBridge {
   cancelOllamaPull: (modelName: string, baseUrl?: string) => Promise<void>
   deleteOllamaModel: (modelName: string, baseUrl?: string) => Promise<OllamaDeleteResult>
   onOllamaPullProgress: (callback: (progress: OllamaPullProgress) => void) => () => void
-  pickModel: (role?: LocalModelRole) => Promise<PickModelResult>
   listRemoteProviderModels: (apiKey: string, baseUrl: string, role?: LocalModelRole) => Promise<string[]>
-  searchHuggingFaceModels: (query: string, options: HuggingFaceSearchOptions) => Promise<ModelCatalogItem[]>
-  downloadModel: (model: ModelCatalogItem, modelId: string) => Promise<LocalModel>
-  cancelModelDownload: (filename: string) => Promise<void>
   removeModel: (model: LocalModel) => Promise<void>
-  onModelDownloadProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
 }

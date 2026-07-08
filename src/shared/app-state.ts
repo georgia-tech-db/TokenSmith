@@ -18,7 +18,6 @@ export interface MaterialIndexProgress {
 
 export interface ModelDownloadProgress {
   modelId: string
-  catalogId?: string
   filename: string
   status: 'downloading' | 'complete' | 'incomplete' | 'error' | 'removed'
   percent: number
@@ -64,7 +63,6 @@ export interface LocalModel {
   role?: LocalModelRole
   status: 'ready' | 'needsRuntime' | 'missing' | 'downloading' | 'incomplete' | 'downloadError'
   source?: 'bundled' | 'local' | 'downloaded' | 'ollama' | 'remote'
-  catalogId?: string
   filename?: string
   path?: string
   embeddingPath?: string

@@ -14,13 +14,19 @@ export function sourceContext(sources: ChatSource[]): string {
   }
 
   return [
-    'Use these excerpts when they are relevant. If the excerpts do not contain the answer, say that plainly.',
-    ...sources.map((source, index) => {
-      const title = source.title || `Source ${index + 1}`
-      const locator = source.locator ? ` (${source.locator})` : ''
-      return `Source ${index + 1}: ${title}${locator}\n${source.excerpt}`
+    'Use the context below only when it is relevant to the question.',
+    'Answer directly. Do not quote the context before answering. Do not mention context labels.',
+    'If the context does not contain the answer, say that plainly.',
+    '',
+    '### Context:',
+    ...sources.map((source) => {
+      const collection = source.collectionName || source.documentTitle || source.title || 'Library'
+      const path = source.path || source.title || ''
+      const locator = source.locator ? `Locator: ${source.locator}\n` : ''
+      const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
+      return `Collection: ${collection}\nPath: ${path}\n${locator}${section}Text: ${source.excerpt}`
     })
-  ].join('\n\n')
+  ].join('\n')
 }
 
 const citationLabelPattern = '(?:source|excerpt|passage|context|citation|evidence|reference)'
@@ -37,27 +43,51 @@ function firstReferencedSourceIndex(text: string, sourceCount: number): number |
   return undefined
 }
 
+function normalizeForSourceMatch(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function firstQuotedContextSourceIndex(text: string, sources: ChatSource[]): number | undefined {
+  const match = text.match(/^\s*["“]([^"”]{40,1000})["”]/)
+  const quotedText = normalizeForSourceMatch(match?.[1] ?? '')
+  if (!quotedText) {
+    return undefined
+  }
+
+  return sources.findIndex((source) => {
+    const excerpt = normalizeForSourceMatch(source.excerpt)
+    return excerpt.includes(quotedText) || quotedText.includes(excerpt)
+  })
+}
+
 function stripSourceNumberPhrases(text: string): string {
   const citationPrefix = new RegExp(`^\\s*(?:according to|as (?:stated|noted|shown|reported) in|per|from)\\s+(?:the\\s+)?${citationLabelPattern}\\s+\\d+\\s*,?\\s*`, 'i')
   const citationSubject = new RegExp(`^\\s*(?:the\\s+)?${citationLabelPattern}\\s+\\d+\\s+(?:states|says|notes|indicates|mentions|reports)\\s+(?:that\\s+)?`, 'i')
   const bracketCitation = new RegExp(`\\s*[([](?:${citationLabelPattern})\\s+\\d+[)\\]]`, 'gi')
   const inlineCitationPrefix = new RegExp(`\\b(?:according to|as (?:stated|noted|shown|reported) in|per|from)\\s+(?:the\\s+)?${citationLabelPattern}\\s+\\d+\\s*,?\\s*`, 'gi')
+  const genericContextPrefix = /^\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/i
+  const inlineGenericContextPrefix = /\b(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/gi
+  const quotedContextPreamble = /^\s*["“][^"”]{40,1000}["”]\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/i
   const leakedInstructionSentence = /\s*[^.!?]*(?:source numbers?|excerpt labels?|excerpts?\s+label(?:led|ed)|phrases like\s+["']?according to)[^.!?]*[.!?]/gi
 
   return text
+    .replace(quotedContextPreamble, '')
     .replace(citationPrefix, '')
     .replace(citationSubject, '')
+    .replace(genericContextPrefix, '')
     .replace(bracketCitation, '')
     .replace(inlineCitationPrefix, '')
+    .replace(inlineGenericContextPrefix, '')
     .replace(leakedInstructionSentence, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }
 
 export function answerWithOrderedSources(text: string, sources: ChatSource[]): { text: string; sources: ChatSource[] } {
-  const referencedSourceIndex = firstReferencedSourceIndex(text, sources.length)
+  const referencedSourceIndex =
+    firstReferencedSourceIndex(text, sources.length) ?? firstQuotedContextSourceIndex(text, sources)
   const orderedSources =
-    referencedSourceIndex === undefined
+    referencedSourceIndex === undefined || referencedSourceIndex < 0
       ? sources
       : [
           sources[referencedSourceIndex],

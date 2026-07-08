@@ -9,15 +9,6 @@ export interface RemoteProviderCatalogItem {
   isCustom?: boolean
 }
 
-export type HuggingFaceSort = 'default' | 'likes' | 'downloads' | 'recent'
-export type HuggingFaceSortDirection = 'asc' | 'desc'
-
-export interface HuggingFaceSearchOptions {
-  sort: HuggingFaceSort
-  direction: HuggingFaceSortDirection
-  limit: number
-}
-
 export const remoteProviderCatalog: RemoteProviderCatalogItem[] = [
   {
     id: 'groq',

@@ -1,6 +1,5 @@
 import {
   getPythonEngineHealth,
-  runPythonStudyEngine,
   starterSourcesWithPython
 } from '../python/python-engine-service'
 import type {
@@ -32,8 +31,7 @@ export async function listEngines(): Promise<EngineInfo[]> {
   return listStudyEngines({
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
-    runOllamaStudyEngine,
-    runPythonStudyEngine
+    runOllamaStudyEngine
   })
 }
 
@@ -41,8 +39,7 @@ export async function sendChatMessage(request: EngineChatRequest): Promise<Engin
   return sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
-    runOllamaStudyEngine,
-    runPythonStudyEngine
+    runOllamaStudyEngine
   })
 }
 
@@ -53,7 +50,6 @@ export async function suggestChatQuestions(
   return generateStudyQuestionSuggestions(suggestionRequest, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
-    runOllamaStudyEngine,
-    runPythonStudyEngine
+    runOllamaStudyEngine
   })
 }

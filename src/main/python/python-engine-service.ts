@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress } from '../../shared/app-state'
-import type { CleaningPreviewResult, EngineChatRequest, EngineChatResponse } from '../../shared/engine'
+import type { CleaningPreviewResult } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
 interface PythonRequest {
@@ -14,7 +14,6 @@ interface PythonRequest {
     | 'index_material'
     | 'search'
     | 'starter_sources'
-    | 'chat'
     | 'list_materials'
     | 'set_material_enabled'
     | 'remove_material'
@@ -149,14 +148,6 @@ function getWorkerPath(): string {
   }
 
   return join(process.resourcesPath, 'python_engine', 'tokensmith_engine.py')
-}
-
-function resolveModel(model?: LocalModel): LocalModel | undefined {
-  if (!model) {
-    return undefined
-  }
-
-  return { ...model }
 }
 
 function modelCanEmbed(model?: LocalModel): boolean {
@@ -566,18 +557,6 @@ export async function starterSourcesWithPython(materials: CourseMaterial[], limi
   )
 
   return result.sources
-}
-
-export async function runPythonStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
-  return requestPython<EngineChatResponse>(
-    'chat',
-    {
-      ...request,
-      model: resolveModel(request.model),
-      userDataPath: app.getPath('userData')
-    },
-    180_000
-  )
 }
 
 export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]> {

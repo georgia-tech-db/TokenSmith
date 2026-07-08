@@ -1287,7 +1287,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(store.enabled_material_ids(user_data_path, []), [])
             self.assertEqual(store.enabled_material_ids(user_data_path, [""]), [])
 
-    def test_starter_sources_use_first_chunks_from_first_selected_document(self):
+    def test_starter_sources_sample_chunks_from_first_selected_document(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             user_data_path = str(root / "user-data")
@@ -1368,16 +1368,22 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                 embedding_model="unit-embedding",
             )
 
-            response = engine.starter_sources(
-                {
-                    "userDataPath": user_data_path,
-                    "materials": [first_material, second_material],
-                    "limit": 4,
-                }
-            )
+            original_sample = store.random.sample
+
+            try:
+                store.random.sample = lambda rows, count: list(rows)[1 : 1 + count]
+                response = engine.starter_sources(
+                    {
+                        "userDataPath": user_data_path,
+                        "materials": [first_material, second_material],
+                        "limit": 4,
+                    }
+                )
+            finally:
+                store.random.sample = original_sample
 
             self.assertIsNone(response["reason"])
-            self.assertEqual([source["context"] for source in response["sources"]], [f"Intro chunk {index}" for index in range(1, 5)])
+            self.assertEqual([source["context"] for source in response["sources"]], [f"Intro chunk {index}" for index in range(2, 6)])
             self.assertTrue(all(source["path"] == str(intro_pdf) for source in response["sources"]))
             self.assertTrue(all(source["retrievalMode"] == "starter" for source in response["sources"]))
 
@@ -1965,10 +1971,14 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertIn("Ignore previous instructions", prompt)
         self.assertIn("A primary key identifies a row.", prompt)
         self.assertIn("Prefer bullet lists for study answers.", prompt)
+        self.assertIn("Answer directly. Do not quote the context before answering.", prompt)
         self.assertIn("### Context", prompt)
         self.assertIn("Collection:", prompt)
         self.assertIn("Path: Course", prompt)
+        self.assertIn("Locator: Chunk 1", prompt)
         self.assertIn("Section: 12.1 Keys", prompt)
+        self.assertIn("Text: A primary key identifies a row.", prompt)
+        self.assertNotIn("Excerpt: A primary key identifies a row.", prompt)
         self.assertNotIn("Short display excerpt.", prompt)
 
     def test_generation_prompt_can_render_chat_template(self):
@@ -1996,7 +2006,8 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         )
 
         self.assertNotIn("[system]", prompt)
-        self.assertIn("[user]### Context", prompt)
+        self.assertIn("[user]Use the context below", prompt)
+        self.assertIn("### Context", prompt)
         self.assertIn("[assistant]", prompt)
         self.assertTrue(prompt.endswith("[assistant]"))
 
@@ -2055,6 +2066,9 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                 response = json.loads(process.stdout.readline())
             finally:
                 process.stdin.close()
+                process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
                 process.terminate()
                 process.wait(timeout=5)
 

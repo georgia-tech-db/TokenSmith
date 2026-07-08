@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 import time
 from datetime import datetime
@@ -971,13 +972,14 @@ def starter_source_rows(
                   AND s.status = 'ready'
                   AND s.is_active = 1
                 ORDER BY COALESCE(ch.page, 0), ch.id
-                LIMIT ?
                 """,
-                (document["id"], material_id, limit),
+                (document["id"], material_id),
             ).fetchall()
 
             result: List[Dict[str, Any]] = []
-            for row in rows:
+            sampled_rows = rows if len(rows) <= limit else random.sample(list(rows), limit)
+            sampled_rows = sorted(sampled_rows, key=lambda row: (row["page_start"] or 0, row["rowid"]))
+            for row in sampled_rows:
                 source_row = dict(row)
                 source_row["score"] = 0.0
                 if not source_row.get("document_title"):

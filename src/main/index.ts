@@ -15,11 +15,8 @@ import {
   setMaterialEnabledWithPython
 } from './python/python-engine-service'
 import {
-  cancelModelDownload,
-  downloadModelFromCatalog,
-  removeDownloadedModel
-} from './models/model-download-service'
-import { searchHuggingFaceModels } from './models/huggingface-service'
+  removeLocalModelFile
+} from './models/local-model-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
 import {
   cancelOllamaPullModel,
@@ -43,11 +40,8 @@ import type {
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
-  PickMaterialsResult,
-  PickModelResult
+  PickMaterialsResult
 } from '../shared/engine'
-import type { ModelCatalogItem } from '../shared/model-catalog'
-import type { HuggingFaceSearchOptions } from '../shared/model-providers'
 
 const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
@@ -185,41 +179,6 @@ async function createIndexingMaterial(materialPath: string): Promise<CourseMater
       totalEmbeddings: 0,
       message: 'Parsing'
     }
-  }
-}
-
-async function pickModel(role: LocalModelRole = 'generator'): Promise<PickModelResult> {
-  const isEmbedder = role === 'embedder'
-  const result = await dialog.showOpenDialog({
-    title: isEmbedder ? 'Add local embedder model' : 'Add local chat model',
-    buttonLabel: isEmbedder ? 'Add Embedder Model' : 'Add Chat Model',
-    properties: ['openFile'],
-    filters: [{ name: 'GGUF Models', extensions: ['gguf'] }]
-  })
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return {
-      canceled: true
-    }
-  }
-
-  const modelPath = result.filePaths[0]
-  const modelStat = await stat(modelPath)
-  const model: LocalModel = {
-    id: createId('model'),
-    name: parse(modelPath).name,
-    engine: 'python',
-    role,
-    status: isEmbedder ? 'ready' : 'needsRuntime',
-    source: 'local',
-    path: modelPath,
-    sizeBytes: modelStat.size,
-    addedAt: new Date().toISOString()
-  }
-
-  return {
-    canceled: false,
-    model
   }
 }
 
@@ -494,22 +453,14 @@ app.whenReady().then(() => {
   ipcMain.handle('ollama:pull-model', (_event, modelName: string, baseUrl?: string) => pullOllamaModel(modelName, baseUrl))
   ipcMain.handle('ollama:cancel-pull', (_event, modelName: string, baseUrl?: string) => cancelOllamaPullModel(modelName, baseUrl))
   ipcMain.handle('ollama:delete-model', (_event, modelName: string, baseUrl?: string) => deleteOllamaModel(modelName, baseUrl))
-  ipcMain.handle('models:pick-model', (_event, role?: LocalModelRole) => pickModel(role))
   ipcMain.handle('models:list-remote-provider-models', (_event, apiKey: string, baseUrl: string, role?: LocalModelRole) =>
     listOpenAiCompatibleModels(apiKey, baseUrl, role)
   )
-  ipcMain.handle('models:search-huggingface', (_event, query: string, options: HuggingFaceSearchOptions) =>
-    searchHuggingFaceModels(query, options)
-  )
-  ipcMain.handle('models:download-model', (_event, model: ModelCatalogItem, modelId: string) =>
-    downloadModelFromCatalog(model, modelId)
-  )
-  ipcMain.handle('models:cancel-download', (_event, filename: string) => cancelModelDownload(filename))
   ipcMain.handle('models:remove-model', (_event, model: LocalModel) => {
     if (model.engine === 'ollama' || model.source === 'ollama') {
       return deleteOllamaModel(model.ollamaModelName ?? model.name, model.ollamaBaseUrl)
     }
-    return removeDownloadedModel(model)
+    return removeLocalModelFile(model)
   })
 
   createMainWindow()

@@ -108,36 +108,12 @@ const tokenSmithBridge: TokenSmithBridge = {
       ipcRenderer.off('ollama:pull-progress', listener)
     }
   },
-  pickModel: (role) =>
-    ipcRenderer.invoke('models:pick-model', role) as Promise<Awaited<ReturnType<TokenSmithBridge['pickModel']>>>,
   listRemoteProviderModels: (apiKey, baseUrl, role) =>
     ipcRenderer.invoke('models:list-remote-provider-models', apiKey, baseUrl, role) as Promise<
       Awaited<ReturnType<TokenSmithBridge['listRemoteProviderModels']>>
     >,
-  searchHuggingFaceModels: (query, options) =>
-    ipcRenderer.invoke('models:search-huggingface', query, options) as Promise<
-      Awaited<ReturnType<TokenSmithBridge['searchHuggingFaceModels']>>
-    >,
-  downloadModel: (model, modelId) =>
-    ipcRenderer.invoke('models:download-model', model, modelId) as Promise<
-      Awaited<ReturnType<TokenSmithBridge['downloadModel']>>
-    >,
-  cancelModelDownload: (filename) =>
-    ipcRenderer.invoke('models:cancel-download', filename) as Promise<
-      Awaited<ReturnType<TokenSmithBridge['cancelModelDownload']>>
-    >,
   removeModel: (model) =>
     ipcRenderer.invoke('models:remove-model', model) as Promise<Awaited<ReturnType<TokenSmithBridge['removeModel']>>>,
-  onModelDownloadProgress: (callback) => {
-    const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => {
-      callback(progress)
-    }
-
-    ipcRenderer.on('models:download-progress', listener)
-    return () => {
-      ipcRenderer.off('models:download-progress', listener)
-    }
-  }
 }
 
 contextBridge.exposeInMainWorld('tokensmith', tokenSmithBridge)

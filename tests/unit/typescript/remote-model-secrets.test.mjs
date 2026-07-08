@@ -31,6 +31,30 @@ test('sanitizeRemoteModelSecrets removes remote provider API keys before storage
   assert.equal(sanitized.remoteModelName, remoteModel.remoteModelName)
 })
 
+test('remote API key helpers ignore blank keys and non-remote models', () => {
+  const localModel = {
+    id: 'local-model',
+    name: 'Legacy Local Model',
+    engine: 'python',
+    status: 'ready',
+    path: '/models/local.gguf',
+    apiKey: 'local-key',
+    addedAt: new Date(0).toISOString()
+  }
+  const remoteWithoutKey = {
+    ...remoteModel,
+    id: 'remote-without-key',
+    apiKey: '   '
+  }
+
+  rememberRemoteModelApiKey(localModel)
+  rememberRemoteModelApiKey(remoteWithoutKey)
+
+  assert.equal(modelWithRememberedRemoteApiKey(localModel), localModel)
+  assert.equal(modelWithRememberedRemoteApiKey(remoteWithoutKey).apiKey, '   ')
+  assert.equal(sanitizeRemoteModelSecrets(localModel), localModel)
+})
+
 test('remembered remote API keys can be restored for the current app session', () => {
   rememberRemoteModelApiKey(remoteModel)
 
