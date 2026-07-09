@@ -1,46 +1,40 @@
 <p align="center">
-  <img src="src/renderer/src/assets/tokensmith-mark.png" alt="TokenSmith icon" width="96" />
+  <img src="src/renderer/src/assets/tokensmith-mark.png" alt="TokenSmith icon" width="120" />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="src/renderer/src/assets/tokensmith-logo.png" alt="TokenSmith" width="120" />
 </p>
 
-<h1 align="center">
-  <img src="src/renderer/src/assets/tokensmith-logo.png" alt="TokenSmith" width="260" />
-</h1>
+# TokenSmith
 
-TokenSmith is a desktop study app for asking questions about your course PDFs. It runs locally, retrieves relevant passages from your files, and shows sources with each answer.
+TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
+
+It runs locally on your machine, retrieves passages relevant to your question from your documents, and shows the **page sources** with each answer.
 
 <p align="center">
-  <img src="docs/assets/tokensmith.png" alt="TokenSmith desktop app showing a source-backed chat answer" />
+<img width="1348" height="838" alt="tokensmith" src="https://github.com/user-attachments/assets/ca1ecc04-73ea-4190-b7ed-e58ebeb25a01" />
 </p>
 
 ## Student Workflow
 
 1. Install and start Ollama.
-2. Download the recommended local models in TokenSmith.
-3. Add a folder of course PDFs.
-4. Ask questions in Chat.
-5. Use source cards to check where an answer came from.
-6. Continue with suggested follow-up questions when you want to study deeper.
+2. Download the recommended local embedder and chat models.
+3. Add a folder containing your course PDFs.
+4. Ask questions in Chat or pick a suggested question.
+5. Use page source cards to explore where an answer came from within the document and **skim through the page**.
+6. Continue with your own questions or suggested follow-up questions to study deeper.
 
 ## What TokenSmith Does
 
-- Prepares PDFs for local search.
-- Retrieves relevant passages before answering.
-- Answers with source cards for checking the material.
-- Suggests follow-up questions to keep a study session moving.
-- Supports local chat and embedding models through Ollama.
+- Indexes PDFs for local search using the embedder model.
+- Retrieves relevant passages before answering using a vector index.
+- Answers with page source cards for cross-checking with the documents.
+- Suggests follow-up questions.
 
 ## Install
 
-Download the latest app from the GitHub Releases page:
-
-https://github.com/georgia-tech-db/TokenSmith/releases
+Download the latest app from the GitHub Releases page: https://github.com/georgia-tech-db/TokenSmith/releases
 
 On first launch, TokenSmith will guide you through installing Ollama, downloading models, and adding PDFs.
-
-## Notes
-
-- TokenSmith is meant for your own course materials and PDFs you are allowed to use.
-- Unsupported files are not prepared for search.
 
 ## Developer Setup
 
@@ -62,7 +56,7 @@ Start the app locally:
 npm run dev
 ```
 
-Run checks:
+Run tests:
 
 ```sh
 npm run typecheck
