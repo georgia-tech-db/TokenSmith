@@ -1169,6 +1169,69 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertGreaterEqual(len(search["sources"]), 1)
             self.assertIn("Buffer managers", search["sources"][0]["excerpt"])
 
+    def test_index_material_checkpoints_append_only_chunk_batches(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            note_path = temp_path / "batch.txt"
+            note_path.write_text("Batch checkpoint indexing note.", encoding="utf-8")
+            user_data_path = str(temp_path / "user-data")
+            append_sizes: list[int] = []
+            original_prepare = engine.prepare_index_file
+            original_append = engine.append_material_chunks
+            original_batch_size = engine.INDEX_CHECKPOINT_BATCH_SIZE
+
+            def fake_prepare_index_file(material_id, file_path, _user_data_path, _cleaning_profile_id, _cleaning_rule_ids):
+                document = {
+                    "id": "doc-batch",
+                    "materialId": material_id,
+                    "title": "batch",
+                    "path": str(file_path.resolve()),
+                    "status": "ready",
+                    "kind": "document",
+                    "wordCount": 80,
+                    "pageCount": None,
+                    "chunkCount": 8,
+                    "thumbnails": [],
+                }
+                chunks = [
+                    {
+                        "text": f"Database checkpoint chunk {index} stores only newly embedded material.",
+                        "wordCount": 8,
+                        "chunkSize": engine.DEFAULT_CHUNK_SIZE,
+                    }
+                    for index in range(8)
+                ]
+                return document, chunks
+
+            def counting_append(user_data_path_arg, material_id_arg, chunks_arg, *, embedding_model):
+                append_sizes.append(len(chunks_arg))
+                return original_append(
+                    user_data_path_arg,
+                    material_id_arg,
+                    chunks_arg,
+                    embedding_model=embedding_model,
+                )
+
+            try:
+                engine.prepare_index_file = fake_prepare_index_file
+                engine.append_material_chunks = counting_append
+                engine.INDEX_CHECKPOINT_BATCH_SIZE = 3
+                material = self.index_material_with_unit_embedder(
+                    {
+                        "path": str(note_path),
+                        "userDataPath": user_data_path,
+                    }
+                )["material"]
+            finally:
+                engine.prepare_index_file = original_prepare
+                engine.append_material_chunks = original_append
+                engine.INDEX_CHECKPOINT_BATCH_SIZE = original_batch_size
+
+            self.assertEqual(append_sizes, [1, 3, 3, 1])
+            self.assertEqual(material["status"], "ready")
+            self.assertEqual(material["chunkCount"], 8)
+            self.assertEqual(len(engine.load_index(user_data_path)["chunks"]), 8)
+
     def test_sqlite_material_enabled_state_is_durable(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

@@ -640,6 +640,92 @@ def replace_document_thumbnails(conn: sqlite3.Connection, document_id: int, thum
         )
 
 
+def material_folder_id(conn: sqlite3.Connection, collection_id: int) -> Optional[int]:
+    row = conn.execute(
+        """
+        SELECT folder_id
+        FROM collection_items
+        WHERE collection_id = ?
+        LIMIT 1
+        """,
+        (collection_id,),
+    ).fetchone()
+    return int(row["folder_id"]) if row else None
+
+
+def upsert_material_header(
+    conn: sqlite3.Connection,
+    material: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+    replace_existing: bool = True,
+    replace_thumbnails: bool = True,
+) -> Tuple[int, int, Dict[str, int], Dict[str, int], List[str]]:
+    deleted_embedding_models: List[str] = []
+
+    target_collection_id = collection_id_from_material_id(material.get("id"))
+    if replace_existing:
+        delete_ids = [target_collection_id] if target_collection_id is not None else collection_ids_for_import_path(
+            conn,
+            str(material.get("path") or ""),
+        )
+        deleted_embedding_models = embedding_models_for_collections(conn, [collection_id for collection_id in delete_ids if collection_id])
+        delete_collection_ids(conn, [collection_id for collection_id in delete_ids if collection_id])
+    elif target_collection_id is None:
+        existing_ids = collection_ids_for_import_path(conn, str(material.get("path") or ""))
+        target_collection_id = existing_ids[0] if existing_ids else None
+
+    collection_name = unique_collection_name(conn, material["title"], target_collection_id)
+    update_time = now_ms()
+    if target_collection_id is not None:
+        conn.execute(
+            """
+            INSERT INTO collections(id, name, start_update_time, last_update_time, embedding_model)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                last_update_time = excluded.last_update_time,
+                embedding_model = excluded.embedding_model
+            """,
+            (target_collection_id, collection_name, update_time, update_time, embedding_model),
+        )
+        collection_id = target_collection_id
+    else:
+        cursor = conn.execute(
+            """
+            INSERT INTO collections(name, start_update_time, last_update_time, embedding_model)
+            VALUES (?, ?, ?, ?)
+            """,
+            (collection_name, update_time, update_time, embedding_model),
+        )
+        collection_id = int(cursor.lastrowid)
+
+    material["id"] = str(collection_id)
+    material["title"] = collection_name
+    folder_id = upsert_folder(conn, folder_path_for_import(str(material["path"]), str(material.get("kind") or "folder")))
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO collection_items(collection_id, folder_id)
+        VALUES (?, ?)
+        """,
+        (collection_id, folder_id),
+    )
+    upsert_collection_state(conn, collection_id, material)
+
+    document_id_by_source_id: Dict[str, int] = {}
+    document_id_by_path: Dict[str, int] = {}
+    for document in documents:
+        document_path = str(document["path"])
+        document_id = insert_document(conn, folder_id, document_path)
+        if replace_thumbnails:
+            replace_document_thumbnails(conn, document_id, document.get("thumbnails") or [])
+        document_id_by_source_id[str(document["id"])] = document_id
+        document_id_by_path[document_path] = document_id
+
+    return collection_id, folder_id, document_id_by_source_id, document_id_by_path, deleted_embedding_models
+
+
 def upsert_material(
     user_data_path: str,
     material: Dict[str, Any],
@@ -654,63 +740,14 @@ def upsert_material(
     deleted_embedding_models: List[str] = []
 
     with connect(user_data_path) as conn:
-        target_collection_id = collection_id_from_material_id(material.get("id"))
-        if replace_existing:
-            delete_ids = [target_collection_id] if target_collection_id is not None else collection_ids_for_import_path(
-                conn,
-                str(material.get("path") or ""),
-            )
-            deleted_embedding_models = embedding_models_for_collections(conn, [collection_id for collection_id in delete_ids if collection_id])
-            delete_collection_ids(conn, [collection_id for collection_id in delete_ids if collection_id])
-        elif target_collection_id is None:
-            existing_ids = collection_ids_for_import_path(conn, str(material.get("path") or ""))
-            target_collection_id = existing_ids[0] if existing_ids else None
-
-        collection_name = unique_collection_name(conn, material["title"], target_collection_id)
-        update_time = now_ms()
-        if target_collection_id is not None:
-            conn.execute(
-                """
-                INSERT INTO collections(id, name, start_update_time, last_update_time, embedding_model)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    last_update_time = excluded.last_update_time,
-                    embedding_model = excluded.embedding_model
-                """,
-                (target_collection_id, collection_name, update_time, update_time, embedding_model),
-            )
-            collection_id = target_collection_id
-        else:
-            cursor = conn.execute(
-                """
-                INSERT INTO collections(name, start_update_time, last_update_time, embedding_model)
-                VALUES (?, ?, ?, ?)
-                """,
-                (collection_name, update_time, update_time, embedding_model),
-            )
-            collection_id = int(cursor.lastrowid)
-
-        material["id"] = str(collection_id)
-        material["title"] = collection_name
-        folder_id = upsert_folder(conn, folder_path_for_import(str(material["path"]), str(material.get("kind") or "folder")))
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO collection_items(collection_id, folder_id)
-            VALUES (?, ?)
-            """,
-            (collection_id, folder_id),
+        _collection_id, folder_id, document_id_by_source_id, document_id_by_path, deleted_embedding_models = upsert_material_header(
+            conn,
+            material,
+            documents,
+            embedding_model=embedding_model,
+            replace_existing=replace_existing,
+            replace_thumbnails=True,
         )
-        upsert_collection_state(conn, collection_id, material)
-
-        document_id_by_source_id: Dict[str, int] = {}
-        document_id_by_path: Dict[str, int] = {}
-        for document in documents:
-            document_path = str(document["path"])
-            document_id = insert_document(conn, folder_id, document_path)
-            replace_document_thumbnails(conn, document_id, document.get("thumbnails") or [])
-            document_id_by_source_id[str(document["id"])] = document_id
-            document_id_by_path[document_path] = document_id
 
         for chunk in chunks:
             document_id = document_id_by_source_id.get(str(chunk.get("documentId"))) or document_id_by_path.get(str(chunk["path"]))
@@ -732,6 +769,107 @@ def upsert_material(
 
     if rebuild_index:
         for deleted_embedding_model in deleted_embedding_models:
+            if deleted_embedding_model != embedding_model:
+                rebuild_faiss(user_data_path, deleted_embedding_model)
+        rebuild_faiss(user_data_path, embedding_model)
+
+
+def begin_material_index(
+    user_data_path: str,
+    material: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+    replace_existing: bool = True,
+) -> List[str]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        _collection_id, _folder_id, _source_ids, _path_ids, deleted_embedding_models = upsert_material_header(
+            conn,
+            material,
+            documents,
+            embedding_model=embedding_model,
+            replace_existing=replace_existing,
+            replace_thumbnails=True,
+        )
+
+    return deleted_embedding_models
+
+
+def append_material_chunks(
+    user_data_path: str,
+    material_id: str,
+    chunks: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+) -> None:
+    if not chunks:
+        return
+
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material_id)
+    if collection_id is None:
+        raise ValueError("A saved material id is required before chunks can be appended.")
+
+    with connect(user_data_path) as conn:
+        folder_id = material_folder_id(conn, collection_id)
+        if folder_id is None:
+            raise ValueError("The material folder was not initialized before chunks were appended.")
+
+        document_paths = sorted({str(chunk.get("path") or "") for chunk in chunks if chunk.get("path")})
+        document_id_by_path: Dict[str, int] = {}
+        for document_path in document_paths:
+            row = conn.execute("SELECT id FROM documents WHERE document_path = ?", (document_path,)).fetchone()
+            document_id_by_path[document_path] = int(row["id"]) if row else insert_document(conn, folder_id, document_path)
+
+        for chunk in chunks:
+            document_id = document_id_by_path.get(str(chunk.get("path") or ""))
+            if not document_id:
+                continue
+
+            chunk_id = upsert_chunk(conn, document_id, chunk)
+            embedding = chunk.get("embedding")
+            if not embedding:
+                continue
+
+            blob, _dim = vector_to_blob(embedding)
+            chunk_embedding_model = chunk.get("embeddingModel") or embedding_model
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO embeddings(model, folder_id, chunk_id, embedding)
+                VALUES (?, ?, ?, ?)
+                """,
+                (chunk_embedding_model, folder_id, chunk_id, blob),
+            )
+
+
+def update_material_index_state(
+    user_data_path: str,
+    material: Dict[str, Any],
+    *,
+    embedding_model: str,
+    rebuild_index: bool = False,
+    deleted_embedding_models: Optional[Sequence[str]] = None,
+) -> None:
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material.get("id"))
+    if collection_id is None:
+        raise ValueError("A saved material id is required before material state can be updated.")
+
+    with connect(user_data_path) as conn:
+        conn.execute(
+            """
+            UPDATE collections
+            SET last_update_time = ?, embedding_model = ?
+            WHERE id = ?
+            """,
+            (now_ms(), embedding_model, collection_id),
+        )
+        upsert_collection_state(conn, collection_id, material)
+
+    if rebuild_index:
+        for deleted_embedding_model in deleted_embedding_models or []:
             if deleted_embedding_model != embedding_model:
                 rebuild_faiss(user_data_path, deleted_embedding_model)
         rebuild_faiss(user_data_path, embedding_model)

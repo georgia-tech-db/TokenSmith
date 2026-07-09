@@ -35,6 +35,8 @@ if _NEEDS_STORE:
         # Import the store first so FAISS initializes its native runtime before
         # llama-cpp. Loading them in the opposite order can trip libomp on macOS.
         from tokensmith_store import (
+            append_material_chunks,
+            begin_material_index,
             delete_material,
             dump_index,
             embedded_chunk_signatures,
@@ -48,11 +50,13 @@ if _NEEDS_STORE:
             set_material_active,
             source_document_for_source,
             starter_source_rows,
-            upsert_material,
+            update_material_index_state,
             vector_search,
         )
     except ImportError:  # pragma: no cover - allows direct package imports in tests
         from python_engine.tokensmith_store import (
+            append_material_chunks,
+            begin_material_index,
             delete_material,
             dump_index,
             embedded_chunk_signatures,
@@ -66,7 +70,7 @@ if _NEEDS_STORE:
             set_material_active,
             source_document_for_source,
             starter_source_rows,
-            upsert_material,
+            update_material_index_state,
             vector_search,
         )
 
@@ -206,6 +210,9 @@ def env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, default))
     except (TypeError, ValueError):
         return default
+
+
+INDEX_CHECKPOINT_BATCH_SIZE = max(1, env_int("TOKENSMITH_INDEX_CHECKPOINT_BATCH_SIZE", 50))
 
 
 def log_event(event: str, **details: Any) -> None:
@@ -1166,6 +1173,9 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     completed_embeddings = 0
     replace_existing_index = not resume_indexing
+    index_started = False
+    pending_chunks: List[Dict[str, Any]] = []
+    deleted_embedding_models: List[str] = []
 
     def emit_embedding_progress(file_path: Path, chunk_index: int, _file_chunk_total: int) -> None:
         nonlocal completed_embeddings
@@ -1188,42 +1198,70 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         total_embeddings=total_embeddings,
     )
 
-    def save_partial_index() -> None:
-        nonlocal material_id, replace_existing_index
-
-        partial_material = summarize_material(path, material_id, documents, chunks)
-        partial_material["chunkSize"] = chunk_size
-        partial_material["title"] = material_title
-        partial_material["status"] = "indexing"
-        partial_material["isActive"] = False
-        partial_material["indexedAt"] = None
-        partial_material["error"] = None
-        partial_material["embeddingModel"] = embedding_key
-        partial_material["cleaningProfileId"] = cleaning_profile["id"]
-        partial_material["cleaningProfileName"] = cleaning_profile["name"]
-        partial_material["cleaningProfileVersion"] = CLEANING_PROFILE_VERSION
-        partial_material["cleaningRuleIds"] = cleaning_rule_ids
+    def material_checkpoint(status: str, is_active: bool, indexed_at: Optional[str], error: Optional[str]) -> Dict[str, Any]:
+        checkpoint = summarize_material(path, material_id, documents, chunks)
+        checkpoint["chunkSize"] = chunk_size
+        checkpoint["title"] = material_title
+        checkpoint["status"] = status
+        checkpoint["isActive"] = is_active
+        checkpoint["indexedAt"] = indexed_at
+        checkpoint["error"] = error
+        checkpoint["embeddingModel"] = embedding_key
+        checkpoint["cleaningProfileId"] = cleaning_profile["id"]
+        checkpoint["cleaningProfileName"] = cleaning_profile["name"]
+        checkpoint["cleaningProfileVersion"] = CLEANING_PROFILE_VERSION
+        checkpoint["cleaningRuleIds"] = cleaning_rule_ids
         if isinstance(model, dict):
-            partial_material["embeddingModelId"] = model.get("id")
-            partial_material["embeddingModelName"] = model.get("name") or model.get("remoteModelName")
+            checkpoint["embeddingModelId"] = model.get("id")
+            checkpoint["embeddingModelName"] = model.get("name") or model.get("remoteModelName")
+        return checkpoint
 
-        upsert_material(
+    def ensure_material_index_started() -> None:
+        nonlocal index_started, material_id, material_title, replace_existing_index, progress_material_id, deleted_embedding_models
+
+        if index_started:
+            return
+
+        checkpoint = material_checkpoint("indexing", False, None, None)
+        deleted_embedding_models = begin_material_index(
             user_data_path,
-            partial_material,
+            checkpoint,
             documents,
-            chunks,
             embedding_model=embedding_key,
             replace_existing=replace_existing_index,
+        )
+        material_id = checkpoint["id"]
+        material_title = checkpoint["title"]
+        progress_material_id = requested_material_id or material_id
+        replace_existing_index = False
+        index_started = True
+
+    def flush_pending_chunks() -> None:
+        if not pending_chunks:
+            return
+
+        ensure_material_index_started()
+        append_material_chunks(
+            user_data_path,
+            material_id,
+            pending_chunks,
+            embedding_model=embedding_key,
+        )
+        pending_chunks.clear()
+        update_material_index_state(
+            user_data_path,
+            material_checkpoint("indexing", False, None, None),
+            embedding_model=embedding_key,
             rebuild_index=False,
         )
-        material_id = partial_material["id"]
-        replace_existing_index = False
 
     for file_path, document, file_chunks in prepared_files:
         def persist_indexed_chunk(stored_chunk: Dict[str, Any]) -> None:
             chunks.append(stored_chunk)
             if stored_chunk.get("embedding") is not None:
-                save_partial_index()
+                pending_chunks.append(stored_chunk)
+                if not index_started or len(pending_chunks) >= INDEX_CHECKPOINT_BATCH_SIZE:
+                    flush_pending_chunks()
 
         stored_chunks = indexed_chunks(
             material_id,
@@ -1245,7 +1283,10 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         document["chunkCount"] = len(stored_chunks)
         document["status"] = "ready" if stored_chunks else "needsReview"
         document["error"] = None if stored_chunks else document.get("error") or "No readable study text was found."
-        save_partial_index()
+        flush_pending_chunks()
+
+    if not index_started:
+        ensure_material_index_started()
 
     material = summarize_material(path, material_id, documents, chunks)
     material["chunkSize"] = chunk_size
@@ -1267,13 +1308,12 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         processed_embeddings=completed_embeddings,
         total_embeddings=total_embeddings,
     )
-    upsert_material(
+    update_material_index_state(
         user_data_path,
         material,
-        documents,
-        chunks,
         embedding_model=embedding_key,
-        replace_existing=replace_existing_index,
+        rebuild_index=True,
+        deleted_embedding_models=deleted_embedding_models,
     )
     emit_index_progress(
         "complete",
