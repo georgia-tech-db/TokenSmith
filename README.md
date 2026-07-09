@@ -4,12 +4,14 @@
   <img src="src/renderer/src/assets/tokensmith-logo.png" alt="TokenSmith" width="120" />
 </p>
 
+# TokenSmith
+
 TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
 
 It runs locally on your machine, retrieves passages relevant to your question from your documents, and shows the **page sources** with each answer.
 
 <p align="center">
-  <img src="docs/assets/tokensmith.png" alt="TokenSmith Desktop App" />
+<img width="1348" height="838" alt="tokensmith" src="https://github.com/user-attachments/assets/ca1ecc04-73ea-4190-b7ed-e58ebeb25a01" />
 </p>
 
 ## Student Workflow
