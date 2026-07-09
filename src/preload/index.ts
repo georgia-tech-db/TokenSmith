@@ -17,6 +17,10 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('engine:suggest-questions', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['suggestChatQuestions']>>
     >,
+  starterSources: (materials, limit) =>
+    ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['starterSources']>>
+    >,
   searchLibrary: (query, materials, limit, embeddingModels) =>
     ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>

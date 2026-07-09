@@ -1331,7 +1331,7 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: auto minmax(0, 1fr) 44px;
   align-items: center;
   width: min(980px, 100%);
   min-height: 58px;
@@ -1339,6 +1339,47 @@ button {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 18px 42px rgb(15 23 42 / 8%);
+}
+
+.quiz-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 94px;
+  min-height: 38px;
+  margin-left: 10px;
+  padding: 0 11px;
+  border: 1px solid #dfe2df;
+  border-radius: 8px;
+  color: var(--green-strong);
+  background: var(--green-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quiz-toggle-button.is-active {
+  color: var(--danger);
+  background: #fff8f7;
+  border-color: #edcfcc;
+}
+
+.quiz-toggle-button:hover,
+.quiz-toggle-button:focus-visible {
+  border-color: var(--green);
+}
+
+.quiz-toggle-button.is-active:hover,
+.quiz-toggle-button.is-active:focus-visible {
+  border-color: #e5bab8;
+}
+
+.quiz-toggle-button:disabled {
+  color: #a9adb0;
+  background: #f2f3f2;
+  border-color: transparent;
+  cursor: not-allowed;
 }
 
 .composer input {

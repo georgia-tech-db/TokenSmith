@@ -15,16 +15,15 @@ export function sourceContext(sources: ChatSource[]): string {
 
   return [
     'Use the context below only when it is relevant to the question.',
-    'Answer directly. Do not quote the context before answering. Do not mention context labels.',
+    'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
     'If the context does not contain the answer, say that plainly.',
     '',
     '### Context:',
     ...sources.map((source) => {
       const collection = source.collectionName || source.documentTitle || source.title || 'Library'
       const path = source.path || source.title || ''
-      const locator = source.locator ? `Locator: ${source.locator}\n` : ''
       const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
-      return `Collection: ${collection}\nPath: ${path}\n${locator}${section}Text: ${source.excerpt}`
+      return `Collection: ${collection}\nPath: ${path}\n${section}Text: ${source.excerpt}`
     })
   ].join('\n')
 }

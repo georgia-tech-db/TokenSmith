@@ -16,6 +16,7 @@ import type {
   MaterialIndexProgress,
   ModelDownloadProgress,
   ModelRuntimeSettings,
+  QuizState,
   ScreenId,
   SuggestionMode,
   TokenSmithSettings
@@ -58,6 +59,13 @@ import {
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
 import { buildRetrievalContext, mergeChatSources } from '@shared/chat-context'
+import {
+  quizFeedbackPrompt,
+  quizQuestionPrompt,
+  quizSourcePoolSize,
+  quizSourceLimit,
+  quizTotalQuestions
+} from '@shared/quiz'
 import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
@@ -1070,6 +1078,72 @@ function getConversationTitle(prompt: string) {
   }
 
   return `${cleaned.slice(0, 28).trim()}...`
+}
+
+function quizApplicationSettings(settings: ApplicationSettings): ApplicationSettings {
+  return {
+    ...settings,
+    suggestionMode: 'off'
+  }
+}
+
+function cleanQuizQuestion(text: string): string | undefined {
+  const lines = text
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[-*\u2022\s]+/, '')
+        .replace(/^\d+[.)]\s*/, '')
+        .replace(/^quiz question\s*\d*(?:\s*of\s*\d+)?\s*[:.-]\s*/i, '')
+        .replace(/^question\s*\d*\s*[:.-]\s*/i, '')
+        .replace(/^["']|["']$/g, '')
+        .trim()
+    )
+    .filter(Boolean)
+
+  const question = lines.find((line) => line.endsWith('?')) ?? text.match(/\b(?:What|Why|How|When|Where|Which|Who)\b[^?\n]*\?/i)?.[0]
+  if (!question) {
+    return undefined
+  }
+
+  return question.replace(/\s+/g, ' ').trim()
+}
+
+function quizSourceKey(source: ChatSource): string {
+  return [
+    source.materialId,
+    source.documentId,
+    source.chunkRowid ?? source.chunkId,
+    source.path,
+    source.pageStart,
+    source.excerpt.slice(0, 120)
+  ]
+    .filter((part) => part !== undefined && part !== null && String(part).trim().length > 0)
+    .map(String)
+    .join('|')
+}
+
+function quizQuestionTexts(messages: ChatMessage[]): string[] {
+  return messages
+    .filter((message) => message.kind === 'quizQuestion')
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+}
+
+function selectQuizSources(sources: ChatSource[], usedSourceKeys: string[]): ChatSource[] {
+  const used = new Set(usedSourceKeys)
+  const freshSources = sources.filter((source) => !used.has(quizSourceKey(source)))
+  const pool = [...(freshSources.length > 0 ? freshSources : sources)]
+
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const value = pool[index]
+    pool[index] = pool[swapIndex]
+    pool[swapIndex] = value
+  }
+
+  return pool.slice(0, quizSourceLimit)
 }
 
 function readableErrorMessage(error: unknown, fallback: string) {
@@ -2304,6 +2378,7 @@ function ChatScreen({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
+  const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
@@ -2332,6 +2407,7 @@ function ChatScreen({
     conversations[0] ??
     starterConversations[0]
   const isPending = pendingConversationId === activeConversation.id
+  const activeQuizState = activeConversation.quizState?.active ? activeConversation.quizState : undefined
   const activeMaterials = materials.filter((material) => material.status === 'ready' && material.isActive !== false)
   const libraryTitle = getLibraryTitle(materials)
   const selectedModelLabel = selectedModel ? displayModelName(selectedModel) : 'Choose a model'
@@ -2340,10 +2416,10 @@ function ChatScreen({
   )
   const selectedSourceMessage =
     sourceMessages.find((message) => message.id === expandedMessageId) ?? sourceMessages[sourceMessages.length - 1]
-  const selectedSources = useMemo(
-    () => selectedSourceMessage?.sources?.slice(0, maxSourceTrayCards) ?? [],
-    [selectedSourceMessage]
-  )
+  const selectedSources = useMemo(() => {
+    const sources = isPending && settings.application.showSources ? pendingSources : selectedSourceMessage?.sources ?? []
+    return sources.slice(0, maxSourceTrayCards)
+  }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
   const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
@@ -2373,11 +2449,14 @@ function ChatScreen({
   const needsModelSetup = needsChatModelSetup || needsEmbeddingModelSetup
   const needsSetupCard = needsModelSetup || needsDocumentSetup
   const shouldShowSetupCard = needsSetupCard && !isSetupCardDismissed
-  const composerPlaceholder = selectedModel
-    ? 'Ask about your PDFs...'
-    : needsDocumentSetup
-      ? 'Add your PDFs, then download Llama 3...'
-      : 'Download Llama 3 to ask questions...'
+  const canUseQuiz = Boolean(selectedModel) && selectedModel?.status === 'ready' && activeMaterials.length > 0
+  const composerPlaceholder = activeQuizState
+    ? 'Answer the quiz question...'
+    : selectedModel
+      ? 'Ask about your PDFs...'
+      : needsDocumentSetup
+        ? 'Add your PDFs, then download Llama 3...'
+        : 'Download Llama 3 to ask questions...'
 
   useEffect(() => {
     if (!hasMountedMessagesRef.current) {
@@ -2514,6 +2593,7 @@ function ChatScreen({
     setDraft('')
     setPendingConversationId(null)
     setPendingStatusText(null)
+    setPendingSources([])
     setChatError(null)
     setExpandedMessageId(null)
     setPdfViewer(null)
@@ -2526,6 +2606,7 @@ function ChatScreen({
     requestSequenceRef.current += 1
     setPendingConversationId(null)
     setPendingStatusText(null)
+    setPendingSources([])
   }
 
   function handleSelectConversation(conversationId: string) {
@@ -2533,6 +2614,7 @@ function ChatScreen({
     setRenameDraft('')
     setPdfViewer(null)
     setSourceTrayError(null)
+    setPendingSources([])
     setChatError(null)
     onChatStateChange((current) => ({
       ...current,
@@ -2610,6 +2692,7 @@ function ChatScreen({
     if (pendingConversationId === conversationId) {
       setPendingConversationId(null)
       setPendingStatusText(null)
+      setPendingSources([])
     }
     if (renamingConversationId === conversationId) {
       setRenamingConversationId(null)
@@ -2637,6 +2720,7 @@ function ChatScreen({
     setDraft('')
     setPendingConversationId(null)
     setPendingStatusText(null)
+    setPendingSources([])
     setExpandedMessageId(null)
     setPdfViewer(null)
     setSourceTrayError(null)
@@ -2658,6 +2742,7 @@ function ChatScreen({
     setDraft(text)
     setPendingConversationId(null)
     setPendingStatusText(null)
+    setPendingSources([])
     setExpandedMessageId(null)
     setChatError(null)
 
@@ -2675,7 +2760,8 @@ function ChatScreen({
 
         return {
           ...conversation,
-          messages: conversation.messages.slice(0, messageIndex)
+          messages: conversation.messages.slice(0, messageIndex),
+          quizState: undefined
         }
       })
     }))
@@ -3406,9 +3492,337 @@ function ChatScreen({
     }
   }
 
+  async function generateQuizQuestion(
+    questionNumber: number,
+    totalQuestions: number,
+    messages: ChatMessage[],
+    usedSourceKeys: string[] = []
+  ): Promise<{ question: string; sourceKeys: string[]; sources: ChatSource[] }> {
+    if (!window.tokensmith?.starterSources || !window.tokensmith?.sendChatMessage || !selectedModel) {
+      throw new Error('TokenSmith quiz mode is not available in this build.')
+    }
+
+    const previousQuestions = quizQuestionTexts(messages)
+    const sourcePool = await window.tokensmith.starterSources(activeMaterials, quizSourcePoolSize)
+    const sources = selectQuizSources(sourcePool, usedSourceKeys)
+    if (sources.length === 0) {
+      throw new Error('No indexed PDF text was available for a quiz.')
+    }
+
+    setPendingSources(settings.application.showSources ? sources : [])
+    const reply = await window.tokensmith.sendChatMessage({
+      prompt: quizQuestionPrompt({ questionNumber, previousQuestions, totalQuestions }),
+      messages,
+      materials: activeMaterials,
+      model: selectedModel,
+      settings,
+      applicationSettings: quizApplicationSettings(settings.application),
+      modelSettings: modelSettingsFor(settings, selectedModel.id),
+      retrievedSources: sources
+    })
+    const question = cleanQuizQuestion(reply.text)
+    if (!question) {
+      throw new Error('TokenSmith could not create a source-backed quiz question.')
+    }
+
+    const replySources = reply.sources.length > 0 ? reply.sources : sources
+    return { question, sourceKeys: replySources.map(quizSourceKey), sources: replySources }
+  }
+
+  function handleEndQuiz() {
+    requestSequenceRef.current += 1
+    const targetConversationId = activeConversation.id
+    onChatStateChange((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) =>
+        conversation.id === targetConversationId ? { ...conversation, quizState: undefined } : conversation
+      )
+    }))
+    setPendingConversationId(null)
+    setPendingStatusText(null)
+    setPendingSources([])
+    setChatError(null)
+  }
+
+  async function handleStartQuiz() {
+    if (pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || activeMaterials.length === 0) {
+      return
+    }
+
+    const targetConversationId = activeConversation.id
+    const quizRequestMessage: ChatMessage = {
+      id: createId('user'),
+      role: 'user',
+      text: 'Quiz me on my PDFs.'
+    }
+
+    onChatStateChange((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) => {
+        if (conversation.id !== targetConversationId) {
+          return conversation
+        }
+
+        return {
+          ...conversation,
+          title: conversation.messages.length === 0 ? 'PDF Quiz' : conversation.title,
+          messages: [...conversation.messages, quizRequestMessage],
+          quizState: undefined
+        }
+      })
+    }))
+
+    setDraft('')
+    setExpandedMessageId(null)
+    setPdfViewer(null)
+    setSourceTrayError(null)
+    setChatError(null)
+    setPendingConversationId(targetConversationId)
+    setPendingStatusText('preparing quiz ...')
+    setPendingSources([])
+    const requestSequence = requestSequenceRef.current + 1
+    requestSequenceRef.current = requestSequence
+
+    try {
+      const generated = await generateQuizQuestion(1, quizTotalQuestions, [
+        ...activeConversation.messages,
+        quizRequestMessage
+      ])
+
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      const assistantMessage: ChatMessage = {
+        id: createId('assistant'),
+        role: 'assistant',
+        text: generated.question,
+        kind: 'quizQuestion',
+        quiz: {
+          questionNumber: 1,
+          totalQuestions: quizTotalQuestions
+        },
+        sources: settings.application.showSources ? generated.sources : []
+      }
+
+      onChatStateChange((current) => ({
+        ...current,
+        conversations: current.conversations.map((conversation) =>
+          conversation.id === targetConversationId
+            ? {
+                ...conversation,
+                messages: [...conversation.messages, assistantMessage],
+                quizState: {
+                  active: true,
+                  questionNumber: 1,
+                  totalQuestions: quizTotalQuestions,
+                  currentQuestion: generated.question,
+                  currentSources: generated.sources,
+                  usedSourceKeys: generated.sourceKeys
+                }
+              }
+            : conversation
+        )
+      }))
+    } catch (error) {
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      setChatError(readableErrorMessage(error, 'Could not start a source-backed quiz.'))
+    } finally {
+      if (requestSequenceRef.current === requestSequence) {
+        setPendingConversationId(null)
+        setPendingStatusText(null)
+        setPendingSources([])
+      }
+    }
+  }
+
+  async function submitQuizAnswer(rawAnswer: string, quizState: QuizState) {
+    const answer = rawAnswer.trim()
+    if (!answer || pendingConversationId || !selectedModel) {
+      return
+    }
+
+    const targetConversationId = activeConversation.id
+    const userMessage: ChatMessage = {
+      id: createId('user'),
+      role: 'user',
+      text: answer,
+      kind: 'quizAnswer',
+      quiz: {
+        questionNumber: quizState.questionNumber,
+        totalQuestions: quizState.totalQuestions
+      }
+    }
+
+    onChatStateChange((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) =>
+        conversation.id === targetConversationId
+          ? {
+              ...conversation,
+              messages: [...conversation.messages, userMessage]
+            }
+          : conversation
+      )
+    }))
+
+    setDraft('')
+    setExpandedMessageId(null)
+    setPdfViewer(null)
+    setSourceTrayError(null)
+    setChatError(null)
+    setPendingConversationId(targetConversationId)
+    setPendingStatusText('checking your answer ...')
+    setPendingSources([])
+    const requestSequence = requestSequenceRef.current + 1
+    requestSequenceRef.current = requestSequence
+    const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
+
+    try {
+      const retrievedSources = quizState.currentSources
+
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      if (retrievedSources.length === 0) {
+        throw new Error('No source text was available to grade this quiz answer.')
+      }
+
+      setPendingSources(settings.application.showSources ? retrievedSources : [])
+      const reply = await window.tokensmith?.sendChatMessage({
+        prompt: quizFeedbackPrompt({
+          answer,
+          question: quizState.currentQuestion,
+          questionNumber: quizState.questionNumber,
+          totalQuestions: quizState.totalQuestions
+        }),
+        messages: activeConversation.messages,
+        materials: activeMaterials,
+        model: selectedModel,
+        settings,
+        applicationSettings: quizApplicationSettings(settings.application),
+        modelSettings: activeModelSettings,
+        retrievedSources
+      })
+
+      if (!reply) {
+        throw new Error('TokenSmith engine bridge is not available.')
+      }
+
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      const feedbackMessage: ChatMessage = {
+        id: createId('assistant'),
+        role: 'assistant',
+        text: reply.text,
+        kind: 'quizFeedback',
+        quiz: {
+          questionNumber: quizState.questionNumber,
+          totalQuestions: quizState.totalQuestions,
+          complete: quizState.questionNumber >= quizState.totalQuestions
+        },
+        sources: settings.application.showSources ? reply.sources : []
+      }
+      const nextQuestionNumber = quizState.questionNumber + 1
+      let nextQuestionMessage: ChatMessage | undefined
+      let nextQuizState: QuizState | undefined
+
+      if (nextQuestionNumber <= quizState.totalQuestions) {
+        setPendingStatusText('preparing next quiz question ...')
+        try {
+          const usedSourceKeys = quizState.usedSourceKeys ?? quizState.currentSources.map(quizSourceKey)
+          const generated = await generateQuizQuestion(nextQuestionNumber, quizState.totalQuestions, [
+            ...activeConversation.messages,
+            userMessage,
+            feedbackMessage
+          ], usedSourceKeys)
+
+          if (requestSequenceRef.current !== requestSequence) {
+            return
+          }
+
+          nextQuestionMessage = {
+            id: createId('assistant'),
+            role: 'assistant',
+            text: generated.question,
+            kind: 'quizQuestion',
+            quiz: {
+              questionNumber: nextQuestionNumber,
+              totalQuestions: quizState.totalQuestions
+            },
+            sources: settings.application.showSources ? generated.sources : []
+          }
+          nextQuizState = {
+            active: true,
+            questionNumber: nextQuestionNumber,
+            totalQuestions: quizState.totalQuestions,
+            currentQuestion: generated.question,
+            currentSources: generated.sources,
+            usedSourceKeys: Array.from(new Set([...usedSourceKeys, ...generated.sourceKeys]))
+          }
+        } catch (error) {
+          if (requestSequenceRef.current !== requestSequence) {
+            return
+          }
+
+          setChatError(readableErrorMessage(error, 'Could not prepare the next source-backed quiz question.'))
+        }
+      }
+
+      onChatStateChange((current) => ({
+        ...current,
+        conversations: current.conversations.map((conversation) =>
+          conversation.id === targetConversationId
+            ? {
+                ...conversation,
+                messages: [
+                  ...conversation.messages,
+                  feedbackMessage,
+                  ...(nextQuestionMessage ? [nextQuestionMessage] : [])
+                ],
+                quizState: nextQuizState
+              }
+            : conversation
+        )
+      }))
+    } catch (error) {
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      setChatError(readableErrorMessage(error, 'Could not grade the quiz answer.'))
+    } finally {
+      if (requestSequenceRef.current === requestSequence) {
+        setPendingConversationId(null)
+        setPendingStatusText(null)
+        setPendingSources([])
+      }
+    }
+  }
+
+  function handleQuizButtonClick() {
+    if (activeQuizState) {
+      handleEndQuiz()
+      return
+    }
+
+    void handleStartQuiz()
+  }
+
   async function submitPrompt(rawPrompt: string) {
     const prompt = rawPrompt.trim()
     if (!prompt || pendingConversationId || !selectedModel) {
+      return
+    }
+
+    if (activeQuizState) {
+      await submitQuizAnswer(prompt, activeQuizState)
       return
     }
 
@@ -3439,6 +3853,7 @@ function ChatScreen({
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
+    setPendingSources([])
     const requestSequence = requestSequenceRef.current + 1
     requestSequenceRef.current = requestSequence
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
@@ -3468,6 +3883,7 @@ function ChatScreen({
           return
         }
 
+        setPendingSources(settings.application.showSources ? retrievedSources : [])
         const searchDisplayMs = performance.now() - searchStartedAt
         if (searchDisplayMs < 450) {
           await new Promise((resolve) => window.setTimeout(resolve, 450 - searchDisplayMs))
@@ -3531,6 +3947,7 @@ function ChatScreen({
       if (requestSequenceRef.current === requestSequence) {
         setPendingConversationId(null)
         setPendingStatusText(null)
+        setPendingSources([])
       }
     }
   }
@@ -3644,7 +4061,7 @@ function ChatScreen({
                 message.role === 'user' ? (
                   <UserMessage
                     key={message.id}
-                    text={message.text}
+                    message={message}
                     onCopy={() => handleCopyQuestion(message.text)}
                     onEdit={() => handleEditQuestion(message.id, message.text)}
                   />
@@ -3687,6 +4104,16 @@ function ChatScreen({
               </button>
             )}
             <div className="composer">
+              <button
+                className={`quiz-toggle-button ${activeQuizState ? 'is-active' : ''}`}
+                disabled={Boolean(pendingConversationId) || (!activeQuizState && !canUseQuiz)}
+                type="button"
+                onClick={handleQuizButtonClick}
+                title={activeQuizState ? 'End quiz' : 'Start a short quiz from your PDFs'}
+              >
+                <BookOpen size={16} aria-hidden="true" />
+                <span>{activeQuizState ? 'End quiz' : 'Quiz me'}</span>
+              </button>
               <input
                 aria-label="Message"
                 disabled={Boolean(pendingConversationId) || !selectedModel}
@@ -4051,13 +4478,38 @@ function ConversationGroup({
   )
 }
 
-function UserMessage({ text, onCopy, onEdit }: { text: string; onCopy: () => void; onEdit: () => void }) {
+function quizMessageLabel(message: ChatMessage): string | undefined {
+  const questionNumber = message.quiz?.questionNumber
+  const totalQuestions = message.quiz?.totalQuestions
+  const countLabel = questionNumber && totalQuestions ? `${questionNumber} of ${totalQuestions}` : undefined
+
+  if (message.kind === 'quizQuestion') {
+    return countLabel ? `Quiz question ${countLabel}` : 'Quiz question'
+  }
+
+  if (message.kind === 'quizAnswer') {
+    return countLabel ? `Quiz answer ${countLabel}` : 'Quiz answer'
+  }
+
+  if (message.kind === 'quizFeedback') {
+    return message.quiz?.complete ? 'Quiz complete' : 'Quiz feedback'
+  }
+
+  return undefined
+}
+
+function UserMessage({ message, onCopy, onEdit }: { message: ChatMessage; onCopy: () => void; onEdit: () => void }) {
+  const label = quizMessageLabel(message)
+
   return (
     <article className="message-row">
       <CircleUserRound className="message-avatar user" size={26} aria-hidden="true" />
       <div>
-        <h3>You</h3>
-        <p>{text}</p>
+        <h3>
+          You
+          {label && <span>{label}</span>}
+        </h3>
+        <p>{message.text}</p>
         <div className="message-actions" aria-label="Question actions">
           <button className="message-action" type="button" aria-label="Edit question" title="Edit question" onClick={onEdit}>
             <Pencil size={18} aria-hidden="true" />
@@ -4084,12 +4536,16 @@ function AssistantMessage({
 }) {
   const sources = message.sources ?? []
   const suggestions = message.followUpSuggestions ?? []
+  const label = quizMessageLabel(message)
 
   return (
     <article className="message-row">
       <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
       <div>
-        <h3>TokenSmith</h3>
+        <h3>
+          TokenSmith
+          {label && <span>{label}</span>}
+        </h3>
         <MessageText text={message.text} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">

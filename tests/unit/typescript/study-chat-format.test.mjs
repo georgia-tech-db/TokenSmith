@@ -26,13 +26,12 @@ const loggingSource = {
 }
 const databaseContext = [
   'Use the context below only when it is relevant to the question.',
-  'Answer directly. Do not quote the context before answering. Do not mention context labels.',
+  'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
   'If the context does not contain the answer, say that plainly.',
   '',
   '### Context:',
   'Collection: Database Systems.pdf',
   'Path: Database Systems.pdf',
-  'Locator: Page 4',
   'Text: Transactions preserve atomicity and durability.'
 ].join('\n')
 const ollamaChatModel = {
@@ -62,8 +61,9 @@ function suggestionRequest(overrides = {}) {
   }
 }
 
-test('sourceContext uses a neutral GPT4All-style context block', () => {
+test('sourceContext uses a neutral context block without model-facing page locators', () => {
   assert.equal(sourceContext([databaseSource]), databaseContext)
+  assert.equal(sourceContext([databaseSource]).includes('Locator: Page 4'), false)
 })
 
 test('studyChatMessages includes system text, recent conversation, and retrieved source context', () => {

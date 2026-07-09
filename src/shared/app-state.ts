@@ -135,7 +135,7 @@ export interface ChatSource {
   thumbnailPath?: string
   chunkSize?: number
   score?: number
-  retrievalMode?: 'vector'
+  retrievalMode?: 'vector' | 'starter'
   embeddingModel?: string
   chunkEmbeddingModel?: string
 }
@@ -147,6 +147,21 @@ export interface ChatMessage {
   sources?: ChatSource[]
   followUpSuggestions?: string[]
   followUpError?: string
+  kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'
+  quiz?: {
+    questionNumber?: number
+    totalQuestions?: number
+    complete?: boolean
+  }
+}
+
+export interface QuizState {
+  active: boolean
+  questionNumber: number
+  totalQuestions: number
+  currentQuestion: string
+  currentSources: ChatSource[]
+  usedSourceKeys?: string[]
 }
 
 export interface Conversation {
@@ -154,6 +169,7 @@ export interface Conversation {
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
+  quizState?: QuizState
 }
 
 export interface TokenSmithSettings {

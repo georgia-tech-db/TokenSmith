@@ -13,7 +13,8 @@ import {
   readTokenSmithLogFile,
   resolveSourceDocumentWithPython,
   searchLibraryWithPython,
-  setMaterialEnabledWithPython
+  setMaterialEnabledWithPython,
+  starterSourcesWithPython
 } from './python/python-engine-service'
 import {
   removeLocalModelFile
@@ -402,6 +403,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
+  ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
+    starterSourcesWithPython(materials, limit)
+  )
   ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) =>
     searchLibraryWithPython(query, materials, limit, embeddingModels)
   )
