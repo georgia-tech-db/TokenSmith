@@ -16,7 +16,8 @@ import type {
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
-  PickMaterialsResult
+  PickMaterialsResult,
+  TokenSmithLogFile
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type {
@@ -31,6 +32,7 @@ import type {
 export interface TokenSmithBridge {
   platform: string
   getAppVersion: () => Promise<string>
+  getLogFile: () => Promise<TokenSmithLogFile>
   loadAppState: () => Promise<AppStateSnapshot | null>
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>

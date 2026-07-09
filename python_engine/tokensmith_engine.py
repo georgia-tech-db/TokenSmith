@@ -182,6 +182,13 @@ _GENERATOR_CACHE: Dict[str, Any] = {}
 _EMBEDDER_CACHE: Dict[str, Any] = {}
 _EMBEDDER_FAILURES: Dict[str, str] = {}
 _CHAT_TEMPLATE_CACHE: Dict[str, Optional[str]] = {}
+VISIBLE_LOG_EVENTS = {
+    "chat_request_context",
+    "chat_response_context",
+    "question_suggestion_request_context",
+    "library_search_request",
+    "library_search_result",
+}
 
 class EngineError(Exception):
     pass
@@ -202,6 +209,10 @@ def env_int(name: str, default: int) -> int:
 
 
 def log_event(event: str, **details: Any) -> None:
+    lower_event = event.lower()
+    if event not in VISIBLE_LOG_EVENTS and not any(token in lower_event for token in ("error", "failed", "failure", "timeout", "stderr", "force_kill")):
+        return
+
     log_file = os.environ.get("TOKENSMITH_LOG_FILE")
     if not log_file:
         return

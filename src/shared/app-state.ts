@@ -2,7 +2,7 @@ import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
 
-export type MaterialStatus = 'ready' | 'indexing' | 'needsReview'
+export type MaterialStatus = 'ready' | 'indexing' | 'paused' | 'needsReview'
 export type LocalModelRole = 'generator' | 'embedder' | 'both'
 
 export interface MaterialIndexProgress {

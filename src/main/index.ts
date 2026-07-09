@@ -10,6 +10,7 @@ import {
   listIndexedMaterialsWithPython,
   previewCleaningWithPython,
   removeMaterialWithPython,
+  readTokenSmithLogFile,
   resolveSourceDocumentWithPython,
   searchLibraryWithPython,
   setMaterialEnabledWithPython
@@ -391,6 +392,7 @@ app.whenReady().then(() => {
   applyDockIcon()
 
   ipcMain.handle('app:get-version', () => app.getVersion())
+  ipcMain.handle('app:get-log-file', () => readTokenSmithLogFile())
   ipcMain.handle('state:load', () => loadAppState())
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
   ipcMain.handle('engine:list', () => listEngines())

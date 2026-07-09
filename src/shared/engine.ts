@@ -50,6 +50,14 @@ export interface EngineQuestionSuggestionResponse {
   suggestions: string[]
 }
 
+export interface TokenSmithLogFile {
+  path: string
+  text: string
+  sizeBytes: number
+  maxBytes: number
+  truncated: boolean
+}
+
 export interface PdfSourceDocument {
   title: string
   dataUrl: string

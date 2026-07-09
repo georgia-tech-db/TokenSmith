@@ -20,7 +20,13 @@ import type {
   SuggestionMode,
   TokenSmithSettings
 } from '@shared/app-state'
-import type { CleaningPreviewResult, EngineInfo, PdfSourceDocument, PdfSourceThumbnail } from '@shared/engine'
+import type {
+  CleaningPreviewResult,
+  EngineInfo,
+  PdfSourceDocument,
+  PdfSourceThumbnail,
+  TokenSmithLogFile
+} from '@shared/engine'
 import {
   cleaningRules,
   cleaningProfileLabel,
@@ -112,6 +118,13 @@ type PdfRenderedPage = {
 type PdfSearchMatch = {
   pageNumber: number
   itemIndex: number
+}
+type ParsedLogEntry = {
+  id: string
+  event: string
+  time?: string
+  data?: Record<string, unknown>
+  raw?: string
 }
 
 const navItems: NavItem[] = [
@@ -232,6 +245,96 @@ function pathLeaf(path?: string) {
   return path?.replace(/^file:\/\//, '').split(/[\\/]/).filter(Boolean).pop()
 }
 
+function parseTokenSmithLog(text: string): ParsedLogEntry[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>
+        const { event, time, ...detail } = parsed
+        const eventName = String(event ?? 'log_event')
+
+        return {
+          id: `${index}-${String(time ?? '')}-${String(event ?? 'event')}`,
+          event: eventName,
+          time: typeof time === 'string' ? time : undefined,
+          data: detail
+        }
+      } catch {
+        return {
+          id: `${index}-raw`,
+          event: 'raw_log_line',
+          raw: line
+        }
+      }
+    })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function logString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function logRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : []
+}
+
+function logJson(value: unknown) {
+  return JSON.stringify(value, null, 2)
+}
+
+function prettyLogEventName(event: string) {
+  return event.replaceAll('_', ' ')
+}
+
+function logModelLabel(model: unknown) {
+  if (!isRecord(model)) {
+    return undefined
+  }
+
+  return [model.name, model.ollamaModelName, model.remoteModelName, model.engine]
+    .map((value) => logString(value))
+    .find(Boolean)
+}
+
+function logSourceTitle(source: Record<string, unknown>, index: number) {
+  return (
+    logString(source.title) ??
+    logString(source.documentTitle) ??
+    logString(source.collectionName) ??
+    `Source ${index + 1}`
+  )
+}
+
+function logSourceLocator(source: Record<string, unknown>) {
+  const locator = logString(source.locator)
+  const pageStart = typeof source.pageStart === 'number' ? source.pageStart : undefined
+  const pageEnd = typeof source.pageEnd === 'number' ? source.pageEnd : undefined
+
+  if (locator) {
+    return locator
+  }
+
+  if (pageStart && pageEnd && pageEnd !== pageStart) {
+    return `Pages ${pageStart}-${pageEnd}`
+  }
+
+  if (pageStart) {
+    return `Page ${pageStart}`
+  }
+
+  return undefined
+}
+
+function logSourceScore(source: Record<string, unknown>) {
+  return typeof source.score === 'number' ? source.score.toFixed(3) : undefined
+}
+
 function modelFilename(model: LocalModel) {
   return model.filename ?? pathLeaf(model.path)
 }
@@ -274,7 +377,7 @@ function materialIdentityKey(material: Pick<CourseMaterial, 'detail' | 'embeddin
 }
 
 function normalizeIndexingProgress(material: CourseMaterial): MaterialIndexProgress | undefined {
-  if (material.status !== 'indexing') {
+  if (material.status !== 'indexing' && material.status !== 'paused') {
     return material.indexing
   }
 
@@ -883,6 +986,21 @@ function mergeIndexedMaterialsWithPending(currentMaterials: CourseMaterial[], in
       currentByKey.get(materialIdentityKey(material)) ??
       currentByLocation.get(material.path ?? material.id)
 
+    if (existing?.status === 'paused' && material.status === 'indexing') {
+      return {
+        ...material,
+        ...existing,
+        fileCount: existing.fileCount ?? material.fileCount,
+        wordCount: existing.wordCount ?? material.wordCount,
+        pageCount: existing.pageCount ?? material.pageCount,
+        chunkCount: existing.chunkCount ?? material.chunkCount,
+        indexedAt: existing.indexedAt ?? material.indexedAt,
+        status: 'paused' as const,
+        isActive: false,
+        indexing: existing.indexing ?? material.indexing
+      }
+    }
+
     return {
       ...material,
       embeddingModelId: material.embeddingModelId ?? existing?.embeddingModelId,
@@ -895,7 +1013,7 @@ function mergeIndexedMaterialsWithPending(currentMaterials: CourseMaterial[], in
   })
   const indexedKeys = new Set(normalizedIndexed.map((material) => material.path ?? material.id))
   const pendingMaterials = currentMaterials.filter((material) => {
-    if (material.status !== 'indexing') {
+    if (material.status !== 'indexing' && material.status !== 'paused') {
       return false
     }
 
@@ -1141,6 +1259,8 @@ export function App() {
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
   const cancelledIndexRequestsRef = useRef(new Set<string>())
+  const pausedIndexRequestsRef = useRef(new Set<string>())
+  const indexRequestSequenceRef = useRef(new Map<string, number>())
   const saveSequenceRef = useRef(0)
 
   useEffect(() => {
@@ -1263,7 +1383,10 @@ export function App() {
 
     return window.tokensmith.onMaterialIndexProgress((progress) => {
       updateAppState((current) => {
-        if (cancelledIndexRequestsRef.current.has(progress.materialId)) {
+        if (
+          cancelledIndexRequestsRef.current.has(progress.materialId) ||
+          pausedIndexRequestsRef.current.has(progress.materialId)
+        ) {
           return current
         }
 
@@ -1450,6 +1573,11 @@ export function App() {
       return
     }
 
+    pausedIndexRequestsRef.current.delete(materialId)
+    cancelledIndexRequestsRef.current.delete(materialId)
+    const requestSequence = (indexRequestSequenceRef.current.get(materialId) ?? 0) + 1
+    indexRequestSequenceRef.current.set(materialId, requestSequence)
+
     const indexingMaterial = appState.materials.find((material) => material.id === materialId)
     const embeddingModel =
       (embeddingModelOverride && modelCanEmbed(embeddingModelOverride) ? embeddingModelOverride : undefined) ??
@@ -1489,8 +1617,14 @@ export function App() {
           defaultCleaningRuleIdsForProfile(options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId)
       })
       .then((indexedMaterial) => {
+        if (indexRequestSequenceRef.current.get(materialId) !== requestSequence) {
+          return
+        }
         activeIndexRequestsRef.current.delete(materialId)
         if (cancelledIndexRequestsRef.current.delete(materialId)) {
+          return
+        }
+        if (pausedIndexRequestsRef.current.has(materialId)) {
           return
         }
 
@@ -1531,8 +1665,14 @@ export function App() {
         })
       })
       .catch((error) => {
+        if (indexRequestSequenceRef.current.get(materialId) !== requestSequence) {
+          return
+        }
         activeIndexRequestsRef.current.delete(materialId)
         if (cancelledIndexRequestsRef.current.delete(materialId)) {
+          return
+        }
+        if (pausedIndexRequestsRef.current.has(materialId)) {
           return
         }
 
@@ -1860,7 +2000,7 @@ export function App() {
     })
   }
 
-  function rebuildMaterial(materialId: string) {
+  function resumeMaterialIndexing(materialId: string) {
     const material = appState.materials.find((item) => item.id === materialId)
 
     if (!material?.path || material.status === 'indexing' || activeIndexRequestsRef.current.has(materialId)) {
@@ -1874,18 +2014,18 @@ export function App() {
           ? {
               ...item,
               status: 'indexing',
-              detail: 'Parsing',
+              detail: 'Resuming',
               error: undefined,
               isActive: false,
               indexing: {
                 materialId,
-                phase: 'parsing',
-                percent: 1,
-                processedFiles: 0,
-                totalFiles: item.kind === 'folder' ? item.fileCount ?? 0 : 1,
-                processedEmbeddings: 0,
-                totalEmbeddings: 0,
-                message: 'Parsing'
+                phase: item.indexing?.phase ?? 'parsing',
+                percent: Math.max(1, item.indexing?.percent ?? 1),
+                processedFiles: item.indexing?.processedFiles ?? 0,
+                totalFiles: item.indexing?.totalFiles ?? (item.kind === 'folder' ? item.fileCount ?? 0 : 1),
+                processedEmbeddings: item.indexing?.processedEmbeddings ?? 0,
+                totalEmbeddings: item.indexing?.totalEmbeddings ?? item.chunkCount ?? 0,
+                message: 'Resuming'
               }
             }
           : item
@@ -1917,26 +2057,39 @@ export function App() {
     }
 
     startMaterialIndexing(materialId, material.path, embeddingModel, {
-      title: material.title
+      resume: true,
+      title: material.title,
+      cleaningProfileId: material.cleaningProfileId,
+      cleaningRuleIds: material.cleaningRuleIds
     })
   }
 
-  function stopMaterialIndexing(materialId: string) {
+  function pauseMaterialIndexing(materialId: string) {
     const material = appState.materials.find((item) => item.id === materialId)
 
     if (!material || material.status !== 'indexing') {
       return
     }
 
+    pausedIndexRequestsRef.current.add(materialId)
     cancelledIndexRequestsRef.current.add(materialId)
     activeIndexRequestsRef.current.delete(materialId)
+    indexRequestSequenceRef.current.set(materialId, (indexRequestSequenceRef.current.get(materialId) ?? 0) + 1)
 
     void window.tokensmith?.cancelMaterialIndexing(materialId).catch(() => {
       setSaveStatus('error')
     })
 
-    const hasExistingIndex = (material.chunkCount ?? 0) > 0
-    const nextStatus: CourseMaterial['status'] = hasExistingIndex ? 'ready' : 'needsReview'
+    const progress = material.indexing ?? {
+      materialId,
+      phase: 'embedding' as const,
+      percent: 0,
+      processedFiles: material.fileCount ?? 0,
+      totalFiles: material.fileCount ?? 0,
+      processedEmbeddings: 0,
+      totalEmbeddings: material.chunkCount ?? 0,
+      message: 'Paused'
+    }
 
     updateAppState((current) => ({
       ...current,
@@ -1944,11 +2097,14 @@ export function App() {
         item.id === materialId
           ? {
               ...item,
-              status: nextStatus,
-              detail: hasExistingIndex ? 'Ready for chat' : 'Indexing stopped',
-              error: hasExistingIndex ? undefined : 'Indexing was stopped before any chunks were saved.',
-              indexing: undefined,
-              isActive: hasExistingIndex
+              status: 'paused',
+              detail: 'Paused',
+              error: undefined,
+              indexing: {
+                ...progress,
+                message: 'Paused'
+              },
+              isActive: false
             }
           : item
       )
@@ -1966,6 +2122,7 @@ export function App() {
     if (wasIndexing) {
       cancelledIndexRequestsRef.current.add(materialId)
       activeIndexRequestsRef.current.delete(materialId)
+      indexRequestSequenceRef.current.set(materialId, (indexRequestSequenceRef.current.get(materialId) ?? 0) + 1)
       void window.tokensmith?.cancelMaterialIndexing(materialId).catch(() => {
         setSaveStatus('error')
       })
@@ -2062,9 +2219,9 @@ export function App() {
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
             onAddMaterials={addMaterials}
             onRemoveMaterial={removeMaterial}
-            onRebuildMaterial={rebuildMaterial}
+            onResumeMaterialIndexing={resumeMaterialIndexing}
             onSelectEmbeddingModel={selectEmbeddingModel}
-            onStopMaterialIndexing={stopMaterialIndexing}
+            onPauseMaterialIndexing={pauseMaterialIndexing}
             onStartMaterialIndexing={startMaterialIndexing}
             onToggleMaterialActive={toggleMaterialActive}
           />
@@ -2161,6 +2318,10 @@ function ChatScreen({
   const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
   const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [starterQuestionError, setStarterQuestionError] = useState<string | null>(null)
+  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
+  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
+  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<HTMLInputElement | null>(null)
@@ -2185,6 +2346,7 @@ function ChatScreen({
   )
   const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
+  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
   const canSuggestStarterQuestions =
     activeConversation.messages.length === 0 &&
     !isPending &&
@@ -2204,7 +2366,7 @@ function ChatScreen({
   const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
   const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
   const hasReadyMaterials = materials.some((material) => material.status === 'ready')
-  const hasIndexingMaterials = materials.some((material) => material.status === 'indexing')
+  const hasIndexingMaterials = materials.some((material) => material.status === 'indexing' || material.status === 'paused')
   const needsChatModelSetup = !readyChatModel
   const needsEmbeddingModelSetup = !readyEmbeddingModel
   const needsDocumentSetup = Boolean(readyEmbeddingModel) && !hasReadyMaterials && !hasIndexingMaterials
@@ -2525,6 +2687,31 @@ function ChatScreen({
 
   function handleUseStarterQuestion(question: string) {
     void submitPrompt(question)
+  }
+
+  async function refreshLogFile() {
+    if (!window.tokensmith?.getLogFile) {
+      setLogStatus('error')
+      setLogError('TokenSmith log is not available in this build.')
+      return
+    }
+
+    setLogStatus('loading')
+    setLogError(null)
+
+    try {
+      const nextLogFile = await window.tokensmith.getLogFile()
+      setLogFile(nextLogFile)
+      setLogStatus('idle')
+    } catch (error) {
+      setLogStatus('error')
+      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
+    }
+  }
+
+  function handleOpenLogCard() {
+    setIsLogCardOpen(true)
+    void refreshLogFile()
   }
 
   async function refreshOllamaStatus() {
@@ -3390,6 +3577,10 @@ function ChatScreen({
             />
           </div>
           <div className="chat-sidebar-footer">
+            <button className="view-log-button" type="button" onClick={handleOpenLogCard}>
+              <FileText size={15} aria-hidden="true" />
+              <span>View Log</span>
+            </button>
             <button className="clear-chats-button" type="button" onClick={handleClearConversations}>
               <Trash2 size={15} aria-hidden="true" />
               <span>Clear All Chats</span>
@@ -3543,8 +3734,224 @@ function ChatScreen({
         </button>
         <SourceTray sources={selectedSources} error={sourceTrayError} onOpenSource={handleOpenSource} />
       </aside>
+      {isLogCardOpen && (
+        <TokenSmithLogCard
+          entries={logEntries}
+          error={logError}
+          logFile={logFile}
+          status={logStatus}
+          onClose={() => setIsLogCardOpen(false)}
+          onRefresh={refreshLogFile}
+        />
+      )}
       {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
     </div>
+  )
+}
+
+function TokenSmithLogCard({
+  entries,
+  error,
+  logFile,
+  onClose,
+  onRefresh,
+  status
+}: {
+  entries: ParsedLogEntry[]
+  error: string | null
+  logFile: TokenSmithLogFile | null
+  onClose: () => void
+  onRefresh: () => void
+  status: 'idle' | 'loading' | 'error'
+}) {
+  return (
+    <section className="log-card" aria-label="TokenSmith log">
+      <header className="log-card-header">
+        <div>
+          <p>TokenSmith Log</p>
+          <h2>Log</h2>
+          <small>{logFile?.path ?? 'Loading log path...'}</small>
+        </div>
+        <div className="log-card-actions">
+          <button
+            className="icon-button subtle"
+            type="button"
+            aria-label="Refresh log"
+            title="Refresh log"
+            onClick={onRefresh}
+            disabled={status === 'loading'}
+          >
+            <RefreshCw className={status === 'loading' ? 'spin' : undefined} size={17} aria-hidden="true" />
+          </button>
+          <button className="icon-button subtle" type="button" aria-label="Close log" title="Close log" onClick={onClose}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
+      {logFile && (
+        <div className="log-card-meta">
+          <span>{formatBytes(logFile.sizeBytes)}</span>
+          {logFile.truncated && <span>Showing latest {formatBytes(logFile.maxBytes)}</span>}
+        </div>
+      )}
+
+      {error && <p className="log-card-error">{error}</p>}
+      {status === 'loading' && entries.length === 0 ? (
+        <p className="log-card-empty">Loading log...</p>
+      ) : entries.length === 0 ? (
+        <p className="log-card-empty">No log entries yet.</p>
+      ) : (
+        <div className="log-entry-list">
+          {entries.slice().reverse().map((entry) => (
+            <article className="log-entry" key={entry.id}>
+              <div className="log-entry-heading">
+                <strong>{prettyLogEventName(entry.event)}</strong>
+                {entry.time && <time>{entry.time}</time>}
+              </div>
+              <LogEntryBody entry={entry} />
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
+  if (!entry.data) {
+    return <pre className="log-raw-text">{entry.raw ?? ''}</pre>
+  }
+
+  const modelLabel = logModelLabel(entry.data.model)
+  const prompt = logString(entry.data.prompt)
+  const query = logString(entry.data.query)
+  const answer = logString(entry.data.text)
+  const systemPrompt = logString(entry.data.systemPrompt)
+  const sources = logRecords(entry.data.sources)
+  const modelMessages = logRecords(entry.data.modelMessages)
+  const materials = logRecords(entry.data.materials)
+  const embeddingModels = logRecords(entry.data.embeddingModels)
+  const sourceCount = typeof entry.data.sourceCount === 'number' ? entry.data.sourceCount : sources.length
+
+  return (
+    <div className="log-entry-body">
+      <div className="log-entry-tags">
+        {modelLabel && <span>{modelLabel}</span>}
+        {sourceCount > 0 && <span>{sourceCount} {sourceCount === 1 ? 'source' : 'sources'}</span>}
+        {typeof entry.data.limit === 'number' && <span>limit {entry.data.limit}</span>}
+      </div>
+
+      {prompt && <LogTextPanel title="Current Question" text={prompt} tone="question" />}
+      {query && <LogTextPanel title="Search Query" text={query} tone="question" />}
+      {answer && <LogTextPanel title="Answer" text={answer} />}
+      {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
+      {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
+      {sources.length > 0 && <LogSources sources={sources} />}
+      {materials.length > 0 && <LogObjectList title="Materials" items={materials} />}
+      {embeddingModels.length > 0 && <LogObjectList title="Embedding Models" items={embeddingModels} />}
+
+      <details className="log-raw-details">
+        <summary>Raw JSON</summary>
+        <pre>{logJson(entry.data)}</pre>
+      </details>
+    </div>
+  )
+}
+
+function LogTextPanel({
+  text,
+  title,
+  tone
+}: {
+  text: string
+  title: string
+  tone?: 'question' | 'system'
+}) {
+  return (
+    <section className={`log-panel ${tone ?? ''}`}>
+      <h3>{title}</h3>
+      <pre>{text}</pre>
+    </section>
+  )
+}
+
+function LogMessages({ messages }: { messages: Record<string, unknown>[] }) {
+  let finalUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (logString(messages[index].role) === 'user') {
+      finalUserIndex = index
+      break
+    }
+  }
+
+  return (
+    <section className="log-panel">
+      <h3>Ordered Messages Sent To Model</h3>
+      <p className="log-panel-note">
+        This is the exact message order. Prior turns are separate messages; the last user message contains retrieved source context plus the current question.
+      </p>
+      <div className="log-message-list">
+        {messages.map((message, index) => {
+          const role = logString(message.role) ?? 'message'
+          const content = logString(message.content) ?? logJson(message)
+          const isFinalUserMessage = index === finalUserIndex
+
+          return (
+            <article className={`log-message ${isFinalUserMessage ? 'is-final' : ''}`} key={`${role}-${index}`}>
+              <div className="log-message-heading">
+                <span className="log-message-role">{role}</span>
+                <span className="log-message-index">
+                  Message {index + 1} of {messages.length}{isFinalUserMessage ? ' · final user message' : ''}
+                </span>
+              </div>
+              <pre>{content}</pre>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function LogSources({ sources }: { sources: Record<string, unknown>[] }) {
+  return (
+    <section className="log-panel">
+      <h3>Sources</h3>
+      <div className="log-source-list">
+        {sources.map((source, index) => {
+          const title = logSourceTitle(source, index)
+          const locator = logSourceLocator(source)
+          const score = logSourceScore(source)
+          const path = logString(source.path)
+          const excerpt = logString(source.excerpt)
+
+          return (
+            <details className="log-source" key={`${title}-${index}`} open={index === 0}>
+              <summary>
+                <strong>{title}</strong>
+                <span>{[locator, score ? `score ${score}` : undefined].filter(Boolean).join(' · ')}</span>
+              </summary>
+              {path && <p>{path}</p>}
+              {excerpt && <pre>{excerpt}</pre>}
+            </details>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function LogObjectList({ items, title }: { items: Record<string, unknown>[]; title: string }) {
+  return (
+    <section className="log-panel">
+      <h3>{title}</h3>
+      <div className="log-object-list">
+        {items.map((item, index) => (
+          <pre key={`${title}-${index}`}>{logJson(item)}</pre>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -4430,9 +4837,9 @@ function LibraryScreen({
   selectedEmbeddingModelId,
   onAddMaterials,
   onRemoveMaterial,
-  onRebuildMaterial,
+  onResumeMaterialIndexing,
   onSelectEmbeddingModel,
-  onStopMaterialIndexing,
+  onPauseMaterialIndexing,
   onStartMaterialIndexing,
   onToggleMaterialActive
 }: {
@@ -4442,9 +4849,9 @@ function LibraryScreen({
   selectedEmbeddingModelId: string
   onAddMaterials: (materials: CourseMaterial[]) => void
   onRemoveMaterial: (materialId: string) => void
-  onRebuildMaterial: (materialId: string) => void
+  onResumeMaterialIndexing: (materialId: string) => void
   onSelectEmbeddingModel: (modelId: string) => void
-  onStopMaterialIndexing: (materialId: string) => void
+  onPauseMaterialIndexing: (materialId: string) => void
   onStartMaterialIndexing: (
     materialId: string,
     materialPath: string,
@@ -4854,8 +5261,8 @@ function LibraryScreen({
             item={material}
             key={material.id}
             onRemove={() => onRemoveMaterial(material.id)}
-            onRebuild={() => onRebuildMaterial(material.id)}
-            onStop={() => onStopMaterialIndexing(material.id)}
+            onPause={() => onPauseMaterialIndexing(material.id)}
+            onResume={() => onResumeMaterialIndexing(material.id)}
             onToggle={() => onToggleMaterialActive(material.id)}
           />
         ))}
@@ -4867,18 +5274,19 @@ function LibraryScreen({
 function CollectionCard({
   item,
   onRemove,
-  onRebuild,
-  onStop,
+  onPause,
+  onResume,
   onToggle
 }: {
   item: CourseMaterial
   onRemove: () => void
-  onRebuild: () => void
-  onStop: () => void
+  onPause: () => void
+  onResume: () => void
   onToggle: () => void
 }) {
   const progress = item.indexing
   const isIndexing = item.status === 'indexing'
+  const isPaused = item.status === 'paused'
   const percent = item.status === 'ready' ? 100 : Math.max(0, Math.min(100, Math.round(progress?.percent ?? 0)))
   const filesLabel =
     item.fileCount && item.fileCount > 0
@@ -4901,19 +5309,23 @@ function CollectionCard({
       ? 'READY'
       : item.status === 'needsReview'
         ? 'REVIEW'
-        : progress?.phase === 'parsing'
-          ? 'PARSING'
-          : progress?.phase === 'chunking'
-            ? 'CHUNKING'
-            : progress?.phase === 'embedding'
-              ? 'EMBEDDING'
-              : 'UPDATING'
+        : item.status === 'paused'
+          ? 'PAUSED'
+          : progress?.phase === 'parsing'
+            ? 'PARSING'
+            : progress?.phase === 'chunking'
+              ? 'CHUNKING'
+              : progress?.phase === 'embedding'
+                ? 'EMBEDDING'
+                : 'UPDATING'
   const progressCopy =
     item.status === 'ready'
       ? 'Ready for chat'
       : item.status === 'needsReview'
         ? item.error ?? 'Needs review'
-        : `${progress?.message ?? 'Parsing'} ${percent}%`
+        : item.status === 'paused'
+          ? `Paused at ${percent}%`
+          : `${progress?.message ?? 'Parsing'} ${percent}%`
 
   return (
     <article className={`collection-card ${item.status}`}>
@@ -4930,7 +5342,7 @@ function CollectionCard({
         <span>{progressCopy}</span>
       </div>
 
-      {item.status === 'indexing' && (
+      {(item.status === 'indexing' || item.status === 'paused') && (
         <div className="collection-progress" style={{ '--progress': `${percent}%` } as CSSProperties}>
           <span />
         </div>
@@ -4939,19 +5351,19 @@ function CollectionCard({
       <div className="collection-card-actions">
         <div className="collection-primary-actions">
           {isIndexing ? (
-            <button className="collection-action-button collection-stop" type="button" onClick={onStop}>
-              <Square size={14} aria-hidden="true" />
-              <span>Stop</span>
+            <button className="collection-action-button collection-pause" type="button" onClick={onPause}>
+              <Pause size={14} aria-hidden="true" />
+              <span>Pause</span>
             </button>
           ) : (
             <button
-              className="collection-action-button collection-rebuild"
+              className="collection-action-button collection-resume"
               type="button"
-              onClick={onRebuild}
+              onClick={onResume}
               disabled={!item.path}
             >
               <RefreshCw size={15} aria-hidden="true" />
-              <span>Rebuild</span>
+              <span>{isPaused || item.status === 'needsReview' ? 'Resume' : 'Update'}</span>
             </button>
           )}
           <button
@@ -4994,6 +5406,8 @@ function MaterialRow({
   const subline =
     item.status === 'indexing'
       ? `${item.indexing?.message ?? 'Parsing'} ${indexingPercent}%`
+      : item.status === 'paused'
+        ? `Paused at ${indexingPercent}%`
       : item.chunkCount && item.chunkCount > 0
       ? `${item.detail}${item.pageCount ? ` - ${item.pageCount} pages` : ''}`
       : item.error
@@ -5014,6 +5428,7 @@ function MaterialRow({
         <span className={`status-box ${item.status} ${isActive ? '' : 'is-inactive'}`} aria-hidden="true">
           {isActive && <Check size={15} />}
           {item.status === 'indexing' && <RefreshCw size={15} />}
+          {item.status === 'paused' && <Pause size={15} />}
           {item.status === 'needsReview' && <FileText size={15} />}
         </span>
         <span className="material-copy">

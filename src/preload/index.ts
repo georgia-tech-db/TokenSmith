@@ -4,6 +4,7 @@ import type { TokenSmithBridge } from '../shared/bridge'
 const tokenSmithBridge: TokenSmithBridge = {
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,
+  getLogFile: () => ipcRenderer.invoke('app:get-log-file') as Promise<Awaited<ReturnType<TokenSmithBridge['getLogFile']>>>,
   loadAppState: () => ipcRenderer.invoke('state:load') as Promise<Awaited<ReturnType<TokenSmithBridge['loadAppState']>>>,
   saveAppState: (state) =>
     ipcRenderer.invoke('state:save', state) as Promise<Awaited<ReturnType<TokenSmithBridge['saveAppState']>>>,

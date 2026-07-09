@@ -1,10 +1,10 @@
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress } from '../../shared/app-state'
-import type { CleaningPreviewResult } from '../../shared/engine'
+import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
 interface PythonRequest {
@@ -102,7 +102,23 @@ function localIsoTimestamp(date = new Date()): string {
   ].join('')
 }
 
+const visibleLogEvents = new Set([
+  'chat_request_context',
+  'chat_response_context',
+  'question_suggestion_request_context',
+  'library_search_request',
+  'library_search_result'
+])
+
+function shouldWriteLog(event: string): boolean {
+  return visibleLogEvents.has(event) || /(?:error|failed|failure|timeout|stderr|force_kill)/i.test(event)
+}
+
 function writeLog(event: string, detail: Record<string, unknown> = {}): void {
+  if (!shouldWriteLog(event)) {
+    return
+  }
+
   const logPath = getLogFilePath()
   const payload = {
     time: localIsoTimestamp(),
@@ -115,6 +131,53 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
     appendFileSync(logPath, `${JSON.stringify(payload)}\n`, 'utf8')
   } catch {
     // Logging must never block chat or indexing.
+  }
+}
+
+export function writeTokenSmithLog(event: string, detail: Record<string, unknown> = {}): void {
+  writeLog(event, detail)
+}
+
+export function readTokenSmithLogFile(maxBytes = 512_000): TokenSmithLogFile {
+  const logPath = getLogFilePath()
+  if (!existsSync(logPath)) {
+    return {
+      path: logPath,
+      text: '',
+      sizeBytes: 0,
+      maxBytes,
+      truncated: false
+    }
+  }
+
+  const sizeBytes = statSync(logPath).size
+  const text = readFileSync(logPath, 'utf8')
+  const truncated = Buffer.byteLength(text, 'utf8') > maxBytes
+
+  return {
+    path: logPath,
+    text: truncated ? text.slice(-maxBytes) : text,
+    sizeBytes,
+    maxBytes,
+    truncated
+  }
+}
+
+function logSource(source: ChatSource): Record<string, unknown> {
+  return {
+    title: source.title,
+    locator: source.locator,
+    documentTitle: source.documentTitle,
+    collectionName: source.collectionName,
+    sectionHeader: source.sectionHeader,
+    path: source.path,
+    pageStart: source.pageStart,
+    pageEnd: source.pageEnd,
+    score: source.score,
+    retrievalMode: source.retrievalMode,
+    embeddingModel: source.embeddingModel,
+    chunkEmbeddingModel: source.chunkEmbeddingModel,
+    excerpt: source.excerpt
   }
 }
 
@@ -530,6 +593,25 @@ export async function searchLibraryWithPython(
   embeddingModels?: LocalModel[]
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
+  writeLog('library_search_request', {
+    query,
+    limit,
+    materials: materials.map((material) => ({
+      id: material.id,
+      title: material.title,
+      path: material.path,
+      status: material.status,
+      isActive: material.isActive
+    })),
+    embeddingModels: resolvedEmbeddingModels.map((model) => ({
+      id: model.id,
+      name: model.name,
+      engine: model.engine,
+      source: model.source,
+      ollamaModelName: model.ollamaModelName,
+      remoteModelName: model.remoteModelName
+    }))
+  })
   const result = await requestPython<SearchResult>(
     'search',
     {
@@ -541,6 +623,12 @@ export async function searchLibraryWithPython(
     },
     30_000
   )
+
+  writeLog('library_search_result', {
+    query,
+    sourceCount: result.sources.length,
+    sources: result.sources.map(logSource)
+  })
 
   return result.sources
 }
