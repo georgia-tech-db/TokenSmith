@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress } from '../../shared/app-state'
+import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
@@ -590,12 +590,14 @@ export async function searchLibraryWithPython(
   query: string,
   materials: CourseMaterial[],
   limit: number,
-  embeddingModels?: LocalModel[]
+  embeddingModels?: LocalModel[],
+  searchMode?: SearchMode
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   writeLog('library_search_request', {
     query,
     limit,
+    searchMode,
     materials: materials.map((material) => ({
       id: material.id,
       title: material.title,
@@ -619,6 +621,7 @@ export async function searchLibraryWithPython(
       materials,
       limit,
       embeddingModels: resolvedEmbeddingModels,
+      searchMode,
       userDataPath: app.getPath('userData')
     },
     30_000

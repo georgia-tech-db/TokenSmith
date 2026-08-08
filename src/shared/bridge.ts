@@ -4,7 +4,8 @@ import type {
   CourseMaterial,
   LocalModel,
   LocalModelRole,
-  MaterialIndexProgress
+  MaterialIndexProgress,
+  SearchMode
 } from './app-state'
 import type {
   CleaningPreviewResult,
@@ -39,7 +40,7 @@ export interface TokenSmithBridge {
   sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
   suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
-  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) => Promise<ChatSource[]>
+  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
   pickMaterials: () => Promise<PickMaterialsResult>
