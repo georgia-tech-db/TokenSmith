@@ -1,3 +1,5 @@
+import type { AnswerConfidence } from './confidence'
+
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
@@ -145,6 +147,7 @@ export interface ChatMessage {
   role: MessageRole
   text: string
   sources?: ChatSource[]
+  confidence?: AnswerConfidence
   followUpSuggestions?: string[]
   followUpError?: string
   kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'

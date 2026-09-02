@@ -38,6 +38,8 @@ import {
   type CleaningProfileId,
   type CleaningRuleId
 } from '@shared/cleaning'
+import type { AnswerConfidence, AnswerStatus } from '@shared/confidence'
+import { answerStatusLabel } from '@shared/confidence'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -87,6 +89,9 @@ import {
   Search,
   SendHorizonal,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   Sparkles,
   Square,
   Trash2,
@@ -3721,6 +3726,7 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
+        confidence: reply.confidence,
         kind: 'quizFeedback',
         quiz: {
           questionNumber: quizState.questionNumber,
@@ -3920,6 +3926,7 @@ function ChatScreen({
         role: 'assistant',
         text: reply.text,
         sources: settings.application.showSources ? reply.sources : [],
+        confidence: reply.confidence,
         followUpSuggestions: reply.followUpSuggestions ?? [],
         followUpError: reply.followUpError
       }
@@ -4546,6 +4553,7 @@ function AssistantMessage({
           TokenSmith
           {label && <span>{label}</span>}
         </h3>
+        {message.confidence && <ConfidenceBadge confidence={message.confidence} />}
         <MessageText text={message.text} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
@@ -4599,6 +4607,39 @@ function AssistantMessage({
       </div>
     </article>
   )
+}
+
+function ConfidenceBadge({ confidence }: { confidence: AnswerConfidence }) {
+  const percent = Math.round(confidence.score * 100)
+  const breakdown = [
+    `Retrieval match ${Math.round(confidence.retrievalScore * 100)}%`,
+    `Answer-context alignment ${Math.round(confidence.alignmentScore * 100)}%`
+  ].join(' \u00b7 ')
+
+  return (
+    <div
+      className={`confidence-badge confidence-${confidence.status}`}
+      title={breakdown}
+      aria-label={`Answer status: ${answerStatusLabel(confidence.status)}, confidence ${percent} percent. ${breakdown}`}
+    >
+      <ConfidenceIcon status={confidence.status} />
+      <span className="confidence-label">{answerStatusLabel(confidence.status)}</span>
+      <span className="confidence-score">{percent}%</span>
+      {confidence.abstained && <span className="confidence-abstained">abstained</span>}
+    </div>
+  )
+}
+
+function ConfidenceIcon({ status }: { status: AnswerStatus }) {
+  if (status === 'supported') {
+    return <ShieldCheck size={15} aria-hidden="true" />
+  }
+
+  if (status === 'partial') {
+    return <ShieldQuestion size={15} aria-hidden="true" />
+  }
+
+  return <ShieldAlert size={15} aria-hidden="true" />
 }
 
 function SourceTray({

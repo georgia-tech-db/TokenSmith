@@ -1,4 +1,5 @@
 import type { ChatSource, ModelRuntimeSettings } from '../../shared/app-state'
+import { abstentionAnswer } from '../../shared/confidence'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import {
   defaultFollowUpSuggestionCount,
@@ -16,7 +17,8 @@ export function sourceContext(sources: ChatSource[]): string {
   return [
     'Use the context below only when it is relevant to the question.',
     'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-    'If the context does not contain the answer, say that plainly.',
+    'Answer only from the context. Do not fall back on your own knowledge when the context does not cover the question.',
+    `If the context does not contain the answer, reply with exactly this sentence and nothing else: ${abstentionAnswer}`,
     '',
     '### Context:',
     ...sources.map((source) => {

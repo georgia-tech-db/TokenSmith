@@ -7,6 +7,7 @@ import type {
   ModelRuntimeSettings,
   TokenSmithSettings
 } from './app-state'
+import type { AnswerConfidence } from './confidence'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export interface EngineInfo {
@@ -32,6 +33,7 @@ export interface EngineChatResponse {
   modelName: string
   text: string
   sources: ChatSource[]
+  confidence?: AnswerConfidence
   followUpSuggestions?: string[]
   followUpError?: string
 }

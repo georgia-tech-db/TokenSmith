@@ -12,6 +12,7 @@ import type {
 } from '../../shared/engine'
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
+import { withAnswerConfidence } from './answer-confidence'
 import { generateOllamaStudyQuestionSuggestions, runOllamaStudyEngine } from './ollama-service'
 import { questionSuggestionMessages, studyChatMessages } from './study-chat-format'
 
@@ -41,16 +42,18 @@ export async function listEngines(): Promise<EngineInfo[]> {
 export async function sendChatMessage(request: EngineChatRequest): Promise<EngineChatResponse> {
   writeTokenSmithLog('chat_request_context', chatRequestLogDetails(request))
 
-  const response = await sendStudyChatMessage(request, {
+  const rawResponse = await sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
   })
+  const response = withAnswerConfidence(request, rawResponse)
 
   writeTokenSmithLog('chat_response_context', {
     modelName: response.modelName,
     text: response.text,
     sourceCount: response.sources.length,
+    confidence: response.confidence,
     sources: response.sources.map(logSource)
   })
 
