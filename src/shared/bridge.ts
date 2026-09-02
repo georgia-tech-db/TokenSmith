@@ -13,6 +13,7 @@ import type {
   EngineInfo,
   EngineQuestionSuggestionRequest,
   EngineQuestionSuggestionResponse,
+  MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
@@ -42,6 +43,7 @@ export interface TokenSmithBridge {
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
+  getMarkdownForSource: (source: ChatSource) => Promise<MarkdownSourceDocument>
   pickMaterials: () => Promise<PickMaterialsResult>
   pickMaterialFolder: () => Promise<PickMaterialFolderResult>
   cancelMaterialIndexing: (materialId: string) => Promise<void>

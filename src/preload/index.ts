@@ -33,6 +33,10 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:get-pdf-thumbnail-for-source', source) as Promise<
       Awaited<ReturnType<TokenSmithBridge['getPdfThumbnailForSource']>>
     >,
+  getMarkdownForSource: (source) =>
+    ipcRenderer.invoke('library:get-markdown-for-source', source) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['getMarkdownForSource']>>
+    >,
   pickMaterials: () =>
     ipcRenderer.invoke('library:pick-materials') as Promise<
       Awaited<ReturnType<TokenSmithBridge['pickMaterials']>>

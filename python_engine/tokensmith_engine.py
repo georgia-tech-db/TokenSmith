@@ -124,6 +124,10 @@ SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 MAX_FOLDER_FILES = 120
 DEFAULT_CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 0
+TOKENSMITH_CHUNK_MARKER_RE = re.compile(r"<!--\s*tokensmith:chunk\b(?P<attrs>.*?)-->", re.IGNORECASE | re.DOTALL)
+TOKENSMITH_CHUNK_ATTR_RE = re.compile(
+    r"""([A-Za-z_][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))"""
+)
 PDF_THUMBNAIL_CACHE_DIR = "tokensmith-pdf-thumbnails"
 PDF_THUMBNAIL_SCALE = 0.2
 PDF_THUMBNAIL_MAX_SIZE = (180, 240)
@@ -624,6 +628,67 @@ def section_headers_in_text(text: str, cleaning_rule_ids: Optional[List[str]] = 
     return headers
 
 
+def has_tokensmith_chunk_markers(text: str) -> bool:
+    return bool(TOKENSMITH_CHUNK_MARKER_RE.search(text))
+
+
+def parse_tokensmith_chunk_attrs(raw_attrs: str) -> Dict[str, str]:
+    attrs: Dict[str, str] = {}
+    for match in TOKENSMITH_CHUNK_ATTR_RE.finditer(raw_attrs):
+        value = next((group for group in match.groups()[1:] if group is not None), "")
+        attrs[match.group(1)] = value.strip()
+    return attrs
+
+
+def line_number_at_offset(text: str, offset: int) -> int:
+    return text.count("\n", 0, max(0, offset)) + 1
+
+
+def chunk_tokensmith_markdown(text: str, cleaning_rule_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    markers = list(TOKENSMITH_CHUNK_MARKER_RE.finditer(text))
+    if not markers:
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    for index, marker in enumerate(markers):
+        next_start = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        raw_content = text[marker.end():next_start]
+        content = normalize_text(raw_content)
+        if not content:
+            continue
+
+        leading = len(raw_content) - len(raw_content.lstrip())
+        trailing = len(raw_content.rstrip())
+        start_offset = marker.end() + leading
+        end_offset = marker.end() + trailing
+        attrs = parse_tokensmith_chunk_attrs(marker.group("attrs") or "")
+        section_header = attrs.get("section")
+        if not section_header:
+            detected_headers = section_headers_in_text(content, cleaning_rule_ids)
+            section_header = detected_headers[-1] if detected_headers else None
+
+        chunk = {
+            "text": content,
+            "wordCount": count_words(content),
+            "startOffset": start_offset,
+            "endOffset": end_offset,
+            "lineFrom": line_number_at_offset(text, start_offset),
+            "lineTo": line_number_at_offset(text, max(start_offset, end_offset - 1)),
+            "chunkSize": len(content),
+            "tokensmithChunkIndex": index + 1,
+        }
+        if section_header:
+            chunk["sectionHeader"] = section_header
+        if attrs.get("id"):
+            chunk["tokensmithChunkId"] = attrs["id"]
+        if attrs.get("chapter"):
+            chunk["tokensmithChapter"] = attrs["chapter"]
+        if attrs.get("kind"):
+            chunk["tokensmithChunkKind"] = attrs["kind"]
+        chunks.append(chunk)
+    return chunks
+
+
 def chunk_text(
     text: str,
     page_count: Optional[int],
@@ -777,6 +842,9 @@ def indexed_chunks(
                 "chunkIndex": index,
                 "chunkSize": chunk.get("chunkSize"),
                 "sectionHeader": chunk.get("sectionHeader"),
+                "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+                "tokensmithChapter": chunk.get("tokensmithChapter"),
+                "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
                 "embeddingModel": chunk_embedding_model,
             }
             indexed.append(stored_chunk)
@@ -821,6 +889,9 @@ def indexed_chunks(
             "chunkIndex": index,
             "chunkSize": chunk.get("chunkSize"),
             "sectionHeader": chunk.get("sectionHeader"),
+            "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+            "tokensmithChapter": chunk.get("tokensmithChapter"),
+            "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
             "embeddingModel": chunk_embedding_model,
             "embedding": embedding,
         }
@@ -856,6 +927,17 @@ def prepare_index_file(
             text = normalize_text("\n\n".join(page["text"] for page in pdf_pages))
             word_count = count_words(text)
             chunks = chunk_pdf_pages(pdf_pages, cleaning_rule_ids) if word_count >= 20 else []
+        elif path.suffix.lower() in {".md", ".markdown"}:
+            raw_text = path.read_text(encoding="utf-8", errors="ignore")
+            page_count = None
+            if has_tokensmith_chunk_markers(raw_text):
+                chunks = chunk_tokensmith_markdown(raw_text, cleaning_rule_ids)
+                text = normalize_text("\n\n".join(chunk["text"] for chunk in chunks))
+                word_count = sum(int(chunk.get("wordCount") or 0) for chunk in chunks)
+            else:
+                text = normalize_text(raw_text)
+                word_count = count_words(text)
+                chunks = chunk_text(text, page_count, cleaning_rule_ids) if word_count >= 20 else []
         else:
             text, page_count = extract_text(path, cleaning_profile_id, cleaning_rule_ids)
             word_count = count_words(text)
@@ -973,8 +1055,12 @@ def preview_chunks_for_file(
     if path.suffix.lower() == ".pdf":
         chunks = chunk_pdf_pages(pages, cleaning_rule_ids)
     else:
-        text = normalize_text("\n\n".join(page["text"] for page in pages))
-        chunks = chunk_text(text, page_count, cleaning_rule_ids)
+        raw_text = path.read_text(encoding="utf-8", errors="ignore")
+        if path.suffix.lower() in {".md", ".markdown"} and has_tokensmith_chunk_markers(raw_text):
+            chunks = chunk_tokensmith_markdown(raw_text, cleaning_rule_ids)
+        else:
+            text = normalize_text("\n\n".join(page["text"] for page in pages))
+            chunks = chunk_text(text, page_count, cleaning_rule_ids)
 
     return [
         {
@@ -984,6 +1070,9 @@ def preview_chunks_for_file(
             "pageEnd": chunk.get("pageEnd"),
             "chunkSize": chunk.get("chunkSize"),
             "sectionHeader": chunk.get("sectionHeader"),
+            "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+            "tokensmithChapter": chunk.get("tokensmithChapter"),
+            "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
         }
         for chunk in chunks[:6]
     ]
@@ -1352,6 +1441,8 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
         "documentTitle": document_title,
         "collectionName": material_title,
         "path": chunk.get("path"),
+        "lineFrom": chunk.get("lineFrom"),
+        "lineTo": chunk.get("lineTo"),
         "pageStart": chunk.get("pageStart"),
         "pageEnd": chunk.get("pageEnd"),
         "thumbnailPath": chunk.get("thumbnailPath"),
@@ -1681,6 +1772,8 @@ def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Di
         "documentTitle": row.get("document_title"),
         "path": row.get("path"),
         "text": row.get("text") or "",
+        "lineFrom": row.get("line_from"),
+        "lineTo": row.get("line_to"),
         "pageStart": row.get("page_start"),
         "pageEnd": row.get("page_end"),
         "thumbnailPath": row.get("thumbnail_path"),

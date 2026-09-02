@@ -55,6 +55,8 @@ interface ResolvedSourceDocument {
   path: string
   title?: string
   page?: number
+  lineFrom?: number
+  lineTo?: number
   collectionName?: string
   thumbnailPath?: string
 }

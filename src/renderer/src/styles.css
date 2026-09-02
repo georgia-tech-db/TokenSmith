@@ -1076,6 +1076,15 @@ button {
   font-size: 0.86rem;
 }
 
+.source-card pre {
+  max-height: 420px;
+  margin: 0;
+  overflow: auto;
+  color: #30343a;
+  font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
 .thinking-bubble {
   display: inline-flex;
   align-items: center;
@@ -1587,7 +1596,7 @@ button {
 .source-page-label {
   justify-self: end;
   align-self: start;
-  max-width: 70px;
+  max-width: 110px;
   padding: 4px 7px;
   border: 1px solid rgb(0 0 0 / 8%);
   border-radius: 999px;
@@ -1806,6 +1815,57 @@ button {
 
 .pdf-viewer-error {
   color: var(--danger);
+}
+
+.markdown-viewer-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1120px, 94vw);
+  height: min(840px, 92vh);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.markdown-source-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  min-height: 0;
+  padding: 14px;
+  background: #f1f2f1;
+}
+
+.markdown-source-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.markdown-source-section h3 {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.markdown-source-section pre {
+  margin: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  color: #30343a;
+  font: 0.78rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
 }
 
 .standard-frame {
@@ -3361,6 +3421,10 @@ button {
 
   .starter-question-panel {
     margin-left: 0;
+  }
+
+  .markdown-source-stage {
+    grid-template-columns: 1fr;
   }
 }
 

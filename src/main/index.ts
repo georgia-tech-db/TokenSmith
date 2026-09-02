@@ -39,6 +39,7 @@ import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
   EngineQuestionSuggestionRequest,
+  MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
@@ -205,17 +206,26 @@ function isSameOrChildPath(parentPath: string, childPath: string): boolean {
   return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): boolean {
+function indexedMaterialAllowsSource(material: CourseMaterial, sourcePath: string): boolean {
   const materialPath = normalizeSourcePath(material.path)
   if (!materialPath) {
     return false
   }
 
   if (material.kind === 'folder') {
-    return isSameOrChildPath(materialPath, pdfPath)
+    return isSameOrChildPath(materialPath, sourcePath)
   }
 
-  return materialPath === pdfPath
+  return materialPath === sourcePath
+}
+
+function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): boolean {
+  return indexedMaterialAllowsSource(material, pdfPath)
+}
+
+function isMarkdownSourcePath(path: string): boolean {
+  const extension = extname(path).toLowerCase()
+  return extension === '.md' || extension === '.markdown'
 }
 
 interface IndexedPdfSourceResolution {
@@ -354,6 +364,36 @@ async function getPdfThumbnailForSource(source: ChatSource): Promise<PdfSourceTh
   }
 }
 
+async function getMarkdownForSource(source: ChatSource): Promise<MarkdownSourceDocument> {
+  const resolvedSource = await resolveSourceDocumentWithPython(source).catch(() => null)
+  const markdownPath = normalizeSourcePath(resolvedSource?.path || source.path)
+  if (!markdownPath || !isMarkdownSourcePath(markdownPath)) {
+    throw new Error('This source is not backed by a Markdown file.')
+  }
+
+  const indexedMaterials = await listIndexedMaterialsWithPython()
+  const isIndexed = indexedMaterials.some((material) => indexedMaterialAllowsSource(material, markdownPath))
+  if (!isIndexed) {
+    throw new Error('This Markdown file is not part of the indexed library.')
+  }
+
+  const markdownStat = statSync(markdownPath)
+  if (!markdownStat.isFile()) {
+    throw new Error('The source Markdown file is no longer available.')
+  }
+
+  return {
+    title: resolvedSource?.title || source.documentTitle || source.title || parse(markdownPath).name,
+    path: markdownPath,
+    text: readFileSync(markdownPath, 'utf8'),
+    chunkText: source.context || source.excerpt,
+    locator: source.locator,
+    sectionHeader: source.sectionHeader,
+    lineFrom: source.lineFrom ?? resolvedSource?.lineFrom,
+    lineTo: source.lineTo ?? resolvedSource?.lineTo
+  }
+}
+
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -413,6 +453,7 @@ app.whenReady().then(() => {
   ipcMain.handle('library:get-pdf-thumbnail-for-source', (_event, source: ChatSource) =>
     getPdfThumbnailForSource(source)
   )
+  ipcMain.handle('library:get-markdown-for-source', (_event, source: ChatSource) => getMarkdownForSource(source))
   ipcMain.handle('library:cancel-index-material', (_event, materialId: string) =>
     cancelMaterialIndexingWithPython(materialId)
   )

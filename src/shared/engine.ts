@@ -72,6 +72,17 @@ export interface PdfSourceThumbnail {
   page?: number
 }
 
+export interface MarkdownSourceDocument {
+  title: string
+  path: string
+  text: string
+  chunkText: string
+  locator?: string
+  sectionHeader?: string
+  lineFrom?: number
+  lineTo?: number
+}
+
 export interface CleaningPreviewPage {
   page?: number
   text: string

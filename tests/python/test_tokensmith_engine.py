@@ -203,6 +203,57 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(contextual_chunks[0]["sectionHeader"], "12.1 Magnetic Disks")
         self.assertNotIn("sectionHeader", plain_chunks[0])
 
+    def test_chunk_tokensmith_markdown_respects_explicit_markers(self):
+        text = (
+            "Preamble table of contents should not become a chunk.\n"
+            '<!-- tokensmith:chunk id="ch07.003" chapter="7" section="7.1 Indexes" kind="prose" -->\n'
+            "\n"
+            "Indexes speed up lookup operations in database systems.\n"
+            "\n"
+            "<!-- tokensmith:chunk id='ch07.004' chapter='7' section='7.1 Indexes' kind='code' -->\n"
+            "```sql\n"
+            "CREATE INDEX idx_orders ON orders(order_id);\n"
+            "```\n"
+        )
+
+        chunks = engine.chunk_tokensmith_markdown(text)
+
+        self.assertEqual(len(chunks), 2)
+        self.assertNotIn("Preamble", chunks[0]["text"])
+        self.assertNotIn("tokensmith:chunk", chunks[0]["text"])
+        self.assertEqual(chunks[0]["tokensmithChunkId"], "ch07.003")
+        self.assertEqual(chunks[0]["tokensmithChapter"], "7")
+        self.assertEqual(chunks[0]["tokensmithChunkKind"], "prose")
+        self.assertEqual(chunks[0]["sectionHeader"], "7.1 Indexes")
+        self.assertEqual(chunks[0]["lineFrom"], 4)
+        self.assertEqual(chunks[0]["lineTo"], 4)
+        self.assertEqual(chunks[1]["tokensmithChunkId"], "ch07.004")
+        self.assertEqual(chunks[1]["tokensmithChunkKind"], "code")
+        self.assertIn("CREATE INDEX", chunks[1]["text"])
+
+    def test_prepare_index_file_uses_tokensmith_markdown_chunks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            md_path = Path(temp_dir) / "buzzdb-book.tokensmith.md"
+            md_path.write_text(
+                (
+                    "Preamble table of contents should be ignored by explicit chunking.\n"
+                    '<!-- tokensmith:chunk id="ch01.001" chapter="1" section="Chapter 1" kind="prose" -->\n'
+                    "Database systems manage records, pages, transactions, and indexes for reliable storage.\n"
+                    '<!-- tokensmith:chunk id="ch01.002" chapter="1" section="1.1 Files" kind="prose" -->\n'
+                    "Plain files make consistency, recovery, and concurrent access harder as applications grow.\n"
+                ),
+                encoding="utf-8",
+            )
+
+            document, chunks = engine.prepare_index_file("material-1", md_path)
+
+        self.assertEqual(document["status"], "ready")
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual([chunk["tokensmithChunkId"] for chunk in chunks], ["ch01.001", "ch01.002"])
+        self.assertEqual(chunks[0]["sectionHeader"], "Chapter 1")
+        self.assertNotIn("Preamble", chunks[0]["text"])
+        self.assertNotIn("Plain files", chunks[0]["text"])
+
     def test_clean_pages_removes_repeated_edges_and_repairs_wrapped_lines(self):
         pages = [
             {

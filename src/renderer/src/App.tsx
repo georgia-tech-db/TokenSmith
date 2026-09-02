@@ -24,6 +24,7 @@ import type {
 import type {
   CleaningPreviewResult,
   EngineInfo,
+  MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
   TokenSmithLogFile
@@ -107,6 +108,7 @@ interface NavItem {
 }
 
 type PdfViewerState = PdfSourceDocument & { searchTerm?: string }
+type MarkdownViewerState = MarkdownSourceDocument
 type SourceThumbnailState = Record<string, PdfSourceThumbnail>
 type PdfRenderedTextItem = {
   index: number
@@ -1240,6 +1242,31 @@ function isPdfSource(source: ChatSource) {
   return Boolean(source.path?.toLowerCase().endsWith('.pdf'))
 }
 
+function isMarkdownSource(source: ChatSource) {
+  const path = source.path?.toLowerCase() ?? ''
+  return path.endsWith('.md') || path.endsWith('.markdown')
+}
+
+function canOpenSource(source: ChatSource) {
+  return isPdfSource(source) || isMarkdownSource(source)
+}
+
+function sourceFileTypeLabel(source: ChatSource) {
+  if (isMarkdownSource(source)) {
+    return 'MD'
+  }
+
+  if (isPdfSource(source)) {
+    return 'PDF'
+  }
+
+  return 'TXT'
+}
+
+function sourceDisplayText(source: ChatSource) {
+  return isMarkdownSource(source) ? source.context || source.excerpt : source.excerpt
+}
+
 function sourcePageLabel(source: ChatSource) {
   if (source.pageStart && source.pageEnd && source.pageEnd > source.pageStart) {
     return `Pages ${source.pageStart}-${source.pageEnd}`
@@ -1247,6 +1274,14 @@ function sourcePageLabel(source: ChatSource) {
 
   if (source.pageStart) {
     return `Page ${source.pageStart}`
+  }
+
+  if (isMarkdownSource(source) && source.lineFrom && source.lineTo && source.lineTo > source.lineFrom) {
+    return `Lines ${source.lineFrom}-${source.lineTo}`
+  }
+
+  if (isMarkdownSource(source) && source.lineFrom) {
+    return `Line ${source.lineFrom}`
   }
 
   return source.locator
@@ -2382,6 +2417,7 @@ function ChatScreen({
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
+  const [markdownViewer, setMarkdownViewer] = useState<MarkdownViewerState | null>(null)
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -2597,6 +2633,7 @@ function ChatScreen({
     setChatError(null)
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setRenamingConversationId(null)
     setRenameDraft('')
@@ -2613,6 +2650,7 @@ function ChatScreen({
     setRenamingConversationId(null)
     setRenameDraft('')
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setPendingSources([])
     setChatError(null)
@@ -2700,6 +2738,7 @@ function ChatScreen({
     }
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setChatError(null)
   }
@@ -2723,6 +2762,7 @@ function ChatScreen({
     setPendingSources([])
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setChatError(null)
     setRenamingConversationId(null)
@@ -3479,16 +3519,28 @@ function ChatScreen({
   async function handleOpenSource(source: ChatSource) {
     setSourceTrayError(null)
 
-    if (!window.tokensmith?.getPdfForSource) {
-      setSourceTrayError('The PDF viewer is not available in this build.')
-      return
-    }
-
     try {
+      if (isMarkdownSource(source)) {
+        if (!window.tokensmith?.getMarkdownForSource) {
+          setSourceTrayError('The Markdown viewer is not available in this build.')
+          return
+        }
+        const markdown = await window.tokensmith.getMarkdownForSource(source)
+        setPdfViewer(null)
+        setMarkdownViewer(markdown)
+        return
+      }
+
+      if (!window.tokensmith?.getPdfForSource) {
+        setSourceTrayError('The PDF viewer is not available in this build.')
+        return
+      }
+
       const pdf = await window.tokensmith.getPdfForSource(source)
+      setMarkdownViewer(null)
       setPdfViewer({ ...pdf, searchTerm: searchTermForSource(source) })
     } catch (error) {
-      setSourceTrayError(error instanceof Error ? error.message : 'Could not open the source PDF.')
+      setSourceTrayError(error instanceof Error ? error.message : 'Could not open the source.')
     }
   }
 
@@ -3575,6 +3627,7 @@ function ChatScreen({
     setDraft('')
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
@@ -3672,6 +3725,7 @@ function ChatScreen({
     setDraft('')
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
@@ -3850,6 +3904,7 @@ function ChatScreen({
     setDraft('')
     setExpandedMessageId(null)
     setPdfViewer(null)
+    setMarkdownViewer(null)
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
@@ -4172,6 +4227,7 @@ function ChatScreen({
         />
       )}
       {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
+      {markdownViewer && <MarkdownSourceViewer viewer={markdownViewer} onClose={() => setMarkdownViewer(null)} />}
     </div>
   )
 }
@@ -4589,7 +4645,11 @@ function AssistantMessage({
                   <div className="source-card" key={`${source.title}-${source.locator}`}>
                     <strong>{source.title}</strong>
                     <span>{source.locator}</span>
-                    <p>{source.excerpt}</p>
+                    {isMarkdownSource(source) ? (
+                      <pre>{sourceDisplayText(source)}</pre>
+                    ) : (
+                      <p>{source.excerpt}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4660,11 +4720,12 @@ function SourceTray({
       </div>
       <div className="source-tray-list">
         {sources.map((source, index) => {
-          const canOpen = isPdfSource(source)
+          const canOpen = canOpenSource(source)
           const pageLabel = sourcePageLabel(source)
           const sourceKey = sourceTrayKey(source, index)
           const thumbnail = thumbnails[sourceKey]
           const sourceContextLabel = [source.collectionName, source.sectionHeader].filter(Boolean).join(' · ')
+          const sourceTypeLabel = sourceFileTypeLabel(source)
 
           return (
             <button
@@ -4681,7 +4742,7 @@ function SourceTray({
                   ) : (
                     <>
                       <FileText size={17} />
-                      <strong>PDF</strong>
+                      <strong>{sourceTypeLabel}</strong>
                     </>
                   )}
                 </span>
@@ -4700,6 +4761,43 @@ function SourceTray({
       </div>
       {error && <p className="source-tray-error">{error}</p>}
     </section>
+  )
+}
+
+function MarkdownSourceViewer({ viewer, onClose }: { viewer: MarkdownViewerState; onClose: () => void }) {
+  const locator = [viewer.sectionHeader, viewer.locator].filter(Boolean).join(' · ')
+  const lineLabel =
+    viewer.lineFrom && viewer.lineTo && viewer.lineTo > viewer.lineFrom
+      ? `Lines ${viewer.lineFrom}-${viewer.lineTo}`
+      : viewer.lineFrom
+        ? `Line ${viewer.lineFrom}`
+        : ''
+  const subtitle = [locator, lineLabel].filter(Boolean).join(' · ')
+
+  return (
+    <div className="pdf-viewer-backdrop" role="dialog" aria-modal="true" aria-label="Source Markdown viewer">
+      <section className="markdown-viewer-panel">
+        <header className="pdf-viewer-header">
+          <div>
+            <strong>{cleanMaterialTitle(viewer.title) || viewer.title}</strong>
+            {subtitle && <span>{subtitle}</span>}
+          </div>
+          <button className="icon-button subtle" type="button" aria-label="Close Markdown viewer" onClick={onClose}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="markdown-source-stage">
+          <section className="markdown-source-section">
+            <h3>Full Chunk</h3>
+            <pre>{viewer.chunkText}</pre>
+          </section>
+          <section className="markdown-source-section">
+            <h3>Markdown File</h3>
+            <pre>{viewer.text}</pre>
+          </section>
+        </div>
+      </section>
+    </div>
   )
 }
 

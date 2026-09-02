@@ -122,6 +122,7 @@ export interface ChatSource {
   title: string
   locator: string
   excerpt: string
+  context?: string
   materialId?: string
   chunkId?: string
   chunkRowid?: number | string
@@ -130,6 +131,8 @@ export interface ChatSource {
   collectionName?: string
   sectionHeader?: string
   path?: string
+  lineFrom?: number
+  lineTo?: number
   pageStart?: number
   pageEnd?: number
   thumbnailPath?: string

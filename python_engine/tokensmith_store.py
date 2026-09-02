@@ -941,6 +941,8 @@ def source_row_select() -> str:
             ch.words AS word_count,
             ch.page AS page_start,
             ch.page AS page_end,
+            ch.line_from AS line_from,
+            ch.line_to AS line_to,
             ch.id AS chunk_index,
             ch.chunk_size AS chunk_size,
             ch.section_header AS section_header,
@@ -1190,6 +1192,8 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
                 d.document_path AS path,
                 COALESCE(ch.title, '') AS title,
                 ch.page AS page,
+                ch.line_from AS line_from,
+                ch.line_to AS line_to,
                 col.name AS collection_name,
                 pt.thumbnail_path AS thumbnail_path
             FROM chunks ch
@@ -1215,6 +1219,8 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
         "path": str(row["path"]),
         "title": title,
         "page": int(row["page"]) if row["page"] is not None else None,
+        "lineFrom": int(row["line_from"]) if row["line_from"] is not None else None,
+        "lineTo": int(row["line_to"]) if row["line_to"] is not None else None,
         "collectionName": row["collection_name"],
         "thumbnailPath": row["thumbnail_path"],
     }
