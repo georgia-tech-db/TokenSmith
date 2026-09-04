@@ -650,7 +650,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(application_settings, {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4})
+        self.assertEqual(
+            application_settings,
+            {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4, "searchMode": "vector"},
+        )
         self.assertEqual(engine.normalize_application_settings({"suggestionMode": "localDocs"})["suggestionMode"], "on")
         self.assertEqual(
             engine.normalize_application_settings({"suggestionMode": "off", "followUpSuggestionCount": 4})[
@@ -666,6 +669,38 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(model_settings["temperature"], 0.4)
         self.assertNotIn("chatNamePrompt", model_settings)
         self.assertNotIn("answerStyle", model_settings)
+
+    def test_search_mode_normalizes_and_defaults_to_vector(self):
+        self.assertEqual(engine.normalize_search_mode("keyword"), "keyword")
+        self.assertEqual(engine.normalize_search_mode("HYBRID"), "hybrid")
+        self.assertEqual(engine.normalize_search_mode(None), "vector")
+        self.assertEqual(engine.normalize_search_mode("nonsense"), "vector")
+        self.assertEqual(engine.normalize_application_settings({})["searchMode"], "vector")
+        self.assertEqual(
+            engine.normalize_application_settings({"searchMode": "hybrid"})["searchMode"], "hybrid"
+        )
+
+    def test_combine_search_hits_by_mode(self):
+        vector_scores = {1: 0.9, 2: 0.1}
+        keyword_scores = {2: 5.0, 3: 1.0}
+
+        vector_only = engine.combine_search_hits("vector", vector_scores, keyword_scores, 4)
+        self.assertEqual([rowid for rowid, _ in vector_only], [1, 2])
+
+        keyword_only = engine.combine_search_hits("keyword", vector_scores, keyword_scores, 4)
+        self.assertEqual([rowid for rowid, _ in keyword_only], [2, 3])
+
+        # Hybrid blends both modalities over the union of candidates and honors the limit.
+        hybrid = engine.combine_search_hits("hybrid", vector_scores, keyword_scores, 2)
+        self.assertEqual(len(hybrid), 2)
+        self.assertEqual(set(rowid for rowid, _ in hybrid), {1, 2})
+
+    def test_build_fts_match_query_is_operator_safe(self):
+        self.assertEqual(
+            store.build_fts_match_query("Which poems mention friendship?"),
+            '"Which" OR "poems" OR "mention" OR "friendship"',
+        )
+        self.assertEqual(store.build_fts_match_query("   ?!  "), "")
 
     def test_default_model_runtime_settings_match_tokensmith_defaults(self):
         settings = engine.normalize_model_runtime_settings({})

@@ -87,6 +87,7 @@ export interface LocalModel {
 export type AppTheme = 'light' | 'system'
 export type AppFontSize = 'small' | 'medium' | 'large'
 export type SuggestionMode = 'on' | 'off'
+export type SearchMode = 'vector' | 'keyword' | 'hybrid'
 export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
 
 export interface ApplicationSettings {
@@ -94,6 +95,7 @@ export interface ApplicationSettings {
   fontSize: AppFontSize
   defaultModelId: string
   suggestionMode: SuggestionMode
+  searchMode: SearchMode
   followUpSuggestionCount: number
   showSources: boolean
   cpuThreads: number
@@ -138,7 +140,7 @@ export interface ChatSource {
   thumbnailPath?: string
   chunkSize?: number
   score?: number
-  retrievalMode?: 'vector' | 'starter'
+  retrievalMode?: 'vector' | 'keyword' | 'hybrid' | 'starter'
   embeddingModel?: string
   chunkEmbeddingModel?: string
 }

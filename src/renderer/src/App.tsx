@@ -181,6 +181,7 @@ const defaultApplicationSettings: ApplicationSettings = {
   fontSize: 'small',
   defaultModelId: '',
   suggestionMode: 'on',
+  searchMode: 'vector',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
   cpuThreads: 4
@@ -836,6 +837,7 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     fontSize: normalizeChoice(settings?.fontSize, ['small', 'medium', 'large'] as const, defaultApplicationSettings.fontSize),
     defaultModelId,
     suggestionMode,
+    searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
     cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
@@ -3930,7 +3932,8 @@ function ChatScreen({
           retrievalContext.query,
           activeMaterials,
           settings.maxSources,
-          searchEmbeddingModels
+          searchEmbeddingModels,
+          settings.application.searchMode
         )
         retrievedSources = mergeChatSources(retrievalContext.carriedSources, searchResults, settings.maxSources)
 
@@ -7203,6 +7206,23 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="Advanced">
+              <SettingsRow
+                label="Search Mode"
+                description="How library sources are retrieved: meaning (vector) matches on topic, keyword (BM25) matches on exact words, and hybrid blends both."
+              >
+                <SelectField
+                  ariaLabel="Search mode"
+                  value={settings.application.searchMode}
+                  onChange={(searchMode) =>
+                    updateApplicationSettings({ searchMode: searchMode as ApplicationSettings['searchMode'] })
+                  }
+                  options={[
+                    { label: 'Meaning', value: 'vector' },
+                    { label: 'Keyword', value: 'keyword' },
+                    { label: 'Hybrid', value: 'hybrid' }
+                  ]}
+                />
+              </SettingsRow>
               <SettingsRow label="CPU Threads" description="The number of CPU threads used for inference.">
                 <NumberField
                   ariaLabel="CPU threads"

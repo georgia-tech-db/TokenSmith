@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sqlite3
 import time
 from datetime import datetime
@@ -1012,6 +1013,53 @@ def vector_search(
         for label, score in zip(labels[0], distances[0])
         if int(label) >= 0
     ]
+
+    rowids = [rowid for rowid, _score in raw]
+    allowed_chunks = get_chunks_by_rowids(user_data_path, rowids, active_material_ids)
+    allowed = {int(chunk["rowid"]) for chunk in allowed_chunks}
+
+    return [(rowid, score) for rowid, score in raw if rowid in allowed][:limit]
+
+
+def build_fts_match_query(query: str) -> str:
+    # Quote each word and OR them, so query punctuation/operators can't break the MATCH.
+    terms = [term for term in re.findall(r"[0-9A-Za-z]+", query or "") if len(term) >= 2]
+    if not terms:
+        return ""
+    return " OR ".join(f'"{term}"' for term in terms)
+
+
+def keyword_search(
+    user_data_path: str,
+    query: str,
+    active_material_ids: Sequence[str],
+    limit: int,
+) -> List[Tuple[int, float]]:
+    """Rank chunks by BM25 relevance over the chunks_fts index."""
+    if not active_material_ids:
+        return []
+
+    match_query = build_fts_match_query(query)
+    if not match_query:
+        return []
+
+    with connect(user_data_path) as conn:
+        try:
+            rows = conn.execute(
+                """
+                SELECT rowid AS rowid, bm25(chunks_fts) AS score
+                FROM chunks_fts
+                WHERE chunks_fts MATCH ?
+                ORDER BY score
+                LIMIT ?
+                """,
+                (match_query, max(limit * 8, limit)),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+    # bm25() is lower-is-better; flip the sign so higher means more relevant, like the vector scores.
+    raw = [(int(row["rowid"]), -float(row["score"])) for row in rows]
 
     rowids = [rowid for rowid, _score in raw]
     allowed_chunks = get_chunks_by_rowids(user_data_path, rowids, active_material_ids)
