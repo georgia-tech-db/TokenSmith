@@ -1,5 +1,7 @@
-faiss-cpu
-jinja2
-numpy
-Pillow>=10
-pypdfium2>=4.30
+faiss-cpu==1.15.0
+jinja2==3.1.6
+MarkupSafe==3.0.3
+numpy==2.5.2
+packaging==26.3
+Pillow==12.3.0
+pypdfium2==5.13.0

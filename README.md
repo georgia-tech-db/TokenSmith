@@ -44,11 +44,23 @@ Install dependencies:
 npm install
 ```
 
-Build the local Python runtime used by development and packaging:
+Download the pinned, platform-specific Python runtime and install TokenSmith's
+Python dependencies inside it:
 
 ```sh
 npm run setup:python-runtime
 ```
+
+This creates `app_runtime/python` inside the repository. It does not require,
+modify, or install packages into your system Python. The download is selected
+for Linux x64, Windows x64, or macOS ARM64 and verified with SHA-256 before it
+is used.
+
+The runtime comes from Astral's
+[python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+`install_only_stripped` archives. TokenSmith pins the Python version, release,
+target platform, and checksum rather than copying the developer's Python
+installation.
 
 Start the app locally:
 
@@ -64,6 +76,10 @@ npm test
 ```
 
 ## Packaging
+
+Packaging requires `npm run setup:python-runtime` first. Release workflows run
+that command automatically and include the private runtime in each application,
+so students do not need to install Python.
 
 Create a macOS DMG:
 

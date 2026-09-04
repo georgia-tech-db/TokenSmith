@@ -50,6 +50,7 @@ async function copyIfExists(from, to) {
   await cp(from, to, {
     recursive: true,
     preserveTimestamps: true,
+    verbatimSymlinks: true,
     filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc')
   })
 }
@@ -60,7 +61,8 @@ async function prepareAppPayload(resourcesPath) {
   await mkdir(appPayloadPath, { recursive: true })
   await cp(join(rootDir, 'out'), join(appPayloadPath, 'out'), {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
   await copyIfExists(join(rootDir, 'python_engine'), join(appPayloadPath, 'python_engine'))
   await copyIfExists(join(rootDir, 'app_runtime'), join(appPayloadPath, 'app_runtime'))
@@ -87,7 +89,8 @@ async function preparePortableApp() {
   await mkdir(stagingDir, { recursive: true })
   await cp(electronDistPath, appDir, {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
 
   await rm(appExePath, { recursive: true, force: true })
