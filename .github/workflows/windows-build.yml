@@ -25,29 +25,26 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install Node dependencies
         run: npm ci
 
       - name: Build Python runtime
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          $pythonRoot = Split-Path -Parent (Get-Command python).Source
-          New-Item -ItemType Directory -Force app_runtime | Out-Null
-          robocopy $pythonRoot app_runtime/python /MIR /XD __pycache__ /XF *.pyc
-          if ($LASTEXITCODE -gt 7) {
-            exit $LASTEXITCODE
-          }
-          exit 0
+        run: npm run setup:python-runtime
 
       - name: Package Windows app
         run: npm run package:win
+
+      - name: Verify packaged Python runtime
+        shell: pwsh
+        run: |
+          $python = 'release/win/TokenSmith/resources/app/app_runtime/python/python.exe'
+          if (-not (Test-Path $python)) {
+            throw "Packaged Python runtime was not found at $python"
+          }
+          & $python -c 'import faiss, jinja2, numpy, pypdfium2, PIL'
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
       - name: Upload Windows package
         if: github.event_name == 'workflow_dispatch'

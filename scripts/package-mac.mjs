@@ -57,8 +57,15 @@ async function renameIfExists(from, to) {
   }
 
   await rm(to, { force: true, recursive: true })
-  await cp(from, to, { recursive: true, preserveTimestamps: true })
+  await cp(from, to, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   await rm(from, { recursive: true, force: true })
+}
+
+function requirePythonRuntime(appRuntimePath) {
+  const pythonExecutable = join(appRuntimePath, 'python', 'bin', 'python')
+  if (!existsSync(pythonExecutable)) {
+    throw new Error('TokenSmith Python runtime was not found. Run npm run setup:python-runtime before packaging.')
+  }
 }
 
 function runtimeMachOCandidates(directoryPath, pythonBinPath, candidates = []) {
@@ -187,18 +194,19 @@ async function prepareAppPayload(resourcesPath) {
   await mkdir(appPayloadPath, { recursive: true })
   await cp(join(rootDir, 'out'), join(appPayloadPath, 'out'), {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
   await cp(join(rootDir, 'python_engine'), join(appPayloadPath, 'python_engine'), {
     recursive: true,
     preserveTimestamps: true,
+    verbatimSymlinks: true,
     filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc')
   })
-  if (existsSync(appRuntimePath)) {
-    const packagedRuntimePath = join(appPayloadPath, 'app_runtime')
-    await run('/usr/bin/ditto', [appRuntimePath, packagedRuntimePath])
-    await patchMacPythonRuntime(packagedRuntimePath)
-  }
+  requirePythonRuntime(appRuntimePath)
+  const packagedRuntimePath = join(appPayloadPath, 'app_runtime')
+  await run('/usr/bin/ditto', [appRuntimePath, packagedRuntimePath])
+  await patchMacPythonRuntime(packagedRuntimePath)
   await writeJson(join(appPayloadPath, 'package.json'), {
     name: packageJson.name,
     version: appVersion,
