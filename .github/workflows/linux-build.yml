@@ -25,11 +25,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install system package tools
         run: sudo apt-get update && sudo apt-get install -y dpkg-dev curl
 
@@ -37,15 +32,7 @@ jobs:
         run: npm ci
 
       - name: Build Python runtime
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          PYTHON_ROOT="$(python -c 'import pathlib, sys; print(pathlib.Path(sys.executable).resolve().parents[1])')"
-          mkdir -p app_runtime
-          rsync -a --delete \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            "$PYTHON_ROOT/" app_runtime/python/
+        run: npm run setup:python-runtime
 
       - name: Install AppImage tooling
         run: |
@@ -59,6 +46,17 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: npm run package:linux
+
+      - name: Verify packaged Python runtime
+        run: |
+          CHECK_ROOT="$(mktemp -d)"
+          DEB_PATH="$(find release -maxdepth 1 -name 'tokensmith_*.deb' -print -quit)"
+          dpkg-deb -x "$DEB_PATH" "$CHECK_ROOT"
+          RUNTIME="$CHECK_ROOT/opt/TokenSmith/resources/app/app_runtime/python"
+          test -x "$RUNTIME/bin/python"
+          test -z "$(find "$RUNTIME" -xtype l -print -quit)"
+          PYTHONHOME="$RUNTIME" LD_LIBRARY_PATH="$RUNTIME/lib" \
+            "$RUNTIME/bin/python" -c 'import faiss, jinja2, numpy, pypdfium2, PIL'
 
       - name: Upload Linux packages
         if: github.event_name == 'workflow_dispatch'

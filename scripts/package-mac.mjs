@@ -57,7 +57,7 @@ async function renameIfExists(from, to) {
   }
 
   await rm(to, { force: true, recursive: true })
-  await cp(from, to, { recursive: true, preserveTimestamps: true })
+  await cp(from, to, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   await rm(from, { recursive: true, force: true })
 }
 
@@ -187,11 +187,13 @@ async function prepareAppPayload(resourcesPath) {
   await mkdir(appPayloadPath, { recursive: true })
   await cp(join(rootDir, 'out'), join(appPayloadPath, 'out'), {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
   await cp(join(rootDir, 'python_engine'), join(appPayloadPath, 'python_engine'), {
     recursive: true,
     preserveTimestamps: true,
+    verbatimSymlinks: true,
     filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc')
   })
   if (existsSync(appRuntimePath)) {
