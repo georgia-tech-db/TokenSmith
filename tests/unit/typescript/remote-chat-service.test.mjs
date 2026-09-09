@@ -68,19 +68,19 @@ test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts rece
   globalThis.fetch = async (url, options) => {
     requestedUrls.push(String(url))
     assert.equal(options.headers.Accept, 'application/json')
+    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
 
     if (String(url).endsWith('/models')) {
-      assert.equal(options.headers['x-goog-api-key'], 'gemini-key')
       return {
         ok: true,
         json: async () => ({
-          models: [
-            { name: 'models/antigravity-preview-05-26', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] },
-            { name: 'models/imagen-4.0', supportedGenerationMethods: ['predict'] }
+          data: [
+            { id: 'models/antigravity-preview-05-26' },
+            { id: 'models/gemini-3.5-flash' },
+            { id: 'models/gemini-2.5-pro' },
+            { id: 'models/gemini-2.0-flash' },
+            { id: 'models/gemini-embedding-001' },
+            { id: 'models/text-embedding-004' }
           ]
         })
       }
@@ -95,8 +95,8 @@ test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts rece
       'https://generativelanguage.googleapis.com/v1beta/openai/'
     )
 
-    assert.equal(requestedUrls[0], 'https://generativelanguage.googleapis.com/v1beta/models')
-    assert.deepEqual(requestedUrls, ['https://generativelanguage.googleapis.com/v1beta/models'])
+    assert.equal(requestedUrls[0], 'https://generativelanguage.googleapis.com/v1beta/openai/models')
+    assert.deepEqual(requestedUrls, ['https://generativelanguage.googleapis.com/v1beta/openai/models'])
     assert.deepEqual(models, [
       'gemini-3.5-flash',
       'gemini-2.5-pro',
@@ -112,16 +112,16 @@ test('listOpenAiCompatibleModels lists Gemini embedding models when requested', 
   const originalFetch = globalThis.fetch
 
   globalThis.fetch = async (url, options) => {
-    assert.equal(String(url), 'https://generativelanguage.googleapis.com/v1beta/models')
-    assert.equal(options.headers['x-goog-api-key'], 'gemini-key')
+    assert.equal(String(url), 'https://generativelanguage.googleapis.com/v1beta/openai/models')
+    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
 
     return {
       ok: true,
       json: async () => ({
-        models: [
-          { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
-          { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
-          { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] }
+        data: [
+          { id: 'models/gemini-3.5-flash' },
+          { id: 'models/text-embedding-004' },
+          { id: 'models/gemini-embedding-001' }
         ]
       })
     }
