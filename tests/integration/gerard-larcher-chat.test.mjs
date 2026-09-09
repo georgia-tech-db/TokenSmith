@@ -192,7 +192,7 @@ try {
   assert.equal(chatResult.engineId, 'tokensmith')
   assert.ok(chatResult.sources.length >= 1, 'expected chat to retrieve at least one source')
   assert.match(chatResult.text, /local model is required/i)
-  assert.equal(chatResult.sources[0].retrievalMode, 'vector')
+  assert.equal(chatResult.sources[0].retrievalMode, 'hybrid')
   assert.match(chatResult.sources.map((source) => source.title).join('\n'), /Larcher/i)
 
   console.log('Gérard Larcher PDF chat test passed.')

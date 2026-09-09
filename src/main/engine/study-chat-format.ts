@@ -8,6 +8,16 @@ import {
 
 export type StudyChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
+const maxSourceContextChars = 2400
+
+function sourceText(source: ChatSource): string {
+  const text = (source.context || source.excerpt).trim()
+  if (text.length <= maxSourceContextChars) {
+    return text
+  }
+  return `${text.slice(0, maxSourceContextChars - 3).trim()}...`
+}
+
 export function sourceContext(sources: ChatSource[]): string {
   if (sources.length === 0) {
     return ''
@@ -23,7 +33,7 @@ export function sourceContext(sources: ChatSource[]): string {
       const collection = source.collectionName || source.documentTitle || source.title || 'Library'
       const path = source.path || source.title || ''
       const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
-      return `Collection: ${collection}\nPath: ${path}\n${section}Text: ${source.excerpt}`
+      return `Collection: ${collection}\nPath: ${path}\n${section}Text: ${sourceText(source)}`
     })
   ].join('\n')
 }

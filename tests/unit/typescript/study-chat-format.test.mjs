@@ -66,6 +66,19 @@ test('sourceContext uses a neutral context block without model-facing page locat
   assert.equal(sourceContext([databaseSource]).includes('Locator: Page 4'), false)
 })
 
+test('sourceContext prefers full chunk context over the short excerpt', () => {
+  const context = sourceContext([
+    {
+      ...databaseSource,
+      excerpt: 'Short excerpt only.',
+      context: 'Full chunk context explains why protection prevents unsafe replacement.'
+    }
+  ])
+
+  assert.match(context, /Full chunk context explains why protection prevents unsafe replacement/)
+  assert.doesNotMatch(context, /Short excerpt only/)
+})
+
 test('studyChatMessages includes system text, recent conversation, and retrieved source context', () => {
   const messages = Array.from({ length: 14 }, (_, index) => ({
     role: index % 2 === 0 ? 'user' : 'assistant',
