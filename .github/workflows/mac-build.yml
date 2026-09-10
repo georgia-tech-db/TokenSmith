@@ -55,14 +55,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            TokenSmith 0.1.9 improves Ollama model management and makes first-turn study questions come from loaded PDFs.
+            TokenSmith 0.1.12 improves retrieval quality and makes packaged app builds use a reproducible private Python runtime.
 
             Major changes in this release:
-            - Adds Ollama library search and clearer model cards for local chat and embedder models.
-            - Shows real model download progress with pause, resume, and remove controls.
-            - Avoids activating incomplete model downloads.
-            - Uses the first indexed chunks from loaded PDFs to suggest first-turn study questions.
-            - Cleans answer wording so source and excerpt labels do not leak into chat responses.
+            - Adds hybrid semantic and keyword retrieval for better source grounding.
+            - Supports marked Markdown source text.
+            - Fixes Gemini model loading.
+            - Uses a pinned standalone Python runtime with pinned runtime dependencies.
+            - Verifies packaged app runtimes before uploading release artifacts.
+            - Avoids duplicate release artifacts from manual workflow runs.
 
             Platform assets are attached as their packaging workflows finish.
           files: release/TokenSmith-*-mac-*.dmg
