@@ -15,6 +15,7 @@ const appRuntimePython = process.platform === 'win32'
   ? join(appRuntimeRoot, 'python.exe')
   : join(appRuntimeRoot, 'bin', 'python')
 const task = process.argv[2]
+const taskArgs = process.argv.slice(3)
 
 function runtimeCandidates() {
   return existsSync(appRuntimePython) ? [appRuntimePython] : []
@@ -429,17 +430,35 @@ function requireRuntimePython({ requireCoverage = false } = {}) {
   return python
 }
 
+function embeddingBenchmarkPython() {
+  const configuredPython = process.env.TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON
+  if (!configuredPython) {
+    return requireRuntimePython()
+  }
+
+  const info = inspectPython(configuredPython)
+  if (!info || !versionIsSupported(info)) {
+    console.error('TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON must point to a usable Python 3.10+ executable.')
+    process.exit(1)
+  }
+  return { ...info, executable: configuredPython }
+}
+
 function runIntegration({ requireGguf = false } = {}) {
   requireRuntimePython()
   const args = requireGguf ? ['--require-gguf'] : []
 
   const tests = requireGguf
     ? [
+        'tests/integration/buzzdb-context-routing.test.mjs',
         'tests/integration/python-engine-pdf.test.mjs',
         'tests/integration/gerard-larcher-chat.test.mjs',
         'tests/integration/annita-demetriou-chat.test.mjs'
       ]
-    : ['tests/integration/python-engine-pdf.test.mjs']
+    : [
+        'tests/integration/buzzdb-context-routing.test.mjs',
+        'tests/integration/python-engine-pdf.test.mjs'
+      ]
 
   for (const test of tests) {
     const status = runNode(test, args)
@@ -454,6 +473,23 @@ if (task === 'setup' || task === 'setup-runtime') {
 } else if (task === 'unit') {
   const python = requireRuntimePython()
   process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']))
+} else if (task === 'benchmark') {
+  const python = requireRuntimePython()
+  process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/benchmarks', '-p', 'test_*.py']))
+} else if (task === 'embedding-benchmark') {
+  const python = embeddingBenchmarkPython()
+  process.exit(runPython(
+    python.executable,
+    ['-m', 'unittest', 'tests.benchmarks.test_buzzdb_fastembed'],
+    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+  ))
+} else if (task === 'build-embedding-benchmark-cache') {
+  const python = embeddingBenchmarkPython()
+  process.exit(runPython(
+    python.executable,
+    ['tests/benchmarks/build_buzzdb_fastembed_cache.py', ...taskArgs],
+    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+  ))
 } else if (task === 'coverage') {
   const python = requireRuntimePython({ requireCoverage: true })
   const coverageStatus = runPython(
@@ -469,6 +505,6 @@ if (task === 'setup' || task === 'setup-runtime') {
 } else if (task === 'integration:gguf') {
   runIntegration({ requireGguf: true })
 } else {
-  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|coverage|integration|integration:gguf>')
+  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration|integration:gguf>')
   process.exit(1)
 }

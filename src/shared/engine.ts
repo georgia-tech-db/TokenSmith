@@ -9,6 +9,8 @@ import type {
 } from './app-state'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
+export type ConversationContextMode = 'standalone' | 'contextual'
+
 export interface EngineInfo {
   id: 'tokensmith'
   name: string
@@ -18,6 +20,9 @@ export interface EngineInfo {
 
 export interface EngineChatRequest {
   prompt: string
+  answerPrompt?: string
+  retrievalQuery?: string
+  conversationContextMode?: ConversationContextMode
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel

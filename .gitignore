@@ -14,5 +14,6 @@ __pycache__/
 .coverage-ts-runtime/
 .coverage-reports/
 htmlcov/
+tests/benchmarks/*.npz
 app_runtime/python/
 bundled_models/**/*.gguf

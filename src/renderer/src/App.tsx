@@ -59,7 +59,9 @@ import {
   followUpSuggestionCountOptions,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
-import { buildRetrievalContext, mergeChatSources } from '@shared/chat-context'
+import {
+  routeRetrievalContext
+} from '@shared/chat-context'
 import {
   quizFeedbackPrompt,
   quizQuestionPrompt,
@@ -3915,27 +3917,41 @@ function ChatScreen({
     requestSequenceRef.current = requestSequence
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
     const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
-    const retrievalContext = buildRetrievalContext(prompt, activeConversation.messages, {
-      turnCount: 1,
-      carriedSourceLimit: Math.min(2, settings.maxSources)
-    })
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
+    let answerPrompt = prompt
+    let retrievalQuery = prompt
+    let conversationContextMode: 'standalone' | 'contextual' = 'standalone'
 
     try {
       if (window.tokensmith && activeMaterials.length > 0) {
+        const tokensmith = window.tokensmith
         const searchLabels = activeMaterials
           .map(materialEmbedderLabel)
           .filter((label): label is string => Boolean(label))
         setPendingStatusText(`searching ${searchLabels.length ? searchLabels.join(', ') : 'Library'} ...`)
         const searchStartedAt = performance.now()
-        const searchResults = await window.tokensmith.searchLibrary(
-          retrievalContext.query,
-          activeMaterials,
-          settings.maxSources,
-          searchEmbeddingModels,
-          settings.application.searchMode
+        const retrievalChoice = await routeRetrievalContext(
+          prompt,
+          activeConversation.messages,
+          {
+            limit: settings.maxSources,
+            turnCount: 1,
+            carriedSourceLimit: Math.min(2, settings.maxSources),
+            onContextualSearch: () => setPendingStatusText('refining search ...'),
+            search: (query) =>
+              tokensmith.searchLibrary(
+                query,
+                activeMaterials,
+                settings.maxSources,
+                searchEmbeddingModels,
+                settings.application.searchMode
+              )
+          }
         )
-        retrievedSources = mergeChatSources(retrievalContext.carriedSources, searchResults, settings.maxSources)
+        retrievedSources = retrievalChoice.sources
+        answerPrompt = retrievalChoice.answerPrompt
+        retrievalQuery = retrievalChoice.query
+        conversationContextMode = retrievalChoice.mode
 
         if (requestSequenceRef.current !== requestSequence) {
           return
@@ -3960,6 +3976,9 @@ function ChatScreen({
 
       const reply = await window.tokensmith.sendChatMessage({
         prompt,
+        answerPrompt,
+        retrievalQuery,
+        conversationContextMode,
         messages: activeConversation.messages,
         materials: activeMaterials,
         model: selectedModel,
@@ -4311,7 +4330,9 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
 
   const modelLabel = logModelLabel(entry.data.model)
   const prompt = logString(entry.data.prompt)
-  const query = logString(entry.data.query)
+  const query = logString(entry.data.query) ?? logString(entry.data.retrievalQuery)
+  const answerPrompt = logString(entry.data.answerPrompt)
+  const conversationContextMode = logString(entry.data.conversationContextMode)
   const answer = logString(entry.data.text)
   const systemPrompt = logString(entry.data.systemPrompt)
   const sources = logRecords(entry.data.sources)
@@ -4324,12 +4345,14 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
     <div className="log-entry-body">
       <div className="log-entry-tags">
         {modelLabel && <span>{modelLabel}</span>}
+        {conversationContextMode && <span>{conversationContextMode}</span>}
         {sourceCount > 0 && <span>{sourceCount} {sourceCount === 1 ? 'source' : 'sources'}</span>}
         {typeof entry.data.limit === 'number' && <span>limit {entry.data.limit}</span>}
       </div>
 
       {prompt && <LogTextPanel title="Current Question" text={prompt} tone="question" />}
       {query && <LogTextPanel title="Search Query" text={query} tone="question" />}
+      {answerPrompt && answerPrompt !== prompt && <LogTextPanel title="Resolved Question" text={answerPrompt} tone="question" />}
       {answer && <LogTextPanel title="Answer" text={answer} />}
       {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
       {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
@@ -4375,7 +4398,7 @@ function LogMessages({ messages }: { messages: Record<string, unknown>[] }) {
     <section className="log-panel">
       <h3>Ordered Messages Sent To Model</h3>
       <p className="log-panel-note">
-        This is the exact message order. Prior turns are separate messages; the last user message contains retrieved source context plus the current question.
+        This is the exact message order. The last user message contains retrieved source context plus the question sent to the model.
       </p>
       <div className="log-message-list">
         {messages.map((message, index) => {

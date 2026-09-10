@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { buzzdbSource } from '../../helpers/buzzdb-fixture.mjs'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const {
@@ -24,6 +25,8 @@ const loggingSource = {
   locator: 'Page 9',
   excerpt: 'Logging records allow recovery after crashes.'
 }
+const bplusTreeSource = buzzdbSource('ch09.019')
+const pinningSource = buzzdbSource('ch05.084')
 const databaseContext = [
   'Use the context below only when it is relevant to the question.',
   'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
@@ -79,15 +82,21 @@ test('sourceContext prefers full chunk context over the short excerpt', () => {
   assert.doesNotMatch(context, /Short excerpt only/)
 })
 
-test('studyChatMessages includes system text, recent conversation, and retrieved source context', () => {
-  const messages = Array.from({ length: 14 }, (_, index) => ({
-    role: index % 2 === 0 ? 'user' : 'assistant',
-    text: index === 3 ? '   ' : `message ${index}`
-  }))
-
+test('studyChatMessages sends standalone source context without raw prior conversation', () => {
   const chatMessages = studyChatMessages({
-    prompt: 'What is atomicity?',
-    messages,
+    prompt: 'What exactly is a B+ tree and how is it different from a binary search tree?',
+    messages: [
+      {
+        id: 'u1',
+        role: 'user',
+        text: 'What is Phase 3 of the access pattern?'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: 'Phase 3 composes a tuple from fields.'
+      }
+    ],
     materials: [],
     model: ollamaChatModel,
     settings: {},
@@ -98,16 +107,51 @@ test('studyChatMessages includes system text, recent conversation, and retrieved
     modelSettings: {
       systemMessage: 'Answer only from PDFs.'
     },
-    retrievedSources: [databaseSource]
+    retrievedSources: [bplusTreeSource],
+    conversationContextMode: 'standalone'
   })
 
   assert.equal(chatMessages[0].role, 'system')
   assert.equal(chatMessages[0].content, 'Answer only from PDFs.')
-  assert.equal(chatMessages.some((message) => message.content === 'message 0'), false)
-  assert.equal(chatMessages.some((message) => message.content === 'message 3'), false)
+  assert.equal(chatMessages.length, 2)
+  assert.equal(chatMessages.some((message) => /Phase 3/.test(message.content)), false)
   assert.equal(chatMessages.at(-1).role, 'user')
-  assert.match(chatMessages.at(-1).content, /Transactions preserve atomicity and durability/)
-  assert.match(chatMessages.at(-1).content, /Question: What is atomicity\?/)
+  assert.match(chatMessages.at(-1).content, /It's a search tree, but it's not a binary tree/)
+  assert.match(chatMessages.at(-1).content, /Question: What exactly is a B\+ tree/)
+})
+
+test('studyChatMessages uses a resolved contextual prompt without copying raw history', () => {
+  const chatMessages = studyChatMessages({
+    prompt: 'why is that needed?',
+    answerPrompt: 'Previous question: What is pinning a page?\nCurrent question: why is that needed?',
+    messages: [
+      {
+        id: 'u1',
+        role: 'user',
+        text: 'What is pinning a page?'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: 'The old answer text should not be replayed as a separate model message.'
+      }
+    ],
+    materials: [],
+    model: ollamaChatModel,
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'on',
+      followUpSuggestionCount: 4
+    },
+    modelSettings: {},
+    retrievedSources: [pinningSource],
+    conversationContextMode: 'contextual'
+  })
+
+  assert.equal(chatMessages.length, 1)
+  assert.match(chatMessages[0].content, /Previous question: What is pinning a page\?/)
+  assert.match(chatMessages[0].content, /Current question: why is that needed\?/)
+  assert.doesNotMatch(chatMessages[0].content, /old answer text/)
 })
 
 test('answerWithOrderedSources removes source-number wording and moves the cited source first', () => {

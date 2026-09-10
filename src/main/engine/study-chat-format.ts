@@ -114,20 +114,12 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   const modelSettings = request.modelSettings as Partial<ModelRuntimeSettings> | undefined
   const systemMessage = modelSettings?.systemMessage?.trim()
   const context = sourceContext(request.retrievedSources ?? [])
-  const userContent = context ? `${context}\n\nQuestion: ${request.prompt}` : request.prompt
+  const answerPrompt = (request.answerPrompt ?? request.prompt).trim()
+  const userContent = context ? `${context}\n\nQuestion: ${answerPrompt}` : answerPrompt
   const messages: StudyChatMessage[] = []
 
   if (systemMessage) {
     messages.push({ role: 'system', content: systemMessage })
-  }
-
-  for (const message of request.messages.slice(-12)) {
-    const content = message.text.trim()
-    if (!content) {
-      continue
-    }
-
-    messages.push({ role: message.role, content })
   }
 
   messages.push({ role: 'user', content: userContent })
@@ -167,15 +159,6 @@ export function questionSuggestionMessages(request: EngineQuestionSuggestionRequ
 
   if (systemMessage) {
     messages.push({ role: 'system', content: systemMessage })
-  }
-
-  for (const message of request.messages.slice(-12)) {
-    const content = message.text.trim()
-    if (!content) {
-      continue
-    }
-
-    messages.push({ role: message.role, content })
   }
 
   if (context) {
