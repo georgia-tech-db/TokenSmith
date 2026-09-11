@@ -139,10 +139,14 @@ function runPython(python, args, env = {}) {
   return result.status ?? 1
 }
 
-function runNode(script, args = []) {
+function runNode(script, args = [], env = {}) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd: root,
-    stdio: 'inherit'
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...env
+    }
   })
   return result.status ?? 1
 }
@@ -470,12 +474,10 @@ function runIntegration({ requireGguf = false } = {}) {
 
 function runBenchmark() {
   const python = requireRuntimePython()
-  const pythonStatus = runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/benchmarks', '-p', 'test_*.py'])
-  if (pythonStatus !== 0) {
-    process.exit(pythonStatus)
-  }
-
-  process.exit(runNode('tests/benchmarks/test_buzzdb_multiturn.mjs'))
+  process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', [], {
+    TOKENSMITH_BENCHMARK_PYTHON: python.executable,
+    ...pythonEnv(python.executable)
+  }))
 }
 
 if (task === 'setup' || task === 'setup-runtime') {
