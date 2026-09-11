@@ -3938,11 +3938,11 @@ function ChatScreen({
             turnCount: 1,
             carriedSourceLimit: Math.min(2, settings.maxSources),
             onContextualSearch: () => setPendingStatusText('refining search ...'),
-            search: (query) =>
+            search: (query, sourceLimit = settings.maxSources) =>
               tokensmith.searchLibrary(
                 query,
                 activeMaterials,
-                settings.maxSources,
+                sourceLimit,
                 searchEmbeddingModels,
                 settings.application.searchMode
               )

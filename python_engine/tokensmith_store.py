@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import math
 import random
@@ -125,6 +126,9 @@ KEYWORD_STOPWORDS: Set[str] = {
 }
 MAX_KEYWORD_QUERY_TERMS = 8
 MAX_ANCHOR_DF_RATIO = 0.20
+MIN_KEYWORD_CORRECTION_LENGTH = 4
+KEYWORD_CORRECTION_CUTOFF = 0.82
+KEYWORD_CORRECTION_LENGTH_WINDOW = 2
 
 
 def db_path(user_data_path: str) -> Path:
@@ -308,6 +312,14 @@ def create_fts_schema(conn: sqlite3.Connection) -> None:
             INSERT INTO chunks_fts(rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
             VALUES (new.id, new.id, new.document_id, new.chunk_text, new.file, new.title, new.author, new.subject, new.keywords);
         END;
+
+        CREATE TABLE IF NOT EXISTS chunk_terms (
+            chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+            term TEXT NOT NULL,
+            PRIMARY KEY(chunk_id, term)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chunk_terms_term ON chunk_terms(term);
         """
     )
 
@@ -668,6 +680,45 @@ def insert_document(conn: sqlite3.Connection, folder_id: int, document_path: str
     return int(row["id"])
 
 
+def chunk_vocabulary_terms(*parts: Any) -> Set[str]:
+    terms: Set[str] = set()
+    for part in parts:
+        for raw_term in re.findall(r"[0-9A-Za-z]+", str(part or "")):
+            term = raw_term.casefold()
+            if len(term) < 2 or term in KEYWORD_STOPWORDS:
+                continue
+            terms.add(term)
+    return terms
+
+
+def replace_chunk_terms(conn: sqlite3.Connection, chunk_id: int, *parts: Any) -> None:
+    terms = sorted(chunk_vocabulary_terms(*parts))
+    conn.execute("DELETE FROM chunk_terms WHERE chunk_id = ?", (chunk_id,))
+    if not terms:
+        return
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO chunk_terms(chunk_id, term)
+        VALUES (?, ?)
+        """,
+        [(chunk_id, term) for term in terms],
+    )
+
+
+def replace_chunk_terms_for_row(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    replace_chunk_terms(
+        conn,
+        int(row["id"]),
+        row["chunk_text"],
+        row["file"],
+        row["title"],
+        row["author"],
+        row["subject"],
+        row["keywords"],
+        row["section_header"],
+    )
+
+
 def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> int:
     text = str(chunk.get("text") or "")
     word_count = int(chunk.get("wordCount") or len(text.split()))
@@ -861,6 +912,14 @@ def upsert_material(
                 continue
 
             chunk_id = upsert_chunk(conn, document_id, chunk)
+            replace_chunk_terms(
+                conn,
+                chunk_id,
+                chunk.get("text"),
+                chunk.get("path"),
+                chunk.get("documentTitle"),
+                chunk.get("sectionHeader"),
+            )
             embedding = chunk.get("embedding")
             if embedding:
                 blob, _dim = vector_to_blob(embedding)
@@ -935,6 +994,14 @@ def append_material_chunks(
                 continue
 
             chunk_id = upsert_chunk(conn, document_id, chunk)
+            replace_chunk_terms(
+                conn,
+                chunk_id,
+                chunk.get("text"),
+                chunk.get("path"),
+                chunk.get("documentTitle"),
+                chunk.get("sectionHeader"),
+            )
             embedding = chunk.get("embedding")
             if not embedding:
                 continue
@@ -1170,6 +1237,149 @@ def build_fts_match_query(terms: Sequence[str], operator: str = "OR") -> str:
     return joiner.join(f'"{term}"' for term in safe_terms)
 
 
+def _keyword_term_document_frequency(
+    conn: sqlite3.Connection,
+    term: str,
+    active_filter: str,
+    active_params: Sequence[str],
+) -> int:
+    match_query = build_fts_match_query([term])
+    if not match_query:
+        return 0
+
+    try:
+        return int(
+            conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT chunks_fts.rowid)
+                FROM chunks_fts
+                WHERE chunks_fts MATCH ?
+                  AND {active_filter}
+                """,
+                [match_query, *active_params],
+            ).fetchone()[0]
+        )
+    except sqlite3.OperationalError:
+        return 0
+
+
+def ensure_chunk_terms_for_active_materials(
+    conn: sqlite3.Connection,
+    active_material_ids: Sequence[str],
+) -> None:
+    if not active_material_ids:
+        return
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    rows = conn.execute(
+        f"""
+        SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM chunk_terms ct
+              WHERE ct.chunk_id = ch.id
+          )
+        """,
+        [str(material_id) for material_id in active_material_ids],
+    ).fetchall()
+
+    for row in rows:
+        replace_chunk_terms_for_row(conn, row)
+
+
+def active_vocabulary_terms_near(
+    conn: sqlite3.Connection,
+    term: str,
+    active_material_ids: Sequence[str],
+) -> List[str]:
+    if (
+        len(term) < MIN_KEYWORD_CORRECTION_LENGTH
+        or not re.fullmatch(r"[a-z]+", term)
+        or not active_material_ids
+    ):
+        return []
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    min_length = max(MIN_KEYWORD_CORRECTION_LENGTH, len(term) - KEYWORD_CORRECTION_LENGTH_WINDOW)
+    max_length = len(term) + KEYWORD_CORRECTION_LENGTH_WINDOW
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT ct.term
+        FROM chunk_terms ct
+        JOIN chunks ch ON ch.id = ct.chunk_id
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND length(ct.term) BETWEEN ? AND ?
+        """,
+        [*[str(material_id) for material_id in active_material_ids], min_length, max_length],
+    ).fetchall()
+    return [
+        str(row["term"])
+        for row in rows
+        if re.fullmatch(r"[a-z]+", str(row["term"]))
+    ]
+
+
+def is_single_edit_or_transposition(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+
+    if len(left) == len(right):
+        mismatches = [index for index, (left_char, right_char) in enumerate(zip(left, right)) if left_char != right_char]
+        return (
+            len(mismatches) <= 1
+            or (
+                len(mismatches) == 2
+                and mismatches[1] == mismatches[0] + 1
+                and left[mismatches[0]] == right[mismatches[1]]
+                and left[mismatches[1]] == right[mismatches[0]]
+            )
+        )
+
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    short_index = 0
+    long_index = 0
+    skipped = False
+    while short_index < len(shorter) and long_index < len(longer):
+        if shorter[short_index] == longer[long_index]:
+            short_index += 1
+            long_index += 1
+            continue
+        if skipped:
+            return False
+        skipped = True
+        long_index += 1
+
+    return True
+
+
+def corrected_keyword_term(
+    conn: sqlite3.Connection,
+    term: str,
+    active_material_ids: Sequence[str],
+) -> Optional[str]:
+    candidates = active_vocabulary_terms_near(conn, term, active_material_ids)
+    edit_matches = [candidate for candidate in candidates if is_single_edit_or_transposition(term, candidate)]
+    if edit_matches:
+        return difflib.get_close_matches(term, edit_matches, n=1, cutoff=0.0)[0]
+
+    matches = difflib.get_close_matches(term, candidates, n=1, cutoff=KEYWORD_CORRECTION_CUTOFF)
+    return matches[0] if matches and matches[0] != term else None
+
+
 def keyword_terms_for_query(
     user_data_path: str,
     query: str,
@@ -1182,6 +1392,7 @@ def keyword_terms_for_query(
 
     active_filter, active_params = _active_chunks_filter(active_material_ids)
     with connect(user_data_path) as conn:
+        ensure_chunk_terms_for_active_materials(conn, active_material_ids)
         total_chunks = conn.execute(
             f"""
             SELECT COUNT(DISTINCT chunks_fts.rowid)
@@ -1196,29 +1407,28 @@ def keyword_terms_for_query(
 
         ranked_terms: List[Tuple[str, float, int, int]] = []
         fallback_terms: List[Tuple[str, float, int, int]] = []
+        seen_ranked_terms: Set[str] = set()
         for index, term in enumerate(terms):
-            try:
-                df = int(
-                    conn.execute(
-                        f"""
-                        SELECT COUNT(DISTINCT chunks_fts.rowid)
-                        FROM chunks_fts
-                        WHERE chunks_fts MATCH ?
-                          AND {active_filter}
-                        """,
-                        [build_fts_match_query([term]), *active_params],
-                    ).fetchone()[0]
-                )
-            except sqlite3.OperationalError:
-                continue
+            df = _keyword_term_document_frequency(conn, term, active_filter, active_params)
+            chosen_term = term
+            if df <= 0:
+                corrected_term = corrected_keyword_term(conn, term, active_material_ids)
+                if corrected_term:
+                    corrected_df = _keyword_term_document_frequency(conn, corrected_term, active_filter, active_params)
+                    if corrected_df > 0:
+                        chosen_term = corrected_term
+                        df = corrected_df
 
             if df <= 0:
                 continue
+            if chosen_term in seen_ranked_terms:
+                continue
 
             idf = math.log((float(total_chunks) + 1.0) / (float(df) + 1.0)) + 1.0
-            term_rank = (term, idf, df, index)
+            term_rank = (chosen_term, idf, df, index)
+            seen_ranked_terms.add(chosen_term)
             fallback_terms.append(term_rank)
-            if df / float(total_chunks) <= MAX_ANCHOR_DF_RATIO or len(term) >= 4:
+            if df / float(total_chunks) <= MAX_ANCHOR_DF_RATIO or len(chosen_term) >= 4:
                 ranked_terms.append(term_rank)
 
     chosen_terms = ranked_terms or fallback_terms

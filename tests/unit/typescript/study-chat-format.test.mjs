@@ -29,7 +29,8 @@ const bplusTreeSource = buzzdbSource('ch09.019')
 const pinningSource = buzzdbSource('ch05.084')
 const databaseContext = [
   'Use the context below only when it is relevant to the question.',
-  'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
+  'Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, start with the conclusion and include the key reason or trade-off from the context.',
+  'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
   'If the context does not contain the answer, say that plainly.',
   '',
   '### Context:',

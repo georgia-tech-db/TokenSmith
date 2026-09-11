@@ -138,6 +138,66 @@ class KeywordSearchTests(unittest.TestCase):
             self.assertEqual(hits[0][0], rowids[1])
             self.assertIn(rowids[2], [rowid for rowid, _score in hits])
 
+    def test_keyword_search_corrects_typos_using_active_material_terms(self):
+        with tempfile.TemporaryDirectory() as user_data_path:
+            store.init_db(user_data_path)
+            with store.connect(user_data_path) as conn:
+                rowids = self.insert_material(
+                    conn,
+                    1,
+                    [
+                        "Hash index entries are fast for point lookups.",
+                        "A hash index is bad for range queries because it cannot scan adjacent ordered entries.",
+                    ],
+                )
+
+            terms = store.keyword_terms_for_query(
+                user_data_path,
+                "why is a hash indx bad for rnage queris",
+                ["1"],
+            )
+            hits = store.keyword_search(
+                user_data_path,
+                "why is a hash indx bad for rnage queris",
+                ["1"],
+                2,
+                terms,
+            )
+
+            self.assertIn("index", terms)
+            self.assertIn("range", terms)
+            self.assertEqual(hits[0][0], rowids[1])
+
+    def test_keyword_typo_correction_uses_only_selected_materials(self):
+        with tempfile.TemporaryDirectory() as user_data_path:
+            store.init_db(user_data_path)
+            with store.connect(user_data_path) as conn:
+                selected_rowids = self.insert_material(
+                    conn,
+                    1,
+                    [
+                        "A buffer manager pins a page while it is in active use.",
+                    ],
+                )
+                other_rowids = self.insert_material(
+                    conn,
+                    2,
+                    [
+                        "A B+ tree answers range queries by scanning ordered leaves.",
+                    ],
+                )
+
+            selected_terms = store.keyword_terms_for_query(user_data_path, "rnage queris", ["1"])
+            other_terms = store.keyword_terms_for_query(user_data_path, "rnage queris", ["2"])
+            selected_hits = store.keyword_search(user_data_path, "rnage queris", ["1"], 2, selected_terms)
+            other_hits = store.keyword_search(user_data_path, "rnage queris", ["2"], 2, other_terms)
+
+            self.assertEqual(selected_terms, [])
+            self.assertEqual(selected_hits, [])
+            self.assertIn("range", other_terms)
+            self.assertEqual(other_hits[0][0], other_rowids[0])
+            self.assertNotEqual(other_hits[0][0], selected_rowids[0])
+
 
 if __name__ == "__main__":
     unittest.main()

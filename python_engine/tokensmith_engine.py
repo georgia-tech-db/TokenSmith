@@ -2177,7 +2177,9 @@ def local_source_context(sources: List[Dict[str, Any]], *, max_chars: Optional[i
 
     parts = [
         "Use the context below only when it is relevant to the question.\n",
-        "Answer directly. Do not quote the context before answering. Do not mention context labels.\n",
+        "Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, "
+        "start with the conclusion and include the key reason or trade-off from the context.\n",
+        "Do not quote the context before answering. Do not mention context labels.\n",
         "If the context does not contain the answer, say that plainly.\n\n",
         "### Context:\n",
     ]

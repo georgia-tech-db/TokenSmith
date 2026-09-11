@@ -11,6 +11,19 @@ const {
 
 const pinningSource = buzzdbSource('ch05.084')
 const lruScanSource = buzzdbSource('ch06.012')
+const lruTouchSource = buzzdbSource('ch06.041')
+const lruEvictSource = buzzdbSource('ch06.042')
+const lruTraceTableSource = buzzdbSource('ch06.043')
+const lruTraceStepsSource = buzzdbSource('ch06.044')
+const lruHotColdSource = buzzdbSource('ch06.045')
+const twoQIntroSource = buzzdbSource('ch06.057')
+const twoQMechanismSource = buzzdbSource('ch06.059')
+const twoQScanSource = buzzdbSource('ch06.064')
+const hashRangeComparisonSource = buzzdbSource('ch08.058')
+const hashBplusComparisonSource = buzzdbSource('ch08.059')
+const bplusBenchmarkSource = buzzdbSource('ch09.013')
+const sequenceSetSource = buzzdbSource('ch09.030')
+const sequenceSetScanSource = buzzdbSource('ch09.033')
 const phaseThreeSource = buzzdbSource('ch02.046')
 const bplusTreeSource = buzzdbSource('ch09.019')
 const accidentalBetterSource = {
@@ -24,6 +37,21 @@ const accidentalBetterSource = {
   chunkId: 'wrong-better-source'
 }
 const buzzdbSources = [pinningSource, lruScanSource, phaseThreeSource, bplusTreeSource, accidentalBetterSource]
+const lruElaborationSources = [
+  lruTouchSource,
+  lruEvictSource,
+  lruTraceTableSource,
+  lruTraceStepsSource,
+  lruHotColdSource,
+  twoQIntroSource,
+  twoQMechanismSource,
+  twoQScanSource
+]
+const hashPreferenceSources = [
+  bplusBenchmarkSource,
+  hashRangeComparisonSource,
+  hashBplusComparisonSource
+]
 const model = {
   id: 'ollama:llama3',
   name: 'Ollama llama3',
@@ -99,7 +127,7 @@ function formatMessages(prompt, messages, choice) {
 {
   const priorMessages = completedTurn(
     'What is pinning a page?',
-    'This stale assistant answer must not be replayed to the model.',
+    'Pinning keeps a page from being evicted while a component is using it.',
     [pinningSource]
   )
   const calls = []
@@ -119,9 +147,9 @@ function formatMessages(prompt, messages, choice) {
   assert.equal(choice.sources[0], pinningSource)
   assert.equal(modelMessages.length, 1)
   assert.match(modelMessages[0].content, /Previous question: What is pinning a page\?/)
+  assert.match(modelMessages[0].content, /Previous answer: Pinning keeps a page/)
   assert.match(modelMessages[0].content, /Current question: why is that needed\?/)
   assert.match(modelMessages[0].content, /silent data corruption or a catastrophic crash/)
-  assert.doesNotMatch(modelMessages[0].content, /stale assistant answer/)
 }
 
 {
@@ -152,6 +180,70 @@ function formatMessages(prompt, messages, choice) {
   assert.match(modelMessages[0].content, /Current question: why is it better/)
   assert.match(modelMessages[0].content, /wide, shallow tree/)
   assert.doesNotMatch(modelMessages[0].content, /index scan is dramatically better/)
+}
+
+{
+  const previousQuestion = 'How does the LRU policy ensure that "hot" pages stay in the buffer, while "cold" pages are evicted?'
+  const priorMessages = completedTurn(
+    previousQuestion,
+    'LRU keeps recently touched pages near the front of its list and evicts from the back.',
+    [twoQMechanismSource, lruHotColdSource]
+  )
+  const calls = []
+  const prompt = 'Elaborate on that'
+  const choice = await routeRetrievalContext(prompt, priorMessages, {
+    limit: 4,
+    turnCount: 1,
+    carriedSourceLimit: 2,
+    search: (query, limit = 4) => searchBuzzdbFixture(query, lruElaborationSources, calls, limit)
+  })
+  const modelMessages = formatMessages(prompt, priorMessages, choice)
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+  const selectedTwoQCount = selectedChunkIds.filter((chunkId) =>
+    ['ch06.057', 'ch06.059', 'ch06.064'].includes(chunkId)
+  ).length
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0], prompt)
+  assert.match(calls[1], /lru/)
+  assert.equal(calls[1].includes('2q'), false)
+  assert.equal(calls[1].includes('fifo'), false)
+  assert.equal(selectedChunkIds[0], 'ch06.045')
+  assert.ok(selectedChunkIds.includes('ch06.044'))
+  assert.ok(selectedTwoQCount <= 1)
+  assert.equal(modelMessages.length, 1)
+  assert.match(modelMessages[0].content, /Current question: Elaborate on that/)
+  assert.match(modelMessages[0].content, /This trace shows the dynamism of the LRU policy/)
+  assert.doesNotMatch(modelMessages[0].content, /The 2Q policy's first choice/)
+}
+
+{
+  const priorMessages = completedTurn(
+    'What exact part of the B+ tree makes the range scan fast?',
+    'The sequence set connects the leaf pages, so a range scan can continue through adjacent leaves.',
+    [sequenceSetSource, sequenceSetScanSource]
+  )
+  const calls = []
+  const prompt = 'Does that mean we should always prefer it over hashing?'
+  const choice = await routeRetrievalContext(prompt, priorMessages, {
+    limit: 4,
+    turnCount: 1,
+    carriedSourceLimit: 2,
+    search: (query, limit = 4) => searchBuzzdbFixture(query, hashPreferenceSources, calls, limit)
+  })
+  const modelMessages = formatMessages(prompt, priorMessages, choice)
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+  const comparisonIndex = selectedChunkIds.findIndex((chunkId) => ['ch08.058', 'ch08.059'].includes(chunkId))
+  const extraFocusIndex = selectedChunkIds.indexOf('ch09.033')
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(calls.length, 2)
+  assert.match(calls[1], /hashing/)
+  assert.ok(selectedChunkIds.includes('ch09.030'))
+  assert.ok(comparisonIndex >= 0)
+  assert.ok(extraFocusIndex < 0 || comparisonIndex < extraFocusIndex)
+  assert.match(modelMessages[0].content, /Current question: Does that mean we should always prefer it over hashing\?/)
 }
 
 console.log('BuzzDB context routing integration test passed.')
