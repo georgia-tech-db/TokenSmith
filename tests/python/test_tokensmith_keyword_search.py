@@ -118,6 +118,10 @@ class KeywordSearchTests(unittest.TestCase):
             hits = store.keyword_search(user_data_path, query, ["1"], 2)
             self.assertEqual(hits[0][0], rowids[1])
 
+    def test_keyword_terms_drop_comparative_followup_fillers(self):
+        query = "does that mean we should always prefer it because it is better or worse"
+        self.assertEqual(store.keyword_query_terms(query), [])
+
     def test_keyword_search_prefers_chunks_that_match_all_meaningful_terms(self):
         with tempfile.TemporaryDirectory() as user_data_path:
             store.init_db(user_data_path)

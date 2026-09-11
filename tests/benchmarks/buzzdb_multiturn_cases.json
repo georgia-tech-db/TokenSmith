@@ -1,0 +1,134 @@
+[
+  {
+    "id": "pinning_followup_why_needed",
+    "priorQuestion": "What is pinning a page?",
+    "priorAnswer": "Pinning keeps a page from being evicted while a component is using it.",
+    "priorSourceIds": ["ch05.084"],
+    "prompt": "why is that needed?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch05.084", "ch05.085", "ch05.090", "ch02.046", "ch06.012", "ch09.019"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["pinning", "page"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch05.084"],
+    "expectedChunkIds": ["ch05.084"],
+    "requiredPromptContext": ["silent data corruption", "ineligible for eviction"],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenPromptContext": ["Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "bplus_followup_why_better",
+    "priorQuestion": "What exactly is a B+ tree and how is it different from a binary search tree?",
+    "priorAnswer": "A B+ tree is a wide, shallow search tree designed for disk pages.",
+    "priorSourceIds": ["ch09.019"],
+    "prompt": "why is it better?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch09.019", "ch09.020", "ch09.030", "ch10.011", "ch07.015", "ch09.047", "ch02.046"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["b+", "tree"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch09.019"],
+    "expectedChunkIds": ["ch09.019"],
+    "requiredPromptContext": ["not a binary tree", "wide, shallow tree", "disk read"],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenPromptContext": ["A better approach is to use a spatial index", "Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "lru_followup_elaborate",
+    "priorQuestion": "How does the LRU policy ensure that hot pages stay in the buffer, while cold pages are evicted?",
+    "priorAnswer": "LRU keeps recently touched pages near the front of its list and evicts from the back.",
+    "priorSourceIds": ["ch06.059", "ch06.045"],
+    "prompt": "Elaborate on that.",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch06.057", "ch06.059", "ch06.064", "ch05.046", "ch05.047", "ch06.044", "ch06.045"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["lru", "hot", "cold"],
+    "expectedQueryExcludes": ["2q", "fifo", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch06.045"],
+    "expectedChunkIds": ["ch06.044", "ch06.045"],
+    "maxSelectedFromChunkIds": {
+      "chunkIds": ["ch06.057", "ch06.059", "ch06.064"],
+      "max": 1
+    },
+    "requiredPromptContext": ["This trace shows the dynamism of the LRU policy", "identifies page 3 as the LRU victim"],
+    "forbiddenPromptContext": ["The 2Q policy's first choice"]
+  },
+  {
+    "id": "sequence_set_hashing_contrast",
+    "priorQuestion": "What exact part of the B+ tree makes the range scan fast?",
+    "priorAnswer": "The sequence set connects the leaf pages, so a range scan can continue through adjacent leaves.",
+    "priorSourceIds": ["ch09.030", "ch09.033"],
+    "prompt": "Does that mean we should always prefer it over hashing?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch09.013", "ch08.057", "ch08.058", "ch08.059", "ch09.015", "ch09.030", "ch09.033", "ch10.020"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["hashing", "b+", "tree", "range", "scan"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedChunkIds": ["ch09.030", "ch08.059"],
+    "expectedAnyChunkIdWithinRank": {
+      "chunkIds": ["ch08.058", "ch08.059"],
+      "within": 2
+    },
+    "rankAnyBeforeAny": {
+      "earlierChunkIds": ["ch08.058", "ch08.059"],
+      "laterChunkIds": ["ch09.033"]
+    },
+    "requiredPromptContext": ["The hash index is a specialized tool", "sequence set"],
+    "forbiddenChunkIds": ["ch10.020"]
+  },
+  {
+    "id": "column_store_tradeoff_chain",
+    "seedQuestion": "What is a column store?",
+    "seedAnswer": "A column store groups values from the same attribute together instead of storing entire rows contiguously.",
+    "seedSourceIds": ["ch15.021", "ch15.027"],
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "turns": [
+      {
+        "id": "analytics_benefit",
+        "prompt": "Why is that useful for analytical queries?",
+        "candidateChunkIds": ["ch15.021", "ch15.023", "ch15.024", "ch15.034", "ch15.035", "ch15.039", "ch15.045", "ch15.046", "ch13.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["analytical", "queries", "column", "store"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.039", "ch15.046"],
+        "expectedChunkIds": ["ch15.039", "ch15.021"],
+        "requiredPromptContext": ["query needs 2 out of 8 columns", "read only the specific columns it needs"],
+        "forbiddenChunkIds": ["ch13.090"],
+        "assistantAnswer": "Column stores help analytical queries because they often read only a few columns, so the system can skip unrelated columns and reduce I/O."
+      },
+      {
+        "id": "full_row_waste",
+        "prompt": "Why is loading entire rows wasteful there?",
+        "candidateChunkIds": ["ch15.021", "ch15.023", "ch15.024", "ch15.034", "ch15.035", "ch15.039", "ch15.045", "ch15.046", "ch13.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["loading", "entire", "rows", "wasteful"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.021", "ch15.046"],
+        "expectedChunkIds": ["ch15.021"],
+        "requiredPromptContext": ["every row and every column", "immediately discard"],
+        "forbiddenChunkIds": ["ch13.090"],
+        "assistantAnswer": "Loading entire rows is wasteful for analytics because the query may only need two columns, so unrelated columns consume disk bandwidth and are discarded."
+      },
+      {
+        "id": "full_row_useful",
+        "prompt": "When is loading an entire row actually useful?",
+        "candidateChunkIds": ["ch15.021", "ch15.034", "ch15.035", "ch15.040", "ch15.045", "ch15.046", "ch15.047", "ch15.048", "ch15.049", "ch09.019"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["loading", "entire", "row"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.046"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.046", "ch15.047"],
+          "within": 4
+        },
+        "requiredPromptContext": ["access an entire row at once", "fetching a user's complete profile"],
+        "forbiddenChunkIds": ["ch15.049"]
+      }
+    ]
+  }
+]

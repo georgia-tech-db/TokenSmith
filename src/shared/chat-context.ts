@@ -46,6 +46,8 @@ const genericQueryTerms = new Set([
   'above',
   'after',
   'again',
+  'always',
+  'also',
   'an',
   'and',
   'answer',
@@ -57,10 +59,15 @@ const genericQueryTerms = new Set([
   'been',
   'before',
   'being',
+  'bad',
+  'best',
+  'better',
   'but',
   'by',
   'can',
+  'cant',
   'chapter',
+  'cannot',
   'could',
   'describe',
   'did',
@@ -68,6 +75,7 @@ const genericQueryTerms = new Set([
   'does',
   'doing',
   'done',
+  'dont',
   'each',
   'elaborate',
   'explain',
@@ -89,18 +97,25 @@ const genericQueryTerms = new Set([
   'is',
   'it',
   'its',
+  'just',
   'me',
   'mean',
   'more',
+  'need',
   'needed',
   'of',
   'on',
+  'one',
   'ok',
   'or',
   'other',
   'our',
   'over',
   'previous',
+  'prefer',
+  'preferable',
+  'preferred',
+  'prefers',
   'purpose',
   'same',
   'she',
@@ -137,6 +152,8 @@ const genericQueryTerms = new Set([
   'with',
   'work',
   'would',
+  'worse',
+  'worst',
   'you',
   'your'
 ])
@@ -148,6 +165,7 @@ const referenceTerms = new Set([
   'previous',
   'same',
   'that',
+  'there',
   'their',
   'them',
   'these',
@@ -838,20 +856,19 @@ function contextualCandidateLimit(limit: number): number {
 }
 
 function sourceKey(source: ChatSource): string {
-  if (source.sourceId !== undefined && source.sourceId !== null && String(source.sourceId).trim()) {
-    return String(source.sourceId)
-  }
-
   const stableChunkId = source.chunkId ?? source.chunkRowid
   if (stableChunkId !== undefined && stableChunkId !== null && String(stableChunkId).trim()) {
+    const locationKey = source.path ?? source.documentId ?? source.materialId ?? source.sourceId
     return [
-      source.materialId,
-      source.documentId,
-      source.path,
+      locationKey,
       stableChunkId
     ]
       .map((part) => String(part ?? ''))
       .join('|')
+  }
+
+  if (source.sourceId !== undefined && source.sourceId !== null && String(source.sourceId).trim()) {
+    return String(source.sourceId)
   }
 
   return [

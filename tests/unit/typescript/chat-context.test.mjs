@@ -55,8 +55,11 @@ function completedTurn(userText, assistantText, sources) {
 
 test('profileQuestion scores underspecified prompts by anchor terms, not by canned follow-up phrases', () => {
   const underspecified = profileQuestion('why is that needed?')
+  const comparativeFollowUp = profileQuestion('why is it better?')
   assert.deepEqual(underspecified.anchorTerms, [])
   assert.equal(underspecified.specificity, 0)
+  assert.deepEqual(comparativeFollowUp.anchorTerms, [])
+  assert.equal(comparativeFollowUp.specificity, 0)
 
   const namedShortQuestion = profileQuestion('What is CC BY-SA?')
   assert.ok(namedShortQuestion.anchorTerms.includes('by-sa'))
@@ -65,10 +68,12 @@ test('profileQuestion scores underspecified prompts by anchor terms, not by cann
 
 test('profileQuestion tolerates small reference typos without turning grammar words into references', () => {
   const typoProfile = profileQuestion('Elaborate on taht')
+  const thereProfile = profileQuestion('Why is loading entire rows wasteful there?')
   const comparisonProfile = profileQuestion('Why is a B+ tree better than a binary search tree?')
 
   assert.equal(typoProfile.hasExternalReference, true)
   assert.deepEqual(typoProfile.anchorTerms, [])
+  assert.equal(thereProfile.hasExternalReference, true)
   assert.equal(comparisonProfile.hasExternalReference, false)
 })
 
@@ -160,7 +165,7 @@ test('chooseRetrievalContext selects contextual sources for an underspecified fo
   assert.deepEqual(choice.sources, [pinningSource])
 })
 
-test('chooseRetrievalContext selects contextual sources for a referring follow-up with a weak standalone match', () => {
+test('chooseRetrievalContext selects contextual sources for comparative follow-up filler', () => {
   const messages = completedTurn(
     'What exactly is a B+ tree and how is it different from a binary search tree?',
     'A B+ tree is a wide, shallow search tree designed for disk pages.',
@@ -184,7 +189,7 @@ test('chooseRetrievalContext selects contextual sources for a referring follow-u
     2
   )
 
-  assert.equal(choice.standaloneQuality, 1)
+  assert.equal(choice.standaloneQuality, 0)
   assert.equal(choice.mode, 'contextual')
   assert.match(choice.query, /btree|b\+/)
   assert.match(choice.answerPrompt, /Previous question: What exactly is a B\+ tree/)
