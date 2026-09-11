@@ -554,6 +554,7 @@ function createOllamaChatModel(
     ollamaModelName: normalizedModelName,
     ollamaBaseUrl: baseUrl,
     sizeBytes: modelInfo?.size,
+    contextLength: modelInfo?.details?.contextLength,
     parameters: modelInfo?.details?.parameterSize,
     quant: modelInfo?.details?.quantizationLevel,
     type: modelInfo?.details?.family ? `Ollama ${modelInfo.details.family}` : 'Ollama chat',
@@ -587,6 +588,7 @@ function createOllamaEmbedderModel(
     ollamaModelName: normalizedModelName,
     ollamaBaseUrl: baseUrl,
     sizeBytes: modelInfo?.size,
+    contextLength: modelInfo?.details?.contextLength,
     parameters: modelInfo?.details?.parameterSize,
     quant: modelInfo?.details?.quantizationLevel,
     type: modelInfo?.details?.family ? `Ollama ${modelInfo.details.family}` : 'Ollama embedder',
@@ -729,6 +731,10 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           source: 'ollama' as const,
           ollamaModelName,
           ollamaBaseUrl: model.ollamaBaseUrl ?? defaultOllamaBaseUrl,
+          sizeBytes: model.sizeBytes,
+          contextLength: normalizeOptionalContextLength(model.contextLength),
+          parameters: model.parameters,
+          quant: model.quant,
           type: model.type ?? (role === 'embedder' ? 'Ollama embedder' : 'Ollama chat'),
           description: model.description,
           addedAt: model.addedAt ?? new Date(index).toISOString()
@@ -751,6 +757,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           apiKey: model.apiKey,
           remoteModelName: model.remoteModelName,
           embeddingPath: model.embeddingPath,
+          contextLength: normalizeOptionalContextLength(model.contextLength),
           type: model.type ?? 'OpenAI-compatible',
           description: model.description,
           addedAt: model.addedAt ?? new Date(index).toISOString()
@@ -784,6 +791,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         url: model.url,
         sizeBytes: model.sizeBytes,
         ramRequiredGb: model.ramRequiredGb,
+        contextLength: normalizeOptionalContextLength(model.contextLength),
         parameters: model.parameters,
         quant: model.quant,
         type: model.type,
@@ -802,6 +810,11 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
   }
 
   return Math.max(min, Math.min(max, numericValue))
+}
+
+function normalizeOptionalContextLength(value: unknown): number | undefined {
+  const contextLength = Math.round(clampNumber(value, 0, 0, 32768))
+  return contextLength > 0 ? contextLength : undefined
 }
 
 function normalizeChoice<T extends string>(value: unknown, choices: readonly T[], defaultValue: T): T {
@@ -1865,12 +1878,20 @@ export function App() {
     })
   }
 
-  function installOllamaChatModel(modelName = recommendedOllamaChatModel, baseUrl = defaultOllamaBaseUrl) {
-    upsertModel(createOllamaChatModel(modelName, baseUrl), true, null)
+  function installOllamaChatModel(
+    modelName = recommendedOllamaChatModel,
+    baseUrl = defaultOllamaBaseUrl,
+    modelInfo?: OllamaModelInfo
+  ) {
+    upsertModel(createOllamaChatModel(modelName, baseUrl, modelInfo), true, null)
   }
 
-  function installOllamaEmbedderModel(modelName = recommendedOllamaEmbeddingModel, baseUrl = defaultOllamaBaseUrl) {
-    upsertModel(createOllamaEmbedderModel(modelName, baseUrl), true, null)
+  function installOllamaEmbedderModel(
+    modelName = recommendedOllamaEmbeddingModel,
+    baseUrl = defaultOllamaBaseUrl,
+    modelInfo?: OllamaModelInfo
+  ) {
+    upsertModel(createOllamaEmbedderModel(modelName, baseUrl, modelInfo), true, null)
   }
 
   async function latestOllamaModelInfo(modelName: string, baseUrl = defaultOllamaBaseUrl) {
@@ -2400,8 +2421,8 @@ function ChatScreen({
   selectedModel?: LocalModel
   settings: TokenSmithSettings
   onDismissSetupCard: () => void
-  onInstallOllamaChatModel: (modelName?: string, baseUrl?: string) => void
-  onInstallOllamaEmbedderModel: (modelName?: string, baseUrl?: string) => void
+  onInstallOllamaChatModel: (modelName?: string, baseUrl?: string, modelInfo?: OllamaModelInfo) => void
+  onInstallOllamaEmbedderModel: (modelName?: string, baseUrl?: string, modelInfo?: OllamaModelInfo) => void
   onOpenLibrary: () => void
   onRemoveModel: (model: LocalModel) => void
   onSelectModel: (modelId: string) => void
@@ -2961,7 +2982,8 @@ function ChatScreen({
       await window.tokensmith.pullOllamaModel(recommendedOllamaChatModel)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
-      if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))) {
+      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))
+      if (!modelInfo) {
         const message = 'Ollama finished the download, but TokenSmith could not verify Llama 3.'
         setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
@@ -2973,7 +2995,7 @@ function ChatScreen({
         setOllamaSetupError(message)
         return
       }
-      onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl)
+      onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl, modelInfo)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
@@ -3009,7 +3031,8 @@ function ChatScreen({
       await window.tokensmith.pullOllamaModel(recommendedOllamaEmbeddingModel)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
-      if (!status.models.some((model) => ollamaModelInfoMatches(model, recommendedOllamaEmbeddingModel))) {
+      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, recommendedOllamaEmbeddingModel))
+      if (!modelInfo) {
         const message = 'Ollama finished the download, but TokenSmith could not verify the Nomic Embedder Model.'
         setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
@@ -3021,7 +3044,7 @@ function ChatScreen({
         setOllamaSetupError(message)
         return
       }
-      onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl)
+      onInstallOllamaEmbedderModel(recommendedOllamaEmbeddingModel, status.baseUrl, modelInfo)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
@@ -6194,6 +6217,7 @@ function ModelsScreen({
       filename: model.filename ?? modelInfo.name,
       ollamaModelName: model.ollamaModelName ?? modelInfo.name,
       sizeBytes: model.sizeBytes ?? modelInfo.size,
+      contextLength: model.contextLength ?? modelInfo.details?.contextLength,
       parameters: model.parameters ?? modelInfo.details?.parameterSize,
       quant: model.quant ?? modelInfo.details?.quantizationLevel,
       type: model.type ?? (modelInfo.details?.family ? `Ollama ${modelInfo.details.family}` : undefined)

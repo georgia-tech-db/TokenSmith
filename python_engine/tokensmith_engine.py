@@ -194,10 +194,13 @@ _GENERATOR_CACHE: Dict[str, Any] = {}
 _EMBEDDER_CACHE: Dict[str, Any] = {}
 _EMBEDDER_FAILURES: Dict[str, str] = {}
 _CHAT_TEMPLATE_CACHE: Dict[str, Optional[str]] = {}
+_CONTEXT_LENGTH_CACHE: Dict[str, Optional[int]] = {}
 VISIBLE_LOG_EVENTS = {
     "chat_request_context",
     "chat_response_context",
+    "chat_runtime_context_budget",
     "question_suggestion_request_context",
+    "question_suggestion_runtime_context_budget",
     "library_search_request",
     "library_search_result",
 }
@@ -297,6 +300,12 @@ GGUF_SCALAR_SIZES = {
     11: 8,  # int64
     12: 8,  # float64
 }
+GGUF_UNSIGNED_INT_FORMATS = {
+    0: "<B",
+    2: "<H",
+    4: "<I",
+    10: "<Q",
+}
 
 
 def read_exact(handle: Any, size: int) -> bytes:
@@ -352,6 +361,57 @@ def read_gguf_metadata_string(model_path: str, key: str) -> Optional[str]:
             skip_gguf_value(handle, value_type)
 
     return None
+
+
+def read_gguf_metadata_uint_by_suffix(model_path: str, suffix: str) -> Optional[int]:
+    path = Path(model_path).expanduser()
+    if not path.exists():
+        return None
+
+    normalized_suffix = suffix.casefold()
+    with path.open("rb") as handle:
+        if read_exact(handle, 4) != b"GGUF":
+            return None
+        _version = struct.unpack("<I", read_exact(handle, 4))[0]
+        _tensor_count = struct.unpack("<Q", read_exact(handle, 8))[0]
+        metadata_count = struct.unpack("<Q", read_exact(handle, 8))[0]
+
+        for _index in range(metadata_count):
+            metadata_key = read_gguf_string(handle)
+            value_type = struct.unpack("<I", read_exact(handle, 4))[0]
+            if metadata_key.casefold().endswith(normalized_suffix):
+                value_format = GGUF_UNSIGNED_INT_FORMATS.get(value_type)
+                if value_format is None:
+                    return None
+                return int(struct.unpack(value_format, read_exact(handle, GGUF_SCALAR_SIZES[value_type]))[0])
+            skip_gguf_value(handle, value_type)
+
+    return None
+
+
+def gguf_context_length(model_path: Optional[str]) -> Optional[int]:
+    if not model_path:
+        return None
+
+    try:
+        cache_key = normalize_model_path(model_path)
+    except Exception:
+        cache_key = str(model_path)
+
+    if cache_key in _CONTEXT_LENGTH_CACHE:
+        return _CONTEXT_LENGTH_CACHE[cache_key]
+
+    try:
+        context_length = read_gguf_metadata_uint_by_suffix(cache_key, ".context_length")
+    except Exception as error:
+        log_event("gguf_context_length_read_failed", modelPath=cache_key, error=str(error))
+        context_length = None
+
+    if context_length is not None and context_length <= 0:
+        context_length = None
+
+    _CONTEXT_LENGTH_CACHE[cache_key] = context_length
+    return context_length
 
 
 def gguf_chat_template(model_path: Optional[str]) -> str:
@@ -2024,6 +2084,8 @@ DEFAULT_MODEL_RUNTIME_SETTINGS: Dict[str, Any] = {
     "gpuLayers": -1,
     "device": "applicationDefault",
 }
+DEFAULT_AUTO_CONTEXT_CAP_TOKENS = 8192
+MAX_CONTEXT_TOKENS = 32768
 
 DEFAULT_APPLICATION_SETTINGS: Dict[str, Any] = {
     "cpuThreads": 4,
@@ -2125,15 +2187,34 @@ def normalize_model_runtime_settings(settings: Optional[Dict[str, Any]]) -> Dict
     }
 
 
+def effective_model_context_length(model: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]]) -> int:
+    normalized_settings = normalize_model_runtime_settings(settings)
+    discovered = None
+    if isinstance(model, dict):
+        discovered = model.get("contextLength")
+        if discovered is None:
+            discovered = gguf_context_length(str(model.get("path") or ""))
+
+    discovered_context = int(round(clamp_number(discovered, 0, 0, MAX_CONTEXT_TOKENS)))
+    configured_context = int(normalized_settings["contextLength"])
+    if discovered_context > 0:
+        return min(discovered_context, max(configured_context, DEFAULT_AUTO_CONTEXT_CAP_TOKENS))
+    return configured_context
+
+
 def model_runtime_settings_from_payload(payload: Dict[str, Any], model: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(payload.get("modelSettings"), dict):
-        return normalize_model_runtime_settings(payload["modelSettings"])
+        normalized = normalize_model_runtime_settings(payload["modelSettings"])
+        normalized["contextLength"] = effective_model_context_length(model, normalized)
+        return normalized
 
     model_id = str(model.get("id") or "")
     model_defaults = settings.get("modelDefaults") if isinstance(settings.get("modelDefaults"), dict) else {}
     model_settings_by_id = settings.get("modelSettingsById") if isinstance(settings.get("modelSettingsById"), dict) else {}
     model_settings = model_settings_by_id.get(model_id) if isinstance(model_settings_by_id.get(model_id), dict) else {}
-    return normalize_model_runtime_settings({**model_defaults, **model_settings})
+    normalized = normalize_model_runtime_settings({**model_defaults, **model_settings})
+    normalized["contextLength"] = effective_model_context_length(model, normalized)
+    return normalized
 
 
 def application_settings_from_payload(payload: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:

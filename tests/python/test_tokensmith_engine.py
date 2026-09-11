@@ -88,6 +88,21 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             + gguf_string(template)
         )
 
+    def write_gguf_with_context_length(self, path: Path, context_length: int) -> None:
+        def gguf_string(value: str) -> bytes:
+            data = value.encode("utf-8")
+            return struct.pack("<Q", len(data)) + data
+
+        path.write_bytes(
+            b"GGUF"
+            + struct.pack("<I", 3)
+            + struct.pack("<Q", 0)
+            + struct.pack("<Q", 1)
+            + gguf_string("llama.context_length")
+            + struct.pack("<I", 4)
+            + struct.pack("<I", context_length)
+        )
+
     def unit_embedding_model(self) -> dict:
         return {
             "id": "unit-embedder",
@@ -746,6 +761,26 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(settings["repeatPenalty"], 1.1)
         self.assertEqual(settings["chatTemplate"], "custom chat template")
         self.assertEqual(settings["suggestedFollowUpPrompt"], "custom follow-up prompt")
+
+    def test_model_runtime_settings_use_gguf_context_length_metadata(self):
+        original_cache = engine._CONTEXT_LENGTH_CACHE
+
+        try:
+            engine._CONTEXT_LENGTH_CACHE = {}
+            with tempfile.TemporaryDirectory() as temp_dir:
+                model_path = Path(temp_dir) / "model.gguf"
+                self.write_gguf_with_context_length(model_path, 8192)
+
+                settings = engine.model_runtime_settings_from_payload(
+                    {"modelSettings": {"contextLength": 2048, "maxLength": 128}},
+                    {"name": "Unit GGUF", "path": str(model_path)},
+                    {},
+                )
+        finally:
+            engine._CONTEXT_LENGTH_CACHE = original_cache
+
+        self.assertEqual(settings["contextLength"], 8192)
+        self.assertEqual(settings["maxLength"], 128)
 
     def test_request_llama_embedding_uses_worker_protocol(self):
         class FakeStdin:

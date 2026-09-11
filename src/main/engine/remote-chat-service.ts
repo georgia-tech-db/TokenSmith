@@ -10,6 +10,7 @@ import {
   defaultFollowUpPrompt,
   followUpSuggestionCount,
   formatFollowUpInstruction,
+  modelAwareRuntimeSettings,
   parseFollowUpSuggestions,
   questionSuggestionCount,
   questionSuggestionMessages,
@@ -244,7 +245,8 @@ async function generateRemoteFollowUpSuggestions(
 export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
-  const settings = request.modelSettings
+  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
   const endpoint = `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`
   const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
   const config = {
@@ -253,12 +255,12 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     apiKey: request.model.apiKey,
     settings
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(request))
+  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(request, answer.text, config)
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
   } catch (error) {
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
   }
@@ -283,16 +285,18 @@ export async function generateRemoteStudyQuestionSuggestions(
     return { suggestions: [] }
   }
 
+  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
   const config = {
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
     apiKey: request.model.apiKey,
-    settings: request.modelSettings
+    settings
   }
   const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(request), { maxTokens, temperature })
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature })
   const suggestions = parseFollowUpSuggestions(text, count)
   if (suggestions.length === 0) {
     throw new Error('The remote model did not return any suggested questions.')

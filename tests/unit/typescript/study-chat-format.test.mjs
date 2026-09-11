@@ -5,6 +5,9 @@ import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const {
   answerWithOrderedSources,
+  estimateTokens,
+  modelAwareRuntimeSettings,
+  sourceContextBudgetForRequest,
   formatFollowUpInstruction,
   parseFollowUpSuggestions,
   questionSuggestionCount,
@@ -81,6 +84,76 @@ test('sourceContext prefers full chunk context over the short excerpt', () => {
 
   assert.match(context, /Full chunk context explains why protection prevents unsafe replacement/)
   assert.doesNotMatch(context, /Short excerpt only/)
+})
+
+test('modelAwareRuntimeSettings uses discovered model context with a bounded automatic cap', () => {
+  const runtimeSettings = modelAwareRuntimeSettings({
+    model: {
+      ...ollamaChatModel,
+      contextLength: 16384
+    },
+    modelSettings: {
+      contextLength: 2048,
+      maxLength: 512
+    }
+  })
+
+  assert.equal(runtimeSettings.contextLength, 8192)
+  assert.equal(runtimeSettings.maxLength, 512)
+})
+
+test('studyChatMessages budgets and clips source context around matched terms', () => {
+  const request = {
+    prompt: 'Why is pinning needed?',
+    messages: [],
+    materials: [],
+    model: {
+      ...ollamaChatModel,
+      contextLength: 2048
+    },
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'off',
+      followUpSuggestionCount: 0
+    },
+    modelSettings: {
+      contextLength: 2048,
+      maxLength: 512
+    },
+    retrievedSources: [
+      {
+        title: 'BuzzDBBook',
+        locator: 'Section 5',
+        excerpt: 'Pinning protects a page while it is in use.',
+        context: `${'cold filler '.repeat(1400)}Pinning protects a page while it is in use.${'cold filler '.repeat(1400)}`,
+        collectionName: 'BuzzDBBook',
+        path: '/tmp/buzzdb-book.tokensmith.md',
+        sectionHeader: 'Buffer Pool'
+      },
+      {
+        title: 'BuzzDBBook',
+        locator: 'Section 6',
+        excerpt: 'LRU evicts cold pages.',
+        context: 'LRU evicts cold pages after they stop being accessed.',
+        collectionName: 'BuzzDBBook',
+        path: '/tmp/buzzdb-book.tokensmith.md',
+        sectionHeader: 'LRU'
+      }
+    ]
+  }
+
+  const chatMessages = studyChatMessages(request)
+  const prompt = chatMessages.at(-1).content
+  const budget = sourceContextBudgetForRequest(request)
+
+  assert.equal(budget.modelContextTokens, 2048)
+  assert.equal(budget.includedSourceCount, 1)
+  assert.equal(budget.truncatedSourceCount, 1)
+  assert.ok(budget.estimatedPromptTokens <= budget.modelContextTokens - budget.answerReserveTokens - budget.safetyMarginTokens)
+  assert.ok(estimateTokens(prompt) <= budget.estimatedPromptTokens + 20)
+  assert.match(prompt, /Pinning protects a page while it is in use/)
+  assert.match(prompt, /Text: \.\.\./)
+  assert.doesNotMatch(prompt, /LRU evicts cold pages after/)
 })
 
 test('studyChatMessages sends standalone source context without raw prior conversation', () => {

@@ -13,7 +13,7 @@ import type {
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
 import { generateOllamaStudyQuestionSuggestions, runOllamaStudyEngine } from './ollama-service'
-import { questionSuggestionMessages, studyChatMessages } from './study-chat-format'
+import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
   request: EngineQuestionSuggestionRequest
@@ -111,6 +111,7 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',
     model: logModel(request),
+    contextBudget: sourceContextBudgetForRequest(request),
     systemPrompt,
     sourceCount: request.retrievedSources?.length ?? 0,
     sources: (request.retrievedSources ?? []).map(logSource),
@@ -138,6 +139,7 @@ function questionSuggestionLogDetails(request: EngineQuestionSuggestionRequest):
       providerId: request.model.providerId
     },
     systemPrompt,
+    contextBudget: sourceContextBudgetForRequest(request),
     sourceCount: request.retrievedSources?.length ?? 0,
     sources: (request.retrievedSources ?? []).map(logSource),
     modelMessages: messages.map((message) => ({

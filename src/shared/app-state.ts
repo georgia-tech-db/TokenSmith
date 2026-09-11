@@ -76,6 +76,7 @@ export interface LocalModel {
   url?: string
   sizeBytes?: number
   ramRequiredGb?: number
+  contextLength?: number
   parameters?: string
   quant?: string
   type?: string

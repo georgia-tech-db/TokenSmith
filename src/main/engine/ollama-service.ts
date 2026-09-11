@@ -25,13 +25,16 @@ import {
   defaultFollowUpPrompt,
   followUpSuggestionCount,
   formatFollowUpInstruction,
+  modelAwareRuntimeSettings,
   parseFollowUpSuggestions,
   questionSuggestionCount,
   questionSuggestionMessages,
   shouldGenerateFollowUps,
+  sourceContextBudgetForRequest,
   studyChatMessages,
   type StudyChatMessage
 } from './study-chat-format'
+import { writeTokenSmithLog } from '../python/python-engine-service'
 
 interface OllamaTagsResponse {
   models?: Array<{
@@ -44,8 +47,17 @@ interface OllamaTagsResponse {
       family?: string
       parameter_size?: string
       quantization_level?: string
+      context_length?: number | string
     }
   }>
+}
+
+interface OllamaShowResponse {
+  details?: {
+    context_length?: number | string
+  }
+  model_info?: Record<string, unknown>
+  parameters?: string
 }
 
 interface OllamaChatResponse {
@@ -195,9 +207,47 @@ function normalizeModelInfo(model: NonNullable<OllamaTagsResponse['models']>[num
     details: {
       family: model.details?.family,
       parameterSize: model.details?.parameter_size,
-      quantizationLevel: model.details?.quantization_level
+      quantizationLevel: model.details?.quantization_level,
+      contextLength: normalizeContextLength(model.details?.context_length)
     }
   }
+}
+
+function normalizeContextLength(value: unknown): number | undefined {
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return undefined
+  }
+
+  return Math.round(numericValue)
+}
+
+function contextLengthFromParameters(parameters?: string): number | undefined {
+  const match = parameters?.match(/(?:^|\n)\s*num_ctx\s+(\d+)\b/i)
+  return match ? normalizeContextLength(match[1]) : undefined
+}
+
+function contextLengthFromModelInfo(modelInfo?: Record<string, unknown>): number | undefined {
+  if (!modelInfo) {
+    return undefined
+  }
+
+  for (const [key, value] of Object.entries(modelInfo)) {
+    if (/(?:^|\.)context_length$/i.test(key)) {
+      const contextLength = normalizeContextLength(value)
+      if (contextLength) {
+        return contextLength
+      }
+    }
+  }
+
+  return undefined
+}
+
+function contextLengthFromShowResponse(payload: OllamaShowResponse): number | undefined {
+  return normalizeContextLength(payload.details?.context_length) ??
+    contextLengthFromModelInfo(payload.model_info) ??
+    contextLengthFromParameters(payload.parameters)
 }
 
 function normalizedModelName(name: string): string {
@@ -336,6 +386,75 @@ export async function getOllamaStatus(baseUrl = defaultOllamaBaseUrl): Promise<O
       error: error instanceof Error ? error.message : 'Ollama is not running.'
     }
   }
+}
+
+async function fetchOllamaModelContextLength(baseUrl: string, modelName: string): Promise<number | undefined> {
+  const status = await getOllamaStatus(baseUrl)
+  const taggedModel = status.models.find((model) => ollamaModelMatches(model, modelName))
+  const taggedContextLength = taggedModel?.details?.contextLength
+  if (taggedContextLength) {
+    return taggedContextLength
+  }
+
+  try {
+    const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/show`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ model: modelName })
+    }, 2_500)
+
+    if (!response.ok) {
+      return undefined
+    }
+
+    return contextLengthFromShowResponse((await response.json()) as OllamaShowResponse)
+  } catch {
+    return undefined
+  }
+}
+
+async function requestWithOllamaRuntimeContext<T extends EngineChatRequest | EngineQuestionSuggestionRequest>(
+  request: T,
+  baseUrl: string,
+  modelName: string
+): Promise<T> {
+  const contextLength = request.model.contextLength ?? (await fetchOllamaModelContextLength(baseUrl, modelName))
+  const model = contextLength ? { ...request.model, contextLength } : request.model
+  const modelSettings = modelAwareRuntimeSettings({ ...request, model }) ?? request.modelSettings
+
+  if (model === request.model && modelSettings === request.modelSettings) {
+    return request
+  }
+
+  return {
+    ...request,
+    model,
+    modelSettings
+  } as T
+}
+
+function logRuntimeContextBudget(
+  event: 'chat_runtime_context_budget' | 'question_suggestion_runtime_context_budget',
+  request: EngineChatRequest | EngineQuestionSuggestionRequest
+): void {
+  writeTokenSmithLog(event, {
+    provider: 'ollama',
+    model: {
+      id: request.model.id,
+      name: request.model.name,
+      engine: request.model.engine,
+      source: request.model.source,
+      role: request.model.role,
+      status: request.model.status,
+      ollamaModelName: request.model.ollamaModelName,
+      contextLength: request.model.contextLength
+    },
+    contextBudget: sourceContextBudgetForRequest(request),
+    sourceCount: request.retrievedSources?.length ?? 0
+  })
 }
 
 export async function openOllamaDownloadPage(): Promise<void> {
@@ -780,12 +899,15 @@ export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
-  const text = await runOllamaChatCompletion(baseUrl, modelName, studyChatMessages(request), request.modelSettings)
-  const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  const runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  const runtimeSettings = runtimeRequest.modelSettings
+  logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
+  const text = await runOllamaChatCompletion(baseUrl, modelName, studyChatMessages(runtimeRequest), runtimeSettings)
+  const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateOllamaFollowUpSuggestions(request, answer.text, baseUrl, modelName)
+    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, baseUrl, modelName)
   } catch (error) {
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'Ollama could not generate suggestions.')}`
   }
@@ -812,14 +934,17 @@ export async function generateOllamaStudyQuestionSuggestions(
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
-  const maxTokens = Math.min(request.modelSettings?.maxLength ?? 160, 160)
-  const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
+  const runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  const runtimeSettings = runtimeRequest.modelSettings
+  logRuntimeContextBudget('question_suggestion_runtime_context_budget', runtimeRequest)
+  const maxTokens = Math.min(runtimeSettings?.maxLength ?? 160, 160)
+  const temperature = Math.min(Math.max(runtimeSettings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runOllamaChatCompletion(
     baseUrl,
     modelName,
-    questionSuggestionMessages(request),
-    request.modelSettings,
+    questionSuggestionMessages(runtimeRequest),
+    runtimeSettings,
     { maxTokens, temperature }
   )
   const suggestions = parseFollowUpSuggestions(text, count)

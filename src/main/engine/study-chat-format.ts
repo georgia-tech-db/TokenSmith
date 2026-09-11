@@ -1,4 +1,4 @@
-import type { ChatSource, ModelRuntimeSettings } from '../../shared/app-state'
+import type { ChatSource, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import {
   defaultFollowUpSuggestionCount,
@@ -8,35 +8,284 @@ import {
 
 export type StudyChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
-const maxSourceContextChars = 2400
+const estimatedCharsPerToken = 4
+const defaultModelContextTokens = 2048
+const defaultAutoContextCapTokens = 8192
+const minModelContextTokens = 512
+const maxModelContextTokens = 32768
+const defaultAnswerReserveTokens = 768
+const minAnswerReserveTokens = 256
+const maxAnswerReserveTokens = 1024
+const minSourceTextTokens = 80
+const sourceContextInstructions = [
+  'Use the context below only when it is relevant to the question.',
+  'Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, start with the conclusion and include the key reason or trade-off from the context.',
+  'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
+  'If the context does not contain the answer, say that plainly.'
+]
 
-function sourceText(source: ChatSource): string {
-  const text = (source.context || source.excerpt).trim()
-  if (text.length <= maxSourceContextChars) {
-    return text
-  }
-  return `${text.slice(0, maxSourceContextChars - 3).trim()}...`
+export interface SourceContextBudget {
+  modelContextTokens: number
+  answerReserveTokens: number
+  safetyMarginTokens: number
+  fixedPromptTokens: number
+  sourceBudgetTokens: number
+  usedSourceTokens: number
+  estimatedPromptTokens: number
+  includedSourceCount: number
+  truncatedSourceCount: number
 }
 
-export function sourceContext(sources: ChatSource[]): string {
-  if (sources.length === 0) {
-    return ''
+interface SourceContextOptions {
+  prompt?: string
+  model?: LocalModel
+  modelSettings?: Partial<ModelRuntimeSettings>
+  includeBudget?: boolean
+}
+
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / estimatedCharsPerToken)
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numericValue)) {
+    return fallback
   }
 
-  return [
-    'Use the context below only when it is relevant to the question.',
-    'Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, start with the conclusion and include the key reason or trade-off from the context.',
-    'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-    'If the context does not contain the answer, say that plainly.',
-    '',
-    '### Context:',
-    ...sources.map((source) => {
-      const collection = source.collectionName || source.documentTitle || source.title || 'Library'
-      const path = source.path || source.title || ''
-      const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
-      return `Collection: ${collection}\nPath: ${path}\n${section}Text: ${sourceText(source)}`
-    })
-  ].join('\n')
+  return Math.max(min, Math.min(max, Math.round(numericValue)))
+}
+
+function configuredContextLength(settings?: Partial<ModelRuntimeSettings>): number {
+  return clampNumber(settings?.contextLength, defaultModelContextTokens, minModelContextTokens, maxModelContextTokens)
+}
+
+export function effectiveContextLength(model?: LocalModel, settings?: Partial<ModelRuntimeSettings>): number {
+  const configured = configuredContextLength(settings)
+  const discovered = clampNumber(model?.contextLength, 0, 0, maxModelContextTokens)
+  if (discovered > 0) {
+    return Math.min(discovered, Math.max(configured, defaultAutoContextCapTokens))
+  }
+
+  return configured
+}
+
+export function modelAwareRuntimeSettings(
+  request: Pick<EngineChatRequest | EngineQuestionSuggestionRequest, 'model' | 'modelSettings'>
+): ModelRuntimeSettings | undefined {
+  if (!request.modelSettings) {
+    return undefined
+  }
+
+  return {
+    ...request.modelSettings,
+    contextLength: effectiveContextLength(request.model, request.modelSettings)
+  }
+}
+
+function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>): number {
+  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maxAnswerReserveTokens)
+}
+
+function safetyMarginTokens(modelContextTokens: number): number {
+  return clampNumber(Math.ceil(modelContextTokens * 0.05), 256, 128, 512)
+}
+
+const queryStopWords = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'can',
+  'do',
+  'does',
+  'for',
+  'from',
+  'how',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'that',
+  'the',
+  'this',
+  'to',
+  'was',
+  'what',
+  'when',
+  'where',
+  'which',
+  'who',
+  'why',
+  'with'
+])
+
+function queryTerms(text: string): string[] {
+  const normalized = text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  const tokens = normalized.match(/[a-z0-9][a-z0-9+#.-]*/g) ?? []
+  const terms = tokens
+    .flatMap((token) => [token, token.replace(/[^a-z0-9]+/g, '')])
+    .filter((term) => term.length >= 3 && !queryStopWords.has(term))
+
+  return Array.from(new Set(terms))
+}
+
+function bestTermOffset(text: string, terms: string[]): number {
+  const lowered = text.toLowerCase()
+  const offsets = terms
+    .map((term) => lowered.indexOf(term.toLowerCase()))
+    .filter((offset) => offset >= 0)
+
+  return offsets.length > 0 ? Math.min(...offsets) : 0
+}
+
+function clipSourceText(text: string, maxChars: number, terms: string[]): string {
+  if (text.length <= maxChars) {
+    return text
+  }
+
+  const center = bestTermOffset(text, terms)
+  const halfWindow = Math.floor(maxChars / 2)
+  const start = Math.max(0, Math.min(center - halfWindow, text.length - maxChars))
+  const end = Math.min(text.length, start + maxChars)
+  const prefix = start > 0 ? '...' : ''
+  const suffix = end < text.length ? '...' : ''
+  return `${prefix}${text.slice(start, end).trim()}${suffix}`
+}
+
+function sourceText(source: ChatSource, maxTokens?: number, terms: string[] = []): { text: string; truncated: boolean } {
+  const text = (source.context || source.excerpt).trim()
+  if (!maxTokens) {
+    return { text, truncated: false }
+  }
+
+  const maxChars = Math.max(0, maxTokens * estimatedCharsPerToken)
+  if (text.length <= maxChars) {
+    return { text, truncated: false }
+  }
+
+  return { text: clipSourceText(text, maxChars, terms), truncated: true }
+}
+
+function sourcePrefix(source: ChatSource): string {
+  const collection = source.collectionName || source.documentTitle || source.title || 'Library'
+  const path = source.path || source.title || ''
+  const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
+  return `Collection: ${collection}\nPath: ${path}\n${section}Text: `
+}
+
+function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
+  const modelContextTokens = effectiveContextLength(options?.model, options?.modelSettings)
+  const answerReserve = answerReserveTokens(options?.modelSettings)
+  const safetyMargin = safetyMarginTokens(modelContextTokens)
+  const fixedPromptTokens = estimateTokens([
+    options?.modelSettings?.systemMessage,
+    sourceContextInstructions.join('\n'),
+    options?.prompt ? `Question: ${options.prompt}` : ''
+  ].filter(Boolean).join('\n\n'))
+
+  return {
+    modelContextTokens,
+    answerReserveTokens: answerReserve,
+    safetyMarginTokens: safetyMargin,
+    fixedPromptTokens,
+    sourceBudgetTokens: Math.max(0, modelContextTokens - answerReserve - safetyMargin - fixedPromptTokens),
+    usedSourceTokens: 0,
+    estimatedPromptTokens: fixedPromptTokens,
+    includedSourceCount: 0,
+    truncatedSourceCount: 0
+  }
+}
+
+export function packSourceContext(
+  sources: ChatSource[],
+  options: SourceContextOptions = {}
+): { context: string; budget: SourceContextBudget } {
+  const budget = emptyBudget(options)
+  if (sources.length === 0) {
+    return { context: '', budget }
+  }
+
+  const terms = queryTerms(options.prompt ?? '')
+  const blocks: string[] = []
+  let usedSourceTokens = 0
+  let truncatedSourceCount = 0
+
+  for (const source of sources) {
+    const prefix = sourcePrefix(source)
+    if (!options.includeBudget) {
+      const unbudgetedText = sourceText(source)
+      blocks.push(`${prefix}${unbudgetedText.text}`)
+      continue
+    }
+
+    const remainingTokens = budget.sourceBudgetTokens - usedSourceTokens
+    const prefixTokens = estimateTokens(prefix)
+    const textBudgetTokens = remainingTokens - prefixTokens - 4
+    if (textBudgetTokens < minSourceTextTokens) {
+      break
+    }
+
+    const clipped = sourceText(source, textBudgetTokens, terms)
+    const block = `${prefix}${clipped.text}`
+    const blockTokens = estimateTokens(block)
+    if (blockTokens > remainingTokens) {
+      break
+    }
+
+    blocks.push(block)
+    usedSourceTokens += blockTokens
+    if (clipped.truncated) {
+      truncatedSourceCount += 1
+    }
+  }
+
+  const finalBudget = {
+    ...budget,
+    usedSourceTokens,
+    estimatedPromptTokens: budget.fixedPromptTokens + usedSourceTokens,
+    includedSourceCount: blocks.length,
+    truncatedSourceCount
+  }
+
+  if (blocks.length === 0) {
+    return { context: '', budget: finalBudget }
+  }
+
+  return {
+    context: [
+      ...sourceContextInstructions,
+      '',
+      '### Context:',
+      ...blocks
+    ].join('\n'),
+    budget: finalBudget
+  }
+}
+
+export function sourceContext(sources: ChatSource[], options: SourceContextOptions = {}): string {
+  return packSourceContext(sources, options).context
+}
+
+export function sourceContextBudgetForRequest(request: EngineChatRequest | EngineQuestionSuggestionRequest): SourceContextBudget {
+  const prompt = 'prompt' in request
+    ? request.answerPrompt ?? request.prompt
+    : request.modelSettings?.suggestedFollowUpPrompt ?? ''
+  return packSourceContext(request.retrievedSources ?? [], {
+    prompt,
+    model: request.model,
+    modelSettings: request.modelSettings,
+    includeBudget: true
+  }).budget
 }
 
 const citationLabelPattern = '(?:source|excerpt|passage|context|citation|evidence|reference)'
@@ -112,10 +361,17 @@ export function answerWithOrderedSources(text: string, sources: ChatSource[]): {
 }
 
 export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[] {
-  const modelSettings = request.modelSettings as Partial<ModelRuntimeSettings> | undefined
+  const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
+    | Partial<ModelRuntimeSettings>
+    | undefined
   const systemMessage = modelSettings?.systemMessage?.trim()
-  const context = sourceContext(request.retrievedSources ?? [])
   const answerPrompt = (request.answerPrompt ?? request.prompt).trim()
+  const context = sourceContext(request.retrievedSources ?? [], {
+    prompt: answerPrompt,
+    model: request.model,
+    modelSettings,
+    includeBudget: true
+  })
   const userContent = context ? `${context}\n\nQuestion: ${answerPrompt}` : answerPrompt
   const messages: StudyChatMessage[] = []
 
@@ -149,13 +405,19 @@ export function questionSuggestionCount(applicationSettings?: EngineChatRequest[
 }
 
 export function questionSuggestionMessages(request: EngineQuestionSuggestionRequest): StudyChatMessage[] {
-  const systemMessage = request.modelSettings?.systemMessage?.trim()
+  const modelSettings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const systemMessage = modelSettings?.systemMessage?.trim()
   const count = questionSuggestionCount(request.applicationSettings)
   const suggestionPrompt = formatFollowUpInstruction(
-    request.modelSettings?.suggestedFollowUpPrompt?.trim() || defaultFollowUpPrompt(),
+    modelSettings?.suggestedFollowUpPrompt?.trim() || defaultFollowUpPrompt(),
     count
   )
-  const context = sourceContext(request.retrievedSources ?? [])
+  const context = sourceContext(request.retrievedSources ?? [], {
+    prompt: suggestionPrompt,
+    model: request.model,
+    modelSettings,
+    includeBudget: true
+  })
   const messages: StudyChatMessage[] = []
 
   if (systemMessage) {
