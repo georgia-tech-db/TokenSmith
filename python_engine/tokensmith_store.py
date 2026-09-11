@@ -181,6 +181,7 @@ def init_db(user_data_path: str) -> None:
         ensure_column(conn, "chunks", "tokensmith_chunk_id", "TEXT")
         ensure_column(conn, "chunks", "tokensmith_chapter", "TEXT")
         ensure_column(conn, "chunks", "chunk_kind", "TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_stable_chunk_id ON chunks(stable_chunk_id)")
         backfill_stable_chunk_ids(conn)
         set_schema_value(conn, "version", str(SCHEMA_VERSION))
 
@@ -385,7 +386,6 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
         CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
         CREATE INDEX IF NOT EXISTS idx_pdf_page_thumbnails_document_id ON pdf_page_thumbnails(document_id);
-        CREATE INDEX IF NOT EXISTS idx_chunks_stable_chunk_id ON chunks(stable_chunk_id);
         """
     )
     create_fts_schema(conn)
