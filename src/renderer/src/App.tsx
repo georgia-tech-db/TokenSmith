@@ -1130,10 +1130,14 @@ function cleanQuizQuestion(text: string): string | undefined {
 }
 
 function quizSourceKey(source: ChatSource): string {
+  if (source.sourceId) {
+    return source.sourceId
+  }
+
   return [
     source.materialId,
     source.documentId,
-    source.chunkRowid ?? source.chunkId,
+    source.chunkId ?? source.chunkRowid,
     source.path,
     source.pageStart,
     source.excerpt.slice(0, 120)
@@ -1328,7 +1332,7 @@ function sourceDocumentTitle(source: ChatSource) {
 }
 
 function sourceTrayKey(source: ChatSource, index: number) {
-  return `${source.chunkId ?? source.chunkRowid ?? source.path ?? source.title}-${index}`
+  return `${source.sourceId ?? source.chunkId ?? source.chunkRowid ?? source.path ?? source.title}-${index}`
 }
 
 function modelStatusFromDownload(progress: ModelDownloadProgress): LocalModel['status'] {

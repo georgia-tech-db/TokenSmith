@@ -443,11 +443,33 @@ function isWeakContextualFollowUp(profile: QuestionProfile): boolean {
 function sourceSearchText(source: ChatSource): string {
   return [
     source.sectionHeader,
+    ...(source.queryTerms ?? []),
+    ...(source.keywordTerms ?? []),
     source.excerpt,
     source.context
   ]
     .filter(Boolean)
     .join(' ')
+}
+
+function normalizedSearchTermsForSources(sources: ChatSource[]): string[] {
+  const terms = sources.flatMap((source) => [
+    ...(source.queryTerms ?? []),
+    ...(source.keywordTerms ?? [])
+  ])
+  return Array.from(new Set(terms.flatMap(tokenizeForTerms).filter(isAnchorTerm)))
+}
+
+function anchorTermsWithSourceCorrections(anchorTerms: string[], sources: ChatSource[]): string[] {
+  const searchTerms = normalizedSearchTermsForSources(sources)
+  if (searchTerms.length === 0) {
+    return anchorTerms
+  }
+
+  const correctedTerms = anchorTerms.map((term) =>
+    searchTerms.find((candidate) => candidate !== term && isSingleEditOrTransposition(term, candidate)) ?? term
+  )
+  return Array.from(new Set(correctedTerms))
 }
 
 function sourcePosition(source: ChatSource): number | undefined {
@@ -616,13 +638,17 @@ export function sourceAnchorCoverage(sources: ChatSource[], anchorTerms: string[
     return 0
   }
 
+  const correctedAnchorTerms = anchorTermsWithSourceCorrections(
+    anchorTerms,
+    sources.slice(0, Math.max(1, sourceLimit))
+  )
   const sourceTokens = new Set(
     sources
       .slice(0, Math.max(1, sourceLimit))
       .flatMap((source) => tokenizeForTerms(sourceSearchText(source)))
   )
-  const matches = anchorTerms.filter((term) => sourceTokens.has(term))
-  return matches.length / anchorTerms.length
+  const matches = correctedAnchorTerms.filter((term) => termMatchesTokens(term, sourceTokens))
+  return matches.length / correctedAnchorTerms.length
 }
 
 export function buildContextualRetrievalContext(
@@ -812,7 +838,11 @@ function contextualCandidateLimit(limit: number): number {
 }
 
 function sourceKey(source: ChatSource): string {
-  const stableChunkId = source.chunkRowid ?? source.chunkId
+  if (source.sourceId !== undefined && source.sourceId !== null && String(source.sourceId).trim()) {
+    return String(source.sourceId)
+  }
+
+  const stableChunkId = source.chunkId ?? source.chunkRowid
   if (stableChunkId !== undefined && stableChunkId !== null && String(stableChunkId).trim()) {
     return [
       source.materialId,
@@ -893,10 +923,14 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
   const focusKeys = new Set(context.carriedSources.map(sourceKey))
   const isFocusSource = focusKeys.has(sourceKey(source))
   const sourceTokens = tokenSetForText(sourceSearchText(source))
-  const focusTerms = context.focusAnchorTerms.length > 0 ? context.focusAnchorTerms : context.anchorTerms
+  const focusTerms = anchorTermsWithSourceCorrections(
+    context.focusAnchorTerms.length > 0 ? context.focusAnchorTerms : context.anchorTerms,
+    [source]
+  )
+  const currentTerms = anchorTermsWithSourceCorrections(context.currentAnchorTerms, [source])
   const focusOverlap = overlapRatio(focusTerms, sourceTokens)
-  const currentOverlap = overlapRatio(context.currentAnchorTerms, sourceTokens)
-  const currentMatches = countMatches(context.currentAnchorTerms, sourceTokens)
+  const currentOverlap = overlapRatio(currentTerms, sourceTokens)
+  const currentMatches = countMatches(currentTerms, sourceTokens)
   const section = normalizedSourceSection(source)
   const focusSection = focusSource ? normalizedSourceSection(focusSource) : undefined
   const sameSection = Boolean(section && focusSection && section === focusSection)
@@ -909,13 +943,13 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
     typeof focusSource.pageStart === 'number' &&
     Math.abs(source.pageStart - focusSource.pageStart) <= 1
   const candidateTerms = anchorTermsForText([source.sectionHeader, source.excerpt].filter(Boolean).join(' '), 16)
-  const acceptedTerms = new Set([...focusTerms, ...context.anchorTerms])
+  const acceptedTerms = new Set([...focusTerms, ...currentTerms, ...context.anchorTerms])
   const newTermRatio = candidateTerms.length === 0
     ? 0
     : candidateTerms.filter((term) => !acceptedTerms.has(term)).length / candidateTerms.length
   const textAligned = focusOverlap >= 0.65 && newTermRatio <= 0.55
   const isFocusNeighborhood = isFocusSource || sameSection || nearbyByChunk || Boolean(nearbyByPage) || textAligned
-  const isCurrentQuestionMatch = context.currentAnchorTerms.length > 0 &&
+  const isCurrentQuestionMatch = currentTerms.length > 0 &&
     (currentOverlap >= 0.3 || currentMatches >= 2)
   const orderPenalty = candidateIndex * 0.02
   let score = focusOverlap * 10 + currentOverlap * 6 + currentMatches * 1.5 - newTermRatio * 2 - orderPenalty

@@ -1054,6 +1054,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(search["sources"][0]["documentTitle"], "database-note")
             self.assertEqual(search["sources"][0]["collectionName"], material["title"])
             self.assertIsNotNone(search["sources"][0]["documentId"])
+            self.assertTrue(str(search["sources"][0]["chunkId"]).startswith("auto:"))
+            self.assertIsInstance(search["sources"][0]["chunkRowid"], int)
+            self.assertIn(material["id"], search["sources"][0]["sourceId"])
+            self.assertIn(str(note_path.resolve()), search["sources"][0]["sourceId"])
 
             resolved_source = engine.resolve_source_document(
                 {
@@ -1074,6 +1078,19 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIsNotNone(resolved_by_document)
             self.assertEqual(resolved_by_document["path"], str(note_path.resolve()))
 
+            resolved_by_stable_chunk_id = engine.resolve_source_document(
+                {
+                    "source": {
+                        "materialId": material["id"],
+                        "chunkId": search["sources"][0]["chunkId"],
+                    },
+                    "userDataPath": str(temp_path / "user-data"),
+                }
+            )["source"]
+            self.assertIsNotNone(resolved_by_stable_chunk_id)
+            self.assertEqual(resolved_by_stable_chunk_id["path"], str(note_path.resolve()))
+            self.assertEqual(resolved_by_stable_chunk_id["chunkId"], search["sources"][0]["chunkId"])
+
             engine.remove_material(
                 {
                     "materialId": material["id"],
@@ -1088,6 +1105,130 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     }
                 )["source"]
             )
+
+    def test_tokensmith_markdown_source_ids_are_collection_scoped(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            first_dir = temp_path / "first"
+            second_dir = temp_path / "second"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            first_book = first_dir / "book.tokensmith.md"
+            second_book = second_dir / "book.tokensmith.md"
+            body = (
+                '<!-- tokensmith:chunk id="ch01.001" chapter="1" section="1.1 Stable Identity" kind="prose" -->\n'
+                "Stable identity explains that a chunk label can repeat across collections while the collection "
+                "and path keep the source unique for retrieval logs and source opening."
+            )
+            first_book.write_text(body, encoding="utf-8")
+            second_book.write_text(body.replace("retrieval logs", "saved conversations"), encoding="utf-8")
+
+            first_material = self.index_material_with_unit_embedder(
+                {"path": str(first_book), "userDataPath": user_data_path}
+            )["material"]
+            second_material = self.index_material_with_unit_embedder(
+                {"path": str(second_book), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "stable identity collections path unique",
+                    "materials": [first_material, second_material],
+                    "limit": 4,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+            sources = [source for source in search["sources"] if source["chunkId"] == "ch01.001"]
+
+            self.assertEqual(len(sources), 2)
+            self.assertEqual({source["tokensmithChunkId"] for source in sources}, {"ch01.001"})
+            self.assertEqual({source["tokensmithChapter"] for source in sources}, {"1"})
+            self.assertEqual({source["tokensmithChunkKind"] for source in sources}, {"prose"})
+            self.assertEqual({source["chunkKind"] for source in sources}, {"prose"})
+            self.assertEqual(len({source["sourceId"] for source in sources}), 2)
+            self.assertEqual({source["materialId"] for source in sources}, {first_material["id"], second_material["id"]})
+
+            resolved_first = engine.resolve_source_document(
+                {
+                    "source": {"materialId": first_material["id"], "chunkId": "ch01.001"},
+                    "userDataPath": user_data_path,
+                }
+            )["source"]
+            resolved_second = engine.resolve_source_document(
+                {
+                    "source": {"materialId": second_material["id"], "chunkId": "ch01.001"},
+                    "userDataPath": user_data_path,
+                }
+            )["source"]
+
+            self.assertEqual(resolved_first["path"], str(first_book.resolve()))
+            self.assertEqual(resolved_second["path"], str(second_book.resolve()))
+            self.assertEqual(resolved_first["chunkId"], "ch01.001")
+            self.assertEqual(resolved_second["chunkId"], "ch01.001")
+
+    def test_keyword_search_returns_corrected_terms_on_sources(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "hashing-note.txt"
+            note_path.write_text(
+                (
+                    "Hashing is designed for fast equality lookups, but it does not preserve sorted order for range scans. "
+                    "Students use this comparison to decide when a hash index is useful and when an ordered access path "
+                    "is a better fit. "
+                ) * 4,
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Does hasing help equality lookups?",
+                    "materials": [material],
+                    "limit": 2,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertGreaterEqual(len(search["sources"]), 1)
+            self.assertIn("hashing", search["keywordTerms"])
+            self.assertIn("hashing", search["sources"][0]["keywordTerms"])
+            self.assertIn("hashing", search["sources"][0]["queryTerms"])
+
+    def test_source_selection_demotes_exercises_for_concept_questions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "buffer-pool.tokensmith.md"
+            note_path.write_text(
+                '<!-- tokensmith:chunk id="ch05.001" chapter="5" section="5.1.1 Check Your Understanding" kind="list" -->\n'
+                "Check Your Understanding: Why is pinning needed in a buffer pool?\n\n"
+                '<!-- tokensmith:chunk id="ch05.002" chapter="5" section="5.1 Buffer Management" kind="prose" -->\n'
+                "Pinning is needed because a page that is actively being used must stay resident in a buffer "
+                "frame and must not be selected as the victim for replacement.",
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Why is pinning needed in a buffer pool?",
+                    "materials": [material],
+                    "limit": 1,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertEqual(len(search["sources"]), 1)
+            self.assertEqual(search["sources"][0]["chunkId"], "ch05.002")
 
     def test_index_material_resume_skips_existing_chunk_embeddings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1650,6 +1791,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "tokens",
                     "chunk_size",
                     "section_header",
+                    "stable_chunk_id",
+                    "tokensmith_chunk_id",
+                    "tokensmith_chapter",
+                    "chunk_kind",
                 ],
             )
             self.assertEqual(table_columns["embeddings"], ["model", "folder_id", "chunk_id", "embedding"])

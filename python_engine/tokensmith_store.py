@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import math
 import random
@@ -21,7 +22,7 @@ except Exception:  # pragma: no cover - optional until app runtime is installed
 
 DB_NAME = "tokensmith.sqlite"
 FAISS_NAME = "tokensmith.faiss"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 KEYWORD_STOPWORDS: Set[str] = {
     "a",
     "about",
@@ -163,6 +164,11 @@ def init_db(user_data_path: str) -> None:
         ensure_column(conn, "tokensmith_collection_state", "chunk_size", "INTEGER")
         ensure_column(conn, "chunks", "chunk_size", "INTEGER")
         ensure_column(conn, "chunks", "section_header", "TEXT")
+        ensure_column(conn, "chunks", "stable_chunk_id", "TEXT")
+        ensure_column(conn, "chunks", "tokensmith_chunk_id", "TEXT")
+        ensure_column(conn, "chunks", "tokensmith_chapter", "TEXT")
+        ensure_column(conn, "chunks", "chunk_kind", "TEXT")
+        backfill_stable_chunk_ids(conn)
         set_schema_value(conn, "version", str(SCHEMA_VERSION))
 
 
@@ -171,6 +177,96 @@ def ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, d
     if any(row["name"] == column_name for row in rows):
         return
     conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def clean_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def safe_chunk_position(value: Any) -> Optional[int]:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def generated_stable_chunk_id(chunk: Dict[str, Any]) -> str:
+    position = (
+        safe_chunk_position(chunk.get("tokensmithChunkIndex"))
+        or safe_chunk_position(chunk.get("chunkIndex"))
+        or safe_chunk_position(chunk.get("pageStart"))
+        or safe_chunk_position(chunk.get("lineFrom"))
+    )
+    prefix = f"{position:06d}" if position is not None else "unknown"
+    digest_parts = [
+        chunk.get("path"),
+        chunk.get("pageStart"),
+        chunk.get("lineFrom"),
+        chunk.get("lineTo"),
+        chunk.get("text"),
+    ]
+    digest = hashlib.sha1(
+        "\0".join(str(part or "") for part in digest_parts).encode("utf-8", errors="ignore")
+    ).hexdigest()[:8]
+    return f"auto:{prefix}-{digest}"
+
+
+def stable_chunk_id_for_chunk(chunk: Dict[str, Any]) -> str:
+    return clean_optional_text(chunk.get("tokensmithChunkId")) or generated_stable_chunk_id(chunk)
+
+
+def chunk_metadata_values(chunk: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+    tokensmith_chunk_id = clean_optional_text(chunk.get("tokensmithChunkId"))
+    tokensmith_chapter = clean_optional_text(chunk.get("tokensmithChapter"))
+    chunk_kind = clean_optional_text(chunk.get("tokensmithChunkKind") or chunk.get("chunkKind"))
+    return (
+        stable_chunk_id_for_chunk(chunk),
+        tokensmith_chunk_id,
+        tokensmith_chapter,
+        chunk_kind,
+    )
+
+
+def backfill_stable_chunk_ids(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT
+            ch.id,
+            ch.chunk_text,
+            ch.page,
+            ch.line_from,
+            ch.line_to,
+            ch.chunk_size,
+            ch.stable_chunk_id,
+            ch.tokensmith_chunk_id,
+            d.document_path AS path
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        WHERE ch.stable_chunk_id IS NULL
+           OR TRIM(ch.stable_chunk_id) = ''
+        """
+    ).fetchall()
+
+    for row in rows:
+        stable_chunk_id = clean_optional_text(row["tokensmith_chunk_id"]) or generated_stable_chunk_id(
+            {
+                "path": row["path"],
+                "text": row["chunk_text"],
+                "pageStart": row["page"],
+                "lineFrom": row["line_from"],
+                "lineTo": row["line_to"],
+                "chunkSize": row["chunk_size"],
+                "chunkIndex": row["id"],
+            }
+        )
+        conn.execute(
+            "UPDATE chunks SET stable_chunk_id = ? WHERE id = ?",
+            (stable_chunk_id, row["id"]),
+        )
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
@@ -222,7 +318,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
             words INTEGER NOT NULL DEFAULT 0,
             tokens INTEGER NOT NULL DEFAULT 0,
             chunk_size INTEGER,
-            section_header TEXT
+            section_header TEXT,
+            stable_chunk_id TEXT,
+            tokensmith_chunk_id TEXT,
+            tokensmith_chapter TEXT,
+            chunk_kind TEXT
         );
 
         CREATE TABLE IF NOT EXISTS embeddings (
@@ -272,6 +372,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
         CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
         CREATE INDEX IF NOT EXISTS idx_pdf_page_thumbnails_document_id ON pdf_page_thumbnails(document_id);
+        CREATE INDEX IF NOT EXISTS idx_chunks_stable_chunk_id ON chunks(stable_chunk_id);
         """
     )
     create_fts_schema(conn)
@@ -722,13 +823,15 @@ def replace_chunk_terms_for_row(conn: sqlite3.Connection, row: sqlite3.Row) -> N
 def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> int:
     text = str(chunk.get("text") or "")
     word_count = int(chunk.get("wordCount") or len(text.split()))
+    stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind = chunk_metadata_values(chunk)
     cursor = conn.execute(
         """
         INSERT INTO chunks (
             document_id, chunk_text, file, title, author, subject, keywords,
-            page, line_from, line_to, words, tokens, chunk_size, section_header
+            page, line_from, line_to, words, tokens, chunk_size, section_header,
+            stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             document_id,
@@ -745,6 +848,10 @@ def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             int(chunk.get("tokens") or word_count),
             chunk.get("chunkSize"),
             chunk.get("sectionHeader"),
+            stable_chunk_id,
+            tokensmith_chunk_id,
+            tokensmith_chapter,
+            chunk_kind,
         ),
     )
     return int(cursor.lastrowid)
@@ -777,7 +884,31 @@ def find_existing_chunk_id(conn: sqlite3.Connection, document_id: int, chunk: Di
 
 
 def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> int:
-    return find_existing_chunk_id(conn, document_id, chunk) or insert_chunk(conn, document_id, chunk)
+    chunk_id = find_existing_chunk_id(conn, document_id, chunk)
+    if chunk_id is None:
+        return insert_chunk(conn, document_id, chunk)
+
+    stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind = chunk_metadata_values(chunk)
+    conn.execute(
+        """
+        UPDATE chunks
+        SET stable_chunk_id = ?,
+            tokensmith_chunk_id = ?,
+            tokensmith_chapter = ?,
+            chunk_kind = ?,
+            section_header = COALESCE(?, section_header)
+        WHERE id = ?
+        """,
+        (
+            stable_chunk_id,
+            tokensmith_chunk_id,
+            tokensmith_chapter,
+            chunk_kind,
+            chunk.get("sectionHeader"),
+            chunk_id,
+        ),
+    )
+    return chunk_id
 
 
 def replace_document_thumbnails(conn: sqlite3.Connection, document_id: int, thumbnails: Sequence[Dict[str, Any]]) -> None:
@@ -1116,6 +1247,10 @@ def source_row_select() -> str:
             ch.page AS page_end,
             ch.line_from AS line_from,
             ch.line_to AS line_to,
+            COALESCE(ch.stable_chunk_id, CAST(ch.id AS TEXT)) AS stable_chunk_id,
+            ch.tokensmith_chunk_id AS tokensmith_chunk_id,
+            ch.tokensmith_chapter AS tokensmith_chapter,
+            ch.chunk_kind AS chunk_kind,
             ch.id AS chunk_index,
             ch.chunk_size AS chunk_size,
             ch.section_header AS section_header,
@@ -1625,6 +1760,19 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
         except (TypeError, ValueError):
             continue
 
+    stable_chunk_id = None
+    for key in ("chunkId", "stableChunkId", "tokensmithChunkId"):
+        value = clean_optional_text(source.get(key))
+        if not value:
+            continue
+        try:
+            int(value)
+            continue
+        except (TypeError, ValueError):
+            stable_chunk_id = value
+            break
+
+    material_id = clean_optional_text(source.get("materialId"))
     document_id = None
     try:
         if source.get("documentId") is not None and str(source.get("documentId")).strip():
@@ -1646,6 +1794,9 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
     if chunk_id is not None:
         where_clauses.append("ch.id = ?")
         params.append(chunk_id)
+    if stable_chunk_id and material_id:
+        where_clauses.append("(CAST(col.id AS TEXT) = ? AND ch.stable_chunk_id = ?)")
+        params.extend([material_id, stable_chunk_id])
     if document_id is not None:
         if page is not None:
             where_clauses.append("(d.id = ? AND ch.page = ?)")
@@ -1654,6 +1805,9 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
             where_clauses.append("d.id = ?")
             params.append(document_id)
     if document_path:
+        if stable_chunk_id:
+            where_clauses.append("(d.document_path = ? AND ch.stable_chunk_id = ?)")
+            params.extend([document_path, stable_chunk_id])
         if page is not None:
             where_clauses.append("(d.document_path = ? AND ch.page = ?)")
             params.extend([document_path, page])
@@ -1669,6 +1823,10 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
             f"""
             SELECT
                 ch.id AS chunk_id,
+                ch.stable_chunk_id AS stable_chunk_id,
+                ch.tokensmith_chunk_id AS tokensmith_chunk_id,
+                ch.tokensmith_chapter AS tokensmith_chapter,
+                ch.chunk_kind AS chunk_kind,
                 d.id AS document_id,
                 d.document_path AS path,
                 COALESCE(ch.title, '') AS title,
@@ -1695,7 +1853,12 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
 
     title = str(row["title"] or "") or Path(str(row["path"])).stem
     return {
-        "chunkId": int(row["chunk_id"]),
+        "chunkId": row["stable_chunk_id"] or str(row["chunk_id"]),
+        "chunkRowid": int(row["chunk_id"]),
+        "chunkKind": row["chunk_kind"],
+        "tokensmithChunkId": row["tokensmith_chunk_id"],
+        "tokensmithChapter": row["tokensmith_chapter"],
+        "tokensmithChunkKind": row["chunk_kind"],
         "documentId": int(row["document_id"]),
         "path": str(row["path"]),
         "title": title,

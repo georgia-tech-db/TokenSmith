@@ -127,8 +127,15 @@ export interface ChatSource {
   excerpt: string
   context?: string
   materialId?: string
+  sourceId?: string
   chunkId?: string
   chunkRowid?: number | string
+  chunkKind?: string
+  tokensmithChunkId?: string
+  tokensmithChapter?: string
+  tokensmithChunkKind?: string
+  queryTerms?: string[]
+  keywordTerms?: string[]
   documentId?: number | string
   documentTitle?: string
   collectionName?: string

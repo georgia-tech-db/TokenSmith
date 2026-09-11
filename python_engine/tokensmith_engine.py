@@ -1494,13 +1494,20 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
     document_title = chunk.get("documentTitle") or material_title
     title = material_title if material_title == document_title else f"{material_title} / {document_title}"
     text = normalize_text(chunk.get("text", ""))
+    chunk_id = chunk.get("stableChunkId") or chunk.get("tokensmithChunkId") or chunk.get("id")
+    source_id = "|".join(
+        str(part)
+        for part in (chunk.get("materialId"), chunk.get("path"), chunk_id)
+        if part is not None and str(part).strip()
+    )
     return {
         "title": title,
         "locator": locator_for_chunk(chunk),
         "excerpt": excerpt_for(text, query_tokens),
         "context": text,
         "materialId": chunk.get("materialId"),
-        "chunkId": chunk.get("id"),
+        "sourceId": source_id or None,
+        "chunkId": chunk_id,
         "documentId": chunk.get("documentId"),
         "documentTitle": document_title,
         "collectionName": material_title,
@@ -1512,6 +1519,10 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
         "thumbnailPath": chunk.get("thumbnailPath"),
         "chunkSize": chunk.get("chunkSize"),
         "sectionHeader": chunk.get("sectionHeader"),
+        "chunkKind": chunk.get("chunkKind") or chunk.get("tokensmithChunkKind"),
+        "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+        "tokensmithChapter": chunk.get("tokensmithChapter"),
+        "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
         "score": score,
     }
 
@@ -1841,6 +1852,11 @@ def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Di
         "pageStart": row.get("page_start"),
         "pageEnd": row.get("page_end"),
         "thumbnailPath": row.get("thumbnail_path"),
+        "stableChunkId": row.get("stable_chunk_id"),
+        "tokensmithChunkId": row.get("tokensmith_chunk_id"),
+        "tokensmithChapter": row.get("tokensmith_chapter"),
+        "tokensmithChunkKind": row.get("chunk_kind"),
+        "chunkKind": row.get("chunk_kind"),
         "chunkIndex": row.get("chunk_index"),
         "chunkSize": row.get("chunk_size"),
         "sectionHeader": row.get("section_header"),
@@ -1869,6 +1885,18 @@ DEFAULT_SEARCH_MODE = "hybrid"
 RRF_RANK_CONSTANT = 60.0
 HYBRID_KEYWORD_WEIGHT = 1.5
 HYBRID_VECTOR_WEIGHT = 1.0
+EXERCISE_QUERY_TERMS = {
+    "check",
+    "exercise",
+    "exercises",
+    "practice",
+    "problem",
+    "problems",
+    "question",
+    "questions",
+    "quiz",
+    "understanding",
+}
 
 
 def normalize_search_mode(value: Any) -> str:
@@ -1921,6 +1949,112 @@ def combine_search_hits(
     )
 
 
+def source_row_text(row: Dict[str, Any]) -> str:
+    return " ".join(
+        str(row.get(key) or "")
+        for key in ("section_header", "document_title", "material_title", "text")
+    )
+
+
+def source_row_query_matches(row: Dict[str, Any], terms: Sequence[str]) -> int:
+    tokens = set(tokenize(source_row_text(row)))
+    return sum(1 for term in terms if term in tokens)
+
+
+def source_row_query_coverage(row: Dict[str, Any], terms: Sequence[str]) -> float:
+    if not terms:
+        return 0.0
+    return source_row_query_matches(row, terms) / float(len(terms))
+
+
+def source_row_is_exercise(row: Dict[str, Any]) -> bool:
+    chunk_kind = str(row.get("chunk_kind") or "").casefold()
+    section = str(row.get("section_header") or "").casefold()
+    text = str(row.get("text") or "").casefold()
+    return (
+        chunk_kind in {"exercise", "question", "quiz"}
+        or "check your understanding" in section
+        or section.strip() in {"exercise", "exercises", "questions"}
+        or text.lstrip().startswith(("check your understanding", "#### check your understanding"))
+    )
+
+
+def query_asks_for_exercise(query_terms: Sequence[str]) -> bool:
+    return any(term in EXERCISE_QUERY_TERMS for term in query_terms)
+
+
+def source_row_cluster_key(row: Dict[str, Any]) -> str:
+    document_key = "|".join(
+        str(row.get(key) or "")
+        for key in ("material_id", "document_id", "path", "document_title")
+    )
+    section = normalize_text(str(row.get("section_header") or "")).casefold()
+    if section:
+        return f"{document_key}|section:{section}"
+
+    try:
+        position = int(row.get("chunk_index") or row.get("rowid") or 0)
+    except (TypeError, ValueError):
+        position = 0
+    if position > 0:
+        return f"{document_key}|chunk:{position // 4}"
+
+    return f"{document_key}|row:{row.get('rowid')}"
+
+
+def select_source_rows(
+    rows: Sequence[Dict[str, Any]],
+    query_terms: Sequence[str],
+    keyword_terms: Sequence[str],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    useful_terms = list(dict.fromkeys([*keyword_terms, *query_terms]))
+    exercise_requested = query_asks_for_exercise(query_terms)
+    scored_rows: List[Tuple[float, int, Dict[str, Any]]] = []
+    total_rows = max(1, len(rows))
+
+    for index, row in enumerate(rows):
+        coverage = source_row_query_coverage(row, useful_terms)
+        match_count = source_row_query_matches(row, useful_terms)
+        rank_score = 1.0 - (index / float(total_rows))
+        exercise_penalty = 0.0 if exercise_requested or not source_row_is_exercise(row) else 2.0
+        adjusted_score = rank_score + coverage * 1.5 + min(match_count, 4) * 0.15 - exercise_penalty
+        scored_rows.append((adjusted_score, index, row))
+
+    selected: List[Dict[str, Any]] = []
+    selected_rowids: set[int] = set()
+    cluster_counts: Dict[str, int] = {}
+
+    for _score, _index, row in sorted(scored_rows, key=lambda item: (-item[0], item[1])):
+        if len(selected) >= limit:
+            break
+        rowid = int(row.get("rowid") or 0)
+        if rowid in selected_rowids:
+            continue
+        cluster_key = source_row_cluster_key(row)
+        if cluster_counts.get(cluster_key, 0) >= 2:
+            continue
+        selected.append(row)
+        selected_rowids.add(rowid)
+        cluster_counts[cluster_key] = cluster_counts.get(cluster_key, 0) + 1
+
+    if len(selected) < limit:
+        for _score, _index, row in sorted(scored_rows, key=lambda item: (-item[0], item[1])):
+            if len(selected) >= limit:
+                break
+            rowid = int(row.get("rowid") or 0)
+            if rowid in selected_rowids:
+                continue
+            selected.append(row)
+            selected_rowids.add(rowid)
+
+    selected_order = {int(row.get("rowid") or 0): index for index, row in enumerate(selected)}
+    return sorted(selected, key=lambda row: selected_order.get(int(row.get("rowid") or 0), len(selected_order)))
+
+
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
@@ -1928,7 +2062,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     query = payload.get("query", "")
     limit = int(payload.get("limit") or 4)
     search_mode = normalize_search_mode(payload.get("searchMode"))
-    candidate_limit = max(limit * 8, limit) if search_mode == "hybrid" else limit
+    candidate_limit = max(limit * 8, limit) if search_mode in ("keyword", "hybrid") else limit
     materials = payload.get("materials") or []
     embedding_specs = embedding_model_specs(payload)
     requested_active_materials = [
@@ -2000,7 +2134,8 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms)
 
     vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
-    ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, limit)
+    ranked_limit = candidate_limit if search_mode in ("keyword", "hybrid") else limit
+    ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, ranked_limit)
 
     log_event(
         "search_results_ranked",
@@ -2011,18 +2146,36 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         vectorHits=len(vector_hits),
         keywordHits=len(keyword_hits),
         keywordTerms=keyword_terms,
-        rankedHits=len(ranked),
+        candidateHits=len(ranked),
     )
 
     row_embedding_models = {
         rowid: embedding_key for rowid, (_score, embedding_key) in vector_hits_by_rowid.items()
     }
     rows = fetch_sources(user_data_path, ranked, active_ids)
+    rows = select_source_rows(rows, query_tokens, keyword_terms, limit)
     for row in rows:
         row["retrieval_mode"] = search_mode
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
-    sources = [source_from_sqlite_chunk(row, query_tokens) for row in rows]
-    return {"sources": sources, "reason": None if sources else "no_matching_sources"}
+    source_query_tokens = sorted(set([*query_tokens, *keyword_terms]))
+    sources = [source_from_sqlite_chunk(row, source_query_tokens) for row in rows]
+    for source in sources:
+        source["queryTerms"] = source_query_tokens
+        source["keywordTerms"] = list(keyword_terms)
+    log_event(
+        "search_sources_selected",
+        queryChars=len(query),
+        searchMode=search_mode,
+        selectedHits=len(rows),
+        selectedChunkIds=[row.get("stable_chunk_id") or row.get("rowid") for row in rows],
+        exerciseChunks=sum(1 for row in rows if source_row_is_exercise(row)),
+    )
+    return {
+        "sources": sources,
+        "reason": None if sources else "no_matching_sources",
+        "queryTerms": source_query_tokens,
+        "keywordTerms": keyword_terms,
+    }
 
 
 def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:

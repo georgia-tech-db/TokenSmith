@@ -269,6 +269,42 @@ test('contextual follow-ups include current-question evidence when asking for a 
   assert.ok(extraFocusIndex < 0 || comparisonIndex < extraFocusIndex)
 })
 
+test('contextual scoring uses corrected search terms from retrieval', () => {
+  const messages = completedTurn(
+    'What exact part of the B+ tree makes the range scan fast?',
+    'The sequence set connects the leaf pages, so a range scan can continue through adjacent leaves.',
+    [sequenceSetSource, sequenceSetScanSource]
+  )
+  const contextualContext = buildContextualRetrievalContext(
+    'Does that mean we should always prefer it over hasing?',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+  const correctedHashSource = {
+    ...hashBplusComparisonSource,
+    queryTerms: ['hashing', 'b+', 'tree', 'range'],
+    keywordTerms: ['hashing', 'range']
+  }
+
+  assert.ok(contextualContext)
+
+  const choice = chooseRetrievalContext(
+    'Does that mean we should always prefer it over hasing?',
+    [],
+    contextualContext,
+    [
+      sequenceSetScanSource,
+      correctedHashSource
+    ],
+    3
+  )
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(selectedChunkIds[0], correctedHashSource.chunkId)
+  assert.ok(selectedChunkIds.includes(sequenceSetSource.chunkId))
+})
+
 test('shouldTryContextualRetrieval keeps a short specific standalone question when its source is grounded', () => {
   const messages = completedTurn(
     'What exactly is a B+ tree and how is it different from a binary search tree?',
@@ -286,5 +322,25 @@ test('mergeChatSources keeps carried context while deduping retrieved results', 
   assert.deepEqual(
     mergeChatSources([pinningSource], [pinningSource, bplusTreeSource], 4),
     [pinningSource, bplusTreeSource]
+  )
+})
+
+test('mergeChatSources keeps matching chunk labels from different collections distinct', () => {
+  const firstCollectionSource = {
+    ...pinningSource,
+    materialId: '1',
+    sourceId: '1|/first/book.tokensmith.md|ch05.084',
+    path: '/first/book.tokensmith.md'
+  }
+  const secondCollectionSource = {
+    ...pinningSource,
+    materialId: '2',
+    sourceId: '2|/second/book.tokensmith.md|ch05.084',
+    path: '/second/book.tokensmith.md'
+  }
+
+  assert.deepEqual(
+    mergeChatSources([firstCollectionSource], [secondCollectionSource], 4),
+    [firstCollectionSource, secondCollectionSource]
   )
 })

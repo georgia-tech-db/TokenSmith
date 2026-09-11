@@ -43,6 +43,8 @@ interface IndexMaterialResult {
 
 interface SearchResult {
   sources: ChatSource[]
+  queryTerms?: string[]
+  keywordTerms?: string[]
 }
 
 interface ListMaterialsResult {
@@ -51,6 +53,11 @@ interface ListMaterialsResult {
 
 interface ResolvedSourceDocument {
   chunkId?: number | string
+  chunkRowid?: number | string
+  chunkKind?: string
+  tokensmithChunkId?: string
+  tokensmithChapter?: string
+  tokensmithChunkKind?: string
   documentId?: number | string
   path: string
   title?: string
@@ -171,6 +178,15 @@ function logSource(source: ChatSource): Record<string, unknown> {
   return {
     title: source.title,
     locator: source.locator,
+    sourceId: source.sourceId,
+    chunkId: source.chunkId,
+    chunkRowid: source.chunkRowid,
+    chunkKind: source.chunkKind,
+    tokensmithChunkId: source.tokensmithChunkId,
+    tokensmithChapter: source.tokensmithChapter,
+    tokensmithChunkKind: source.tokensmithChunkKind,
+    queryTerms: source.queryTerms,
+    keywordTerms: source.keywordTerms,
     documentTitle: source.documentTitle,
     collectionName: source.collectionName,
     sectionHeader: source.sectionHeader,
@@ -633,6 +649,8 @@ export async function searchLibraryWithPython(
 
   writeLog('library_search_result', {
     query,
+    queryTerms: result.queryTerms,
+    keywordTerms: result.keywordTerms,
     sourceCount: result.sources.length,
     sources: result.sources.map(logSource)
   })
