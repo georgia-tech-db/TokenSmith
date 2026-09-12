@@ -23,6 +23,7 @@ except Exception:  # pragma: no cover - optional until app runtime is installed
 DB_NAME = "tokensmith.sqlite"
 FAISS_NAME = "tokensmith.faiss"
 SCHEMA_VERSION = 10
+ALIAS_EXTRACTION_VERSION = 1
 KEYWORD_STOPWORDS: Set[str] = {
     "a",
     "about",
@@ -143,6 +144,20 @@ MAX_ANCHOR_DF_RATIO = 0.20
 MIN_KEYWORD_CORRECTION_LENGTH = 4
 KEYWORD_CORRECTION_CUTOFF = 0.82
 KEYWORD_CORRECTION_LENGTH_WINDOW = 2
+MAX_ALIAS_TERMS_PER_SIDE = 8
+MAX_ALIAS_PAIRS_PER_CHUNK = 200
+MAX_KEYWORD_ALIAS_TERMS = 4
+MAX_ALIAS_FANOUT_PER_TERM = 3
+MAX_ALIAS_SEED_DF = 8
+ACRONYM_TOKEN_PATTERN = r"[A-Z][A-Z0-9]{1,12}"
+ACRONYM_IN_PARENS_RE = re.compile(rf"\b([^()\n.;:]{{3,120}}?)\s*\(({ACRONYM_TOKEN_PATTERN})\)")
+ACRONYM_OR_ALIAS_RE = re.compile(rf"\b([^()\n.;:]{{3,120}}?),\s+or\s+({ACRONYM_TOKEN_PATTERN})\b")
+STANDS_FOR_RE = re.compile(rf"\b({ACRONYM_TOKEN_PATTERN})\s+(?:stands\s+for|is\s+short\s+for)\s+([^.;:\n]{{3,120}})")
+ALSO_KNOWN_AS_RE = re.compile(
+    r"\b([^.;:\n]{3,120}?)\s*,?\s+(?:also\s+known\s+as|also\s+called|aka|a\.k\.a\.)\s+(?:the\s+)?([^.;:,\n]{2,120})",
+    re.IGNORECASE,
+)
+REFERENCE_ALIAS_SUBJECT_RE = re.compile(r"\b(?:this|that|these|those|it|its|the)\b", re.IGNORECASE)
 
 
 def db_path(user_data_path: str) -> Path:
@@ -434,6 +449,20 @@ def create_fts_schema(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_chunk_terms_term ON chunk_terms(term);
+
+        CREATE TABLE IF NOT EXISTS chunk_term_aliases (
+            chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+            term TEXT NOT NULL,
+            alias_term TEXT NOT NULL,
+            PRIMARY KEY(chunk_id, term, alias_term)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chunk_term_aliases_term ON chunk_term_aliases(term);
+
+        CREATE TABLE IF NOT EXISTS chunk_search_index_state (
+            chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            alias_version INTEGER NOT NULL DEFAULT 0
+        );
         """
     )
 
@@ -794,29 +823,130 @@ def insert_document(conn: sqlite3.Connection, folder_id: int, document_path: str
     return int(row["id"])
 
 
-def chunk_vocabulary_terms(*parts: Any) -> Set[str]:
-    terms: Set[str] = set()
+def ordered_vocabulary_terms(*parts: Any) -> List[str]:
+    terms: List[str] = []
+    seen: Set[str] = set()
     for part in parts:
         for raw_term in re.findall(r"[0-9A-Za-z]+", str(part or "")):
             term = raw_term.casefold()
-            if len(term) < 2 or term in KEYWORD_STOPWORDS:
+            if len(term) < 2 or term in KEYWORD_STOPWORDS or term in seen:
                 continue
-            terms.add(term)
+            terms.append(term)
+            seen.add(term)
     return terms
+
+
+def chunk_vocabulary_terms(*parts: Any) -> Set[str]:
+    return set(ordered_vocabulary_terms(*parts))
+
+
+def alias_phrase_terms(value: Any, *, from_end: bool = False) -> List[str]:
+    terms = ordered_vocabulary_terms(value)
+    if from_end:
+        terms = terms[-MAX_ALIAS_TERMS_PER_SIDE:]
+    else:
+        terms = terms[:MAX_ALIAS_TERMS_PER_SIDE]
+    return terms
+
+
+def alias_antecedent_phrase(before_text: str, head_terms: Sequence[str]) -> Optional[str]:
+    if not head_terms:
+        return None
+
+    head = head_terms[-1]
+    nearby_text = before_text[-320:]
+    emphasis_matches = list(re.finditer(r"[*_`]+([^*_`\n]{3,100})[*_`]+", nearby_text))
+    for match in reversed(emphasis_matches):
+        terms = alias_phrase_terms(match.group(1), from_end=True)
+        if len(terms) > 1 and terms[-1] == head:
+            return " ".join(terms)
+
+    terms = ordered_vocabulary_terms(nearby_text)
+    for index in range(len(terms) - 1, -1, -1):
+        if terms[index] != head:
+            continue
+        candidate_terms = terms[max(0, index - 4):index + 1]
+        if len(candidate_terms) > 1:
+            return " ".join(candidate_terms)
+
+    return None
+
+
+def chunk_term_alias_pairs(*parts: Any) -> Set[Tuple[str, str]]:
+    text = " ".join(str(part or "") for part in parts)
+    pairs: Set[Tuple[str, str]] = set()
+
+    def add_pair(left_text: Any, right_text: Any, *, left_from_end: bool = False) -> None:
+        left_terms = alias_phrase_terms(left_text, from_end=left_from_end)
+        right_terms = alias_phrase_terms(right_text)
+        if not left_terms or not right_terms:
+            return
+
+        for left_term in left_terms:
+            for right_term in right_terms:
+                if left_term == right_term:
+                    continue
+                pairs.add((left_term, right_term))
+                pairs.add((right_term, left_term))
+                if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+                    return
+
+    for pattern in (ACRONYM_IN_PARENS_RE, ACRONYM_OR_ALIAS_RE):
+        for match in pattern.finditer(text):
+            add_pair(match.group(1), match.group(2), left_from_end=True)
+            if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+                return pairs
+
+    for match in STANDS_FOR_RE.finditer(text):
+        add_pair(match.group(1), match.group(2))
+        if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+            return pairs
+
+    for match in ALSO_KNOWN_AS_RE.finditer(text):
+        left_text = match.group(1)
+        left_terms = alias_phrase_terms(left_text, from_end=True)
+        antecedent = alias_antecedent_phrase(text[:match.start()], left_terms) \
+            if REFERENCE_ALIAS_SUBJECT_RE.search(left_text) else None
+        add_pair(antecedent or left_text, match.group(2), left_from_end=True)
+        if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+            return pairs
+
+    return pairs
+
+
+def replace_chunk_term_aliases(conn: sqlite3.Connection, chunk_id: int, *parts: Any) -> None:
+    pairs = sorted(chunk_term_alias_pairs(*parts))
+    conn.execute("DELETE FROM chunk_term_aliases WHERE chunk_id = ?", (chunk_id,))
+    if pairs:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO chunk_term_aliases(chunk_id, term, alias_term)
+            VALUES (?, ?, ?)
+            """,
+            [(chunk_id, term, alias_term) for term, alias_term in pairs],
+        )
+    conn.execute(
+        """
+        INSERT INTO chunk_search_index_state(chunk_id, alias_version)
+        VALUES (?, ?)
+        ON CONFLICT(chunk_id) DO UPDATE SET alias_version = excluded.alias_version
+        """,
+        (chunk_id, ALIAS_EXTRACTION_VERSION),
+    )
 
 
 def replace_chunk_terms(conn: sqlite3.Connection, chunk_id: int, *parts: Any) -> None:
     terms = sorted(chunk_vocabulary_terms(*parts))
     conn.execute("DELETE FROM chunk_terms WHERE chunk_id = ?", (chunk_id,))
-    if not terms:
-        return
-    conn.executemany(
-        """
-        INSERT OR IGNORE INTO chunk_terms(chunk_id, term)
-        VALUES (?, ?)
-        """,
-        [(chunk_id, term) for term in terms],
-    )
+    if terms:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO chunk_terms(chunk_id, term)
+            VALUES (?, ?)
+            """,
+            [(chunk_id, term) for term in terms],
+        )
+    replace_chunk_term_aliases(conn, chunk_id, *parts)
 
 
 def replace_chunk_terms_for_row(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
@@ -1442,6 +1572,44 @@ def ensure_chunk_terms_for_active_materials(
         replace_chunk_terms_for_row(conn, row)
 
 
+def ensure_chunk_aliases_for_active_materials(
+    conn: sqlite3.Connection,
+    active_material_ids: Sequence[str],
+) -> None:
+    if not active_material_ids:
+        return
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    rows = conn.execute(
+        f"""
+        SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        LEFT JOIN chunk_search_index_state sis ON sis.chunk_id = ch.id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND COALESCE(sis.alias_version, 0) < ?
+        """,
+        [*[str(material_id) for material_id in active_material_ids], ALIAS_EXTRACTION_VERSION],
+    ).fetchall()
+
+    for row in rows:
+        replace_chunk_term_aliases(
+            conn,
+            int(row["id"]),
+            row["chunk_text"],
+            row["file"],
+            row["title"],
+            row["author"],
+            row["subject"],
+            row["keywords"],
+            row["section_header"],
+        )
+
+
 def active_vocabulary_terms_near(
     conn: sqlite3.Connection,
     term: str,
@@ -1528,6 +1696,62 @@ def corrected_keyword_term(
     return matches[0] if matches and matches[0] != term else None
 
 
+def collection_alias_terms_for_query_terms(
+    conn: sqlite3.Connection,
+    terms: Sequence[str],
+    active_material_ids: Sequence[str],
+    active_filter: str,
+    active_params: Sequence[str],
+    max_terms: int = MAX_KEYWORD_ALIAS_TERMS,
+) -> List[str]:
+    if not terms or not active_material_ids or max_terms <= 0:
+        return []
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    term_placeholders = ",".join("?" for _ in terms)
+    rows = conn.execute(
+        f"""
+        SELECT cta.term, cta.alias_term, COUNT(DISTINCT cta.chunk_id) AS alias_hits
+        FROM chunk_term_aliases cta
+        JOIN chunks ch ON ch.id = cta.chunk_id
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND cta.term IN ({term_placeholders})
+        GROUP BY cta.term, cta.alias_term
+        ORDER BY alias_hits DESC, cta.alias_term ASC
+        """,
+        [*[str(material_id) for material_id in active_material_ids], *terms],
+    ).fetchall()
+
+    aliases_by_term: Dict[str, List[sqlite3.Row]] = {}
+    for row in rows:
+        term = str(row["term"] or "").casefold()
+        aliases_by_term.setdefault(term, []).append(row)
+
+    aliases: List[Tuple[str, int, int]] = []
+    seen = set(terms)
+    for term in terms:
+        term_rows = aliases_by_term.get(term, [])
+        if len(term_rows) > MAX_ALIAS_FANOUT_PER_TERM:
+            continue
+        for row in term_rows:
+            alias_term = str(row["alias_term"] or "").casefold()
+            if alias_term in seen or not re.fullmatch(r"[0-9a-z]+", alias_term):
+                continue
+            df = _keyword_term_document_frequency(conn, alias_term, active_filter, active_params)
+            if df <= 0:
+                continue
+            aliases.append((alias_term, df, int(row["alias_hits"] or 0)))
+            seen.add(alias_term)
+
+    aliases.sort(key=lambda item: (item[1], -item[2], item[0]))
+    return [alias_term for alias_term, _df, _hits in aliases[:max_terms]]
+
+
 def keyword_terms_for_query(
     user_data_path: str,
     query: str,
@@ -1541,6 +1765,7 @@ def keyword_terms_for_query(
     active_filter, active_params = _active_chunks_filter(active_material_ids)
     with connect(user_data_path) as conn:
         ensure_chunk_terms_for_active_materials(conn, active_material_ids)
+        ensure_chunk_aliases_for_active_materials(conn, active_material_ids)
         total_chunks = conn.execute(
             f"""
             SELECT COUNT(DISTINCT chunks_fts.rowid)
@@ -1579,9 +1804,24 @@ def keyword_terms_for_query(
             if df / float(total_chunks) <= MAX_ANCHOR_DF_RATIO or len(chosen_term) >= 4:
                 ranked_terms.append(term_rank)
 
-    chosen_terms = ranked_terms or fallback_terms
-    chosen_terms.sort(key=lambda item: (-item[1], item[2], item[3]))
-    return [term for term, _idf, _df, _index in chosen_terms[:max_terms]]
+        chosen_terms = ranked_terms or fallback_terms
+        chosen_terms.sort(key=lambda item: (-item[1], item[2], item[3]))
+        base_terms = [term for term, _idf, _df, _index in chosen_terms[:max_terms]]
+        alias_seed_terms = [
+            term
+            for term, _idf, df, _index in chosen_terms
+            if df <= MAX_ALIAS_SEED_DF
+        ][:max_terms]
+        alias_terms = collection_alias_terms_for_query_terms(
+            conn,
+            alias_seed_terms,
+            active_material_ids,
+            active_filter,
+            active_params,
+            max_terms=max(0, min(MAX_KEYWORD_ALIAS_TERMS, max_terms - len(base_terms))),
+        )
+
+    return list(dict.fromkeys([*base_terms, *(term for term in alias_terms if term not in base_terms)]))
 
 
 def keyword_search_with_match_query(

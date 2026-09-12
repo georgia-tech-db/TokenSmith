@@ -202,6 +202,52 @@ class KeywordSearchTests(unittest.TestCase):
             self.assertEqual(other_hits[0][0], other_rowids[0])
             self.assertNotEqual(other_hits[0][0], selected_rowids[0])
 
+    def test_keyword_terms_expand_collection_defined_aliases(self):
+        with tempfile.TemporaryDirectory() as user_data_path:
+            store.init_db(user_data_path)
+            with store.connect(user_data_path) as conn:
+                rowids = self.insert_material(
+                    conn,
+                    1,
+                    [
+                        "The tuple iterator model, also known as Volcano execution, processes one tuple at a time.",
+                        "Iterator model overhead comes from virtual calls and poor branch prediction.",
+                    ],
+                )
+
+            terms = store.keyword_terms_for_query(user_data_path, "why is Volcano overhead high", ["1"])
+            hits = store.keyword_search(user_data_path, "why is Volcano overhead high", ["1"], 3, terms)
+
+            self.assertIn("volcano", terms)
+            self.assertIn("iterator", terms)
+            self.assertIn(rowids[1], [rowid for rowid, _score in hits])
+
+    def test_collection_defined_aliases_stay_collection_scoped(self):
+        with tempfile.TemporaryDirectory() as user_data_path:
+            store.init_db(user_data_path)
+            with store.connect(user_data_path) as conn:
+                self.insert_material(
+                    conn,
+                    1,
+                    [
+                        "Iterator model overhead comes from virtual calls.",
+                    ],
+                )
+                self.insert_material(
+                    conn,
+                    2,
+                    [
+                        "The tuple iterator model, also known as Volcano execution, processes one tuple at a time.",
+                    ],
+                )
+
+            selected_terms = store.keyword_terms_for_query(user_data_path, "Volcano overhead", ["1"])
+            other_terms = store.keyword_terms_for_query(user_data_path, "Volcano overhead", ["2"])
+
+            self.assertEqual(selected_terms, ["overhead"])
+            self.assertIn("volcano", other_terms)
+            self.assertIn("iterator", other_terms)
+
 
 if __name__ == "__main__":
     unittest.main()

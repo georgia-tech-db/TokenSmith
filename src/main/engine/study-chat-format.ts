@@ -20,6 +20,8 @@ const minSourceTextTokens = 80
 const sourceContextInstructions = [
   'Use the context below only when it is relevant to the question.',
   'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
+  'Format the answer for readability: use short paragraphs with one idea each; use a compact bullet list or numbered list only for steps, comparisons, or multiple distinct points.',
+  'For how, why, definition, or elaboration questions, give a clear explanation instead of a one-sentence answer: name the idea, explain how it works, and include one brief concrete example or mini-walkthrough when the context supports one.',
   'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
   'Do not overstate with words like always, faster, or better unless the context gives that condition.',
   'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',

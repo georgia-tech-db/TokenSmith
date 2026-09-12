@@ -16,6 +16,8 @@ export interface RetrievalContext {
   focusAnchorTerms: string[]
   definitionObjectTerms: string[]
   isContextualFollowUp: boolean
+  isDefinitionClarification: boolean
+  allowExerciseSources: boolean
   prioritizeCurrentQuestionEvidence: boolean
 }
 
@@ -80,6 +82,8 @@ const genericQueryTerms = new Set([
   'dont',
   'each',
   'elaborate',
+  'example',
+  'examples',
   'explain',
   'for',
   'from',
@@ -96,6 +100,7 @@ const genericQueryTerms = new Set([
   'important',
   'in',
   'into',
+  'instance',
   'is',
   'it',
   'its',
@@ -122,6 +127,7 @@ const genericQueryTerms = new Set([
   'same',
   'she',
   'should',
+  'show',
   'so',
   'specific',
   'than',
@@ -151,6 +157,7 @@ const genericQueryTerms = new Set([
   'which',
   'who',
   'why',
+  'walkthrough',
   'with',
   'work',
   'would',
@@ -245,8 +252,15 @@ const definitionObjectPatterns = [
   /\bwhat\s+(?:exactly\s+)?(?:does|do|is|are)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\s+(?:store|stores|contain|contains|include|includes|consist|consists|look\s+like|mean)\b/i,
   /\bwhat\s+(?:is|are)\s+inside\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i,
   /\b(?:what|which)\s+(?:are|is)\s+(?:the\s+)?(?:fields?|parts?|components?|members?)\s+(?:in|of|inside)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i,
-  /\b(?:fields?|parts?|components?|members?)\s+(?:in|of|inside)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i
+  /\b(?:fields?|parts?|components?|members?)\s+(?:in|of|inside)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i,
+  /\bwhat\s+(?:exactly\s+)?(?:is|are)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i
 ]
+const compoundDefinitionObjectPattern =
+  /\b(?:and|because|but|can|compare|contrast|could|did|different|do|does|how|instead\s+of|or|over|rather\s+than|should|than|versus|vs\.?|when|where|why|would)\b/i
+const exerciseCuePattern =
+  /\b(?:check\s+your\s+understanding|exercise|homework|quiz|practice\s+problem|problem\s+\d+)\b/i
+const exerciseQuestionPattern =
+  /\b(?:check\s+your\s+understanding|exercise|homework|quiz|practice\s+problem|problem\s+\d+)\b/i
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numericValue = typeof value === 'number' ? value : Number(value)
@@ -568,32 +582,134 @@ function normalizedSearchTermsForSources(sources: ChatSource[]): string[] {
   return Array.from(new Set(terms.flatMap(tokenizeForTerms).filter(isAnchorTerm)))
 }
 
+function vocabularyTermsForSources(sources: ChatSource[]): string[] {
+  const terms = sources.flatMap((source) => tokenizeForTerms(sourceContentText(source)))
+  return Array.from(new Set(terms.filter(isAnchorTerm)))
+}
+
+function sourceVocabularyCorrection(term: string, vocabularyTerms: string[]): string {
+  if (
+    term.length < 4 ||
+    term.length > 20 ||
+    !/^[a-z]+$/.test(term) ||
+    vocabularyTerms.some((candidate) => termMatchesTokens(term, new Set([candidate])))
+  ) {
+    return term
+  }
+
+  const candidates = vocabularyTerms
+    .filter((candidate) =>
+      candidate !== term &&
+      /^[a-z]+$/.test(candidate) &&
+      candidate[0] === term[0] &&
+      isSingleEditOrTransposition(term, candidate)
+    )
+    .sort((left, right) =>
+      Math.abs(left.length - term.length) - Math.abs(right.length - term.length) ||
+      left.localeCompare(right)
+    )
+
+  return candidates[0] ?? term
+}
+
+function termsWithSourceVocabularyCorrections(terms: string[], sources: ChatSource[]): string[] {
+  const vocabularyTerms = vocabularyTermsForSources(sources)
+  if (vocabularyTerms.length === 0) {
+    return terms
+  }
+
+  return Array.from(new Set(terms.map((term) => sourceVocabularyCorrection(term, vocabularyTerms))))
+}
+
 function anchorTermsWithSourceCorrections(anchorTerms: string[], sources: ChatSource[]): string[] {
   const searchTerms = normalizedSearchTermsForSources(sources)
   if (searchTerms.length === 0) {
-    return anchorTerms
+    return termsWithSourceVocabularyCorrections(anchorTerms, sources)
   }
 
   const correctedTerms = anchorTerms.map((term) =>
     searchTerms.find((candidate) => candidate !== term && isSingleEditOrTransposition(term, candidate)) ?? term
   )
-  return Array.from(new Set(correctedTerms))
+  return termsWithSourceVocabularyCorrections(Array.from(new Set(correctedTerms)), sources)
 }
 
-function definitionObjectTermsForPrompt(prompt: string): string[] {
+function cleanDefinitionObjectText(text: string): string {
+  return compactText(text.replace(/[?!.]+$/g, ''))
+}
+
+function definitionObjectTermsForPrompt(prompt: string, sources: ChatSource[] = []): string[] {
   for (const pattern of definitionObjectPatterns) {
     const match = prompt.match(pattern)
     if (!match?.[1]) {
       continue
     }
 
-    const terms = anchorTermsForText(match[1], 6)
+    const objectText = cleanDefinitionObjectText(match[1])
+    if (!objectText || compoundDefinitionObjectPattern.test(objectText)) {
+      continue
+    }
+
+    const terms = anchorTermsForText(objectText, 6)
     if (terms.length > 0) {
-      return terms
+      return termsWithSourceVocabularyCorrections(terms, sources)
     }
   }
 
   return []
+}
+
+function overlapTermsForDefinitionObject(terms: string[]): string[] {
+  const seen = new Set<string>()
+  const dedupedTerms: string[] = []
+
+  for (const term of terms) {
+    const canonicalTerm = term.replace(/[^a-z0-9+#]/g, '')
+    if (!canonicalTerm || seen.has(canonicalTerm)) {
+      continue
+    }
+
+    seen.add(canonicalTerm)
+    dedupedTerms.push(term)
+  }
+
+  return dedupedTerms
+}
+
+function definitionObjectTermsAppearInText(terms: string[], text: string): boolean {
+  const objectTerms = overlapTermsForDefinitionObject(terms)
+  if (objectTerms.length === 0) {
+    return false
+  }
+
+  const textTokens = tokenSetForText(text)
+  const matchedTerms = countMatches(objectTerms, textTokens)
+  const minimumMatches = objectTerms.length === 1 ? 1 : Math.min(2, objectTerms.length)
+
+  return matchedTerms >= minimumMatches && matchedTerms / objectTerms.length >= 0.5
+}
+
+function isDefinitionClarificationOfRecentAnswer(
+  prompt: string,
+  turns: Array<{ user: ChatMessage; assistant: ChatMessage }>,
+  sources: ChatSource[] = []
+): boolean {
+  const definitionObjectTerms = definitionObjectTermsForPrompt(prompt, sources)
+  const previousAssistantText = compactText(turns.at(-1)?.assistant.text ?? '')
+
+  return definitionObjectTermsAppearInText(definitionObjectTerms, previousAssistantText)
+}
+
+function sourceLooksLikeExercise(source: ChatSource): boolean {
+  const kind = String(source.chunkKind ?? source.tokensmithChunkKind ?? '').toLowerCase()
+  if (kind === 'exercise') {
+    return true
+  }
+
+  return exerciseCuePattern.test([
+    source.sectionHeader,
+    source.excerpt,
+    source.context
+  ].filter(Boolean).join(' '))
 }
 
 function localDefinitionTermsForObject(objectTerms: string[], sources: ChatSource[], limit = 8): string[] {
@@ -844,28 +960,41 @@ export function buildContextualRetrievalContext(
   const carriedSourceLimit = Math.max(0, options.carriedSourceLimit ?? 2)
   const turns = recentCompletedTurns(messages, turnCount)
   const currentProfile = profileQuestion(query)
-  const isContextualFollowUp = isWeakContextualFollowUp(currentProfile)
 
   if (turns.length === 0) {
     return undefined
   }
 
-  const carriedSources = focusSourcesForTurns(turns, carriedSourceLimit, isContextualFollowUp)
   const definitionHintSources = focusSourcesForTurns(
     turns,
     Math.max(carriedSourceLimit, maxFocusCandidateSourcesPerTurn),
     false
   )
+  const initialDefinitionObjectTerms = definitionObjectTermsForPrompt(query, definitionHintSources)
+  const isDefinitionClarification = definitionObjectTermsAppearInText(
+    initialDefinitionObjectTerms,
+    compactText(turns.at(-1)?.assistant.text ?? '')
+  )
+  const isContextualFollowUp = isWeakContextualFollowUp(currentProfile) || isDefinitionClarification
+  const carriedSources = focusSourcesForTurns(turns, carriedSourceLimit, isContextualFollowUp)
+  const expansionSources = mergeChatSources(
+    carriedSources,
+    definitionHintSources,
+    carriedSources.length + definitionHintSources.length
+  )
   const previousQuestions = turns.map((turn) => compactText(turn.user.text)).filter(Boolean)
-  const currentTerms = currentProfile.anchorTerms
-  const focusAnchorTerms = focusAnchorTermsForTurns(turns, carriedSources)
+  const currentTerms = termsWithSourceVocabularyCorrections(currentProfile.anchorTerms, expansionSources)
+  const focusAnchorTerms = termsWithSourceVocabularyCorrections(
+    focusAnchorTermsForTurns(turns, carriedSources),
+    expansionSources
+  )
   const anchorTerms = Array.from(new Set([...currentTerms, ...focusAnchorTerms])).slice(0, defaultContextTermLimit)
-  const definitionObjectTerms = definitionObjectTermsForPrompt(query)
+  const definitionObjectTerms = termsWithSourceVocabularyCorrections(initialDefinitionObjectTerms, expansionSources)
   const contextualQuery = contextualDefinitionQuery(
     currentTerms,
     definitionObjectTerms,
     focusAnchorTerms,
-    Array.from(new Set([...carriedSources, ...definitionHintSources]))
+    expansionSources
   ) ?? (anchorTerms.length > 0
     ? anchorTerms.join(' ')
     : [...previousQuestions, query].join('\n'))
@@ -888,6 +1017,8 @@ export function buildContextualRetrievalContext(
     focusAnchorTerms,
     definitionObjectTerms,
     isContextualFollowUp,
+    isDefinitionClarification,
+    allowExerciseSources: exerciseQuestionPattern.test(query),
     prioritizeCurrentQuestionEvidence: shouldPrioritizeCurrentQuestionEvidence(query, currentProfile)
   }
 }
@@ -912,12 +1043,18 @@ export function shouldTryContextualRetrieval(
   const focusTerms = focusAnchorTermsForTurns(turns, focusSources)
   const standaloneFocusContinuity = sourceListFocusContinuity(standaloneSources, focusSources, focusTerms)
   const standaloneDriftedFromFocus = profile.hasExternalReference && standaloneFocusContinuity < weakStandaloneCoverage
+  const definitionClarification = isDefinitionClarificationOfRecentAnswer(
+    prompt,
+    turns,
+    mergeChatSources(focusSources, standaloneSources, focusSources.length + standaloneSources.length)
+  )
 
   if (!profile.hasExternalReference) {
-    return hasOnlyGenericQuestionTerms(profile) && !standaloneIsGrounded
+    return definitionClarification || (hasOnlyGenericQuestionTerms(profile) && !standaloneIsGrounded)
   }
 
   return (
+    definitionClarification ||
     !standaloneIsGrounded ||
     standaloneDriftedFromFocus ||
     (profile.hasExternalReference && profile.anchorTerms.length <= defaultContextTermLimit / 2) ||
@@ -969,7 +1106,8 @@ export function chooseRetrievalContext(
     contextualFocusContinuity >= weakStandaloneCoverage &&
     contextualFocusContinuity >= standaloneFocusContinuity + contextualImprovementMargin
 
-  if (((weakReferringQuestion || standaloneDriftedFromFocus || (contextualCandidateQuestion && !standaloneIsGrounded)) && contextualIsGrounded) ||
+  if ((contextualContext.isDefinitionClarification && contextualIsGrounded) ||
+    ((weakReferringQuestion || standaloneDriftedFromFocus || (contextualCandidateQuestion && !standaloneIsGrounded)) && contextualIsGrounded) ||
     (referringQuestion && contextualIsGrounded && contextualPreservesFocus) ||
     (contextualCandidateQuestion && contextualIsGrounded && contextualImproves)) {
     return {
@@ -1135,11 +1273,14 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
   const newTermRatio = candidateTerms.length === 0
     ? 0
     : candidateTerms.filter((term) => !acceptedTerms.has(term)).length / candidateTerms.length
-  const textAligned = focusOverlap >= 0.65 && newTermRatio <= 0.55
+  const allowTextAlignedNeighborhood = context.currentAnchorTerms.length > 0 ||
+    context.definitionObjectTerms.length > 0
+  const textAligned = allowTextAlignedNeighborhood && focusOverlap >= 0.65 && newTermRatio <= 0.55
   const isFocusNeighborhood = isFocusSource || sameSection || nearbyByChunk || Boolean(nearbyByPage) || textAligned
   const isCurrentQuestionMatch = currentTerms.length > 0 &&
     (currentOverlap >= 0.3 || currentMatches >= 2)
-  const definitionScore = definitionSourceScore(source, context.definitionObjectTerms)
+  const definitionTerms = termsWithSourceVocabularyCorrections(context.definitionObjectTerms, [source])
+  const definitionScore = definitionSourceScore(source, definitionTerms)
   const isDefinitionMatch = definitionScore >= 7
   const orderPenalty = candidateIndex * 0.02
   let score = focusOverlap * 10 + currentOverlap * 6 + currentMatches * 1.5 - newTermRatio * 2 - orderPenalty
@@ -1190,8 +1331,9 @@ function definitionSourceScore(source: ChatSource, objectTerms: string[]): numbe
   const cueMatches = countMatches(definitionCueTerms, sourceTokens)
   const sectionBoost = definitionSectionPattern.test(source.sectionHeader ?? '') ? 4 : 0
   const codeBoost = codeDefinitionPattern.test(sourceText) ? 4 : 0
+  const exercisePenalty = sourceLooksLikeExercise(source) ? 8 : 0
 
-  return objectMatches * 5 + Math.min(cueMatches, 5) * 1.2 + sectionBoost + codeBoost
+  return objectMatches * 5 + Math.min(cueMatches, 5) * 1.2 + sectionBoost + codeBoost - exercisePenalty
 }
 
 function selectContextualSources(context: RetrievalContext, contextualSources: ChatSource[], limit: number): ChatSource[] {
@@ -1215,6 +1357,7 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
   )
   const focusSourceBucket = focusNeighborhoodSources.filter((ranked) => ranked.isFocusSource)
   const otherFocusNeighborhoodSources = focusNeighborhoodSources.filter((ranked) => !ranked.isFocusSource)
+  const hasNonExerciseCandidate = rankedSources.some((ranked) => !sourceLooksLikeExercise(ranked.source))
   const sourceBuckets = context.definitionObjectTerms.length > 0
     ? [
         definitionSources,
@@ -1245,6 +1388,13 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
 
     const key = sourceKey(ranked.source)
     if (selectedKeys.has(key)) {
+      return false
+    }
+
+    if (context.isContextualFollowUp &&
+      !context.allowExerciseSources &&
+      hasNonExerciseCandidate &&
+      sourceLooksLikeExercise(ranked.source)) {
       return false
     }
 

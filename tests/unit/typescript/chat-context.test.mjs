@@ -22,12 +22,17 @@ const lruHotColdSource = buzzdbSource('ch06.045')
 const twoQIntroSource = buzzdbSource('ch06.057')
 const twoQMechanismSource = buzzdbSource('ch06.059')
 const twoQScanSource = buzzdbSource('ch06.064')
+const sequentialScanPatternSource = buzzdbSource('ch06.076')
+const noSilverBulletSource = buzzdbSource('ch06.083')
 const hashRangeComparisonSource = buzzdbSource('ch08.058')
 const hashBplusComparisonSource = buzzdbSource('ch08.059')
 const bplusBenchmarkSource = buzzdbSource('ch09.013')
 const sequenceSetSource = buzzdbSource('ch09.030')
 const sequenceSetScanSource = buzzdbSource('ch09.033')
 const bplusTreeSource = buzzdbSource('ch09.019')
+const slottedPageIntroSource = buzzdbSource('ch04.044')
+const slottedPageSlotStructSource = buzzdbSource('ch04.019')
+const slottedPageSlotAnatomySource = buzzdbSource('ch04.025')
 const noisyLowRankedSource = {
   ...buzzdbSource('ch10.049'),
   sectionHeader: '10.2.4 Beyond 2D: The Curse of Dimensionality',
@@ -88,10 +93,13 @@ test('modelAwareRetrievalLimit uses larger model contexts without flooding small
 test('profileQuestion scores underspecified prompts by anchor terms, not by canned follow-up phrases', () => {
   const underspecified = profileQuestion('why is that needed?')
   const comparativeFollowUp = profileQuestion('why is it better?')
+  const exampleFollowUp = profileQuestion('give an example')
   assert.deepEqual(underspecified.anchorTerms, [])
   assert.equal(underspecified.specificity, 0)
   assert.deepEqual(comparativeFollowUp.anchorTerms, [])
   assert.equal(comparativeFollowUp.specificity, 0)
+  assert.deepEqual(exampleFollowUp.anchorTerms, [])
+  assert.equal(exampleFollowUp.specificity, 0)
 
   const namedShortQuestion = profileQuestion('What is CC BY-SA?')
   assert.ok(namedShortQuestion.anchorTerms.includes('by-sa'))
@@ -398,6 +406,38 @@ test('contextual scoring uses corrected search terms from retrieval', () => {
   assert.ok(selectedChunkIds.includes(sequenceSetSource.chunkId))
 })
 
+test('contextual definition follow-ups correct object typos from collection sources', () => {
+  const messages = completedTurn(
+    'Why do slotted pages keep record IDs stable after deletes?',
+    'A slotted page keeps the RID stable because the RID names a page and a slot.',
+    [slottedPageIntroSource, slottedPageSlotStructSource]
+  )
+  const contextualContext = buildContextualRetrievalContext(
+    'In that design, what exactly does each slto store?',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+
+  assert.ok(contextualContext)
+  assert.equal(contextualContext.mode, 'contextual')
+  assert.ok(contextualContext.definitionObjectTerms.includes('slot'))
+  assert.ok(!contextualContext.definitionObjectTerms.includes('slto'))
+  assert.match(contextualContext.query, /slot/)
+
+  const choice = chooseRetrievalContext(
+    'In that design, what exactly does each slto store?',
+    [],
+    contextualContext,
+    [slottedPageSlotAnatomySource, slottedPageSlotStructSource],
+    3
+  )
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+
+  assert.equal(choice.mode, 'contextual')
+  assert.ok([slottedPageSlotStructSource.chunkId, slottedPageSlotAnatomySource.chunkId].includes(selectedChunkIds[0]))
+  assert.ok(selectedChunkIds.includes(slottedPageSlotStructSource.chunkId))
+})
+
 test('shouldTryContextualRetrieval keeps a short specific standalone question when its source is grounded', () => {
   const messages = completedTurn(
     'What exactly is a B+ tree and how is it different from a binary search tree?',
@@ -409,6 +449,86 @@ test('shouldTryContextualRetrieval keeps a short specific standalone question wh
     shouldTryContextualRetrieval('What is LRU?', messages, [lruScanSource]),
     false
   )
+})
+
+test('definition questions about terms from the previous answer use contextual retrieval', () => {
+  const messages = completedTurn(
+    'how is 2Q different from LRU?',
+    '2Q protects hot pages better than LRU for frequent scans and large one-off accesses.',
+    [noSilverBulletSource, sequentialScanPatternSource, twoQMechanismSource]
+  )
+
+  assert.equal(
+    shouldTryContextualRetrieval('what is large one-off accesses', messages, [
+      noSilverBulletSource,
+      sequentialScanPatternSource
+    ]),
+    true
+  )
+
+  const contextualContext = buildContextualRetrievalContext(
+    'what is large one-off accesses',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+
+  assert.ok(contextualContext)
+  assert.equal(contextualContext.isContextualFollowUp, true)
+  assert.equal(contextualContext.isDefinitionClarification, true)
+  assert.equal(contextualContext.allowExerciseSources, false)
+  assert.ok(contextualContext.definitionObjectTerms.includes('large'))
+  assert.ok(contextualContext.definitionObjectTerms.some((term) => ['one-off', 'oneoff'].includes(term)))
+  assert.match(contextualContext.query, /one-?off/)
+
+  const choice = chooseRetrievalContext(
+    'what is large one-off accesses',
+    [noSilverBulletSource, sequentialScanPatternSource],
+    contextualContext,
+    [noSilverBulletSource, sequentialScanPatternSource, twoQScanSource],
+    4
+  )
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(selectedChunkIds[0], sequentialScanPatternSource.chunkId)
+  assert.ok(!selectedChunkIds.includes(noSilverBulletSource.chunkId))
+})
+
+test('generic example requests use the previous turn as context', () => {
+  const messages = completedTurn(
+    'what is large one-off accesses',
+    'Large one-off accesses are sequential scans or table scans that read many pages once and can cause cache pollution.',
+    [sequentialScanPatternSource, twoQScanSource, twoQMechanismSource]
+  )
+
+  assert.equal(
+    shouldTryContextualRetrieval('give an example', messages, [twoQScanSource, sequentialScanPatternSource]),
+    true
+  )
+
+  const contextualContext = buildContextualRetrievalContext(
+    'give an example',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+
+  assert.ok(contextualContext)
+  assert.equal(contextualContext.isContextualFollowUp, true)
+  assert.match(contextualContext.query, /large|one-?off|scan|cache|pollution/i)
+
+  const choice = chooseRetrievalContext(
+    'give an example',
+    [twoQScanSource, sequentialScanPatternSource],
+    contextualContext,
+    [sequentialScanPatternSource, twoQScanSource, twoQMechanismSource, noSilverBulletSource],
+    4
+  )
+  const selectedChunkIds = choice.sources.map((source) => source.chunkId)
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(selectedChunkIds[0], sequentialScanPatternSource.chunkId)
+  assert.ok(selectedChunkIds.includes(twoQScanSource.chunkId))
+  assert.ok(!selectedChunkIds.includes(noSilverBulletSource.chunkId))
 })
 
 test('mergeChatSources keeps carried context while deduping retrieved results', () => {

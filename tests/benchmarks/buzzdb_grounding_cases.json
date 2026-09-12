@@ -117,5 +117,17 @@
       "read only the specific columns",
       "I/O required"
     ]
+  },
+  {
+    "id": "volcano_iterator_model_alias",
+    "question": "Why is the Volcano model inefficient for analytical queries?",
+    "topK": 8,
+    "expectedChunkIds": ["ch15.074", "ch15.080"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "also known as the Volcano or pipeline model",
+      "virtual function call",
+      "instruction cache and branch predictor"
+    ]
   }
 ]
