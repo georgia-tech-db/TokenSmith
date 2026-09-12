@@ -19,10 +19,16 @@ const maxAnswerReserveTokens = 1024
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
   'Use the context below only when it is relevant to the question.',
-  'Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, start with the conclusion and include the key reason or trade-off from the context.',
+  'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
+  'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
+  'Do not overstate with words like always, faster, or better unless the context gives that condition.',
   'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
   'If the context does not contain the answer, say that plainly.'
 ]
+
+function sourceContextInstructionText(): string {
+  return sourceContextInstructions.join('\n')
+}
 
 export interface SourceContextBudget {
   modelContextTokens: number
@@ -41,6 +47,7 @@ interface SourceContextOptions {
   model?: LocalModel
   modelSettings?: Partial<ModelRuntimeSettings>
   includeBudget?: boolean
+  includeInstructions?: boolean
 }
 
 export function estimateTokens(text: string): number {
@@ -148,9 +155,48 @@ function bestTermOffset(text: string, terms: string[]): number {
   return offsets.length > 0 ? Math.min(...offsets) : 0
 }
 
+function matchingTermOffsets(text: string, terms: string[]): number[] {
+  const lowered = text.toLowerCase()
+  const offsets: number[] = []
+
+  for (const term of terms) {
+    const normalizedTerm = term.toLowerCase()
+    let offset = lowered.indexOf(normalizedTerm)
+    let matchCount = 0
+    while (offset >= 0 && matchCount < 12) {
+      offsets.push(offset)
+      offset = lowered.indexOf(normalizedTerm, offset + normalizedTerm.length)
+      matchCount += 1
+    }
+  }
+
+  return offsets.sort((left, right) => left - right)
+}
+
 function clipSourceText(text: string, maxChars: number, terms: string[]): string {
   if (text.length <= maxChars) {
     return text
+  }
+
+  const offsets = matchingTermOffsets(text, terms)
+  const firstOffset = offsets[0]
+  const lastOffset = offsets.at(-1)
+  if (
+    maxChars >= 700 &&
+    firstOffset !== undefined &&
+    lastOffset !== undefined &&
+    firstOffset < maxChars * 0.2 &&
+    lastOffset > maxChars
+  ) {
+    const bridge = '...\n...\n'
+    const headChars = Math.floor((maxChars - bridge.length) * 0.55)
+    const tailChars = Math.max(0, maxChars - bridge.length - headChars)
+    const tailStart = Math.max(
+      headChars,
+      Math.min(lastOffset - Math.floor(tailChars * 0.35), text.length - tailChars)
+    )
+    const suffix = tailStart + tailChars < text.length ? '...' : ''
+    return `${text.slice(0, headChars).trim()}${bridge}${text.slice(tailStart, tailStart + tailChars).trim()}${suffix}`
   }
 
   const center = bestTermOffset(text, terms)
@@ -263,8 +309,7 @@ export function packSourceContext(
 
   return {
     context: [
-      ...sourceContextInstructions,
-      '',
+      ...(options.includeInstructions === false ? [] : [...sourceContextInstructions, '']),
       '### Context:',
       ...blocks
     ].join('\n'),
@@ -364,16 +409,21 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
     | Partial<ModelRuntimeSettings>
     | undefined
-  const systemMessage = modelSettings?.systemMessage?.trim()
+  const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = (request.answerPrompt ?? request.prompt).trim()
   const context = sourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
     model: request.model,
     modelSettings,
-    includeBudget: true
+    includeBudget: true,
+    includeInstructions: false
   })
   const userContent = context ? `${context}\n\nQuestion: ${answerPrompt}` : answerPrompt
   const messages: StudyChatMessage[] = []
+  const systemMessage = [
+    configuredSystemMessage,
+    context ? sourceContextInstructionText() : ''
+  ].filter(Boolean).join('\n\n')
 
   if (systemMessage) {
     messages.push({ role: 'system', content: systemMessage })

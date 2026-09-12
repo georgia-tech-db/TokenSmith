@@ -32,7 +32,9 @@ const bplusTreeSource = buzzdbSource('ch09.019')
 const pinningSource = buzzdbSource('ch05.084')
 const databaseContext = [
   'Use the context below only when it is relevant to the question.',
-  'Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, start with the conclusion and include the key reason or trade-off from the context.',
+  'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
+  'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
+  'Do not overstate with words like always, faster, or better unless the context gives that condition.',
   'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
   'If the context does not contain the answer, say that plainly.',
   '',
@@ -186,10 +188,12 @@ test('studyChatMessages sends standalone source context without raw prior conver
   })
 
   assert.equal(chatMessages[0].role, 'system')
-  assert.equal(chatMessages[0].content, 'Answer only from PDFs.')
+  assert.match(chatMessages[0].content, /Answer only from PDFs\./)
+  assert.match(chatMessages[0].content, /keep the answer scoped/)
   assert.equal(chatMessages.length, 2)
   assert.equal(chatMessages.some((message) => /Phase 3/.test(message.content)), false)
   assert.equal(chatMessages.at(-1).role, 'user')
+  assert.doesNotMatch(chatMessages.at(-1).content, /Use the context below/)
   assert.match(chatMessages.at(-1).content, /It's a search tree, but it's not a binary tree/)
   assert.match(chatMessages.at(-1).content, /Question: What exactly is a B\+ tree/)
 })
@@ -222,10 +226,13 @@ test('studyChatMessages uses a resolved contextual prompt without copying raw hi
     conversationContextMode: 'contextual'
   })
 
-  assert.equal(chatMessages.length, 1)
-  assert.match(chatMessages[0].content, /Previous question: What is pinning a page\?/)
-  assert.match(chatMessages[0].content, /Current question: why is that needed\?/)
-  assert.doesNotMatch(chatMessages[0].content, /old answer text/)
+  assert.equal(chatMessages.length, 2)
+  assert.equal(chatMessages[0].role, 'system')
+  assert.match(chatMessages[0].content, /Answer directly for a student/)
+  assert.equal(chatMessages.at(-1).role, 'user')
+  assert.match(chatMessages.at(-1).content, /Previous question: What is pinning a page\?/)
+  assert.match(chatMessages.at(-1).content, /Current question: why is that needed\?/)
+  assert.doesNotMatch(chatMessages.at(-1).content, /old answer text/)
 })
 
 test('answerWithOrderedSources removes source-number wording and moves the cited source first', () => {

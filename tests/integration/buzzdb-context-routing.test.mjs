@@ -98,6 +98,11 @@ function formatMessages(prompt, messages, choice) {
   })
 }
 
+function packedUserContent(modelMessages) {
+  assert.equal(modelMessages.at(-1).role, 'user')
+  return modelMessages.at(-1).content
+}
+
 {
   const priorMessages = completedTurn(
     'What is Phase 3 of the tuple construction process?',
@@ -117,11 +122,11 @@ function formatMessages(prompt, messages, choice) {
   assert.equal(choice.mode, 'standalone')
   assert.deepEqual(calls, [prompt])
   assert.equal(choice.sources[0], bplusTreeSource)
-  assert.equal(modelMessages.length, 1)
-  assert.match(modelMessages[0].content, /It's a search tree, but it's not a binary tree/)
-  assert.match(modelMessages[0].content, /wide, shallow tree/)
-  assert.doesNotMatch(modelMessages[0].content, /Phase 3/)
-  assert.doesNotMatch(modelMessages[0].content, /Compose the Tuple/)
+  const packedPrompt = packedUserContent(modelMessages)
+  assert.match(packedPrompt, /It's a search tree, but it's not a binary tree/)
+  assert.match(packedPrompt, /wide, shallow tree/)
+  assert.doesNotMatch(packedPrompt, /Phase 3/)
+  assert.doesNotMatch(packedPrompt, /Compose the Tuple/)
 }
 
 {
@@ -145,11 +150,12 @@ function formatMessages(prompt, messages, choice) {
   assert.equal(calls[0], prompt)
   assert.match(calls[1], /pinning/)
   assert.equal(choice.sources[0], pinningSource)
-  assert.equal(modelMessages.length, 1)
-  assert.match(modelMessages[0].content, /Previous question: What is pinning a page\?/)
-  assert.match(modelMessages[0].content, /Previous answer: Pinning keeps a page/)
-  assert.match(modelMessages[0].content, /Current question: why is that needed\?/)
-  assert.match(modelMessages[0].content, /silent data corruption or a catastrophic crash/)
+  const packedPrompt = packedUserContent(modelMessages)
+  assert.match(packedPrompt, /Previous question: What is pinning a page\?/)
+  assert.doesNotMatch(packedPrompt, /Previous answer/)
+  assert.doesNotMatch(packedPrompt, /Pinning keeps a page/)
+  assert.match(packedPrompt, /Current question: why is that needed\?/)
+  assert.match(packedPrompt, /silent data corruption or a catastrophic crash/)
 }
 
 {
@@ -175,11 +181,11 @@ function formatMessages(prompt, messages, choice) {
   assert.equal(calls[1].includes('tokensmith'), false)
   assert.match(calls[1], /btree|b\+/)
   assert.equal(choice.sources[0], bplusTreeSource)
-  assert.equal(modelMessages.length, 1)
-  assert.match(modelMessages[0].content, /Previous question: What exactly is a B\+ tree/)
-  assert.match(modelMessages[0].content, /Current question: why is it better/)
-  assert.match(modelMessages[0].content, /wide, shallow tree/)
-  assert.doesNotMatch(modelMessages[0].content, /index scan is dramatically better/)
+  const packedPrompt = packedUserContent(modelMessages)
+  assert.match(packedPrompt, /Previous question: What exactly is a B\+ tree/)
+  assert.match(packedPrompt, /Current question: why is it better/)
+  assert.match(packedPrompt, /wide, shallow tree/)
+  assert.doesNotMatch(packedPrompt, /index scan is dramatically better/)
 }
 
 {
@@ -212,10 +218,10 @@ function formatMessages(prompt, messages, choice) {
   assert.equal(selectedChunkIds[0], 'ch06.045')
   assert.ok(selectedChunkIds.includes('ch06.044'))
   assert.ok(selectedTwoQCount <= 1)
-  assert.equal(modelMessages.length, 1)
-  assert.match(modelMessages[0].content, /Current question: Elaborate on that/)
-  assert.match(modelMessages[0].content, /This trace shows the dynamism of the LRU policy/)
-  assert.doesNotMatch(modelMessages[0].content, /The 2Q policy's first choice/)
+  const packedPrompt = packedUserContent(modelMessages)
+  assert.match(packedPrompt, /Current question: Elaborate on that/)
+  assert.match(packedPrompt, /This trace shows the dynamism of the LRU policy/)
+  assert.doesNotMatch(packedPrompt, /The 2Q policy's first choice/)
 }
 
 {
@@ -243,7 +249,7 @@ function formatMessages(prompt, messages, choice) {
   assert.ok(selectedChunkIds.includes('ch09.030'))
   assert.ok(comparisonIndex >= 0)
   assert.ok(extraFocusIndex < 0 || comparisonIndex < extraFocusIndex)
-  assert.match(modelMessages[0].content, /Current question: Does that mean we should always prefer it over hashing\?/)
+  assert.match(packedUserContent(modelMessages), /Current question: Does that mean we should always prefer it over hashing\?/)
 }
 
 console.log('BuzzDB context routing integration test passed.')

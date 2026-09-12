@@ -862,6 +862,27 @@ button {
   font-weight: 400;
 }
 
+.message-meta-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -3px 0 8px;
+}
+
+.message-meta-labels span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid #dfe4de;
+  border-radius: 6px;
+  color: #62676d;
+  background: #f7f8f6;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .message-text p,
 .message-text li {
   color: #272b31;

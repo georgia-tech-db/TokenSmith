@@ -60,6 +60,7 @@ import {
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
 import {
+  modelAwareRetrievalLimit,
   routeRetrievalContext
 } from '@shared/chat-context'
 import {
@@ -3912,6 +3913,7 @@ function ChatScreen({
     }
 
     const targetConversationId = activeConversation.id
+    const responseStartedAt = performance.now()
     const userMessage: ChatMessage = {
       id: createId('user'),
       role: 'user',
@@ -3944,6 +3946,7 @@ function ChatScreen({
     requestSequenceRef.current = requestSequence
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
     const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
+    const retrievalSourceLimit = modelAwareRetrievalLimit(settings.maxSources, selectedModel, activeModelSettings)
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
     let answerPrompt = prompt
     let retrievalQuery = prompt
@@ -3961,11 +3964,11 @@ function ChatScreen({
           prompt,
           activeConversation.messages,
           {
-            limit: settings.maxSources,
+            limit: retrievalSourceLimit,
             turnCount: 1,
-            carriedSourceLimit: Math.min(2, settings.maxSources),
+            carriedSourceLimit: Math.min(2, retrievalSourceLimit),
             onContextualSearch: () => setPendingStatusText('refining search ...'),
-            search: (query, sourceLimit = settings.maxSources) =>
+            search: (query, sourceLimit = retrievalSourceLimit) =>
               tokensmith.searchLibrary(
                 query,
                 activeMaterials,
@@ -4024,6 +4027,8 @@ function ChatScreen({
         role: 'assistant',
         text: reply.text,
         sources: settings.application.showSources ? reply.sources : [],
+        conversationContextMode,
+        responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
         followUpSuggestions: reply.followUpSuggestions ?? [],
         followUpError: reply.followUpError
       }
@@ -4607,6 +4612,25 @@ function quizMessageLabel(message: ChatMessage): string | undefined {
   return undefined
 }
 
+function contextModeLabel(mode?: ChatMessage['conversationContextMode']): string | undefined {
+  if (mode === 'contextual') {
+    return 'Contextual'
+  }
+  if (mode === 'standalone') {
+    return 'Standalone'
+  }
+  return undefined
+}
+
+function responseDurationLabel(durationMs?: number): string | undefined {
+  if (!Number.isFinite(durationMs) || durationMs === undefined || durationMs < 0) {
+    return undefined
+  }
+
+  const seconds = durationMs / 1000
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds).toString()}s`
+}
+
 function UserMessage({ message, onCopy, onEdit }: { message: ChatMessage; onCopy: () => void; onEdit: () => void }) {
   const label = quizMessageLabel(message)
 
@@ -4646,6 +4670,8 @@ function AssistantMessage({
   const sources = message.sources ?? []
   const suggestions = message.followUpSuggestions ?? []
   const label = quizMessageLabel(message)
+  const modeLabel = contextModeLabel(message.conversationContextMode)
+  const durationLabel = responseDurationLabel(message.responseDurationMs)
 
   return (
     <article className="message-row">
@@ -4655,6 +4681,12 @@ function AssistantMessage({
           TokenSmith
           {label && <span>{label}</span>}
         </h3>
+        {(modeLabel || durationLabel) && (
+          <div className="message-meta-labels" aria-label="Response details">
+            {modeLabel && <span>{modeLabel}</span>}
+            {durationLabel && <span>{durationLabel}</span>}
+          </div>
+        )}
         <MessageText text={message.text} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">

@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSource } from './app-state'
+import type { ChatMessage, ChatSource, LocalModel, ModelRuntimeSettings } from './app-state'
 import type { ConversationContextMode } from './engine'
 
 export interface RetrievalContextOptions {
@@ -15,6 +15,7 @@ export interface RetrievalContext {
   currentAnchorTerms: string[]
   focusAnchorTerms: string[]
   isContextualFollowUp: boolean
+  prioritizeCurrentQuestionEvidence: boolean
 }
 
 export interface QuestionProfile {
@@ -203,17 +204,59 @@ const contextualImprovementMargin = 0.2
 const defaultContextTermLimit = 10
 const contextualCandidateMultiplier = 3
 const maxContextualCandidateLimit = 24
+const defaultModelContextTokens = 2048
+const defaultAutoContextCapTokens = 8192
+const maxModelContextTokens = 32768
+const defaultAnswerReserveTokens = 768
+const minAnswerReserveTokens = 256
+const maxAnswerReserveTokens = 1024
+const sourceLimitPromptReserveTokens = 512
+const estimatedTokensPerRetrievedSource = 800
+const maxModelAwareSourceLimit = 8
+const maxFocusCandidateSourcesPerTurn = 4
+const explicitContrastTargetPattern = /\b(?:over|than|versus|vs\.?|instead\s+of|rather\s+than)\b/i
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+
+  return Math.max(min, Math.min(max, Math.round(numericValue)))
+}
+
+function effectiveContextLength(model?: LocalModel, settings?: Partial<ModelRuntimeSettings>): number {
+  const configured = clampNumber(settings?.contextLength, defaultModelContextTokens, 512, maxModelContextTokens)
+  const discovered = clampNumber(model?.contextLength, 0, 0, maxModelContextTokens)
+  if (discovered > 0) {
+    return Math.min(discovered, Math.max(configured, defaultAutoContextCapTokens))
+  }
+
+  return configured
+}
+
+function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>): number {
+  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maxAnswerReserveTokens)
+}
+
+export function modelAwareRetrievalLimit(
+  configuredLimit: number,
+  model?: LocalModel,
+  settings?: Partial<ModelRuntimeSettings>
+): number {
+  const baseLimit = clampNumber(configuredLimit, 4, 1, maxModelAwareSourceLimit)
+  const contextTokens = effectiveContextLength(model, settings)
+  const availableForSources = Math.max(
+    0,
+    contextTokens - answerReserveTokens(settings) - sourceLimitPromptReserveTokens
+  )
+  const budgetLimit = Math.floor(availableForSources / estimatedTokensPerRetrievedSource)
+
+  return Math.max(baseLimit, Math.min(maxModelAwareSourceLimit, budgetLimit))
+}
 
 function compactText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
-}
-
-function compactPreviousAnswer(text: string): string {
-  const answer = compactText(text)
-  if (answer.length <= 360) {
-    return answer
-  }
-  return `${answer.slice(0, 357).trim()}...`
 }
 
 function recentCompletedTurns(messages: ChatMessage[], turnCount: number): Array<{ user: ChatMessage; assistant: ChatMessage }> {
@@ -458,6 +501,11 @@ function isWeakContextualFollowUp(profile: QuestionProfile): boolean {
     (profile.anchorTerms.length < minimumStandaloneAnchorTerms && hasOnlyGenericQuestionTerms(profile))
 }
 
+function shouldPrioritizeCurrentQuestionEvidence(prompt: string, profile: QuestionProfile): boolean {
+  return profile.anchorTerms.length >= 3 ||
+    (profile.anchorTerms.length > 0 && explicitContrastTargetPattern.test(prompt))
+}
+
 function sourceSearchText(source: ChatSource): string {
   return [
     source.sectionHeader,
@@ -566,7 +614,7 @@ function focusSourcesForTurns(
   }
 
   const rankedSources = turns.flatMap((turn) =>
-    (turn.assistant.sources ?? []).map((source, sourceIndex) => ({
+    (turn.assistant.sources ?? []).slice(0, maxFocusCandidateSourcesPerTurn).map((source, sourceIndex) => ({
       source,
       score: focusScoreForSource(source, turn, sourceIndex)
     }))
@@ -693,19 +741,10 @@ export function buildContextualRetrievalContext(
   const contextualQuery = anchorTerms.length > 0
     ? anchorTerms.join(' ')
     : [...previousQuestions, query].join('\n')
-  const previousAnswerLines = isContextualFollowUp
-    ? turns
-        .map((turn) => compactPreviousAnswer(turn.assistant.text))
-        .filter(Boolean)
-        .map((answer) => `Previous answer: ${answer}`)
-    : []
   const answerPrompt = [
-    ...turns.flatMap((turn, index) => {
+    'Use previous questions only to understand references in the current question.',
+    ...turns.flatMap((turn) => {
       const lines = [`Previous question: ${compactText(turn.user.text)}`]
-      const answer = previousAnswerLines[index]
-      if (answer) {
-        lines.push(answer)
-      }
       return lines
     }),
     `Current question: ${query}`
@@ -719,7 +758,8 @@ export function buildContextualRetrievalContext(
     anchorTerms,
     currentAnchorTerms: currentTerms,
     focusAnchorTerms,
-    isContextualFollowUp
+    isContextualFollowUp,
+    prioritizeCurrentQuestionEvidence: shouldPrioritizeCurrentQuestionEvidence(query, currentProfile)
   }
 }
 
@@ -1017,7 +1057,7 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
   )
   const focusSourceBucket = focusNeighborhoodSources.filter((ranked) => ranked.isFocusSource)
   const otherFocusNeighborhoodSources = focusNeighborhoodSources.filter((ranked) => !ranked.isFocusSource)
-  const sourceBuckets = context.currentAnchorTerms.length > 0
+  const sourceBuckets = context.currentAnchorTerms.length > 0 && context.prioritizeCurrentQuestionEvidence
     ? [
         currentQuestionSources,
         focusSourceBucket.slice(0, 1),
@@ -1025,36 +1065,35 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
         focusSourceBucket.slice(1),
         offFocusSources
       ]
-    : [focusNeighborhoodSources, offFocusSources]
+    : [focusNeighborhoodSources, currentQuestionSources, offFocusSources]
   const selected: ChatSource[] = []
   const selectedKeys = new Set<string>()
   const clusterCounts = new Map<string, number>()
   let offFocusCount = 0
   const maxOffFocusSources = context.currentAnchorTerms.length > 0 ? 2 : 1
-
-  for (const ranked of sourceBuckets.flat()) {
+  const addRankedSource = (ranked: ContextualSourceScore, allowExtraOffFocus: boolean): boolean => {
     if (selected.length >= limit) {
-      break
+      return false
     }
 
     const key = sourceKey(ranked.source)
     if (selectedKeys.has(key)) {
-      continue
+      return false
     }
 
     const clusterCount = clusterCounts.get(ranked.clusterKey) ?? 0
     if (!ranked.isFocusSource && clusterCount >= 2) {
-      continue
+      return false
     }
 
     if (!ranked.isFocusSource && clusterCount > 0 && !ranked.isFocusNeighborhood) {
-      continue
+      return false
     }
 
     if (!ranked.isFocusNeighborhood) {
       const allowedOffFocusSources = ranked.isCurrentQuestionMatch ? maxOffFocusSources : 1
-      if (offFocusCount >= allowedOffFocusSources) {
-        continue
+      if (!allowExtraOffFocus && offFocusCount >= allowedOffFocusSources) {
+        return false
       }
       offFocusCount += 1
     }
@@ -1062,6 +1101,15 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
     selectedKeys.add(key)
     clusterCounts.set(ranked.clusterKey, clusterCount + 1)
     selected.push(ranked.source)
+    return true
+  }
+
+  for (const ranked of sourceBuckets.flat()) {
+    addRankedSource(ranked, false)
+  }
+
+  for (const ranked of rankedSources) {
+    addRankedSource(ranked, true)
   }
 
   return selected

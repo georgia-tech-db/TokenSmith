@@ -158,6 +158,8 @@ export interface ChatMessage {
   role: MessageRole
   text: string
   sources?: ChatSource[]
+  conversationContextMode?: 'standalone' | 'contextual'
+  responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string
   kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'

@@ -177,7 +177,8 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
 
     assert.equal(requestedUrl, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions')
     assert.equal(requestBody.model, 'gemini-2.5-flash')
-    assert.equal(requestBody.messages[0].content, 'Answer from sources.')
+    assert.match(requestBody.messages[0].content, /^Answer from sources\./)
+    assert.match(requestBody.messages[0].content, /keep the answer scoped/)
     assert.match(requestBody.messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.equal(requestBody.max_tokens, 512)
     assert.equal(response.engineId, 'tokensmith')

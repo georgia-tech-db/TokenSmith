@@ -7,6 +7,7 @@ const {
   buildContextualRetrievalContext,
   chooseRetrievalContext,
   mergeChatSources,
+  modelAwareRetrievalLimit,
   profileQuestion,
   shouldTryContextualRetrieval
 } = requireTranspiledTs('src/shared/chat-context.ts')
@@ -27,6 +28,14 @@ const bplusBenchmarkSource = buzzdbSource('ch09.013')
 const sequenceSetSource = buzzdbSource('ch09.030')
 const sequenceSetScanSource = buzzdbSource('ch09.033')
 const bplusTreeSource = buzzdbSource('ch09.019')
+const noisyLowRankedSource = {
+  ...buzzdbSource('ch10.049'),
+  sectionHeader: '10.2.4 Beyond 2D: The Curse of Dimensionality',
+  excerpt:
+    'Beyond 2D dimensionality for B+ tree binary search database indexes, a noisy low-ranked source should not define the follow-up focus.',
+  context:
+    'Beyond 2D dimensionality for B+ tree binary search database indexes, a noisy low-ranked source should not define the follow-up focus.'
+}
 const accidentalBetterSource = {
   title: 'BuzzDBBook / buzzdb-book.tokensmith',
   documentTitle: 'buzzdb-book.tokensmith',
@@ -53,6 +62,29 @@ function completedTurn(userText, assistantText, sources) {
   ]
 }
 
+test('modelAwareRetrievalLimit uses larger model contexts without flooding small contexts', () => {
+  const model = {
+    id: 'ollama:llama3',
+    name: 'Ollama llama3',
+    engine: 'ollama',
+    role: 'generator',
+    status: 'ready',
+    source: 'ollama',
+    ollamaModelName: 'llama3',
+    addedAt: '2026-09-10T00:00:00.000Z'
+  }
+
+  assert.equal(modelAwareRetrievalLimit(4, model, { contextLength: 2048, maxLength: 4096 }), 4)
+  assert.equal(
+    modelAwareRetrievalLimit(4, { ...model, contextLength: 8192 }, { contextLength: 2048, maxLength: 4096 }),
+    8
+  )
+  assert.equal(
+    modelAwareRetrievalLimit(10, { ...model, contextLength: 32768 }, { contextLength: 2048, maxLength: 4096 }),
+    8
+  )
+})
+
 test('profileQuestion scores underspecified prompts by anchor terms, not by canned follow-up phrases', () => {
   const underspecified = profileQuestion('why is that needed?')
   const comparativeFollowUp = profileQuestion('why is it better?')
@@ -77,7 +109,7 @@ test('profileQuestion tolerates small reference typos without turning grammar wo
   assert.equal(comparisonProfile.hasExternalReference, false)
 })
 
-test('buildContextualRetrievalContext uses the previous answer only for contextual prompt resolution', () => {
+test('buildContextualRetrievalContext omits previous answers from the generator prompt', () => {
   const context = buildContextualRetrievalContext(
     'why is that needed?',
     completedTurn(
@@ -95,8 +127,10 @@ test('buildContextualRetrievalContext uses the previous answer only for contextu
   assert.doesNotMatch(context.query, /buzzdbbook/i)
   assert.doesNotMatch(context.query, /tokensmith/i)
   assert.doesNotMatch(context.query, /fixes a page/)
+  assert.match(context.answerPrompt, /Use previous questions only to understand references/)
   assert.match(context.answerPrompt, /Previous question: What is pinning a page\?/)
-  assert.match(context.answerPrompt, /Previous answer: Pinning fixes a page/)
+  assert.doesNotMatch(context.answerPrompt, /Previous answer/)
+  assert.doesNotMatch(context.answerPrompt, /Pinning fixes a page/)
   assert.match(context.answerPrompt, /Current question: why is that needed\?/)
   assert.deepEqual(context.carriedSources, [pinningSource])
 })
@@ -196,6 +230,59 @@ test('chooseRetrievalContext selects contextual sources for comparative follow-u
   assert.deepEqual(choice.sources, [bplusTreeSource])
 })
 
+test('contextual follow-ups with broad application terms preserve the prior comparison focus', () => {
+  const messages = completedTurn(
+    'What exactly is a B+ tree and how is it different from a binary search tree?',
+    'A B+ tree is a wide, shallow search tree designed for disk pages.',
+    [bplusTreeSource, hashBplusComparisonSource, bplusBenchmarkSource]
+  )
+  const contextualContext = buildContextualRetrievalContext(
+    'So why is it better for database indexes?',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+
+  assert.ok(contextualContext)
+  assert.equal(contextualContext.prioritizeCurrentQuestionEvidence, false)
+
+  const choice = chooseRetrievalContext(
+    'So why is it better for database indexes?',
+    [hashRangeComparisonSource],
+    contextualContext,
+    [hashBplusComparisonSource, bplusBenchmarkSource, bplusTreeSource],
+    4
+  )
+
+  assert.equal(choice.mode, 'contextual')
+  assert.equal(choice.sources[0], bplusTreeSource)
+})
+
+test('contextual follow-ups do not let low-ranked prior sources become the focus', () => {
+  const messages = completedTurn(
+    'What exactly is a B+ tree and how is it different from a binary search tree?',
+    'A B+ tree is a wide, shallow search tree designed for disk pages.',
+    [
+      bplusTreeSource,
+      hashBplusComparisonSource,
+      bplusBenchmarkSource,
+      sequenceSetSource,
+      sequenceSetScanSource,
+      hashRangeComparisonSource,
+      noisyLowRankedSource
+    ]
+  )
+  const contextualContext = buildContextualRetrievalContext(
+    'So why is it better for database indexes?',
+    messages,
+    { turnCount: 1, carriedSourceLimit: 2 }
+  )
+
+  assert.ok(contextualContext)
+  assert.equal(contextualContext.prioritizeCurrentQuestionEvidence, false)
+  assert.equal(contextualContext.carriedSources[0], bplusTreeSource)
+  assert.doesNotMatch(contextualContext.query, /beyond|dimensionality|2d/i)
+})
+
 test('contextual follow-ups preserve the previous focus instead of drifting to lexical neighbors', () => {
   const previousQuestion = 'How does the LRU policy ensure that "hot" pages stay in the buffer, while "cold" pages are evicted?'
   const messages = completedTurn(
@@ -252,6 +339,7 @@ test('contextual follow-ups include current-question evidence when asking for a 
   )
 
   assert.ok(contextualContext)
+  assert.equal(contextualContext.prioritizeCurrentQuestionEvidence, true)
 
   const choice = chooseRetrievalContext(
     'Does that mean we should always prefer it over hashing?',

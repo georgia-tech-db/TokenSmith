@@ -2421,18 +2421,36 @@ def render_chat_template(chat_template: str, messages: List[Dict[str, str]]) -> 
     return rendered if rendered.strip() else None
 
 
-def local_source_context(sources: List[Dict[str, Any]], *, max_chars: Optional[int] = None) -> str:
+SOURCE_CONTEXT_INSTRUCTIONS = [
+    "Use the context below only when it is relevant to the question.",
+    (
+        "Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep "
+        "the answer scoped to the user's question."
+    ),
+    (
+        "Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, "
+        "name the comparison target, and state the workload or condition behind the trade-off."
+    ),
+    "Do not overstate with words like always, faster, or better unless the context gives that condition.",
+    "Do not quote the context before answering. Do not mention context labels.",
+    "If the context does not contain the answer, say that plainly.",
+]
+
+
+def local_source_context(
+    sources: List[Dict[str, Any]],
+    *,
+    max_chars: Optional[int] = None,
+    include_instructions: bool = True,
+) -> str:
     if not sources:
         return ""
 
-    parts = [
-        "Use the context below only when it is relevant to the question.\n",
-        "Answer directly in a few sentences. When the question asks for a yes/no, comparison, or judgment, "
-        "start with the conclusion and include the key reason or trade-off from the context.\n",
-        "Do not quote the context before answering. Do not mention context labels.\n",
-        "If the context does not contain the answer, say that plainly.\n\n",
-        "### Context:\n",
-    ]
+    parts: List[str] = []
+    if include_instructions:
+        parts.extend(f"{instruction}\n" for instruction in SOURCE_CONTEXT_INSTRUCTIONS)
+        parts.append("\n")
+    parts.append("### Context:\n")
     for source in sources:
         text = normalize_text(source.get("context") or source.get("excerpt", ""))
         if max_chars is not None:
@@ -2458,8 +2476,12 @@ def generation_messages(
     model_settings: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
     system_message = str((model_settings or {}).get("systemMessage") or "").strip()
-    user_content = f"{local_source_context(sources)}{normalize_text(prompt)}"
+    source_context = local_source_context(sources, include_instructions=False)
+    user_content = f"{source_context}\nQuestion: {normalize_text(prompt)}" if source_context else normalize_text(prompt)
     messages: List[Dict[str, str]] = []
+    if sources:
+        source_instructions = "\n".join(SOURCE_CONTEXT_INSTRUCTIONS)
+        system_message = f"{system_message}\n\n{source_instructions}" if system_message else source_instructions
     if system_message:
         messages.append({"role": "system", "content": system_message})
     messages.append({"role": "user", "content": user_content})

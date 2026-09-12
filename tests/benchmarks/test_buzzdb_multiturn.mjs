@@ -77,8 +77,8 @@ function modelPromptFor(testId, prompt, messages, choice) {
     retrievedSources: choice.sources
   })
 
-  assert.equal(modelMessages.length, 1, `${testId} should send one packed user message`)
-  return modelMessages[0].content
+  assert.equal(modelMessages.at(-1).role, 'user', `${testId} should end with the packed user message`)
+  return modelMessages.at(-1).content
 }
 
 function assertIncludesAll(haystack, needles, label) {
