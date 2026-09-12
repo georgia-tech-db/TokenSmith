@@ -14,6 +14,7 @@ export interface RetrievalContext {
   anchorTerms: string[]
   currentAnchorTerms: string[]
   focusAnchorTerms: string[]
+  definitionObjectTerms: string[]
   isContextualFollowUp: boolean
   prioritizeCurrentQuestionEvidence: boolean
 }
@@ -215,6 +216,37 @@ const estimatedTokensPerRetrievedSource = 800
 const maxModelAwareSourceLimit = 8
 const maxFocusCandidateSourcesPerTurn = 4
 const explicitContrastTargetPattern = /\b(?:over|than|versus|vs\.?|instead\s+of|rather\s+than)\b/i
+const definitionCueTerms = [
+  'anatomy',
+  'class',
+  'component',
+  'components',
+  'consist',
+  'consists',
+  'contain',
+  'contains',
+  'definition',
+  'field',
+  'fields',
+  'include',
+  'includes',
+  'layout',
+  'member',
+  'members',
+  'schema',
+  'store',
+  'stores',
+  'struct',
+  'structure'
+]
+const definitionSectionPattern = /\b(?:anatomy|components?|definition|fields?|layout|members?|schema|structure)\b/i
+const codeDefinitionPattern = /\b(?:class|enum|interface|struct|type)\s+[A-Za-z_][A-Za-z0-9_]*/
+const definitionObjectPatterns = [
+  /\bwhat\s+(?:exactly\s+)?(?:does|do|is|are)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\s+(?:store|stores|contain|contains|include|includes|consist|consists|look\s+like|mean)\b/i,
+  /\bwhat\s+(?:is|are)\s+inside\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i,
+  /\b(?:what|which)\s+(?:are|is)\s+(?:the\s+)?(?:fields?|parts?|components?|members?)\s+(?:in|of|inside)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i,
+  /\b(?:fields?|parts?|components?|members?)\s+(?:in|of|inside)\s+(?:each\s+|the\s+|this\s+|that\s+|a\s+|an\s+)?(.+?)\??$/i
+]
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numericValue = typeof value === 'number' ? value : Number(value)
@@ -518,6 +550,16 @@ function sourceSearchText(source: ChatSource): string {
     .join(' ')
 }
 
+function sourceContentText(source: ChatSource): string {
+  return [
+    source.sectionHeader,
+    source.excerpt,
+    source.context
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 function normalizedSearchTermsForSources(sources: ChatSource[]): string[] {
   const terms = sources.flatMap((source) => [
     ...(source.queryTerms ?? []),
@@ -536,6 +578,81 @@ function anchorTermsWithSourceCorrections(anchorTerms: string[], sources: ChatSo
     searchTerms.find((candidate) => candidate !== term && isSingleEditOrTransposition(term, candidate)) ?? term
   )
   return Array.from(new Set(correctedTerms))
+}
+
+function definitionObjectTermsForPrompt(prompt: string): string[] {
+  for (const pattern of definitionObjectPatterns) {
+    const match = prompt.match(pattern)
+    if (!match?.[1]) {
+      continue
+    }
+
+    const terms = anchorTermsForText(match[1], 6)
+    if (terms.length > 0) {
+      return terms
+    }
+  }
+
+  return []
+}
+
+function localDefinitionTermsForObject(objectTerms: string[], sources: ChatSource[], limit = 8): string[] {
+  if (objectTerms.length === 0 || sources.length === 0) {
+    return []
+  }
+
+  const objectVariants = new Set(objectTerms.flatMap(termVariants))
+  const termScores = new Map<string, number>()
+
+  for (const source of sources) {
+    const tokens = tokenizeForTerms(sourceContentText(source))
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index]
+      if (!termVariants(token).some((variant) => objectVariants.has(variant))) {
+        continue
+      }
+
+      for (let neighborIndex = Math.max(0, index - 3); neighborIndex <= Math.min(tokens.length - 1, index + 3); neighborIndex += 1) {
+        const neighbor = tokens[neighborIndex]
+        if (
+          neighborIndex === index ||
+          !isAnchorTerm(neighbor) ||
+          objectVariants.has(neighbor) ||
+          termVariants(neighbor).some((variant) => objectVariants.has(variant))
+        ) {
+          continue
+        }
+        termScores.set(neighbor, (termScores.get(neighbor) ?? 0) + 1)
+      }
+    }
+  }
+
+  return Array.from(termScores.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([term]) => term)
+    .slice(0, limit)
+}
+
+function contextualDefinitionQuery(
+  currentTerms: string[],
+  objectTerms: string[],
+  focusAnchorTerms: string[],
+  focusSources: ChatSource[]
+): string | undefined {
+  if (objectTerms.length === 0) {
+    return undefined
+  }
+
+  const localTerms = localDefinitionTermsForObject(objectTerms, focusSources)
+  const queryTerms = [
+    ...objectTerms,
+    ...localTerms,
+    ...currentTerms.filter((term) => objectTerms.includes(term)),
+    ...focusAnchorTerms.filter((term) => objectTerms.includes(term)),
+    ...definitionCueTerms
+  ]
+
+  return Array.from(new Set(queryTerms.filter(isAnchorTerm))).slice(0, 22).join(' ')
 }
 
 function sourcePosition(source: ChatSource): number | undefined {
@@ -734,13 +851,24 @@ export function buildContextualRetrievalContext(
   }
 
   const carriedSources = focusSourcesForTurns(turns, carriedSourceLimit, isContextualFollowUp)
+  const definitionHintSources = focusSourcesForTurns(
+    turns,
+    Math.max(carriedSourceLimit, maxFocusCandidateSourcesPerTurn),
+    false
+  )
   const previousQuestions = turns.map((turn) => compactText(turn.user.text)).filter(Boolean)
   const currentTerms = currentProfile.anchorTerms
   const focusAnchorTerms = focusAnchorTermsForTurns(turns, carriedSources)
   const anchorTerms = Array.from(new Set([...currentTerms, ...focusAnchorTerms])).slice(0, defaultContextTermLimit)
-  const contextualQuery = anchorTerms.length > 0
+  const definitionObjectTerms = definitionObjectTermsForPrompt(query)
+  const contextualQuery = contextualDefinitionQuery(
+    currentTerms,
+    definitionObjectTerms,
+    focusAnchorTerms,
+    Array.from(new Set([...carriedSources, ...definitionHintSources]))
+  ) ?? (anchorTerms.length > 0
     ? anchorTerms.join(' ')
-    : [...previousQuestions, query].join('\n')
+    : [...previousQuestions, query].join('\n'))
   const answerPrompt = [
     'Use previous questions only to understand references in the current question.',
     ...turns.flatMap((turn) => {
@@ -758,6 +886,7 @@ export function buildContextualRetrievalContext(
     anchorTerms,
     currentAnchorTerms: currentTerms,
     focusAnchorTerms,
+    definitionObjectTerms,
     isContextualFollowUp,
     prioritizeCurrentQuestionEvidence: shouldPrioritizeCurrentQuestionEvidence(query, currentProfile)
   }
@@ -949,6 +1078,8 @@ interface ContextualSourceScore {
   isFocusSource: boolean
   isFocusNeighborhood: boolean
   isCurrentQuestionMatch: boolean
+  isDefinitionMatch: boolean
+  definitionScore: number
   clusterKey: string
 }
 
@@ -1008,6 +1139,8 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
   const isFocusNeighborhood = isFocusSource || sameSection || nearbyByChunk || Boolean(nearbyByPage) || textAligned
   const isCurrentQuestionMatch = currentTerms.length > 0 &&
     (currentOverlap >= 0.3 || currentMatches >= 2)
+  const definitionScore = definitionSourceScore(source, context.definitionObjectTerms)
+  const isDefinitionMatch = definitionScore >= 7
   const orderPenalty = candidateIndex * 0.02
   let score = focusOverlap * 10 + currentOverlap * 6 + currentMatches * 1.5 - newTermRatio * 2 - orderPenalty
 
@@ -1028,6 +1161,7 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
   if (focusSource && sameSourceDocument(source, focusSource)) {
     score += 1
   }
+  score += definitionScore
 
   return {
     source,
@@ -1035,8 +1169,29 @@ function contextualScoreForSource(source: ChatSource, context: RetrievalContext,
     isFocusSource,
     isFocusNeighborhood,
     isCurrentQuestionMatch,
+    isDefinitionMatch,
+    definitionScore,
     clusterKey: sourceClusterKey(source)
   }
+}
+
+function definitionSourceScore(source: ChatSource, objectTerms: string[]): number {
+  if (objectTerms.length === 0) {
+    return 0
+  }
+
+  const sourceText = sourceContentText(source)
+  const sourceTokens = tokenSetForText(sourceText)
+  const objectMatches = countMatches(objectTerms, sourceTokens)
+  if (objectMatches === 0) {
+    return 0
+  }
+
+  const cueMatches = countMatches(definitionCueTerms, sourceTokens)
+  const sectionBoost = definitionSectionPattern.test(source.sectionHeader ?? '') ? 4 : 0
+  const codeBoost = codeDefinitionPattern.test(sourceText) ? 4 : 0
+
+  return objectMatches * 5 + Math.min(cueMatches, 5) * 1.2 + sectionBoost + codeBoost
 }
 
 function selectContextualSources(context: RetrievalContext, contextualSources: ChatSource[], limit: number): ChatSource[] {
@@ -1052,12 +1207,24 @@ function selectContextualSources(context: RetrievalContext, contextualSources: C
   const currentQuestionSources = rankedSources.filter((ranked) =>
     !ranked.isFocusNeighborhood && ranked.isCurrentQuestionMatch
   )
+  const definitionSources = rankedSources
+    .filter((ranked) => ranked.isDefinitionMatch)
+    .sort((left, right) => right.definitionScore - left.definitionScore || right.score - left.score)
   const offFocusSources = rankedSources.filter((ranked) =>
-    !ranked.isFocusNeighborhood && !ranked.isCurrentQuestionMatch
+    !ranked.isFocusNeighborhood && !ranked.isCurrentQuestionMatch && !ranked.isDefinitionMatch
   )
   const focusSourceBucket = focusNeighborhoodSources.filter((ranked) => ranked.isFocusSource)
   const otherFocusNeighborhoodSources = focusNeighborhoodSources.filter((ranked) => !ranked.isFocusSource)
-  const sourceBuckets = context.currentAnchorTerms.length > 0 && context.prioritizeCurrentQuestionEvidence
+  const sourceBuckets = context.definitionObjectTerms.length > 0
+    ? [
+        definitionSources,
+        focusSourceBucket.slice(0, 1),
+        currentQuestionSources.filter((ranked) => !ranked.isDefinitionMatch),
+        otherFocusNeighborhoodSources.filter((ranked) => !ranked.isDefinitionMatch),
+        focusSourceBucket.slice(1),
+        offFocusSources
+      ]
+    : context.currentAnchorTerms.length > 0 && context.prioritizeCurrentQuestionEvidence
     ? [
         currentQuestionSources,
         focusSourceBucket.slice(0, 1),

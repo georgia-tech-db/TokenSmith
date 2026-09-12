@@ -81,6 +81,23 @@
     "forbiddenChunkIds": ["ch10.020"]
   },
   {
+    "id": "slotted_page_slot_entry_definition",
+    "priorQuestion": "Why do slotted pages keep record IDs stable after deletes?",
+    "priorAnswer": "A slotted page keeps the RID stable because the RID names a page and a slot; the slot stores where the tuple bytes currently live.",
+    "priorSourceIds": ["ch04.044", "ch04.045"],
+    "prompt": "In that design, what exactly does each slot entry store?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch04.018", "ch04.019", "ch04.023", "ch04.024", "ch04.025", "ch04.026", "ch04.027", "ch04.044", "ch04.045", "ch04.046", "ch07.021", "ch07.022"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["slot", "entry", "anatomy"],
+    "expectedQueryExcludes": ["stable", "deletes", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch04.019", "ch04.025", "ch04.026"],
+    "expectedChunkIds": ["ch04.019"],
+    "requiredPromptContext": ["bool empty = true", "uint16_t offset", "uint16_t length"],
+    "forbiddenChunkIds": ["ch07.021", "ch07.022"]
+  },
+  {
     "id": "column_store_tradeoff_chain",
     "seedQuestion": "What is a column store?",
     "seedAnswer": "A column store groups values from the same attribute together instead of storing entire rows contiguously.",
@@ -128,6 +145,73 @@
         },
         "requiredPromptContext": ["access an entire row at once", "fetching a user's complete profile"],
         "forbiddenChunkIds": ["ch15.049"]
+      }
+    ]
+  },
+  {
+    "id": "vectorized_execution_chain",
+    "seedQuestion": "How does the traditional iterator model process analytical queries after columnar storage reduces I/O?",
+    "seedAnswer": "The iterator model pulls one tuple at a time through GetNext calls; once columnar storage reduces I/O, that tuple-at-a-time CPU overhead becomes the bottleneck.",
+    "seedSourceIds": ["ch15.074", "ch15.080"],
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "turns": [
+      {
+        "id": "iterator_cpu_overhead",
+        "prompt": "Why is that bad?",
+        "candidateChunkIds": ["ch15.074", "ch15.080", "ch15.081", "ch11.019", "ch11.022", "ch11.030", "ch15.045", "ch15.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["iterator", "model", "cpu"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.080"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.074", "ch15.080"],
+          "within": 2
+        },
+        "requiredPromptContext": ["one-tuple-at-a-time approach is profoundly inefficient", "virtual function call", "instruction cache and branch predictor"],
+        "assistantAnswer": "It is bad because per-tuple calls and code switching dominate CPU time, so vectorized processing is the alternative."
+      },
+      {
+        "id": "vectorized_unit_of_work",
+        "prompt": "What does the vectorized model change?",
+        "candidateChunkIds": ["ch15.074", "ch15.080", "ch15.081", "ch15.082", "ch15.084", "ch11.019", "ch11.030", "ch15.045"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["vectorized", "model", "change"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.081"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.081"],
+          "within": 2
+        },
+        "requiredPromptContext": ["retrieve a batch of values at a time", "overhead of function calls is now amortized"],
+        "assistantAnswer": "The vectorized model changes the unit of work from one tuple to a batch or vector of values."
+      },
+      {
+        "id": "simd_hardware_parallelism",
+        "prompt": "How does SIMD build on that idea?",
+        "candidateChunkIds": ["ch15.081", "ch15.082", "ch15.083", "ch15.084", "ch15.085", "ch15.086", "ch15.087", "ch15.090", "ch15.091"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["simd", "build", "idea"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.082"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.082", "ch15.083", "ch15.084"],
+          "within": 4
+        },
+        "requiredPromptContext": ["Single Instruction, Multiple Data", "single CPU instruction can operate"],
+        "assistantAnswer": "SIMD applies one CPU instruction to multiple values in a vector register."
+      },
+      {
+        "id": "page_scan_gather_process_scatter",
+        "prompt": "What does gather-process-scatter mean there?",
+        "candidateChunkIds": ["ch15.081", "ch15.084", "ch15.088", "ch15.089", "ch15.090", "ch15.092", "ch15.093", "ch15.094", "ch04.025", "ch04.026"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["gather", "process", "scatter"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.093"],
+        "expectedChunkIds": ["ch15.093"],
+        "requiredPromptContext": ["gather-process-scatter", "contiguous temporary array", "vceqq_u8"],
+        "forbiddenChunkIds": ["ch04.025", "ch04.026"]
       }
     ]
   }
