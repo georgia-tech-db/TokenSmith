@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
+import { ConversationViewport } from './ConversationViewport'
+import { QuestionEditor } from './QuestionEditor'
+import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
+import './chat-interactions.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import type { PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api'
@@ -2445,6 +2449,7 @@ function ChatScreen({
   ) => void
 }) {
   const [draft, setDraft] = useState('')
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
@@ -2469,9 +2474,7 @@ function ChatScreen({
   const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
-  const composerInputRef = useRef<HTMLInputElement | null>(null)
-  const hasMountedMessagesRef = useRef(false)
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ??
@@ -2530,13 +2533,15 @@ function ChatScreen({
         : 'Download Llama 3 to ask questions...'
 
   useEffect(() => {
-    if (!hasMountedMessagesRef.current) {
-      hasMountedMessagesRef.current = true
-      return
-    }
+    setEditingQuestionId(null)
+  }, [activeConversation.id])
 
-    messagesEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [activeConversation.id, activeConversation.messages.length, isPending])
+  useLayoutEffect(() => {
+    const input = composerInputRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`
+  }, [draft])
 
   useEffect(() => {
     if ((!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
@@ -2812,34 +2817,13 @@ function ChatScreen({
     void navigator.clipboard.writeText(text).catch(() => undefined)
   }
 
-  function handleEditQuestion(messageId: string, text: string) {
-    requestSequenceRef.current += 1
-    setDraft(text)
-    setPendingConversationId(null)
-    setPendingStatusText(null)
-    setPendingSources([])
-    setExpandedMessageId(null)
-    setChatError(null)
-
-    onChatStateChange((current) => ({
-      ...current,
-      conversations: current.conversations.map((conversation) => {
-        if (conversation.id !== activeConversation.id) {
-          return conversation
-        }
-
-        const messageIndex = conversation.messages.findIndex((message) => message.id === messageId)
-        if (messageIndex < 0) {
-          return conversation
-        }
-
-        return {
-          ...conversation,
-          messages: conversation.messages.slice(0, messageIndex),
-          quizState: undefined
-        }
-      })
-    }))
+  function handleQuoteSelection(text: string) {
+    setDraft((current) => addQuoteToDraft(current, text))
+    requestAnimationFrame(() => {
+      const input = composerInputRef.current
+      input?.focus()
+      input?.setSelectionRange(input.value.length, input.value.length)
+    })
   }
 
   function handleUseFollowUpSuggestion(suggestion: string) {
@@ -3906,21 +3890,24 @@ function ChatScreen({
     void handleStartQuiz()
   }
 
-  async function submitPrompt(rawPrompt: string) {
+  async function submitPrompt(rawPrompt: string, editMessageId?: string) {
     const prompt = rawPrompt.trim()
-    if (!prompt || pendingConversationId || !selectedModel) {
+    if (!prompt || pendingConversationId || !selectedModel || (editingQuestionId && !editMessageId)) {
       return
     }
 
-    if (activeQuizState) {
+    if (activeQuizState && !editMessageId) {
       await submitQuizAnswer(prompt, activeQuizState)
       return
     }
 
+    const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt) : undefined
+    if (editMessageId && !editedMessages) return
+    const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
     const userMessage: ChatMessage = {
-      id: createId('user'),
+      id: editMessageId ?? createId('user'),
       role: 'user',
       text: prompt
     }
@@ -3934,12 +3921,14 @@ function ChatScreen({
 
         return {
           ...conversation,
-          title: conversation.messages.length === 0 ? getConversationTitle(prompt) : conversation.title,
-          messages: [...conversation.messages, userMessage]
+          title: history.length === 0 ? getConversationTitle(prompt) : conversation.title,
+          messages: editedMessages ?? [...conversation.messages, userMessage],
+          quizState: editMessageId ? undefined : conversation.quizState
         }
       })
     }))
-    setDraft('')
+    if (!editMessageId) setDraft('')
+    setEditingQuestionId(null)
     setExpandedMessageId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
@@ -3964,7 +3953,7 @@ function ChatScreen({
         setPendingStatusText('understanding question ...')
         const prepared = await prepareRewrittenStudyChat({
           prompt,
-          messages: activeConversation.messages,
+          messages: history,
           materials: activeMaterials,
           model: selectedModel,
           settings,
@@ -4012,7 +4001,7 @@ function ChatScreen({
       const reply = clarificationReply ?? await window.tokensmith.sendChatMessage(rewrittenRequest ?? {
         prompt,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
-        messages: activeConversation.messages,
+        messages: history,
         materials: activeMaterials,
         model: selectedModel,
         settings,
@@ -4162,7 +4151,8 @@ function ChatScreen({
         </header>
 
         <div className="chat-body">
-          <div className="message-list">
+          <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending}
+            onQuote={handleQuoteSelection} canQuote={!editingQuestionId && !pendingConversationId && Boolean(selectedModel)}>
             {activeConversation.messages.length === 0 && !isPending ? (
               <>
                 {renderChatSetupCard()}
@@ -4174,14 +4164,20 @@ function ChatScreen({
                   <UserMessage
                     key={message.id}
                     message={message}
+                    editing={editingQuestionId === message.id}
+                    editDisabled={Boolean(pendingConversationId) || !selectedModel}
+                    laterQuestions={activeConversation.messages.slice(activeConversation.messages.indexOf(message) + 1).filter((item) => item.role === 'user').length}
                     onCopy={() => handleCopyQuestion(message.text)}
-                    onEdit={() => handleEditQuestion(message.id, message.text)}
+                    onEdit={() => setEditingQuestionId(message.id)}
+                    onCancelEdit={() => setEditingQuestionId(null)}
+                    onSaveEdit={(text) => void submitPrompt(text, message.id)}
                   />
                 ) : (
                   <AssistantMessage
                     expanded={expandedMessageId === message.id}
                     key={message.id}
                     message={message}
+                    suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)}
                     onSelectFollowUp={handleUseFollowUpSuggestion}
                     onToggleSources={() =>
                       setExpandedMessageId((current) => (current === message.id ? null : message.id))
@@ -4192,8 +4188,7 @@ function ChatScreen({
             )}
             {isPending && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
             {chatError && <p className="chat-error-banner">{chatError}</p>}
-            <div ref={messagesEndRef} />
-          </div>
+          </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
             {selectedModel && (isPending || selectedModel.status !== 'ready') && (
@@ -4218,7 +4213,7 @@ function ChatScreen({
             <div className="composer">
               <button
                 className={`quiz-toggle-button ${activeQuizState ? 'is-active' : ''}`}
-                disabled={Boolean(pendingConversationId) || (!activeQuizState && !canUseQuiz)}
+                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || (!activeQuizState && !canUseQuiz)}
                 type="button"
                 onClick={handleQuizButtonClick}
                 title={activeQuizState ? 'End quiz' : 'Start a short quiz from your PDFs'}
@@ -4226,17 +4221,24 @@ function ChatScreen({
                 <BookOpen size={16} aria-hidden="true" />
                 <span>{activeQuizState ? 'End quiz' : 'Quiz me'}</span>
               </button>
-              <input
+              <textarea
                 aria-label="Message"
-                disabled={Boolean(pendingConversationId) || !selectedModel}
+                rows={1}
+                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
                 ref={composerInputRef}
                 onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }
+                }}
                 placeholder={composerPlaceholder}
                 value={draft}
               />
               <button
                 className="send-button"
-                disabled={!draft.trim() || Boolean(pendingConversationId) || !selectedModel}
+                disabled={!draft.trim() || Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
                 type="submit"
                 aria-label="Send message"
                 title="Send message"
@@ -4637,26 +4639,37 @@ function responseDurationLabel(durationMs?: number): string | undefined {
   return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds).toString()}s`
 }
 
-function UserMessage({ message, onCopy, onEdit }: { message: ChatMessage; onCopy: () => void; onEdit: () => void }) {
+function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, onEdit, onCancelEdit, onSaveEdit }: {
+  message: ChatMessage
+  editing: boolean
+  editDisabled: boolean
+  laterQuestions: number
+  onCopy: () => void
+  onEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: (text: string) => void
+}) {
   const label = quizMessageLabel(message)
 
   return (
-    <article className="message-row">
+    <article className="message-row" data-question-id={message.id} tabIndex={-1} aria-label="Your question">
       <CircleUserRound className="message-avatar user" size={26} aria-hidden="true" />
       <div>
         <h3>
           You
           {label && <span>{label}</span>}
         </h3>
-        <p>{message.text}</p>
-        <div className="message-actions" aria-label="Question actions">
-          <button className="message-action" type="button" aria-label="Edit question" title="Edit question" onClick={onEdit}>
+        {editing ? <QuestionEditor key={message.id} text={message.text} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
+          <div data-chat-selectable><MessageText text={message.text} /></div>
+        )}
+        {!editing && <div className="message-actions" aria-label="Question actions">
+          <button className="message-action" type="button" aria-label="Edit question" title="Edit question" disabled={editDisabled} onClick={onEdit}>
             <Pencil size={18} aria-hidden="true" />
           </button>
           <button className="message-action" type="button" aria-label="Copy question" title="Copy question" onClick={onCopy}>
             <Copy size={18} aria-hidden="true" />
           </button>
-        </div>
+        </div>}
       </div>
     </article>
   )
@@ -4665,11 +4678,13 @@ function UserMessage({ message, onCopy, onEdit }: { message: ChatMessage; onCopy
 function AssistantMessage({
   expanded,
   message,
+  suggestionsDisabled,
   onSelectFollowUp,
   onToggleSources
 }: {
   expanded: boolean
   message: ChatMessage
+  suggestionsDisabled: boolean
   onSelectFollowUp: (suggestion: string) => void
   onToggleSources: () => void
 }) {
@@ -4693,7 +4708,7 @@ function AssistantMessage({
             {durationLabel && <span>{durationLabel}</span>}
           </div>
         )}
-        <MessageText text={message.text} />
+        <div data-chat-selectable><MessageText text={message.text} /></div>
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4706,6 +4721,7 @@ function AssistantMessage({
                   className="follow-up-row"
                   key={suggestion}
                   type="button"
+                  disabled={suggestionsDisabled}
                   onClick={() => onSelectFollowUp(suggestion)}
                 >
                   <MessageText text={suggestion} inline />

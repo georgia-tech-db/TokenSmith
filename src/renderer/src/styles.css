@@ -1517,7 +1517,7 @@ button {
   cursor: not-allowed;
 }
 
-.composer input {
+.composer textarea {
   min-width: 0;
   border: 0;
   outline: 0;
@@ -1525,17 +1525,21 @@ button {
   background: transparent;
 }
 
-.composer input {
-  height: 56px;
-  padding: 0 19px;
+.composer textarea {
+  min-height: 56px;
+  max-height: 180px;
+  padding: 16px 19px;
+  resize: none;
+  line-height: 24px;
+  font-family: inherit;
   font-size: 0.9rem;
 }
 
-.composer input::placeholder {
+.composer textarea::placeholder {
   color: #a4a7ab;
 }
 
-.composer input:disabled {
+.composer textarea:disabled {
   color: #9a9da3;
   cursor: not-allowed;
 }
