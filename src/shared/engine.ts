@@ -11,6 +11,22 @@ import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ConversationContextMode = 'standalone' | 'contextual'
 
+export interface ChatReferenceExchange {
+  question: string
+  answer: string
+}
+
+export interface EngineQuestionRewriteRequest {
+  prompt: string
+  messages: ChatMessage[]
+  model: LocalModel
+  modelSettings?: ModelRuntimeSettings
+}
+
+export type QuestionRewrite =
+  | { mode: ConversationContextMode; query: string; clarification: '' }
+  | { mode: 'clarify'; query: ''; clarification: string }
+
 export interface EngineInfo {
   id: 'tokensmith'
   name: string
@@ -23,6 +39,7 @@ export interface EngineChatRequest {
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
+  referenceExchange?: ChatReferenceExchange
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel

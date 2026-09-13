@@ -9,6 +9,10 @@ const tokenSmithBridge: TokenSmithBridge = {
   saveAppState: (state) =>
     ipcRenderer.invoke('state:save', state) as Promise<Awaited<ReturnType<TokenSmithBridge['saveAppState']>>>,
   listEngines: () => ipcRenderer.invoke('engine:list') as Promise<Awaited<ReturnType<TokenSmithBridge['listEngines']>>>,
+  resolveChatQuestion: (request) =>
+    ipcRenderer.invoke('engine:resolve-question', request) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['resolveChatQuestion']>>
+    >,
   sendChatMessage: (request) =>
     ipcRenderer.invoke('engine:chat', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['sendChatMessage']>>

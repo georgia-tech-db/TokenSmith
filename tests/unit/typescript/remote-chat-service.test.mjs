@@ -202,7 +202,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
             message: {
               content:
                 requestBodies.length === 1
-                  ? 'Atomicity makes a transaction all-or-nothing.'
+                  ? 'Atomicity makes a transaction all-or-nothing, so rollback matters when part of a transaction fails.'
                   : '1. How does durability differ from atomicity?\n2. Why does rollback matter for atomicity?\n3. Which ACID property covers isolation?'
             }
           }
@@ -224,13 +224,77 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
     }))
 
     assert.equal(requestBodies.length, 2)
-    assert.equal(requestBodies[1].messages.at(-2).role, 'assistant')
-    assert.equal(requestBodies[1].messages.at(-2).content, 'Atomicity makes a transaction all-or-nothing.')
-    assert.equal(requestBodies[1].messages.at(-1).content, 'Generate 2 suggested follow-up questions.\nSuggest follow-up questions.')
+    assert.equal(requestBodies[1].messages.length, 1)
+    assert.match(requestBodies[1].messages.at(-1).content, /Current question:\nWhat is atomicity\?/)
+    assert.match(requestBodies[1].messages.at(-1).content, /Latest answer:\nAtomicity makes a transaction all-or-nothing/)
+    assert.match(requestBodies[1].messages.at(-1).content, /Generate 2 suggested follow-up questions\.\nSuggest follow-up questions\./)
+    assert.doesNotMatch(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.deepEqual(response.followUpSuggestions, [
       'How does durability differ from atomicity?',
       'Why does rollback matter for atomicity?'
     ])
+  })
+})
+
+test('runRemoteStudyEngine keeps a short model list without inventing extra questions', async () => {
+  const requestBodies = []
+
+  await withMockFetch(async (_url, options) => {
+    const body = JSON.parse(String(options.body))
+    requestBodies.push(body)
+
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                requestBodies.length === 1
+                  ? 'No. 2Q uses FIFO and LRU queues to balance recency and frequency for scans.'
+                  : [
+                      'How does 2Q balance recency and frequency?'
+                    ].join('\n')
+            }
+          }
+        ]
+      })
+    }
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      prompt: "Isn't contention also a problem in 2Q?",
+      applicationSettings: {
+        suggestionMode: 'on',
+        followUpSuggestionCount: 4
+      },
+      modelSettings: {
+        maxLength: 512,
+        temperature: 0.2,
+        topP: 0.95
+      }
+    }))
+
+    assert.equal(requestBodies.length, 2)
+    assert.deepEqual(response.followUpSuggestions, [
+      'How does 2Q balance recency and frequency?'
+    ])
+  })
+})
+
+test('runRemoteStudyEngine accepts an empty suggestion list without replacing it or the answer', async () => {
+  let calls = 0
+  await withMockFetch(async () => ({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content: ++calls === 1
+      ? 'Atomicity makes a transaction all-or-nothing.' : '[]' } }] })
+  }), async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      applicationSettings: { suggestionMode: 'on', followUpSuggestionCount: 4 }
+    }))
+    assert.equal(calls, 2)
+    assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
+    assert.deepEqual(response.followUpSuggestions, [])
+    assert.equal(response.followUpError, undefined)
   })
 })
 
@@ -249,7 +313,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
             message: {
               content:
                 requestBodies.length === 1
-                  ? 'The chapter covers physical storage media.'
+                  ? 'The chapter covers physical storage media such as magnetic disks and flash storage, storage reliability, and how storage choices affect system design.'
                   : 'What are the main categories of storage media?\nHow do magnetic disks and flash storage compare?\nWhy does storage reliability matter?\nHow do storage choices affect system design?'
             }
           }
@@ -279,8 +343,11 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
 
     assert.equal(requestBodies.length, 2)
     const followUpPrompt = requestBodies[1].messages.at(-1).content
-    assert.match(followUpPrompt, /Suggest 4 very short factual follow-up questions/i)
-    assert.match(followUpPrompt, /previous conversation and excerpts/i)
+    assert.match(followUpPrompt, /Suggest up to 4 natural next questions a curious undergraduate student/i)
+    assert.match(followUpPrompt, /after this answer/i)
+    assert.match(followUpPrompt, /examples, intuition, code-level implementation, trade-offs/i)
+    assert.doesNotMatch(followUpPrompt, /very short factual/i)
+    assert.doesNotMatch(followUpPrompt, /cannot be found/i)
     assert.doesNotMatch(followUpPrompt, /\{count\}/)
     assert.deepEqual(response.followUpSuggestions, [
       'What are the main categories of storage media?',

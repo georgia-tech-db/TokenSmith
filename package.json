@@ -28,10 +28,15 @@
     "package:linux": "node scripts/package-linux.mjs"
   },
   "dependencies": {
+    "katex": "^0.16.47",
     "lucide-react": "^1.16.0",
     "pdfjs-dist": "^5.6.205",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

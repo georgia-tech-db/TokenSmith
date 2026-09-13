@@ -14,6 +14,8 @@ import type {
   EngineInfo,
   EngineQuestionSuggestionRequest,
   EngineQuestionSuggestionResponse,
+  EngineQuestionRewriteRequest,
+  QuestionRewrite,
   MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
@@ -39,6 +41,7 @@ export interface TokenSmithBridge {
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>
   sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
+  resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
   suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>

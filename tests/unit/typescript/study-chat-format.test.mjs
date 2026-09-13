@@ -6,6 +6,8 @@ import { requireTranspiledTs } from './ts-module-loader.mjs'
 const {
   answerWithOrderedSources,
   estimateTokens,
+  filterSuggestedQuestions,
+  followUpSuggestionMessages,
   modelAwareRuntimeSettings,
   sourceContextBudgetForRequest,
   formatFollowUpInstruction,
@@ -14,7 +16,8 @@ const {
   questionSuggestionMessages,
   shouldGenerateFollowUps,
   sourceContext,
-  studyChatMessages
+  suggestionPromptFor,
+  studyChatMessages,
 } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 
 const addedAt = '2026-07-07T00:00:00.000Z'
@@ -31,15 +34,24 @@ const loggingSource = {
 const bplusTreeSource = buzzdbSource('ch09.019')
 const pinningSource = buzzdbSource('ch05.084')
 const databaseContext = [
-  'Use the context below only when it is relevant to the question.',
+  'Use the provided context as the factual basis for the answer.',
+  'Do not add facts from general knowledge when the context does not support them.',
   'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
   'Format the answer for readability: use short paragraphs with one idea each; use a compact bullet list or numbered list only for steps, comparisons, or multiple distinct points.',
   'For how, why, definition, or elaboration questions, give a clear explanation instead of a one-sentence answer: name the idea, explain how it works, and include one brief concrete example or mini-walkthrough when the context supports one.',
   'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
+  'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the current target. If the context supports only a related target, say the context does not say.',
   'Do not overstate with words like always, faster, or better unless the context gives that condition.',
   'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-  'If the context does not contain the answer, say that plainly.',
+  'If the context does not contain the answer, say that plainly and do not speculate.',
+  'Do not end by asking whether the student wants more detail.',
   '',
+  '### Context:',
+  'Collection: Database Systems.pdf',
+  'Path: Database Systems.pdf',
+  'Text: Transactions preserve atomicity and durability.'
+].join('\n')
+const databaseSuggestionContext = [
   '### Context:',
   'Collection: Database Systems.pdf',
   'Path: Database Systems.pdf',
@@ -285,7 +297,7 @@ test('questionSuggestionMessages uses source context before the shared question 
   }))
 
   assert.deepEqual(messages, [
-    { role: 'user', content: databaseContext },
+    { role: 'user', content: databaseSuggestionContext },
     { role: 'user', content: 'Use my shared question prompt for 4 questions.' }
   ])
 })
@@ -302,9 +314,88 @@ test('questionSuggestionMessages prefixes prompts without a count placeholder', 
   }))
 
   assert.deepEqual(messages, [
-    { role: 'user', content: databaseContext },
+    { role: 'user', content: databaseSuggestionContext },
     { role: 'user', content: 'Generate 2 suggested follow-up questions.\nAsk about adjacent database concepts.' }
   ])
+})
+
+test('questionSuggestionMessages uses starter wording for new chats', () => {
+  const messages = questionSuggestionMessages(suggestionRequest())
+  const prompt = messages.at(-1).content
+
+  assert.deepEqual(messages[0], { role: 'user', content: databaseSuggestionContext })
+  assert.match(prompt, /first questions a curious undergraduate student/i)
+  assert.match(prompt, /serious study session/i)
+  assert.match(prompt, /Spread the questions across different sections/i)
+  assert.match(prompt, /Prefer named concepts, mechanisms, code structures/i)
+  assert.match(prompt, /Avoid trivial definition-only questions/i)
+  assert.match(prompt, /Avoid bare nouns like page, data, query/i)
+  assert.doesNotMatch(prompt, /very short factual/i)
+  assert.doesNotMatch(prompt, /cannot be found/i)
+  assert.doesNotMatch(prompt, /Answer directly for a student/i)
+})
+
+test('questionSuggestionMessages uses follow-up wording once a chat has history', () => {
+  const messages = questionSuggestionMessages(suggestionRequest({
+    messages: [
+      { id: 'u1', role: 'user', text: 'What is atomicity?' },
+      { id: 'a1', role: 'assistant', text: 'Atomicity means all-or-nothing execution.' }
+    ]
+  }))
+  const prompt = messages.at(-1).content
+
+  assert.match(prompt, /natural next questions a curious undergraduate student/i)
+  assert.match(prompt, /after this answer/i)
+  assert.match(prompt, /concrete phrase, mechanism, trade-off, or claim/i)
+  assert.match(prompt, /latest answer the student just saw/i)
+  assert.match(prompt, /Keep each question short/i)
+  assert.doesNotMatch(prompt, /first questions/)
+  assert.doesNotMatch(prompt, /What part of this usually confuses people/)
+})
+
+test('followUpSuggestionMessages uses only the current question and latest answer', () => {
+  const messages = followUpSuggestionMessages({
+    prompt: "Isn't contention also a problem in 2Q?",
+    answerPrompt: 'Previous question: Why does an operating system use LRU?\nCurrent question: Is contention also a problem?',
+    messages: [
+      { id: 'u1', role: 'user', text: 'Why does an operating system use LRU?' },
+      { id: 'a1', role: 'assistant', text: 'Older answer about operating systems.' }
+    ],
+    materials: [],
+    model: ollamaChatModel,
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'on',
+      followUpSuggestionCount: 4
+    },
+    modelSettings: {
+      systemMessage: 'Stay grounded.'
+    },
+    retrievedSources: [
+      {
+        title: 'BuzzDBBook',
+        locator: 'Section 6.5',
+        excerpt: 'MRU and scans are discussed elsewhere.',
+        context: 'MRU and scans are discussed elsewhere.'
+      }
+    ],
+    conversationContextMode: 'contextual'
+  }, 'No. The answer explains 2Q using FIFO and LRU lists.')
+
+  assert.equal(messages.length, 2)
+  assert.deepEqual(messages[0], { role: 'system', content: 'Stay grounded.' })
+  assert.match(messages[1].content, /Current question:\nIsn't contention also a problem in 2Q\?/)
+  assert.match(messages[1].content, /Latest answer:\nNo\. The answer explains 2Q using FIFO and LRU lists\./)
+  assert.doesNotMatch(messages[1].content, /Previous question/)
+  assert.doesNotMatch(messages[1].content, /MRU and scans/)
+})
+
+test('suggestionPromptFor treats saved built-in prompts as defaults', () => {
+  const oldPrompt = 'Suggest {count} very short factual follow-up questions that have not been answered yet or cannot be found inspired by the previous conversation and excerpts.'
+
+  assert.match(suggestionPromptFor({ suggestedFollowUpPrompt: oldPrompt }, 'starter'), /first questions/)
+  assert.match(suggestionPromptFor({ suggestedFollowUpPrompt: oldPrompt }, 'followUp'), /natural next questions/)
+  assert.equal(suggestionPromptFor({ suggestedFollowUpPrompt: 'Ask friendly questions.' }, 'starter'), 'Ask friendly questions.')
 })
 
 test('formatFollowUpInstruction uses explicit placeholders without adding a second prefix', () => {
@@ -334,5 +425,64 @@ test('parseFollowUpSuggestions handles JSON, plain text, dedupe, and limits', ()
   assert.deepEqual(
     parseFollowUpSuggestions('- How does recovery use checkpoints?\n- Which files store logs?', 4),
     ['How does recovery use checkpoints?', 'Which files store logs?']
+  )
+
+  assert.deepEqual(
+    parseFollowUpSuggestions([
+      'What happens when the log fills up?',
+      'How does recovery behave after a crash? Does it replay every record?',
+      'Can you show a tiny transaction example?'
+    ].join('\n'), 4),
+    [
+      'What happens when the log fills up?',
+      'How does recovery behave after a crash?',
+      'Can you show a tiny transaction example?'
+    ]
+  )
+
+  assert.deepEqual(
+    parseFollowUpSuggestions([
+      'What problem does 2Q solve in the context of sequential flooding?',
+      'From the provided source, what is a dirty page?',
+      'What kind of performance trade-offs can we expect in terms of hit rate and cache size if we increase the number of pages in the buffer pool for 2Q?'
+    ].join('\n'), 4),
+    ['What problem does 2Q solve in the context of sequential flooding?']
+  )
+
+  assert.deepEqual(
+    parseFollowUpSuggestions([
+      'Based on the context, what is atomicity?',
+      'What part of this usually confuses people?',
+      'Can you think of another recovery scenario?',
+      'Can you show a tiny transaction example?',
+      'Can you show a tiny transaction example?'
+    ].join('\n'), 4),
+    ['Can you show a tiny transaction example?']
+  )
+})
+
+test('suggestions contain only model questions, with no padding for short or empty output', () => {
+  assert.deepEqual(filterSuggestedQuestions(parseFollowUpSuggestions('[]', 8), [], 4), [])
+  assert.deepEqual(filterSuggestedQuestions(parseFollowUpSuggestions('I cannot suggest a question.', 8), [], 4), [])
+  const modelText = '["Why must lookups wait during rehashing?"]'
+  assert.deepEqual(filterSuggestedQuestions(parseFollowUpSuggestions(modelText, 8), [], 4),
+    ['Why must lookups wait during rehashing?'])
+  assert.deepEqual(filterSuggestedQuestions(['Why must lookups wait during rehashing?'], [], 0), [])
+  assert.deepEqual(parseFollowUpSuggestions(modelText, 0), [])
+})
+
+test('filterSuggestedQuestions removes repeated current and recent questions', () => {
+  assert.deepEqual(
+    filterSuggestedQuestions([
+      'What is an example of a real-world application where LRU would significantly outperform 2Q?',
+      'How does 2Q handle cache misses during large scans?',
+      'What trade-off does 2Q make compared with LRU?'
+    ], [
+      'What is an example of a real-world application where 2Q would significantly outperform LRU?'
+    ], 4),
+    [
+      'How does 2Q handle cache misses during large scans?',
+      'What trade-off does 2Q make compared with LRU?'
+    ]
   )
 })

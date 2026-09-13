@@ -1230,6 +1230,41 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(len(search["sources"]), 1)
             self.assertEqual(search["sources"][0]["chunkId"], "ch05.002")
 
+    def test_source_selection_strips_embedded_exercise_tail_for_concept_questions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "replacement.tokensmith.md"
+            note_path.write_text(
+                '<!-- tokensmith:chunk id="ch06.001" chapter="6" section="6.5.4 No Silver Bullet" kind="prose" -->\n'
+                "Policy choice depends on workload and application behavior, so the simulator compares trade-offs.\n\n"
+                "> #### Check Your Understanding\n"
+                "> Design a short access pattern where simple LRU would achieve a higher hit rate than 2Q.\n\n"
+                '<!-- tokensmith:chunk id="ch06.002" chapter="6" section="6.4.2.1 Worked Example: Surviving a Scan" kind="prose" -->\n'
+                "2Q outperforms LRU when a hot working set is followed by a large one-time sequential scan. "
+                "New scan pages enter the FIFO queue and do not evict promoted hot pages from the protected LRU list.",
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Where would 2Q outperform LRU?",
+                    "materials": [material],
+                    "limit": 2,
+                    "searchMode": "hybrid",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertGreaterEqual(len(search["sources"]), 1)
+            self.assertEqual(search["sources"][0]["chunkId"], "ch06.002")
+            combined_context = "\n".join(source["context"] for source in search["sources"])
+            self.assertNotIn("Check Your Understanding", combined_context)
+            self.assertNotIn("simple LRU would achieve a higher hit rate", combined_context)
+
     def test_index_material_resume_skips_existing_chunk_embeddings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -2085,7 +2120,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             def fake_completion(prompt, model_path, model_settings, application_settings=None):
                 calls.append((prompt, model_path, model_settings, application_settings))
                 if len(calls) == 1:
-                    return "A primary key uniquely identifies each row."
+                    return (
+                        "A primary key uniquely identifies each row. Foreign keys reference primary keys, "
+                        "and normalization reduces duplication."
+                    )
                 return "1. How do foreign keys use primary keys?\n2. What problems does normalization reduce?\n3. Which table should own the key?"
 
             try:
@@ -2111,6 +2149,9 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertRegex(calls[1][0], r"Generate 2 suggested follow-up questions")
             self.assertRegex(calls[1][0], r"Ask about adjacent database concepts")
+            self.assertRegex(calls[1][0], r"Current question:\s+What is a primary key\?")
+            self.assertRegex(calls[1][0], r"Latest answer:\s+A primary key uniquely identifies each row")
+            self.assertNotRegex(calls[1][0], r"### Context")
             self.assertEqual(
                 response["followUpSuggestions"],
                 [
@@ -2118,6 +2159,20 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "What problems does normalization reduce?",
                 ],
             )
+
+    def test_default_follow_up_prompt_is_student_question_oriented(self):
+        self.assertIn("curious undergraduate student", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("concrete phrase, mechanism, trade-off, or claim", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("examples, intuition", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("latest answer the student just saw", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("Keep each question short", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertNotIn("very short factual", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertNotIn("cannot be found", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+
+        settings = engine.normalize_model_runtime_settings(
+            {"suggestedFollowUpPrompt": engine.LEGACY_SUGGESTED_FOLLOW_UP_PROMPT}
+        )
+        self.assertEqual(settings["suggestedFollowUpPrompt"], engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
 
     def test_parse_follow_up_suggestions_discards_model_preface(self):
         suggestions = engine.parse_follow_up_suggestions(
@@ -2134,6 +2189,78 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                 "How did Annita Demetriou become Speaker of the House?",
             ],
         )
+
+    def test_parse_follow_up_suggestions_discards_meta_questions(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "1. Based on the context, what is atomicity?\n"
+            "2. What part of this usually confuses people?\n"
+            "3. Can you think of another recovery scenario?\n"
+            "4. Can you show a tiny transaction example?\n"
+            "5. Can you show a tiny transaction example?"
+        )
+
+        self.assertEqual(suggestions, ["Can you show a tiny transaction example?"])
+
+    def test_parse_follow_up_suggestions_prefers_complete_lines(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "What happens when the log fills up?\n"
+            "How does recovery behave after a crash? Does it replay every record?\n"
+            "Can you show a tiny transaction example?"
+        )
+
+        self.assertEqual(
+            suggestions,
+            [
+                "What happens when the log fills up?",
+                "How does recovery behave after a crash?",
+                "Can you show a tiny transaction example?",
+            ],
+        )
+
+    def test_parse_follow_up_suggestions_allows_normal_context_phrasing(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "What problem does 2Q solve in the context of sequential flooding?\n"
+            "From the provided source, what is a dirty page?\n"
+            "How does BuzzDB handle every edge case in the cache replacement implementation when several pages are initially cold during the simulation?"
+        )
+
+        self.assertEqual(
+            suggestions,
+            ["What problem does 2Q solve in the context of sequential flooding?"],
+        )
+
+    def test_filter_suggested_questions_removes_recent_repeats(self):
+        suggestions = engine.filter_suggested_questions(
+            [
+                "What is an example of a real-world application where LRU would significantly outperform 2Q?",
+                "How does 2Q handle cache misses during large scans?",
+                "What trade-off does 2Q make compared with LRU?",
+            ],
+            ["What is an example of a real-world application where 2Q would significantly outperform LRU?"],
+            4,
+        )
+
+        self.assertEqual(
+            suggestions,
+            [
+                "How does 2Q handle cache misses during large scans?",
+                "What trade-off does 2Q make compared with LRU?",
+            ],
+        )
+
+    def test_suggestions_do_not_pad_empty_or_short_model_outputs(self):
+        for model_text, expected in [
+            ("[]", []),
+            ("I cannot suggest a question.", []),
+            ('["Why must lookups wait during rehashing?"]', ["Why must lookups wait during rehashing?"]),
+        ]:
+            with self.subTest(model_text=model_text):
+                self.assertEqual(
+                    engine.filter_suggested_questions(
+                        engine.parse_follow_up_suggestions(model_text, 8), [], 4
+                    ),
+                    expected,
+                )
 
     def test_chat_with_sources_reports_generator_failure_without_extracting_answer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2351,7 +2478,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("[system]Use the context below", prompt)
+        self.assertIn("[system]Use the provided context as the factual basis", prompt)
         self.assertIn("[user]### Context", prompt)
         self.assertIn("### Context", prompt)
         self.assertIn("[assistant]", prompt)

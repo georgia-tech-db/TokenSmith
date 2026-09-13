@@ -1,8 +1,11 @@
 import type { ChatSource, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
+import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import {
   defaultFollowUpSuggestionCount,
+  defaultStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
+  legacySuggestedFollowUpPrompt,
   minFollowUpSuggestionCount
 } from '../../shared/model-defaults'
 
@@ -18,14 +21,17 @@ const minAnswerReserveTokens = 256
 const maxAnswerReserveTokens = 1024
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
-  'Use the context below only when it is relevant to the question.',
+  'Use the provided context as the factual basis for the answer.',
+  'Do not add facts from general knowledge when the context does not support them.',
   'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
   'Format the answer for readability: use short paragraphs with one idea each; use a compact bullet list or numbered list only for steps, comparisons, or multiple distinct points.',
   'For how, why, definition, or elaboration questions, give a clear explanation instead of a one-sentence answer: name the idea, explain how it works, and include one brief concrete example or mini-walkthrough when the context supports one.',
   'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
+  'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the current target. If the context supports only a related target, say the context does not say.',
   'Do not overstate with words like always, faster, or better unless the context gives that condition.',
   'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-  'If the context does not contain the answer, say that plainly.'
+  'If the context does not contain the answer, say that plainly and do not speculate.',
+  'Do not end by asking whether the student wants more detail.'
 ]
 
 function sourceContextInstructionText(): string {
@@ -46,6 +52,8 @@ export interface SourceContextBudget {
 
 interface SourceContextOptions {
   prompt?: string
+  evidenceQuery?: string
+  referenceText?: string
   model?: LocalModel
   modelSettings?: Partial<ModelRuntimeSettings>
   includeBudget?: boolean
@@ -238,6 +246,7 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const fixedPromptTokens = estimateTokens([
     options?.modelSettings?.systemMessage,
     sourceContextInstructions.join('\n'),
+    options?.referenceText,
     options?.prompt ? `Question: ${options.prompt}` : ''
   ].filter(Boolean).join('\n\n'))
 
@@ -263,7 +272,7 @@ export function packSourceContext(
     return { context: '', budget }
   }
 
-  const terms = queryTerms(options.prompt ?? '')
+  const terms = queryTerms(options.evidenceQuery ?? options.prompt ?? '')
   const blocks: string[] = []
   let usedSourceTokens = 0
   let truncatedSourceCount = 0
@@ -329,6 +338,10 @@ export function sourceContextBudgetForRequest(request: EngineChatRequest | Engin
     : request.modelSettings?.suggestedFollowUpPrompt ?? ''
   return packSourceContext(request.retrievedSources ?? [], {
     prompt,
+    ...('prompt' in request ? {
+      evidenceQuery: request.retrievalQuery,
+      referenceText: chatReferenceText(request)
+    } : {}),
     model: request.model,
     modelSettings: request.modelSettings,
     includeBudget: true
@@ -385,7 +398,6 @@ function stripSourceNumberPhrases(text: string): string {
     .replace(inlineCitationPrefix, '')
     .replace(inlineGenericContextPrefix, '')
     .replace(leakedInstructionSentence, '')
-    .replace(/\s{2,}/g, ' ')
     .trim()
 }
 
@@ -407,24 +419,40 @@ export function answerWithOrderedSources(text: string, sources: ChatSource[]): {
   }
 }
 
+function chatReferenceText(request: EngineChatRequest): string {
+  if (request.conversationContextMode !== 'contextual' || !request.referenceExchange) return ''
+  const historyTokens = Math.min(1536, Math.floor(effectiveContextLength(request.model, request.modelSettings) / 4))
+  const exchange = trimReferenceExchange(request.referenceExchange, historyTokens * estimatedCharsPerToken)
+  return [
+    '### Previous exchange (reference context, not factual evidence):',
+    'Use this only to identify what the current question refers to and preserve example identifiers. It may contain mistakes. Base factual claims on the retrieved context, not the previous answer.',
+    JSON.stringify(exchange)
+  ].join('\n')
+}
+
 export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[] {
   const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
     | Partial<ModelRuntimeSettings>
     | undefined
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
-  const answerPrompt = (request.answerPrompt ?? request.prompt).trim()
+  const answerPrompt = (request.referenceExchange ? request.prompt : request.answerPrompt ?? request.prompt).trim()
+  const referenceText = chatReferenceText(request)
   const context = sourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
+    evidenceQuery: request.retrievalQuery,
+    referenceText,
     model: request.model,
     modelSettings,
     includeBudget: true,
     includeInstructions: false
   })
-  const userContent = context ? `${context}\n\nQuestion: ${answerPrompt}` : answerPrompt
+  const userContent = context || referenceText
+    ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
+    : answerPrompt
   const messages: StudyChatMessage[] = []
   const systemMessage = [
     configuredSystemMessage,
-    context ? sourceContextInstructionText() : ''
+    context || referenceText ? sourceContextInstructionText() : ''
   ].filter(Boolean).join('\n\n')
 
   if (systemMessage) {
@@ -456,19 +484,45 @@ export function questionSuggestionCount(applicationSettings?: EngineChatRequest[
   return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
 }
 
+export type SuggestionPromptKind = 'followUp' | 'starter'
+
+function defaultSuggestionPrompt(kind: SuggestionPromptKind): string {
+  return kind === 'starter' ? defaultStarterQuestionPrompt : defaultSuggestedFollowUpPrompt
+}
+
+function isBuiltInSuggestionPrompt(prompt: string): boolean {
+  const normalized = prompt.trim()
+  return normalized === '' ||
+    normalized === legacySuggestedFollowUpPrompt ||
+    normalized === defaultSuggestedFollowUpPrompt ||
+    normalized === defaultStarterQuestionPrompt
+}
+
+export function suggestionPromptFor(
+  modelSettings: Partial<ModelRuntimeSettings> | undefined,
+  kind: SuggestionPromptKind
+): string {
+  const configuredPrompt = modelSettings?.suggestedFollowUpPrompt?.trim() ?? ''
+  return isBuiltInSuggestionPrompt(configuredPrompt)
+    ? defaultSuggestionPrompt(kind)
+    : configuredPrompt
+}
+
 export function questionSuggestionMessages(request: EngineQuestionSuggestionRequest): StudyChatMessage[] {
   const modelSettings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const systemMessage = modelSettings?.systemMessage?.trim()
   const count = questionSuggestionCount(request.applicationSettings)
+  const kind: SuggestionPromptKind = request.messages.length === 0 ? 'starter' : 'followUp'
   const suggestionPrompt = formatFollowUpInstruction(
-    modelSettings?.suggestedFollowUpPrompt?.trim() || defaultFollowUpPrompt(),
+    suggestionPromptFor(modelSettings, kind),
     count
   )
   const context = sourceContext(request.retrievedSources ?? [], {
     prompt: suggestionPrompt,
     model: request.model,
     modelSettings,
-    includeBudget: true
+    includeBudget: true,
+    includeInstructions: false
   })
   const messages: StudyChatMessage[] = []
 
@@ -485,6 +539,43 @@ export function questionSuggestionMessages(request: EngineQuestionSuggestionRequ
   return messages
 }
 
+function clippedSuggestionAnswer(answer: string): string {
+  const normalized = answer.trim()
+  const maxChars = 4000
+  if (normalized.length <= maxChars) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxChars).trim()}...`
+}
+
+export function followUpSuggestionMessages(request: EngineChatRequest, answer: string): StudyChatMessage[] {
+  const modelSettings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const systemMessage = modelSettings?.systemMessage?.trim()
+  const count = followUpSuggestionCount(request)
+  const suggestionPrompt = formatFollowUpInstruction(
+    suggestionPromptFor(modelSettings, 'followUp'),
+    count
+  )
+  const messages: StudyChatMessage[] = []
+
+  if (systemMessage) {
+    messages.push({ role: 'system', content: systemMessage })
+  }
+
+  messages.push({
+    role: 'user',
+    content: [
+      `Current question:\n${request.prompt.trim()}`,
+      `Latest answer:\n${clippedSuggestionAnswer(answer)}`,
+      `Already asked (avoid repeats):\n${request.messages.filter((message) => message.role === 'user').slice(-8).map((message) => message.text).join('\n')}`,
+      suggestionPrompt
+    ].join('\n\n')
+  })
+
+  return messages
+}
+
 function stripSuggestionPrefix(value: string): string {
   return value
     .trim()
@@ -494,7 +585,146 @@ function stripSuggestionPrefix(value: string): string {
     .trim()
 }
 
+const metaSuggestionPattern =
+  /\b(?:(?:based on|according to|from)\s+(?:the\s+)?(?:given\s+|provided\s+)?(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|passage|passages|question|source|sources|text)|in\s+(?:the\s+)?(?:given|provided)\s+(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|passage|passages|question|source|sources|text))\b/i
+const awkwardSuggestionPattern =
+  /\b(?:can you think of|given answer|given question|provided context|provided excerpt|provided source|usually confuses people|what part of this|what parts of this)\b/i
+const followUpQuestionPattern =
+  /\b(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b[^?\n]*\?/g
+const startsWithQuestionPattern =
+  /^(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b/i
+const maxSuggestedQuestionWords = 18
+const suggestionSimilarityStopWords = new Set([
+  'a',
+  'about',
+  'after',
+  'an',
+  'and',
+  'are',
+  'as',
+  'be',
+  'can',
+  'could',
+  'did',
+  'do',
+  'does',
+  'for',
+  'from',
+  'how',
+  'in',
+  'is',
+  'it',
+  'its',
+  'me',
+  'of',
+  'on',
+  'or',
+  'the',
+  'that',
+  'this',
+  'to',
+  'was',
+  'what',
+  'when',
+  'where',
+  'which',
+  'why',
+  'with',
+  'would',
+  'you'
+])
+
+function normalizeSuggestionKey(suggestion: string): string {
+  return suggestion
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+function isUsefulSuggestion(suggestion: string): boolean {
+  return suggestion.length > 0 &&
+    suggestion.length <= 180 &&
+    suggestionWordCount(suggestion) <= maxSuggestedQuestionWords &&
+    suggestion.endsWith('?') &&
+    !metaSuggestionPattern.test(suggestion) &&
+    !awkwardSuggestionPattern.test(suggestion)
+}
+
+function suggestionWordCount(suggestion: string): number {
+  return normalizeSuggestionKey(suggestion).split(/\s+/).filter(Boolean).length
+}
+
+function comparableQuestionTokens(question: string): Set<string> {
+  const tokens = normalizeSuggestionKey(question)
+    .split(/\s+/)
+    .filter((token) =>
+      token.length > 1 &&
+      !suggestionSimilarityStopWords.has(token) &&
+      !/^\d+$/.test(token)
+    )
+  return new Set(tokens)
+}
+
+
+function questionOverlap(left: string, right: string): number {
+  const leftTokens = comparableQuestionTokens(left)
+  const rightTokens = comparableQuestionTokens(right)
+  const smallerSize = Math.min(leftTokens.size, rightTokens.size)
+  if (smallerSize < 3) {
+    return 0
+  }
+
+  let matches = 0
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      matches += 1
+    }
+  }
+  return matches / smallerSize
+}
+
+function isRepeatedQuestion(suggestion: string, referenceQuestions: string[]): boolean {
+  const suggestionKey = normalizeSuggestionKey(suggestion)
+  return referenceQuestions.some((question) => {
+    const referenceKey = normalizeSuggestionKey(question)
+    return referenceKey.length > 0 &&
+      (suggestionKey === referenceKey || questionOverlap(suggestion, question) >= 0.85)
+  })
+}
+
+export function filterSuggestedQuestions(
+  suggestions: string[],
+  referenceQuestions: string[],
+  limit: number
+): string[] {
+  const filtered: string[] = []
+  const seen = new Set<string>()
+  if (limit <= 0) {
+    return filtered
+  }
+
+  for (const suggestion of suggestions) {
+    const key = normalizeSuggestionKey(suggestion)
+    if (!key || seen.has(key) || !isUsefulSuggestion(suggestion) || isRepeatedQuestion(suggestion, referenceQuestions)) {
+      continue
+    }
+    seen.add(key)
+    filtered.push(suggestion)
+    if (filtered.length >= limit) {
+      break
+    }
+  }
+
+  return filtered
+}
+
+
 export function parseFollowUpSuggestions(text: string, limit: number): string[] {
+  if (limit <= 0) {
+    return []
+  }
   const suggestions: string[] = []
 
   try {
@@ -512,20 +742,50 @@ export function parseFollowUpSuggestions(text: string, limit: number): string[] 
   }
 
   if (suggestions.length === 0) {
-    const questionMatches = text.match(/\b(?:What|Where|How|Why|When|Who|Which|Whose|Whom)\b[^?\n]*\?/g) ?? []
-    suggestions.push(...questionMatches.map(stripSuggestionPrefix))
+    for (const rawLine of text.split('\n')) {
+      const line = stripSuggestionPrefix(rawLine)
+      if (!line.endsWith('?')) {
+        continue
+      }
+      if ((line.match(/\?/g) ?? []).length === 1) {
+        suggestions.push(line)
+        continue
+      }
+      const lineQuestions = line.match(followUpQuestionPattern) ?? []
+      if (startsWithQuestionPattern.test(line)) {
+        if (lineQuestions[0]) {
+          suggestions.push(stripSuggestionPrefix(lineQuestions[0]))
+        }
+      } else {
+        suggestions.push(...lineQuestions.map(stripSuggestionPrefix))
+      }
+    }
   }
 
   if (suggestions.length === 0) {
-    suggestions.push(
-      ...text
-        .split('\n')
-        .map(stripSuggestionPrefix)
-        .filter((line) => line.endsWith('?'))
-    )
+    const questionMatches = text.match(followUpQuestionPattern) ?? []
+    suggestions.push(...questionMatches.map(stripSuggestionPrefix))
   }
 
-  return Array.from(new Set(suggestions.filter((suggestion) => suggestion.length > 0 && suggestion.length <= 180))).slice(0, limit)
+  const dedupedSuggestions: string[] = []
+  const seen = new Set<string>()
+
+  for (const suggestion of suggestions) {
+    if (!isUsefulSuggestion(suggestion)) {
+      continue
+    }
+    const key = normalizeSuggestionKey(suggestion)
+    if (!key || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    dedupedSuggestions.push(suggestion)
+    if (dedupedSuggestions.length >= limit) {
+      break
+    }
+  }
+
+  return dedupedSuggestions
 }
 
 export function formatFollowUpInstruction(prompt: string, count: number): string {

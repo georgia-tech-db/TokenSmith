@@ -158,7 +158,7 @@ export interface ChatMessage {
   role: MessageRole
   text: string
   sources?: ChatSource[]
-  conversationContextMode?: 'standalone' | 'contextual'
+  conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string

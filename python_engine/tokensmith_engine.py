@@ -212,6 +212,7 @@ _EMBEDDER_FAILURES: Dict[str, str] = {}
 _CHAT_TEMPLATE_CACHE: Dict[str, Optional[str]] = {}
 _CONTEXT_LENGTH_CACHE: Dict[str, Optional[int]] = {}
 VISIBLE_LOG_EVENTS = {
+    "follow_up_suggestions",
     "chat_request_context",
     "chat_response_context",
     "chat_runtime_context_budget",
@@ -1854,7 +1855,15 @@ def excerpt_for(text: str, query_tokens: List[str]) -> str:
     return f"{prefix}{excerpt}{suffix}"
 
 
-def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Dict[str, Any]:
+def source_from_sqlite_chunk(
+    row: Dict[str, Any],
+    query_tokens: List[str],
+    *,
+    strip_exercises: bool = False,
+) -> Dict[str, Any]:
+    text = row.get("text") or ""
+    if strip_exercises:
+        text = strip_embedded_exercise_text(str(text))
     chunk = {
         "id": row.get("id"),
         "materialId": row.get("material_id"),
@@ -1862,7 +1871,7 @@ def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Di
         "materialTitle": row.get("material_title"),
         "documentTitle": row.get("document_title"),
         "path": row.get("path"),
-        "text": row.get("text") or "",
+        "text": text,
         "lineFrom": row.get("line_from"),
         "lineTo": row.get("line_to"),
         "pageStart": row.get("page_start"),
@@ -1913,6 +1922,9 @@ EXERCISE_QUERY_TERMS = {
     "quiz",
     "understanding",
 }
+EXERCISE_HEADING_RE = re.compile(
+    r"(?im)^[ \t>]*(?:#{1,6}\s*)?(?:\d+(?:\.\d+)*\s*)?check your understanding\b.*$"
+)
 
 
 def normalize_search_mode(value: Any) -> str:
@@ -1965,22 +1977,32 @@ def combine_search_hits(
     )
 
 
-def source_row_text(row: Dict[str, Any]) -> str:
-    return " ".join(
-        str(row.get(key) or "")
-        for key in ("section_header", "document_title", "material_title", "text")
+def strip_embedded_exercise_text(text: str) -> str:
+    match = EXERCISE_HEADING_RE.search(str(text or ""))
+    if not match:
+        return str(text or "")
+    return str(text or "")[: match.start()].rstrip()
+
+
+def source_row_text(row: Dict[str, Any], *, strip_exercises: bool = False) -> str:
+    text = str(row.get("text") or "")
+    if strip_exercises:
+        text = strip_embedded_exercise_text(text)
+    metadata = " ".join(
+        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title")
     )
+    return f"{metadata} {text}"
 
 
-def source_row_query_matches(row: Dict[str, Any], terms: Sequence[str]) -> int:
-    tokens = set(tokenize(source_row_text(row)))
+def source_row_query_matches(row: Dict[str, Any], terms: Sequence[str], *, strip_exercises: bool = False) -> int:
+    tokens = set(tokenize(source_row_text(row, strip_exercises=strip_exercises)))
     return sum(1 for term in terms if term in tokens)
 
 
-def source_row_query_coverage(row: Dict[str, Any], terms: Sequence[str]) -> float:
+def source_row_query_coverage(row: Dict[str, Any], terms: Sequence[str], *, strip_exercises: bool = False) -> float:
     if not terms:
         return 0.0
-    return source_row_query_matches(row, terms) / float(len(terms))
+    return source_row_query_matches(row, terms, strip_exercises=strip_exercises) / float(len(terms))
 
 
 def source_row_is_exercise(row: Dict[str, Any]) -> bool:
@@ -1991,6 +2013,7 @@ def source_row_is_exercise(row: Dict[str, Any]) -> bool:
         chunk_kind in {"exercise", "question", "quiz"}
         or "check your understanding" in section
         or section.strip() in {"exercise", "exercises", "questions"}
+        or bool(EXERCISE_HEADING_RE.search(text))
         or text.lstrip().startswith(("check your understanding", "#### check your understanding"))
     )
 
@@ -2033,10 +2056,11 @@ def select_source_rows(
     total_rows = max(1, len(rows))
 
     for index, row in enumerate(rows):
-        coverage = source_row_query_coverage(row, useful_terms)
-        match_count = source_row_query_matches(row, useful_terms)
+        strip_exercises = not exercise_requested
+        coverage = source_row_query_coverage(row, useful_terms, strip_exercises=strip_exercises)
+        match_count = source_row_query_matches(row, useful_terms, strip_exercises=strip_exercises)
         rank_score = 1.0 - (index / float(total_rows))
-        exercise_penalty = 0.0 if exercise_requested or not source_row_is_exercise(row) else 2.0
+        exercise_penalty = 0.0 if exercise_requested or not source_row_is_exercise(row) else 2.5
         adjusted_score = rank_score + coverage * 1.5 + min(match_count, 4) * 0.15 - exercise_penalty
         scored_rows.append((adjusted_score, index, row))
 
@@ -2174,7 +2198,11 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         row["retrieval_mode"] = search_mode
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
     source_query_tokens = sorted(set([*query_tokens, *keyword_terms]))
-    sources = [source_from_sqlite_chunk(row, source_query_tokens) for row in rows]
+    strip_exercise_context = not query_asks_for_exercise(query_tokens)
+    sources = [
+        source_from_sqlite_chunk(row, source_query_tokens, strip_exercises=strip_exercise_context)
+        for row in rows
+    ]
     for source in sources:
         source["queryTerms"] = source_query_tokens
         source["keywordTerms"] = list(keyword_terms)
@@ -2223,13 +2251,35 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
         row["retrieval_mode"] = "starter"
         row["query_embedding_model"] = row.get("embedding_model")
 
-    sources = [source_from_sqlite_chunk(row, []) for row in rows]
+    sources = [source_from_sqlite_chunk(row, [], strip_exercises=True) for row in rows]
     return {"sources": sources, "reason": None if sources else "no_indexed_chunks"}
 
 
-DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = (
+LEGACY_SUGGESTED_FOLLOW_UP_PROMPT = (
     "Suggest {count} very short factual follow-up questions that have not been answered yet "
     "or cannot be found inspired by the previous conversation and excerpts."
+)
+DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = "\n".join(
+    [
+        "Suggest up to {count} natural next questions a curious undergraduate student might ask after this answer.",
+        "Make each question conversational, specific to the concept just discussed, and answerable from the course material.",
+        "Each question must attach to a concrete phrase, mechanism, trade-off, or claim in the latest answer.",
+        "When possible, ask about an idea the answer used but did not fully explain.",
+        "Prefer conceptually linked why/how questions over generic requests for more detail.",
+        "Base the questions on the latest answer the student just saw, not earlier turns or unrelated source details.",
+        "Do not introduce a term, method, workload, or scenario unless it appeared in the latest answer or current question.",
+        "Keep each question short, ideally under 12 words.",
+        "Name the subject in every question, including requests for an example or code. Return fewer questions when useful ideas run out.",
+        "Phrase them as questions from the student to the tutor, not questions that ask the student to think or recall.",
+        (
+            "Prefer simple questions about why a named thing matters, how a named mechanism works, concrete examples, "
+            "intuition, code-level implementation, trade-offs, edge cases, or the workloads already described."
+        ),
+        "Do not repeat a question the student already asked.",
+        "Do not ask for external real-world applications unless the material names one.",
+        "Avoid quiz/exam wording, source/context wording, and generic reflection prompts about what is confusing.",
+        "Return only the questions, one per line.",
+    ]
 )
 
 
@@ -2309,9 +2359,9 @@ def normalize_model_runtime_settings(settings: Optional[Dict[str, Any]]) -> Dict
     if device not in {"applicationDefault", "cpu", "gpu"}:
         device = DEFAULT_MODEL_RUNTIME_SETTINGS["device"]
     chat_template = str(settings.get("chatTemplate") or DEFAULT_MODEL_RUNTIME_SETTINGS["chatTemplate"])
-    suggested_follow_up_prompt = str(
-        settings.get("suggestedFollowUpPrompt") or DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
-    )
+    suggested_follow_up_prompt = str(settings.get("suggestedFollowUpPrompt") or "").strip()
+    if suggested_follow_up_prompt in {"", LEGACY_SUGGESTED_FOLLOW_UP_PROMPT}:
+        suggested_follow_up_prompt = DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
 
     return {
         "systemMessage": str(settings.get("systemMessage") or DEFAULT_MODEL_RUNTIME_SETTINGS["systemMessage"]),
@@ -2422,7 +2472,8 @@ def render_chat_template(chat_template: str, messages: List[Dict[str, str]]) -> 
 
 
 SOURCE_CONTEXT_INSTRUCTIONS = [
-    "Use the context below only when it is relevant to the question.",
+    "Use the provided context as the factual basis for the answer.",
+    "Do not add facts from general knowledge when the context does not support them.",
     (
         "Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep "
         "the answer scoped to the user's question."
@@ -2431,9 +2482,14 @@ SOURCE_CONTEXT_INSTRUCTIONS = [
         "Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, "
         "name the comparison target, and state the workload or condition behind the trade-off."
     ),
+    (
+        'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the '
+        "current target. If the context supports only a related target, say the context does not say."
+    ),
     "Do not overstate with words like always, faster, or better unless the context gives that condition.",
     "Do not quote the context before answering. Do not mention context labels.",
-    "If the context does not contain the answer, say that plainly.",
+    "If the context does not contain the answer, say that plainly and do not speculate.",
+    "Do not end by asking whether the student wants more detail.",
 ]
 
 
@@ -2521,10 +2577,20 @@ def format_follow_up_prompt(
     else:
         suffix = "" if count == 1 else "s"
         suggestion_prompt = f"Generate {count} suggested follow-up question{suffix}.\n{suggestion_prompt}"
+    system_message = str(model_settings.get("systemMessage") or "").strip()
+    latest_answer = normalize_text(answer)
+    if len(latest_answer) > 4000:
+        latest_answer = latest_answer[:4000].strip() + "..."
+    user_content = "\n\n".join(
+        [
+            f"Current question:\n{normalize_text(prompt)}",
+            f"Latest answer:\n{latest_answer}",
+            suggestion_prompt,
+        ]
+    )
     messages = [
-        *generation_messages(prompt, sources[:3], model_settings),
-        {"role": "assistant", "content": normalize_text(answer)},
-        {"role": "user", "content": suggestion_prompt},
+        *([{"role": "system", "content": system_message}] if system_message else []),
+        {"role": "user", "content": user_content},
     ]
     chat_template = str(model_settings.get("chatTemplate") or "") or gguf_chat_template(model_path)
     rendered_template = render_chat_template(chat_template, messages)
@@ -2535,7 +2601,140 @@ def format_follow_up_prompt(
     return "\n\n".join(f"{message['role']}: {message['content']}" for message in messages) + "\nassistant:"
 
 
-FOLLOW_UP_QUESTION_RE = re.compile(r"\b(?:What|Where|How|Why|When|Who|Which|Whose|Whom)\b[^?]*\?")
+FOLLOW_UP_QUESTION_RE = re.compile(
+    r"\b(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b[^?\n]*\?"
+)
+STARTS_WITH_QUESTION_RE = re.compile(
+    r"^(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b",
+    re.IGNORECASE,
+)
+META_SUGGESTION_RE = re.compile(
+    r"\b(?:(?:based on|according to|from)\s+(?:the\s+)?(?:given\s+|provided\s+)?"
+    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
+    r"passage|passages|question|source|sources|text)|"
+    r"in\s+(?:the\s+)?(?:given|provided)\s+"
+    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
+    r"passage|passages|question|source|sources|text))\b",
+    re.IGNORECASE,
+)
+AWKWARD_SUGGESTION_RE = re.compile(
+    r"\b(?:given answer|given question|provided context|provided excerpt|provided source|"
+    r"can you think of|usually confuses people|what part of this|what parts of this)\b",
+    re.IGNORECASE,
+)
+MAX_SUGGESTED_QUESTION_WORDS = 18
+
+
+def normalized_suggestion_key(suggestion: str) -> str:
+    return re.sub(r"[^\w]+", " ", suggestion.casefold()).strip()
+
+
+SUGGESTION_SIMILARITY_STOP_WORDS = {
+    "a",
+    "about",
+    "after",
+    "an",
+    "and",
+    "are",
+    "as",
+    "be",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "of",
+    "on",
+    "or",
+    "the",
+    "that",
+    "this",
+    "to",
+    "was",
+    "what",
+    "when",
+    "where",
+    "which",
+    "why",
+    "with",
+    "would",
+    "you",
+}
+
+
+def comparable_question_tokens(question: str) -> set[str]:
+    return {
+        token
+        for token in normalized_suggestion_key(question).split()
+        if len(token) > 1 and token not in SUGGESTION_SIMILARITY_STOP_WORDS and not token.isdigit()
+    }
+
+
+
+
+def question_overlap(left: str, right: str) -> float:
+    left_tokens = comparable_question_tokens(left)
+    right_tokens = comparable_question_tokens(right)
+    smaller_size = min(len(left_tokens), len(right_tokens))
+    if smaller_size < 3:
+        return 0.0
+    return len(left_tokens.intersection(right_tokens)) / float(smaller_size)
+
+
+def is_repeated_question(suggestion: str, reference_questions: Sequence[str]) -> bool:
+    suggestion_key = normalized_suggestion_key(suggestion)
+    for question in reference_questions:
+        reference_key = normalized_suggestion_key(question)
+        if reference_key and (suggestion_key == reference_key or question_overlap(suggestion, question) >= 0.85):
+            return True
+    return False
+
+
+def suggestion_word_count(suggestion: str) -> int:
+    return len([token for token in normalized_suggestion_key(suggestion).split() if token])
+
+
+def filter_suggested_questions(
+    suggestions: Sequence[str],
+    reference_questions: Sequence[str],
+    limit: int,
+) -> List[str]:
+    filtered: List[str] = []
+    seen: set[str] = set()
+    if limit <= 0:
+        return filtered
+
+    for suggestion in suggestions:
+        key = normalized_suggestion_key(suggestion)
+        if not key or key in seen or not is_useful_suggestion(suggestion) or is_repeated_question(suggestion, reference_questions):
+            continue
+        seen.add(key)
+        filtered.append(suggestion)
+        if len(filtered) >= limit:
+            break
+
+    return filtered
+
+
+def is_useful_suggestion(suggestion: str) -> bool:
+    return (
+        bool(suggestion)
+        and len(suggestion) <= 180
+        and suggestion_word_count(suggestion) <= MAX_SUGGESTED_QUESTION_WORDS
+        and suggestion.endswith("?")
+        and not META_SUGGESTION_RE.search(suggestion)
+        and not AWKWARD_SUGGESTION_RE.search(suggestion)
+    )
+
+
 
 
 def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
@@ -2554,6 +2753,21 @@ def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
         parsed_lines = []
 
     if not parsed_lines:
+        for line in stripped_text.splitlines():
+            line = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\).\:-])\s*", "", line).strip()
+            if not line.endswith("?"):
+                continue
+            if line.count("?") == 1:
+                parsed_lines.append(line)
+                continue
+            line_questions = [match.group(0).strip() for match in FOLLOW_UP_QUESTION_RE.finditer(line)]
+            if STARTS_WITH_QUESTION_RE.search(line):
+                if line_questions:
+                    parsed_lines.append(line_questions[0])
+            else:
+                parsed_lines.extend(line_questions)
+
+    if not parsed_lines:
         parsed_lines = [match.group(0) for match in FOLLOW_UP_QUESTION_RE.finditer(stripped_text)]
 
     suggestions: List[str] = []
@@ -2565,9 +2779,9 @@ def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
         if not match:
             continue
         suggestion = match.group(0).strip()
-        if len(suggestion) > 180:
-            suggestion = f"{suggestion[:177].rstrip()}..."
-        suggestion_key = suggestion.casefold()
+        if not is_useful_suggestion(suggestion):
+            continue
+        suggestion_key = normalized_suggestion_key(suggestion)
         if suggestion_key in seen:
             continue
         suggestions.append(suggestion)
@@ -2688,7 +2902,14 @@ def generate_follow_up_suggestions(
         log_event("follow_up_generation_failed", error=str(error))
         return []
 
-    return parse_follow_up_suggestions(suggestion_text, suggestion_count)
+    suggestions = filter_suggested_questions(
+        parse_follow_up_suggestions(suggestion_text, suggestion_count * 2),
+        [prompt],
+        suggestion_count,
+    )
+    log_event("follow_up_suggestions", provider="gguf", prompt=prompt,
+              rawResponse=suggestion_text, suggestions=suggestions, requestedCount=suggestion_count)
+    return suggestions
 
 
 def chat(payload: Dict[str, Any]) -> Dict[str, Any]:

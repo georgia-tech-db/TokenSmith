@@ -10,9 +10,12 @@ import type {
   EngineQuestionSuggestionRequest,
   EngineQuestionSuggestionResponse
 } from '../../shared/engine'
+import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
+import { modelWithRememberedRemoteApiKey } from './remote-model-secrets'
+import { resolveRemoteChatQuestion } from './remote-chat-service'
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
-import { generateOllamaStudyQuestionSuggestions, runOllamaStudyEngine } from './ollama-service'
+import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine } from './ollama-service'
 import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
@@ -55,6 +58,14 @@ export async function sendChatMessage(request: EngineChatRequest): Promise<Engin
   })
 
   return response
+}
+
+export async function resolveChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request)
+  if (request.model.engine === 'remote') {
+    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) })
+  }
+  throw new Error('Question rewriting requires an Ollama or remote chat model.')
 }
 
 export async function suggestChatQuestions(
@@ -119,6 +130,7 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
     answerPrompt: request.answerPrompt,
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',
+    referenceExchange: request.referenceExchange,
     model: logModel(request),
     contextBudget: sourceContextBudgetForRequest(request),
     systemPrompt,

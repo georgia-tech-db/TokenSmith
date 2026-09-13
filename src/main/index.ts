@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
-import { listEngines, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
+import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   cancelMaterialIndexingWithPython,
   indexMaterialWithPython,
@@ -39,6 +39,7 @@ import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
   EngineQuestionSuggestionRequest,
+  EngineQuestionRewriteRequest,
   MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
@@ -438,6 +439,7 @@ app.whenReady().then(() => {
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
+  ipcMain.handle('engine:resolve-question', (_event, request: EngineQuestionRewriteRequest) => resolveChatQuestion(request))
   ipcMain.handle('engine:suggest-questions', (_event, request: EngineQuestionSuggestionRequest) =>
     suggestChatQuestions(request)
   )

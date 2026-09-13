@@ -115,6 +115,8 @@ const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
   'chat_runtime_context_budget',
+  'chat_question_rewrite',
+  'follow_up_suggestions',
   'question_suggestion_request_context',
   'question_suggestion_runtime_context_budget',
   'library_search_request',
@@ -130,7 +132,6 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
     return
   }
 
-  const logPath = getLogFilePath()
   const payload = {
     time: localIsoTimestamp(),
     event,
@@ -138,6 +139,7 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
   }
 
   try {
+    const logPath = getLogFilePath()
     mkdirSync(dirname(logPath), { recursive: true })
     appendFileSync(logPath, `${JSON.stringify(payload)}\n`, 'utf8')
   } catch {

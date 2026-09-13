@@ -845,7 +845,7 @@ button {
   margin-bottom: 44px;
 }
 
-.message-row h3 {
+.message-row > div > h3 {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -857,7 +857,7 @@ button {
   line-height: 1.2;
 }
 
-.message-row h3 span {
+.message-row > div > h3 span {
   color: #9a9da3;
   font-weight: 400;
 }
@@ -883,11 +883,12 @@ button {
   line-height: 1;
 }
 
-.message-text p,
-.message-text li {
+.message-text {
+  min-width: 0;
   color: #272b31;
   font-size: 0.9rem;
-  line-height: 1.45;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .message-text p {
@@ -928,8 +929,94 @@ button {
   margin: 4px 0;
 }
 
+.message-text li > ul,
+.message-text li > ol {
+  margin: 6px 0;
+}
+
+.message-text li > p {
+  margin: 6px 0;
+}
+
 .message-text strong {
   font-weight: 650;
+}
+
+.message-text :is(h1, h2, h3, h4, h5, h6) {
+  margin: 18px 0 8px;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.message-text > :first-child {
+  margin-top: 0;
+}
+
+.message-text a {
+  color: var(--green-strong);
+  text-decoration: underline;
+}
+
+.message-text code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #eef0ee;
+  font-size: 0.9em;
+}
+
+.message-text pre {
+  max-width: 100%;
+  margin: 12px 0;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f8f6;
+}
+
+.message-text pre code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.message-text blockquote {
+  margin: 12px 0;
+  padding-left: 16px;
+  border-left: 3px solid var(--line);
+}
+
+.message-table {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+
+.message-text table {
+  border-collapse: collapse;
+}
+
+.message-text th,
+.message-text td {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.message-text th {
+  background: #f7f8f6;
+}
+
+.message-text .katex {
+  font-size: 1.05em;
+}
+
+.message-text .katex-display {
+  max-width: 100%;
+  padding: 4px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .thinking-row {

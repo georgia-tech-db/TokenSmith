@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
+import { MessageText } from './MessageText'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import type { PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api'
@@ -24,6 +25,8 @@ import type {
 import type {
   CleaningPreviewResult,
   EngineInfo,
+  EngineChatRequest,
+  EngineChatResponse,
   MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
@@ -55,14 +58,14 @@ import {
 } from '@shared/model-providers'
 import {
   defaultFollowUpSuggestionCount,
+  defaultStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
   followUpSuggestionCountOptions,
+  legacySuggestedFollowUpPrompt,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
-import {
-  modelAwareRetrievalLimit,
-  routeRetrievalContext
-} from '@shared/chat-context'
+import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
+import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import {
   quizFeedbackPrompt,
   quizQuestionPrompt,
@@ -864,9 +867,16 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
   const chatTemplate = typeof settings?.chatTemplate === 'string'
     ? settings.chatTemplate
     : defaultModelRuntimeSettings.chatTemplate
-  const suggestedFollowUpPrompt = typeof settings?.suggestedFollowUpPrompt === 'string'
+  const rawSuggestedFollowUpPrompt = typeof settings?.suggestedFollowUpPrompt === 'string'
     ? settings.suggestedFollowUpPrompt
     : defaultModelRuntimeSettings.suggestedFollowUpPrompt
+  const suggestedFollowUpPrompt = [
+    '',
+    legacySuggestedFollowUpPrompt,
+    defaultStarterQuestionPrompt
+  ].includes(rawSuggestedFollowUpPrompt.trim())
+    ? defaultModelRuntimeSettings.suggestedFollowUpPrompt
+    : rawSuggestedFollowUpPrompt
 
   return {
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
@@ -3948,40 +3958,40 @@ function ChatScreen({
     const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
     const retrievalSourceLimit = modelAwareRetrievalLimit(settings.maxSources, selectedModel, activeModelSettings)
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
-    let answerPrompt = prompt
-    let retrievalQuery = prompt
-    let conversationContextMode: 'standalone' | 'contextual' = 'standalone'
+    let conversationContextMode: ChatMessage['conversationContextMode'] = 'standalone'
+    let rewrittenRequest: EngineChatRequest | undefined
+    let clarificationReply: EngineChatResponse | undefined
 
     try {
       if (window.tokensmith && activeMaterials.length > 0) {
         const tokensmith = window.tokensmith
-        const searchLabels = activeMaterials
-          .map(materialEmbedderLabel)
-          .filter((label): label is string => Boolean(label))
-        setPendingStatusText(`searching ${searchLabels.length ? searchLabels.join(', ') : 'Library'} ...`)
         const searchStartedAt = performance.now()
-        const retrievalChoice = await routeRetrievalContext(
+        setPendingStatusText('understanding question ...')
+        const prepared = await prepareRewrittenStudyChat({
           prompt,
-          activeConversation.messages,
-          {
-            limit: retrievalSourceLimit,
-            turnCount: 1,
-            carriedSourceLimit: Math.min(2, retrievalSourceLimit),
-            onContextualSearch: () => setPendingStatusText('refining search ...'),
-            search: (query, sourceLimit = retrievalSourceLimit) =>
-              tokensmith.searchLibrary(
-                query,
-                activeMaterials,
-                sourceLimit,
-                searchEmbeddingModels,
-                settings.application.searchMode
-              )
+          messages: activeConversation.messages,
+          materials: activeMaterials,
+          model: selectedModel,
+          settings,
+          applicationSettings: settings.application,
+          modelSettings: activeModelSettings
+        }, {
+          resolve: (request) => tokensmith.resolveChatQuestion(request),
+          search: (query) => {
+            setPendingStatusText('searching Library ...')
+            return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
+              searchEmbeddingModels, settings.application.searchMode)
           }
-        )
-        retrievedSources = retrievalChoice.sources
-        answerPrompt = retrievalChoice.answerPrompt
-        retrievalQuery = retrievalChoice.query
-        conversationContextMode = retrievalChoice.mode
+        })
+        conversationContextMode = prepared.resolution.mode
+        rewrittenRequest = prepared.request
+        retrievedSources = prepared.request?.retrievedSources ?? []
+        if (prepared.resolution.mode === 'clarify') {
+          clarificationReply = {
+            engineId: 'tokensmith', modelName: selectedModel.name,
+            text: prepared.resolution.clarification, sources: [], followUpSuggestions: []
+          }
+        }
 
         if (requestSequenceRef.current !== requestSequence) {
           return
@@ -4004,11 +4014,9 @@ function ChatScreen({
         throw new Error('TokenSmith engine bridge is not available.')
       }
 
-      const reply = await window.tokensmith.sendChatMessage({
+      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage(rewrittenRequest ?? {
         prompt,
-        answerPrompt,
-        retrievalQuery,
-        conversationContextMode,
+        conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
         messages: activeConversation.messages,
         materials: activeMaterials,
         model: selectedModel,
@@ -4613,6 +4621,9 @@ function quizMessageLabel(message: ChatMessage): string | undefined {
 }
 
 function contextModeLabel(mode?: ChatMessage['conversationContextMode']): string | undefined {
+  if (mode === 'clarify') {
+    return 'Clarification'
+  }
   if (mode === 'contextual') {
     return 'Contextual'
   }
@@ -5284,128 +5295,6 @@ function normalizePdfSearchText(text: string) {
 
 function clampPage(page: number, pageCount: number) {
   return Math.max(1, Math.min(page, pageCount))
-}
-
-function normalizeMessageMarkdown(text: string) {
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/([.!?:;)])\s+([*-])\s+(?=\*\*|[A-Z0-9])/g, '$1\n$2 ')
-    .replace(/(\*\*)\s+([*-])\s+(?=\*\*|[A-Z0-9])/g, '$1\n$2 ')
-    .replace(/([.!?:;)])\s+(\d+\.)\s+(?=\*\*|[A-Z0-9])/g, '$1\n$2 ')
-    .trim()
-}
-
-function renderInlineMarkdown(text: string): ReactNode[] {
-  const parts: ReactNode[] = []
-  const boldPattern = /\*\*([^*]+)\*\*/g
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-
-  while ((match = boldPattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index))
-    }
-
-    parts.push(<strong key={`${match.index}-${match[1]}`}>{match[1]}</strong>)
-    lastIndex = match.index + match[0].length
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
-  }
-
-  return parts
-}
-
-function MessageText({ text }: { text: string }) {
-  const normalizedText = normalizeMessageMarkdown(text)
-  const blocks: ReactNode[] = []
-  let paragraphLines: string[] = []
-  let bulletItems: string[] = []
-  let numberedItems: string[] = []
-
-  function flushParagraph() {
-    if (paragraphLines.length === 0) {
-      return
-    }
-
-    const paragraph = paragraphLines.join(' ').replace(/\s+/g, ' ').trim()
-    if (paragraph) {
-      blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(paragraph)}</p>)
-    }
-    paragraphLines = []
-  }
-
-  function flushBullets() {
-    if (bulletItems.length === 0) {
-      return
-    }
-
-    blocks.push(
-      <ul key={`ul-${blocks.length}`}>
-        {bulletItems.map((item) => (
-          <li key={item}>{renderInlineMarkdown(item)}</li>
-        ))}
-      </ul>
-    )
-    bulletItems = []
-  }
-
-  function flushNumbered() {
-    if (numberedItems.length === 0) {
-      return
-    }
-
-    blocks.push(
-      <ol key={`ol-${blocks.length}`}>
-        {numberedItems.map((item) => (
-          <li key={item}>{renderInlineMarkdown(item)}</li>
-        ))}
-      </ol>
-    )
-    numberedItems = []
-  }
-
-  for (const rawLine of normalizedText.split('\n')) {
-    const line = rawLine.trim()
-
-    if (!line) {
-      flushParagraph()
-      flushBullets()
-      flushNumbered()
-      continue
-    }
-
-    const bulletMatch = line.match(/^[-*]\s+(.+)$/)
-    if (bulletMatch) {
-      flushParagraph()
-      flushNumbered()
-      bulletItems.push(bulletMatch[1])
-      continue
-    }
-
-    const numberedMatch = line.match(/^\d+\.\s+(.+)$/)
-    if (numberedMatch) {
-      flushParagraph()
-      flushBullets()
-      numberedItems.push(numberedMatch[1])
-      continue
-    }
-
-    flushBullets()
-    flushNumbered()
-    paragraphLines.push(line)
-  }
-
-  flushParagraph()
-  flushBullets()
-  flushNumbered()
-
-  return (
-    <div className="message-text">
-      {blocks.length > 0 ? blocks : <p>{text}</p>}
-    </div>
-  )
 }
 
 function ThinkingMessage({ modelName, statusText }: { modelName: string; statusText?: string | null }) {
