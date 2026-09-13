@@ -1,3 +1,5 @@
+import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
+import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -19,6 +21,7 @@ interface PythonRequest {
     | 'remove_material'
     | 'resolve_source_document'
     | 'preview_cleaning'
+    | 'preparation_report'
   payload: Record<string, unknown>
 }
 
@@ -497,6 +500,7 @@ async function requestPython<T>(
   onProgress?: (progress: MaterialIndexProgress) => void,
   materialId?: string
 ): Promise<T> {
+  if (command === 'index_material') return isolatedIndexRequest<T>(payload, timeoutMs, onProgress, materialId)
   const activeWorker = ensureWorker()
   const id = createId('py')
   const request: PythonRequest = {
@@ -523,6 +527,72 @@ async function requestPython<T>(
   })
 }
 
+// Indexing has its own worker so long preparation jobs do not block source search.
+const indexingJobs = new Map<string, () => void>()
+let indexingQueue: Promise<unknown> = Promise.resolve()
+app?.on('before-quit', () => { for (const stop of indexingJobs.values()) stop() })
+
+function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: number,
+  onProgress?: (progress: MaterialIndexProgress) => void, materialId = createId('index')): Promise<T> {
+  let cancelled = false
+  let child: ChildProcessWithoutNullStreams | undefined
+  let rejectJob: ((error: Error) => void) | undefined
+  const stopWorker = () => {
+    if (!child?.pid) return
+    try {
+      if (process.platform === 'win32') child.kill('SIGTERM')
+      else process.kill(-child.pid, 'SIGTERM')
+    } catch { /* The job may already have exited. */ }
+  }
+  const stop = () => {
+    cancelled = true
+    stopWorker()
+    rejectJob?.(new Error('Indexing was cancelled.'))
+  }
+  indexingJobs.set(materialId, stop)
+  const run = async (): Promise<T> => {
+    if (cancelled) throw new Error('Indexing was cancelled.')
+    return new Promise<T>((resolve, reject) => {
+      const python = getPythonExecutable()
+      child = spawn(python, [getWorkerPath()], {
+        detached: process.platform !== 'win32',
+        env: { ...process.env, ...appPythonEnv(python), TOKENSMITH_LOG_FILE: getLogFilePath(), PYTHONIOENCODING: 'utf-8' },
+        stdio: 'pipe'
+      })
+      let buffer = ''
+      let settled = false
+      const finish = (error?: Error, result?: T) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        stopWorker()
+        if (error) reject(error)
+        else resolve(result as T)
+      }
+      const timer = setTimeout(() => finish(new Error('Preparation stopped responding. Resume to continue from saved work.')), timeoutMs)
+      rejectJob = error => finish(error)
+      child.stdout.on('data', (data: Buffer) => {
+        buffer += data.toString('utf8')
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          let message: PythonResponse<T>
+          try { message = JSON.parse(line) as PythonResponse<T> } catch { continue }
+          if (message.progress) { timer.refresh(); onProgress?.(message.progress); continue }
+          if (message.id === materialId) finish(message.ok ? undefined : new Error(message.error || 'Preparation failed.'), message.result)
+        }
+      })
+      child.stderr.on('data', () => { /* Worker logs directly to its configured log file. */ })
+      child.once('error', error => finish(error))
+      child.once('exit', () => { if (!settled) finish(new Error('The preparation worker stopped. Resume to continue.')) })
+      child.stdin.end(JSON.stringify({ id: materialId, command: 'index_material', payload }) + '\n')
+    })
+  }
+  const result = indexingQueue.then(run).finally(() => { if (indexingJobs.get(materialId) === stop) indexingJobs.delete(materialId) })
+  indexingQueue = result.catch(() => undefined)
+  return result
+}
+
 export async function getPythonEngineHealth(): Promise<HealthResult> {
   return requestPython<HealthResult>('health', {}, 30_000)
 }
@@ -537,12 +607,7 @@ export async function indexMaterialWithPython(
   materialPath: string,
   model?: LocalModel,
   materialId?: string,
-  options?: {
-    resume?: boolean
-    title?: string
-    cleaningProfileId?: CleaningProfileId
-    cleaningRuleIds?: CleaningRuleId[]
-  }
+  options?: IndexMaterialOptions
 ): Promise<CourseMaterial> {
   const result = await requestPython<IndexMaterialResult>(
     'index_material',
@@ -553,7 +618,9 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
-      model: resolveEmbeddingModel(model),
+      model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
+      preparation: options?.preparation,
+      preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       userDataPath: app.getPath('userData')
     },
     180_000,
@@ -562,6 +629,10 @@ export async function indexMaterialWithPython(
   )
 
   return result.material
+}
+
+export async function preparationReportWithPython(path: string, documentPath?: string): Promise<PreparationReport> {
+  return requestPython<PreparationReport>('preparation_report', { path, documentPath, userDataPath: app.getPath('userData') })
 }
 
 export async function previewCleaningWithPython(
@@ -584,6 +655,8 @@ export async function previewCleaningWithPython(
 }
 
 export async function cancelMaterialIndexingWithPython(materialId: string): Promise<void> {
+  const stop = indexingJobs.get(materialId)
+  if (stop) { stop(); return }
   const cancelledRequestIds: string[] = []
 
   for (const [id, request] of pendingRequests) {

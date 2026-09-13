@@ -1,10 +1,18 @@
+import { LibraryWorkspace } from './LibraryWorkspace'
+import { automaticPreparation, type IndexMaterialOptions } from '../../shared/preparation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
+import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
 import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
 import './chat-interactions.css'
+import { ThemePicker } from './ThemePicker'
+import { ChatModelPicker } from './ChatModelPicker'
+import { CloudGeneratorDialog } from './CloudGeneratorDialog'
+import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import type { PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api'
@@ -694,7 +702,7 @@ function normalizeMaterials(materials: CourseMaterial[] | undefined): CourseMate
       wordCount: material.wordCount,
       pageCount: material.pageCount,
       chunkCount: material.chunkCount,
-      chunkSize: defaultCollectionChunkSize,
+      chunkSize: material.preparation ? material.chunkSize : defaultCollectionChunkSize,
       indexedAt: material.indexedAt,
       isActive: material.isActive ?? material.status === 'ready',
       embeddingModel: material.embeddingModel,
@@ -704,6 +712,9 @@ function normalizeMaterials(materials: CourseMaterial[] | undefined): CourseMate
       cleaningProfileName: material.cleaningProfileName,
       cleaningProfileVersion: material.cleaningProfileVersion,
       cleaningRuleIds: normalizeCleaningRuleIds(material.cleaningRuleIds, material.cleaningProfileId),
+      preparation: material.preparation,
+      preparationModelName: material.preparationModelName,
+      preparationIssueCount: material.preparationIssueCount,
       error: material.error,
       indexing: material.indexing
     }
@@ -752,7 +763,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
       }
 
       if (model.engine === 'remote') {
-        const hasApiKey = Boolean(model.apiKey?.trim())
+        const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudGenerator(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
         return {
           id: model.id ?? createId('model'),
@@ -765,6 +776,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           providerName: model.providerName,
           baseUrl: model.baseUrl,
           apiKey: model.apiKey,
+          connectionId: model.connectionId,
+          cloudCredentialStatus: model.cloudCredentialStatus,
           remoteModelName: model.remoteModelName,
           embeddingPath: model.embeddingPath,
           contextLength: normalizeOptionalContextLength(model.contextLength),
@@ -858,7 +871,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
   const suggestionMode = normalizeSuggestionMode(settings?.suggestionMode)
 
   return {
-    theme: normalizeChoice(settings?.theme, ['light', 'system'] as const, defaultApplicationSettings.theme),
+    // Older "system" preferences used the gray palette; keep that fallback.
+    theme: normalizeChoice(settings?.theme, ['light', 'sarah-and-duck'] as const, defaultApplicationSettings.theme),
     fontSize: normalizeChoice(settings?.fontSize, ['small', 'medium', 'large'] as const, defaultApplicationSettings.fontSize),
     defaultModelId,
     suggestionMode,
@@ -990,9 +1004,12 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     ? savedState.conversations
     : structuredClone(starterConversations)
   const freshChatState = startWithFreshConversation(conversations)
-  const materials = normalizeMaterials(savedState.materials)
+  const materials = normalizeMaterials(savedState.materials).map((material) =>
+    material.status === 'indexing' && material.preparation
+      ? { ...material, status: 'paused' as const, detail: 'Preparation paused. Resume to continue from saved progress.' }
+      : material)
   const models = normalizeModels(savedState.models)
-  const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && modelCanGenerate(model))
+  const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model)))
   const selectedEmbeddingModelId = (savedState as Partial<AppStateSnapshot>).selectedEmbeddingModelId
   const selectedEmbeddingModelExists =
     typeof selectedEmbeddingModelId === 'string' &&
@@ -1022,6 +1039,10 @@ function mergeIndexedMaterialsWithPending(currentMaterials: CourseMaterial[], in
     const existing =
       currentByKey.get(materialIdentityKey(material)) ??
       currentByLocation.get(material.path ?? material.id)
+
+    if (existing && (existing.status === 'indexing' || existing.status === 'paused' || existing.status === 'needsReview') && existing.preparation) {
+      return { ...material, ...existing }
+    }
 
     if (existing?.status === 'paused' && material.status === 'indexing') {
       return {
@@ -1215,7 +1236,7 @@ function materialEmbeddingIdentity(material: Pick<CourseMaterial, 'embeddingMode
 }
 
 function compatibleActiveMaterials(materials: CourseMaterial[]) {
-  const activeMaterials = materials.filter((material) => material.status === 'ready' && material.isActive !== false)
+  const activeMaterials = materials.filter((material) => (material.status === 'ready' || Boolean(material.indexedAt)) && material.isActive !== false)
   const firstEmbeddingKey = activeMaterials.map(materialEmbeddingIdentity).find(Boolean)
 
   if (!firstEmbeddingKey) {
@@ -1275,7 +1296,7 @@ function isPdfSource(source: ChatSource) {
 
 function isMarkdownSource(source: ChatSource) {
   const path = source.path?.toLowerCase() ?? ''
-  return path.endsWith('.md') || path.endsWith('.markdown')
+  return path.endsWith('.md') || path.endsWith('.markdown') || path.endsWith('.txt')
 }
 
 function canOpenSource(source: ChatSource) {
@@ -1396,12 +1417,35 @@ export function App() {
   const [hasLoadedState, setHasLoadedState] = useState(false)
   const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
   const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
+  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel } | null>(null)
+  const [cloudNotice, setCloudNotice] = useState('')
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
   const cancelledIndexRequestsRef = useRef(new Set<string>())
   const pausedIndexRequestsRef = useRef(new Set<string>())
   const indexRequestSequenceRef = useRef(new Map<string, number>())
   const saveSequenceRef = useRef(0)
+
+  useEffect(() => {
+    if (!cloudNotice) return
+    const timer = window.setTimeout(() => setCloudNotice(''), 5000)
+    return () => window.clearTimeout(timer)
+  }, [cloudNotice])
+
+  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model }) }
+
+  function connectedCloudGenerator(model: LocalModel) {
+    updateAppState(current => {
+      const models = mergeCloudGenerator(current.models, model)
+      return { ...current, models, selectedModelId: models[0].id }
+    })
+    setCloudSetup(null)
+    setCloudNotice(`Connected · ${model.remoteModelName}`)
+  }
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = appState.settings.application.theme
+  }, [appState.settings.application.theme])
 
   useEffect(() => {
     const bridge = window.tokensmith
@@ -1551,7 +1595,7 @@ export function App() {
               ...material,
               status: progress.phase === 'error' ? 'needsReview' : 'indexing',
               indexing: progress,
-              isActive: false
+              isActive: material.indexedAt ? material.isActive : false
             }
             const normalizedProgress = normalizeIndexingProgress(nextMaterial)
 
@@ -1698,12 +1742,7 @@ export function App() {
     materialId: string,
     materialPath: string,
     embeddingModelOverride?: LocalModel,
-    options: {
-      resume?: boolean
-      title?: string
-      cleaningProfileId?: CleaningProfileId
-      cleaningRuleIds?: CleaningRuleId[]
-    } = {}
+    options: IndexMaterialOptions = {}
   ) {
     if (!window.tokensmith) {
       return
@@ -1736,7 +1775,7 @@ export function App() {
                 detail: 'Needs embedder',
                 error: 'Download the Nomic Embedder Model before preparing PDFs.',
                 indexing: undefined,
-                isActive: false
+                isActive: material.indexedAt ? material.isActive : false
               }
             : material
         )
@@ -1744,11 +1783,22 @@ export function App() {
       return
     }
 
+    const preparation = options.preparation ?? indexingMaterial?.preparation ?? automaticPreparation()
+    const preparationModel = options.preparationModel ?? appState.models.find(model =>
+      model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+    updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === materialId ? {
+      ...item, preparation, status: 'indexing', error: undefined,
+      isActive: item.indexedAt ? item.isActive : false,
+      indexing: { materialId, phase: 'parsing', percent: 0, message: 'Queued for preparation' }
+    } : item) }))
+
     activeIndexRequestsRef.current.add(materialId)
 
     void window.tokensmith
       .indexMaterial(materialId, materialPath, embeddingModel, {
         ...options,
+        preparation,
+        preparationModel,
         title: options.title ?? indexingMaterial?.title,
         cleaningProfileId: options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId,
         cleaningRuleIds:
@@ -1780,7 +1830,7 @@ export function App() {
               ...indexedMaterial,
               embeddingModelId: embeddingModel.id,
               embeddingModelName: displayModelName(embeddingModel),
-              chunkSize: defaultCollectionChunkSize,
+              chunkSize: indexedMaterial.preparation ? undefined : defaultCollectionChunkSize,
               cleaningProfileId: indexedMaterial.cleaningProfileId ?? material.cleaningProfileId ?? options.cleaningProfileId,
               cleaningProfileName:
                 indexedMaterial.cleaningProfileName ??
@@ -1831,7 +1881,7 @@ export function App() {
                     percent: material.indexing?.percent ?? 0,
                     message: 'Processing failed'
                   },
-                  isActive: false
+                  isActive: material.indexedAt ? material.isActive : false
                 }
               : material
           )
@@ -2087,7 +2137,7 @@ export function App() {
 
   function toggleMaterialActive(materialId: string) {
     const material = appState.materials.find((item) => item.id === materialId)
-    if (!material || material.status !== 'ready') {
+    if (!material || (material.status !== 'ready' && !material.indexedAt)) {
       return
     }
 
@@ -2098,7 +2148,7 @@ export function App() {
           .filter(
             (item) =>
               item.id !== material.id &&
-              item.status === 'ready' &&
+              (item.status === 'ready' || Boolean(item.indexedAt)) &&
               item.isActive !== false &&
               materialEmbeddingIdentity(item) !== targetEmbeddingKey
           )
@@ -2115,7 +2165,7 @@ export function App() {
       ...current,
       selectedEmbeddingModelId: nextSelectedEmbeddingModelId,
       materials: current.materials.map((material) => {
-        if (material.status !== 'ready') {
+        if (material.status !== 'ready' && !material.indexedAt) {
           return material
         }
 
@@ -2164,7 +2214,7 @@ export function App() {
               status: 'indexing',
               detail: 'Resuming',
               error: undefined,
-              isActive: false,
+              isActive: item.indexedAt ? item.isActive : false,
               indexing: {
                 materialId,
                 phase: item.indexing?.phase ?? 'parsing',
@@ -2196,7 +2246,7 @@ export function App() {
                 detail: 'Needs embedder',
                 error: 'Download the Nomic Embedder Model before preparing PDFs.',
                 indexing: undefined,
-                isActive: false
+                isActive: item.indexedAt ? item.isActive : false
               }
             : item
         )
@@ -2252,7 +2302,7 @@ export function App() {
                 ...progress,
                 message: 'Paused'
               },
-              isActive: false
+              isActive: item.indexedAt ? item.isActive : false
             }
           : item
       )
@@ -2288,7 +2338,7 @@ export function App() {
 
   const activeScreen = appState.activeScreen
   const selectedModel =
-    appState.models.find((model) => model.id === appState.selectedModelId && modelCanGenerate(model)) ??
+    appState.models.find((model) => model.id === appState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model))) ??
     firstGeneratorModel(appState.models)
   const embeddingModels = appState.models.filter(modelCanEmbed)
   const activeTitle = useMemo(
@@ -2356,19 +2406,21 @@ export function App() {
             }}
             onRemoveModel={removeModel}
             onSelectModel={selectModel}
+            onConnectCloud={openCloudSetup}
+            onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
             onToggleMaterialActive={toggleMaterialActive}
           />
         )}
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
-            embeddingModels={embeddingModels}
+            models={appState.models}
+            selectedModelId={appState.selectedModelId}
             createRequest={libraryCreateRequest}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
             onAddMaterials={addMaterials}
             onRemoveMaterial={removeMaterial}
             onResumeMaterialIndexing={resumeMaterialIndexing}
-            onSelectEmbeddingModel={selectEmbeddingModel}
             onPauseMaterialIndexing={pauseMaterialIndexing}
             onStartMaterialIndexing={startMaterialIndexing}
             onToggleMaterialActive={toggleMaterialActive}
@@ -2386,12 +2438,17 @@ export function App() {
             onSelectModel={selectModel}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
             selectedModelId={appState.selectedModelId}
+            onConnectCloud={openCloudSetup}
           />
         )}
         {hasLoadedState && activeScreen === 'settings' && (
           <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} />
         )}
       </section>
+      {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
+        localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
+        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
+      {cloudNotice && <div className="cloud-connected-notice" role="status">{cloudNotice}</div>}
     </main>
   )
 }
@@ -2424,6 +2481,8 @@ function ChatScreen({
   onOpenLibrary,
   onRemoveModel,
   onSelectModel,
+  onConnectCloud,
+  onManageModels,
   onToggleMaterialActive
 }: {
   activeConversationId: string
@@ -2440,6 +2499,8 @@ function ChatScreen({
   onOpenLibrary: () => void
   onRemoveModel: (model: LocalModel) => void
   onSelectModel: (modelId: string) => void
+  onConnectCloud: (model?: LocalModel) => void
+  onManageModels: () => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
     updater: (current: Pick<AppStateSnapshot, 'activeConversationId' | 'conversations'>) => Pick<
@@ -2482,7 +2543,7 @@ function ChatScreen({
     starterConversations[0]
   const isPending = pendingConversationId === activeConversation.id
   const activeQuizState = activeConversation.quizState?.active ? activeConversation.quizState : undefined
-  const activeMaterials = materials.filter((material) => material.status === 'ready' && material.isActive !== false)
+  const activeMaterials = materials.filter((material) => (material.status === 'ready' || Boolean(material.indexedAt)) && material.isActive !== false)
   const libraryTitle = getLibraryTitle(materials)
   const selectedModelLabel = selectedModel ? displayModelName(selectedModel) : 'Choose a model'
   const sourceMessages = activeConversation.messages.filter(
@@ -2504,18 +2565,9 @@ function ChatScreen({
     selectedModel?.status === 'ready' &&
     activeMaterials.length > 0 &&
     settings.application.suggestionMode !== 'off'
-  const selectableModels = useMemo(() => {
-    const readyModels = models.filter((model) => model.status === 'ready' && modelCanGenerate(model))
-    if (!selectedModel) {
-      return readyModels
-    }
-    return readyModels.some((model) => model.id === selectedModel.id)
-      ? readyModels
-      : [selectedModel, ...readyModels]
-  }, [models, selectedModel])
   const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
   const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
-  const hasReadyMaterials = materials.some((material) => material.status === 'ready')
+  const hasReadyMaterials = materials.some((material) => material.status === 'ready' || Boolean(material.indexedAt))
   const hasIndexingMaterials = materials.some((material) => material.status === 'indexing' || material.status === 'paused')
   const needsChatModelSetup = !readyChatModel
   const needsEmbeddingModelSetup = !readyEmbeddingModel
@@ -3465,7 +3517,7 @@ function ChatScreen({
           <div className="chat-setup-heading">
             <p className="section-kicker">FIRST-TIME TOKENSMITH SETUP</p>
             <h2>Set up TokenSmith</h2>
-            <p>Install Ollama, download the models, then add your PDFs.</p>
+            <p>Set up PDF search on this device, then choose a local or cloud chat model.</p>
           </div>
           <button className="chat-setup-dismiss" type="button" onClick={onDismissSetupCard} aria-label="Hide setup guide" title="Hide setup guide">
             <X size={18} aria-hidden="true" />
@@ -3499,6 +3551,10 @@ function ChatScreen({
             {renderDocumentSetupAction()}
           </div>
         </div>
+        {needsChatModelSetup && <div className="cloud-generator-entry">
+          <div><strong>Prefer a cloud chat model?</strong><p>Connect your API key and keep PDF search on this device.</p></div>
+          <button type="button" className="secondary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button>
+        </div>}
       </section>
     )
   }
@@ -3892,7 +3948,7 @@ function ChatScreen({
 
   async function submitPrompt(rawPrompt: string, editMessageId?: string) {
     const prompt = rawPrompt.trim()
-    if (!prompt || pendingConversationId || !selectedModel || (editingQuestionId && !editMessageId)) {
+    if (!prompt || pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
     }
 
@@ -4119,25 +4175,8 @@ function ChatScreen({
           >
             <PanelIcon />
           </button>
-          <div className="model-picker-shell">
-            <select
-              className="model-picker"
-              aria-label="Choose chat model"
-              title="Choose chat model"
-              value={selectedModel?.id ?? ''}
-              disabled={isPending || selectableModels.length === 0}
-              onChange={(event) => onSelectModel(event.target.value)}
-            >
-              {selectableModels.length === 0 && <option value="">Choose a model</option>}
-              {selectableModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {displayModelName(model)}
-                  {model.status === 'ready' ? '' : ' (not ready)'}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="model-picker-chevron" size={17} aria-hidden="true" />
-          </div>
+          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+            onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
           <button
             className="library-pill"
             type="button"
@@ -4187,11 +4226,15 @@ function ChatScreen({
               )
             )}
             {isPending && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
-            {chatError && <p className="chat-error-banner">{chatError}</p>}
+            {chatError && <div className="chat-error-banner"><p>{chatError}</p>
+              {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
+            </div>}
+            {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
+              <div className="chat-error-banner"><p>Reconnect {selectedModel.providerName || 'your cloud service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Reconnect</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
-            {selectedModel && (isPending || selectedModel.status !== 'ready') && (
+            {selectedModel && (isPending || (!isCloudGenerator(selectedModel) && selectedModel.status !== 'ready')) && (
               <button
                 className={`reload-chip ${isPending ? 'is-stop' : ''}`}
                 type="button"
@@ -4238,7 +4281,7 @@ function ChatScreen({
               />
               <button
                 className="send-button"
-                disabled={!draft.trim() || Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
+                disabled={!draft.trim() || Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel || selectedModel.status !== 'ready'}
                 type="submit"
                 aria-label="Send message"
                 title="Send message"
@@ -4286,7 +4329,7 @@ function ChatScreen({
         />
       )}
       {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
-      {markdownViewer && <MarkdownSourceViewer viewer={markdownViewer} onClose={() => setMarkdownViewer(null)} />}
+      {markdownViewer && <MarkdownSourceViewer viewer={{ ...markdownViewer, title: cleanMaterialTitle(markdownViewer.title) || markdownViewer.title }} onClose={() => setMarkdownViewer(null)} />}
     </div>
   )
 }
@@ -4871,43 +4914,6 @@ function SourceTray({
   )
 }
 
-function MarkdownSourceViewer({ viewer, onClose }: { viewer: MarkdownViewerState; onClose: () => void }) {
-  const locator = [viewer.sectionHeader, viewer.locator].filter(Boolean).join(' · ')
-  const lineLabel =
-    viewer.lineFrom && viewer.lineTo && viewer.lineTo > viewer.lineFrom
-      ? `Lines ${viewer.lineFrom}-${viewer.lineTo}`
-      : viewer.lineFrom
-        ? `Line ${viewer.lineFrom}`
-        : ''
-  const subtitle = [locator, lineLabel].filter(Boolean).join(' · ')
-
-  return (
-    <div className="pdf-viewer-backdrop" role="dialog" aria-modal="true" aria-label="Source Markdown viewer">
-      <section className="markdown-viewer-panel">
-        <header className="pdf-viewer-header">
-          <div>
-            <strong>{cleanMaterialTitle(viewer.title) || viewer.title}</strong>
-            {subtitle && <span>{subtitle}</span>}
-          </div>
-          <button className="icon-button subtle" type="button" aria-label="Close Markdown viewer" onClick={onClose}>
-            <X size={18} aria-hidden="true" />
-          </button>
-        </header>
-        <div className="markdown-source-stage">
-          <section className="markdown-source-section">
-            <h3>Full Chunk</h3>
-            <pre>{viewer.chunkText}</pre>
-          </section>
-          <section className="markdown-source-section">
-            <h3>Markdown File</h3>
-            <pre>{viewer.text}</pre>
-          </section>
-        </div>
-      </section>
-    </div>
-  )
-}
-
 function PdfSourceViewer({ viewer, onClose }: { viewer: PdfViewerState; onClose: () => void }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [currentPage, setCurrentPage] = useState(viewer.page ?? 1)
@@ -5369,445 +5375,28 @@ function createIndexingCollection(
   }
 }
 
-function LibraryScreen({
-  createRequest,
-  embeddingModels,
-  materials,
-  selectedEmbeddingModelId,
-  onAddMaterials,
-  onRemoveMaterial,
-  onResumeMaterialIndexing,
-  onSelectEmbeddingModel,
-  onPauseMaterialIndexing,
-  onStartMaterialIndexing,
-  onToggleMaterialActive
-}: {
-  createRequest: number
-  embeddingModels: LocalModel[]
-  materials: CourseMaterial[]
-  selectedEmbeddingModelId: string
-  onAddMaterials: (materials: CourseMaterial[]) => void
-  onRemoveMaterial: (materialId: string) => void
-  onResumeMaterialIndexing: (materialId: string) => void
-  onSelectEmbeddingModel: (modelId: string) => void
-  onPauseMaterialIndexing: (materialId: string) => void
-  onStartMaterialIndexing: (
-    materialId: string,
-    materialPath: string,
-    embeddingModel?: LocalModel,
-    options?: {
-      resume?: boolean
-      title?: string
-      cleaningProfileId?: CleaningProfileId
-      cleaningRuleIds?: CleaningRuleId[]
-    }
-  ) => void
-  onToggleMaterialActive: (materialId: string) => void
-}) {
-  const [mode, setMode] = useState<'empty' | 'list' | 'create'>(materials.length === 0 ? 'empty' : 'list')
-  const [collectionName, setCollectionName] = useState('')
-  const [collectionNameEdited, setCollectionNameEdited] = useState(false)
-  const [folderPath, setFolderPath] = useState('')
-  const [collectionEmbeddingModelId, setCollectionEmbeddingModelId] = useState(selectedEmbeddingModelId)
-  const [collectionCleaningProfileId, setCollectionCleaningProfileId] =
-    useState<CleaningProfileId>(defaultCleaningProfileId)
-  const [collectionCleaningRuleIds, setCollectionCleaningRuleIds] = useState<CleaningRuleId[]>(
-    defaultCleaningRuleIdsForProfile(defaultCleaningProfileId)
-  )
-  const [showCleaningRules, setShowCleaningRules] = useState(false)
-  const [cleaningPreview, setCleaningPreview] = useState<CleaningPreviewResult | null>(null)
-  const [previewStatus, setPreviewStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [importStatus, setImportStatus] = useState<'idle' | 'picking' | 'error'>('idle')
-
-  useEffect(() => {
-    if (mode === 'create') {
-      return
-    }
-
-    setMode(materials.length === 0 ? 'empty' : 'list')
-  }, [materials.length, mode])
-
-  useEffect(() => {
-    if (createRequest > 0) {
-      setMode('create')
-    }
-  }, [createRequest])
-
-  useEffect(() => {
-    if (embeddingModels.some((model) => model.id === collectionEmbeddingModelId)) {
-      return
-    }
-
-    setCollectionEmbeddingModelId(embeddingModels[0]?.id ?? selectedEmbeddingModelId)
-  }, [collectionEmbeddingModelId, embeddingModels, selectedEmbeddingModelId])
-
-  function clearCleaningPreviewState() {
-    setCleaningPreview(null)
-    setPreviewStatus('idle')
-    setShowCleaningRules(false)
-  }
-
-  function updateFolderPath(nextPath: string, suggestedTitle?: string) {
-    setFolderPath(nextPath)
-
-    if (!collectionNameEdited) {
-      setCollectionName(suggestedTitle || pathLeaf(normalizeCollectionPath(nextPath)) || '')
-    }
-
-    clearCleaningPreviewState()
-  }
-
-  async function handleBrowseFolder() {
-    setImportStatus('picking')
-
+function LibraryScreen(props: Omit<React.ComponentProps<typeof LibraryWorkspace>, 'onOpenSource'>) {
+  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
+  const [markdownViewer, setMarkdownViewer] = useState<MarkdownSourceDocument | null>(null)
+  const [sourceError, setSourceError] = useState('')
+  async function openSource(source: ChatSource) {
     try {
-      if (!window.tokensmith) {
-        setImportStatus('error')
-        return
+      setSourceError('')
+      if (isMarkdownSource(source)) {
+        const document = await window.tokensmith?.getMarkdownForSource(source)
+        if (document) setMarkdownViewer(document)
+      } else {
+        const document = await window.tokensmith?.getPdfForSource(source)
+        if (document) setPdfViewer({ ...document, searchTerm: searchTermForSource(source) })
       }
-
-      const result = await window.tokensmith.pickMaterialFolder()
-
-      if (!result.canceled && result.path) {
-        updateFolderPath(result.path, result.title || pathLeaf(result.path))
-      }
-
-      setImportStatus('idle')
-    } catch {
-      setImportStatus('error')
-    }
+    } catch (error) { setSourceError(readableErrorMessage(error, 'Could not open the original document.')) }
   }
-
-  async function handlePreviewCleaning() {
-    const normalizedPath = normalizeCollectionPath(folderPath)
-    if (!normalizedPath || !window.tokensmith) {
-      setPreviewStatus('error')
-      setImportStatus('error')
-      return
-    }
-
-    setPreviewStatus('loading')
-    setImportStatus('idle')
-    setShowCleaningRules(true)
-
-    try {
-      const preview = await window.tokensmith.previewCleaning(normalizedPath, {
-        cleaningProfileId: collectionCleaningProfileId,
-        cleaningRuleIds: collectionCleaningRuleIds
-      })
-      setCleaningPreview(preview)
-      setCollectionCleaningRuleIds(normalizeCleaningRuleIds(preview.cleaningRuleIds, preview.profile.id))
-      setPreviewStatus('idle')
-    } catch {
-      setCleaningPreview(null)
-      setPreviewStatus('error')
-    }
-  }
-
-  function handleToggleCleaningRule(ruleId: CleaningRuleId, checked: boolean) {
-    const rule = cleaningRules.find((candidate) => candidate.id === ruleId)
-    if (rule?.locked) {
-      return
-    }
-
-    const nextRuleIds = checked
-      ? [...collectionCleaningRuleIds, ruleId]
-      : collectionCleaningRuleIds.filter((candidate) => candidate !== ruleId)
-
-    setCollectionCleaningRuleIds(normalizeCleaningRuleIds(nextRuleIds, collectionCleaningProfileId))
-    setCleaningPreview(null)
-    setPreviewStatus('idle')
-  }
-
-  function closeCleaningPreview() {
-    setCleaningPreview(null)
-    setPreviewStatus('idle')
-    setShowCleaningRules(false)
-  }
-
-  function handleCreateCollection(event: FormEvent) {
-    event.preventDefault()
-
-    const normalizedPath = normalizeCollectionPath(folderPath)
-    if (!normalizedPath) {
-      setImportStatus('error')
-      return
-    }
-
-    const title = collectionName.trim() || pathLeaf(normalizedPath) || 'PDFs'
-    const embeddingModel =
-      embeddingModels.find((model) => model.id === collectionEmbeddingModelId) ?? embeddingModels[0]
-
-    if (!embeddingModel) {
-      setImportStatus('error')
-      return
-    }
-
-    const material = createIndexingCollection(
-      title,
-      normalizedPath,
-      embeddingModel,
-      collectionCleaningProfileId,
-      collectionCleaningRuleIds
-    )
-
-    onSelectEmbeddingModel(embeddingModel.id)
-
-    onAddMaterials([material])
-    onStartMaterialIndexing(material.id, normalizedPath, embeddingModel, {
-      title,
-      cleaningProfileId: collectionCleaningProfileId,
-      cleaningRuleIds: collectionCleaningRuleIds
-    })
-    setCollectionName('')
-    setCollectionNameEdited(false)
-    setFolderPath('')
-    setCollectionCleaningProfileId(defaultCleaningProfileId)
-    setCollectionCleaningRuleIds(defaultCleaningRuleIdsForProfile(defaultCleaningProfileId))
-    setCleaningPreview(null)
-    setShowCleaningRules(false)
-    setPreviewStatus('idle')
-    setImportStatus('idle')
-    setMode('list')
-  }
-
-  if (mode === 'create') {
-    return (
-      <div className="view-frame collection-create-frame">
-        <form className="collection-create-form" onSubmit={handleCreateCollection}>
-          <div>
-            <h1>Add PDFs</h1>
-            <p>Choose a folder containing your PDFs.</p>
-          </div>
-
-          <label className="collection-field">
-            <span>Folder</span>
-            <input
-              value={folderPath}
-              onChange={(event) => {
-                updateFolderPath(event.target.value)
-              }}
-              placeholder="Folder path..."
-            />
-            <button type="button" onClick={handleBrowseFolder}>
-              {importStatus === 'picking' ? 'Choosing...' : 'Browse'}
-            </button>
-          </label>
-
-          <label className="collection-field">
-            <span>Name</span>
-            <input
-              value={collectionName}
-              onChange={(event) => {
-                setCollectionName(event.target.value)
-                setCollectionNameEdited(event.target.value.trim().length > 0)
-              }}
-              placeholder="Collection name..."
-            />
-          </label>
-
-          <label className="collection-field">
-            <span>Embedder</span>
-            <select
-              value={collectionEmbeddingModelId}
-              onChange={(event) => setCollectionEmbeddingModelId(event.currentTarget.value)}
-              disabled={embeddingModels.length === 0}
-            >
-              {embeddingModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {displayModelName(model)}
-                </option>
-              ))}
-              {embeddingModels.length === 0 && <option value="">No embedder configured</option>}
-            </select>
-          </label>
-
-          <label className="collection-field">
-            <span>Cleaning</span>
-            <select
-              value={collectionCleaningProfileId}
-              onChange={(event) => {
-                const nextProfileId = event.currentTarget.value as CleaningProfileId
-                setCollectionCleaningProfileId(nextProfileId)
-                setCollectionCleaningRuleIds(defaultCleaningRuleIdsForProfile(nextProfileId))
-                setCleaningPreview(null)
-                setPreviewStatus('idle')
-                setShowCleaningRules(false)
-              }}
-            >
-              {cleaningProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={handlePreviewCleaning} disabled={previewStatus === 'loading'}>
-              {previewStatus === 'loading' ? 'Previewing...' : 'Preview'}
-            </button>
-            <small className="collection-field-help">
-              {cleaningProfiles.find((profile) => profile.id === collectionCleaningProfileId)?.description}
-            </small>
-          </label>
-
-          {showCleaningRules && (
-            <section className="cleaning-rules-panel" aria-label="Cleaning rules">
-              <header>
-                <strong>Cleaning rules</strong>
-                <span>Toggle rules, then preview again.</span>
-              </header>
-              <div className="cleaning-rules-list">
-                {cleaningRules.map((rule) => {
-                  const checked = collectionCleaningRuleIds.includes(rule.id)
-
-                  return (
-                    <label className="cleaning-rule-row" key={rule.id}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={rule.locked}
-                        onChange={(event) => handleToggleCleaningRule(rule.id, event.currentTarget.checked)}
-                      />
-                      <span>
-                        <strong>{rule.name}</strong>
-                        <small>{rule.description}</small>
-                      </span>
-                      <em>{checked ? 'Enabled' : 'Disabled'}</em>
-                    </label>
-                  )
-                })}
-              </div>
-            </section>
-          )}
-
-          {importStatus === 'error' && (
-            <p className="inline-error">
-              {embeddingModels.length === 0
-                ? 'Download the Nomic Embedder Model before preparing PDFs.'
-                : 'Choose a readable folder first.'}
-            </p>
-          )}
-
-          {previewStatus === 'error' && (
-            <p className="inline-error">
-              The preview could not be generated for the selected collection.
-            </p>
-          )}
-
-          {cleaningPreview && (
-            <section className="cleaning-preview" aria-label="Cleaning preview">
-              <header>
-                <div>
-                  <strong>{cleaningPreview.document.title}</strong>
-                  <span>
-                    {cleaningPreview.profile.name} preview · first {cleaningPreview.rawPages.length}{' '}
-                    {cleaningPreview.rawPages.length === 1 ? 'page' : 'pages'}
-                  </span>
-                </div>
-                <div className="cleaning-preview-header-actions">
-                  {cleaningPreview.document.pageCount && <span>{cleaningPreview.document.pageCount} pages total</span>}
-                  <button type="button" onClick={closeCleaningPreview} aria-label="Close cleaning preview">
-                    <X size={16} />
-                  </button>
-                </div>
-              </header>
-
-              <div className="cleaning-preview-grid">
-                <article className="cleaning-preview-pane">
-                  <h2>Raw</h2>
-                  <pre>{cleaningPreview.rawPages.map((page) => page.text).join('\n\n')}</pre>
-                </article>
-                <article className="cleaning-preview-pane">
-                  <h2>Cleaned</h2>
-                  <pre>{cleaningPreview.cleanedPages.map((page) => page.text).join('\n\n')}</pre>
-                </article>
-              </div>
-
-              {cleaningPreview.chunks.length > 0 && (
-                <div className="cleaning-preview-chunks">
-                  <h2>Sample chunks</h2>
-                  {cleaningPreview.chunks.slice(0, 3).map((chunk, index) => (
-                    <article key={`${chunk.pageStart ?? 'chunk'}-${index}`}>
-                      <span>
-                        Chunk {index + 1}
-                        {chunk.chunkSize ? ` · ${compactChunkSizeLabel(chunk.chunkSize)}` : ''}
-                        {chunk.pageStart ? ` · Page ${chunk.pageStart}` : ''}
-                        {chunk.sectionHeader ? ` · Section: ${chunk.sectionHeader}` : ''}
-                      </span>
-                      <p>{chunk.text}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
-          <div className="collection-create-actions">
-            <button
-              className="secondary-action"
-              type="button"
-              onClick={() => {
-                setCollectionCleaningProfileId(defaultCleaningProfileId)
-                setCollectionCleaningRuleIds(defaultCleaningRuleIdsForProfile(defaultCleaningProfileId))
-                setCollectionName('')
-                setCollectionNameEdited(false)
-                setFolderPath('')
-                clearCleaningPreviewState()
-                setMode(materials.length ? 'list' : 'empty')
-              }}
-            >
-              Cancel
-            </button>
-            <button className="primary-action" type="submit" disabled={embeddingModels.length === 0}>
-              Prepare PDFs
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  if (materials.length === 0) {
-    return (
-      <div className="view-frame collection-empty-frame">
-        <div className="collection-empty-state">
-          <h1>No PDFs Added</h1>
-          <p>Choose a folder of PDFs to get started.</p>
-          <button className="primary-action" type="button" onClick={() => setMode('create')}>
-            <Plus size={17} aria-hidden="true" />
-            <span>Add PDFs</span>
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="view-frame standard-frame">
-      <header className="screen-header">
-        <div>
-          <p className="section-kicker">Library</p>
-          <h1>PDFs</h1>
-        </div>
-        <button className="primary-action" type="button" onClick={() => setMode('create')}>
-          <Plus size={17} aria-hidden="true" />
-          <span>Add PDFs</span>
-        </button>
-      </header>
-
-      <div className="collection-card-list">
-        {materials.map((material) => (
-          <CollectionCard
-            item={material}
-            key={material.id}
-            onRemove={() => onRemoveMaterial(material.id)}
-            onPause={() => onPauseMaterialIndexing(material.id)}
-            onResume={() => onResumeMaterialIndexing(material.id)}
-            onToggle={() => onToggleMaterialActive(material.id)}
-          />
-        ))}
-      </div>
-    </div>
-  )
+  return <>
+    <LibraryWorkspace {...props} onOpenSource={openSource} />
+    {sourceError && <p className="inline-error" role="alert">{sourceError}</p>}
+    {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
+    {markdownViewer && <MarkdownSourceViewer viewer={markdownViewer} onClose={() => setMarkdownViewer(null)} />}
+  </>
 }
 
 function CollectionCard({
@@ -5939,7 +5528,7 @@ function MaterialRow({
   onClick?: () => void
   onRemove?: () => void
 }) {
-  const isActive = item.status === 'ready' && item.isActive !== false
+  const isActive = (item.status === 'ready' || Boolean(item.indexedAt)) && item.isActive !== false
   const indexingPercent = Math.max(0, Math.min(100, Math.round(item.indexing?.percent ?? 0)))
   const embedderLabel = materialEmbedderLabel(item)
   const subline =
@@ -6003,7 +5592,8 @@ function ModelsScreen({
   onSelectEmbeddingModel,
   onSelectModel,
   selectedEmbeddingModelId,
-  selectedModelId
+  selectedModelId,
+  onConnectCloud
 }: {
   engines: EngineInfo[]
   models: LocalModel[]
@@ -6015,6 +5605,7 @@ function ModelsScreen({
   onSelectModel: (modelId: string) => void
   selectedEmbeddingModelId: string
   selectedModelId: string
+  onConnectCloud: (model?: LocalModel) => void
 }) {
   type RemoteProviderDraft = {
     apiKey: string
@@ -6034,7 +5625,7 @@ function ModelsScreen({
         drafts[provider.id] = {
           apiKey: '',
           baseUrl: provider.baseUrl ?? '',
-          role: 'generator',
+          role: 'embedder',
           modelName: '',
           models: [],
           isLoading: false
@@ -6549,6 +6140,16 @@ function ModelsScreen({
   }
 
   function renderInstalledModelCard(model: LocalModel) {
+    if (isCloudGenerator(model)) {
+      return <section className="cloud-generator-entry" key={model.id}>
+        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
+        <div className="model-header-actions">
+          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
+          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'Connection settings' : 'Reconnect'}</button>
+          <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
+        </div>
+      </section>
+    }
     const displayModel = withOllamaInfo(model, ollamaInfoForLocalModel(model))
     const filename = modelFilename(displayModel)
     const title = displayModelName(displayModel)
@@ -6607,7 +6208,7 @@ function ModelsScreen({
     )
   }
 
-  const installedModels = models.filter((model) => model.status !== 'needsRuntime' && model.status !== 'missing')
+  const installedModels = models.filter((model) => isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
 
   function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
     const draft = remoteDrafts[provider.id]
@@ -6662,7 +6263,6 @@ function ModelsScreen({
                 updateRemoteDraft(provider.id, { role, modelName: '', models: [], error: undefined })
               }}
             >
-              <option value="generator">Chat Model</option>
               <option value="embedder">Embedder Model</option>
             </select>
           </label>
@@ -6968,12 +6568,12 @@ function ModelsScreen({
         {exploreTab === 'remote' && (
           <>
             <p className="model-explore-copy">
-              Add OpenAI-compatible models. TokenSmith still retrieves enabled PDF sources locally before
-              sending a chat request to the provider.
+              Connect a cloud service for chat answers. Your PDF search model is managed separately.
             </p>
-            <div className="remote-provider-grid">
+            <div className="cloud-generator-entry"><div><h2>Cloud chat models</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button></div>
+            <details className="cloud-generator-advanced"><summary>Advanced: remote embedding models</summary><div className="remote-provider-grid">
               {remoteProviderCatalog.map((provider) => renderRemoteProviderCard(provider))}
-            </div>
+            </div></details>
           </>
         )}
 
@@ -6986,13 +6586,14 @@ function ModelsScreen({
       <header className="screen-header">
         <div>
           <p className="section-kicker">Models</p>
-          <h1>Installed Models</h1>
+          <h1>Your models</h1>
           <p>Chat models answer questions. Embedder models build and search collection vectors.</p>
         </div>
         <div className="model-header-actions">
-          <button className="primary-action" type="button" onClick={() => setMode('explore')}>
+          <button className="primary-action" type="button" onClick={() => onConnectCloud()}><Plus size={18} /><span>Connect cloud model</span></button>
+          <button className="secondary-action" type="button" onClick={() => setMode('explore')}>
             <Plus size={18} aria-hidden="true" />
-            <span>Add Model</span>
+            <span>Add local model</span>
           </button>
         </div>
       </header>
@@ -7102,18 +6703,14 @@ function SettingsScreen({
           <>
             <SettingsPageHeader title="Application Settings" />
 
+            <SettingsGroup title="Appearance">
+              <ThemePicker
+                value={settings.application.theme}
+                onChange={(theme) => updateApplicationSettings({ theme })}
+              />
+            </SettingsGroup>
+
             <SettingsGroup title="General">
-              <SettingsRow label="Theme" description="The application color scheme.">
-                <SelectField
-                  ariaLabel="Theme"
-                  value={settings.application.theme}
-                  onChange={(theme) => updateApplicationSettings({ theme: theme as ApplicationSettings['theme'] })}
-                  options={[
-                    { label: 'Light', value: 'light' },
-                    { label: 'System', value: 'system' }
-                  ]}
-                />
-              </SettingsRow>
               <SettingsRow label="Font Size" description="The size of text in the application.">
                 <SelectField
                   ariaLabel="Font size"

@@ -8,6 +8,8 @@ import type {
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { remoteChatParameters } from './remote-chat-parameters'
+import { remoteGeneratorFetch } from './remote-generator-network'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
@@ -184,7 +186,7 @@ async function runRemoteChatCompletion(
   messages: StudyChatMessage[],
   overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean } = {}
 ): Promise<string> {
-  const response = await fetch(config.endpoint, {
+  const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey.trim()}`,
@@ -195,9 +197,9 @@ async function runRemoteChatCompletion(
     body: JSON.stringify({
       model: config.modelName,
       messages,
-      max_tokens: overrides.maxTokens ?? config.settings?.maxLength,
-      temperature: overrides.temperature ?? config.settings?.temperature,
-      top_p: config.settings?.topP
+      ...remoteChatParameters(config.endpoint, config.modelName,
+        overrides.maxTokens ?? config.settings?.maxLength,
+        overrides.temperature ?? config.settings?.temperature, config.settings?.topP)
     })
   })
 

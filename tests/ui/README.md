@@ -17,3 +17,13 @@ It does not contact a model or read/write the user's app data. Reload resets all
 
 The pure quote/edit transformations and edited-history pipeline contracts also run in
 `npm run test:unit:ts` via `chat-interactions.test.mjs`.
+
+## Cloud generator setup
+
+With the same preview server, open `/tests/ui/cloud-generators.html`. This uses the production App, picker, and connection sheet with a disposable fake bridge. Use demo strings only; no real key or network request is needed.
+
+- Open the chat model picker, choose “Connect a cloud model,” select a provider, enter `demo-key`, choose a model, and use it. Verify the draft, previous messages, and selected book remain, with focus returning to the composer. Nomic must stay out of the chat picker.
+- Reopen the provider to reuse its connection. Change its key to `bad-key` to check invalid-key recovery. A saved disconnected model must remain available through “Reconnect.”
+- Add `?error=quota` or `?error=offline` for failure recovery; the existing model must remain selected. Add `?manual` for an empty catalog, `?session` for unavailable secure storage, or `?empty` for no generator.
+- Use `slow-key`, then Back or Escape while discovery is pending; the delayed result must not reopen setup or select a model.
+- Check keyboard focus, Escape and narrow-window layout. These fixtures do not verify OS storage or real provider compatibility; the cloud service unit tests and opt-in native checks cover those separately.

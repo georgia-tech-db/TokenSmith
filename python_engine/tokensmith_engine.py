@@ -538,7 +538,7 @@ def extract_text_plain(path: Path) -> Tuple[str, Optional[int]]:
     return normalize_text(path.read_text(encoding="utf-8", errors="ignore")), None
 
 
-def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None, include_layout_hints: bool = False) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     if pdfium is None:
         raise EngineError("pypdfium2 is not installed in the Python runtime.")
 
@@ -557,12 +557,13 @@ def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None) -
             try:
                 text_page = page.get_textpage()
                 page_text = text_page.get_text_range() or ""
+                image_count = sum(1 for _ in page.get_objects(filter=[pdfium.raw.FPDF_PAGEOBJ_IMAGE])) if include_layout_hints else 0
             finally:
                 if text_page is not None:
                     text_page.close()
                 page.close()
-            if page_text:
-                pages.append({"page": page_number, "text": page_text})
+            if page_text or include_layout_hints:
+                pages.append({"page": page_number, "text": page_text, **({"imageCount": image_count} if include_layout_hints else {})})
             log_event("pdfium_page_extracted", path=str(path), page=page_number, chars=len(page_text))
     finally:
         pdf.close()
@@ -1234,6 +1235,12 @@ def summarize_material(path: Path, material_id: str, documents: List[Dict[str, A
 
 
 def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if payload.get("preparation"):
+        try:
+            from tokensmith_preparation_job import index
+        except ImportError:
+            from python_engine.tokensmith_preparation_job import index
+        return index(payload, sys.modules[__name__])
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
 
@@ -2108,7 +2115,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     requested_active_materials = [
         material
         for material in materials
-        if material.get("id") and material.get("status") == "ready" and material.get("isActive") is not False
+        if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
     active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
@@ -2229,7 +2236,7 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     requested_active_materials = [
         material
         for material in materials
-        if material.get("id") and material.get("status") == "ready" and material.get("isActive") is not False
+        if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
     active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
@@ -3003,6 +3010,14 @@ def health(_payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def preparation_report(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from tokensmith_preparation_job import report
+    except ImportError:
+        from python_engine.tokensmith_preparation_job import report
+    return report(payload)
+
+
 def list_indexed_materials(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"materials": list_materials(payload["userDataPath"])}
 
@@ -3034,6 +3049,7 @@ COMMANDS = {
     "health": health,
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,
+    "preparation_report": preparation_report,
     "search": search_library,
     "starter_sources": starter_sources,
     "chat": chat,

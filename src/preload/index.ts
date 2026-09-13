@@ -57,6 +57,7 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:preview-cleaning', materialPath, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['previewCleaning']>>
     >,
+  preparationReport: (path, documentPath) => ipcRenderer.invoke('library:preparation-report', path, documentPath),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>
     ipcRenderer.invoke('library:index-material', materialId, materialPath, embeddingModel, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['indexMaterial']>>
@@ -125,6 +126,10 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('models:list-remote-provider-models', apiKey, baseUrl, role) as Promise<
       Awaited<ReturnType<TokenSmithBridge['listRemoteProviderModels']>>
     >,
+  getCloudConnections: () => ipcRenderer.invoke('cloud:connections'),
+  discoverCloudModels: (input) => ipcRenderer.invoke('cloud:discover', input),
+  connectCloudGenerator: (input) => ipcRenderer.invoke('cloud:connect-generator', input),
+  cancelCloudSetup: (requestId) => ipcRenderer.invoke('cloud:cancel', requestId),
   removeModel: (model) =>
     ipcRenderer.invoke('models:remove-model', model) as Promise<Awaited<ReturnType<TokenSmithBridge['removeModel']>>>,
 }

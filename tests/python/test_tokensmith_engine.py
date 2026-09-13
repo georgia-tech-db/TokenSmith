@@ -1830,6 +1830,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "tokensmith_chunk_id",
                     "tokensmith_chapter",
                     "chunk_kind",
+                    "page_end",
                 ],
             )
             self.assertEqual(table_columns["embeddings"], ["model", "folder_id", "chunk_id", "embedding"])

@@ -1,3 +1,4 @@
+import type { IndexMaterialOptions, PreparationReport } from './preparation'
 import type {
   AppStateSnapshot,
   ChatSource,
@@ -24,6 +25,7 @@ import type {
   TokenSmithLogFile
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult } from './cloud-generators'
 import type {
   OllamaDeleteResult,
   OllamaOpenResult,
@@ -62,13 +64,9 @@ export interface TokenSmithBridge {
     materialId: string,
     materialPath: string,
     embeddingModel?: LocalModel,
-    options?: {
-      resume?: boolean
-      title?: string
-      cleaningProfileId?: CleaningProfileId
-      cleaningRuleIds?: CleaningRuleId[]
-    }
+    options?: IndexMaterialOptions
   ) => Promise<CourseMaterial>
+  preparationReport: (path: string, documentPath?: string) => Promise<PreparationReport>
   onMaterialIndexProgress: (callback: (progress: MaterialIndexProgress) => void) => () => void
   listMaterials: () => Promise<CourseMaterial[]>
   setMaterialEnabled: (materialId: string, isActive: boolean) => Promise<void>
@@ -83,5 +81,9 @@ export interface TokenSmithBridge {
   deleteOllamaModel: (modelName: string, baseUrl?: string) => Promise<OllamaDeleteResult>
   onOllamaPullProgress: (callback: (progress: OllamaPullProgress) => void) => () => void
   listRemoteProviderModels: (apiKey: string, baseUrl: string, role?: LocalModelRole) => Promise<string[]>
+  getCloudConnections: () => Promise<CloudConnectionStatus>
+  discoverCloudModels: (input: CloudConnectionInput) => Promise<CloudResult<string[]>>
+  connectCloudGenerator: (input: CloudGeneratorInput) => Promise<CloudResult<LocalModel>>
+  cancelCloudSetup: (requestId: string) => Promise<void>
   removeModel: (model: LocalModel) => Promise<void>
 }

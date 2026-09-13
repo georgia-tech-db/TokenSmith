@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - optional until app runtime is installed
 
 DB_NAME = "tokensmith.sqlite"
 FAISS_NAME = "tokensmith.faiss"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 ALIAS_EXTRACTION_VERSION = 1
 KEYWORD_STOPWORDS: Set[str] = {
     "a",
@@ -190,6 +190,8 @@ def init_db(user_data_path: str) -> None:
         ensure_column(conn, "tokensmith_collection_state", "cleaning_profile_version", "INTEGER")
         ensure_column(conn, "tokensmith_collection_state", "cleaning_rule_ids_json", "TEXT")
         ensure_column(conn, "tokensmith_collection_state", "chunk_size", "INTEGER")
+        ensure_column(conn, "tokensmith_collection_state", "preparation_json", "TEXT")
+        ensure_column(conn, "chunks", "page_end", "INTEGER")
         ensure_column(conn, "chunks", "chunk_size", "INTEGER")
         ensure_column(conn, "chunks", "section_header", "TEXT")
         ensure_column(conn, "chunks", "stable_chunk_id", "TEXT")
@@ -797,6 +799,10 @@ def upsert_collection_state(
         ),
     )
 
+    conn.execute("UPDATE tokensmith_collection_state SET preparation_json = ? WHERE collection_id = ?",
+                 (json.dumps({"settings": material.get("preparation"), "issueCount": material.get("preparationIssueCount", 0),
+                              "modelName": material.get("preparationModelName")}), collection_id))
+
 
 def insert_document(conn: sqlite3.Connection, folder_id: int, document_path: str) -> int:
     try:
@@ -997,6 +1003,7 @@ def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             chunk_kind,
         ),
     )
+    conn.execute("UPDATE chunks SET page_end = ? WHERE id = ?", (chunk.get("pageEnd"), cursor.lastrowid))
     return int(cursor.lastrowid)
 
 
@@ -1039,6 +1046,7 @@ def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             tokensmith_chunk_id = ?,
             tokensmith_chapter = ?,
             chunk_kind = ?,
+            page_end = ?,
             section_header = COALESCE(?, section_header)
         WHERE id = ?
         """,
@@ -1047,6 +1055,7 @@ def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             tokensmith_chunk_id,
             tokensmith_chapter,
             chunk_kind,
+            chunk.get("pageEnd"),
             chunk.get("sectionHeader"),
             chunk_id,
         ),
@@ -1387,7 +1396,7 @@ def source_row_select() -> str:
             ch.chunk_text AS text,
             ch.words AS word_count,
             ch.page AS page_start,
-            ch.page AS page_end,
+            COALESCE(ch.page_end, ch.page) AS page_end,
             ch.line_from AS line_from,
             ch.line_to AS line_to,
             COALESCE(ch.stable_chunk_id, CAST(ch.id AS TEXT)) AS stable_chunk_id,
@@ -2084,6 +2093,7 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
                 d.document_path AS path,
                 COALESCE(ch.title, '') AS title,
                 ch.page AS page,
+            ch.page_end AS page_end,
                 ch.line_from AS line_from,
                 ch.line_to AS line_to,
                 col.name AS collection_name,
@@ -2202,6 +2212,7 @@ def list_materials(user_data_path: str) -> List[Dict[str, Any]]:
                 s.page_count,
                 s.chunk_count,
                 s.chunk_size,
+                s.preparation_json,
                 s.error,
                 MIN(f.path) AS folder_path
             FROM collections c
@@ -2243,6 +2254,9 @@ def list_materials(user_data_path: str) -> List[Dict[str, Any]]:
                 "pageCount": row["page_count"],
                 "chunkCount": chunk_count,
                 "chunkSize": row["chunk_size"],
+                "preparation": json.loads(row["preparation_json"] or "{}").get("settings"),
+                "preparationIssueCount": json.loads(row["preparation_json"] or "{}").get("issueCount", 0),
+                "preparationModelName": json.loads(row["preparation_json"] or "{}").get("modelName"),
                 "embeddingModel": row["embedding_model"],
                 "embeddingModelId": row["embedding_model_id"],
                 "embeddingModelName": row["embedding_model_name"],

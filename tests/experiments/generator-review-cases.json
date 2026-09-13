@@ -1,0 +1,42 @@
+[
+  {
+    "id": "rehash_insufficient_evidence", "seedId": "rehash",
+    "review": "The retrieved timing and workload passages do not explain rehashing. A source-faithful answer must acknowledge this gap, not invent deadlocks, crashes, timings, or implementation details. An appropriate refusal is correct behavior but does not satisfy the student's information need."
+  },
+  {
+    "id": "lru_mechanism", "seedId": "lru",
+    "review": "Explain recency-based ordering and least-recent eviction. Do not attribute the FIFO/protected-queue mechanism from adjacent 2Q sources to plain LRU. Avoid guaranteeing that hot pages can never be evicted."
+  },
+  {
+    "id": "slotted_compaction", "seedId": "slots",
+    "review": "Explain slot-directory indirection: page_id and slot_id remain stable during within-page compaction while the slot's byte offset changes. Do not change the slot ID or claim a slot ID alone identifies a record database-wide."
+  },
+  {
+    "id": "vectorized_overhead", "seedId": "vectors",
+    "review": "Explain batch processing, amortized function-call overhead, locality, and its relationship to SIMD. Distinguish processing a batch in a loop from processing an entire batch in one hardware instruction."
+  },
+  {
+    "id": "bplus_range", "seedId": "btree",
+    "review": "Explain sorted leaf keys, an initial descent to the range start, then linked-leaf traversal. Avoid claiming a new root traversal for every matching key or universally contiguous physical disk placement."
+  },
+  {
+    "id": "pinning_contract", "seedId": "pinning",
+    "review": "Pinning prevents eviction while the page is actively used. Pin/unpin maintain counts; only zero-pin pages are eligible for eviction. Pinning alone is not a latch or a guarantee of race-free modification."
+  },
+  {
+    "id": "rehash_example", "replayCaseId": "rehash_example", "resolver": "qwen3:1.7b",
+    "review": "Provide a small resizing/rehashing walkthrough consistent with key % capacity. Check every numerical example independently; 20 % 200 equals 20, not 40. Explain reinsertion/collision handling without unsupported performance claims."
+  },
+  {
+    "id": "lru_example", "replayCaseId": "lru_example", "resolver": "qwen3:1.7b",
+    "review": "Give an actual recency/eviction example for LRU, not the adjacent two-queue scan example presented as plain LRU. Clearly distinguish any discussion of 2Q."
+  },
+  {
+    "id": "slotted_identifier_scope", "replayCaseId": "slotted_typo", "resolver": "qwen3:1.7b",
+    "review": "Keep the RID pair and slot directory's indirection clear. Do not claim slot_id alone is globally unique. Explain stable identifiers versus movable bytes, and qualify missing implementation evidence rather than inventing it."
+  },
+  {
+    "id": "simd_instructions", "replayCaseId": "vectors_generated_follow_up", "resolver": "llama3:latest",
+    "review": "Explain source-supported SIMD examples: vld1q_u8 loads sixteen 8-bit keys into a 128-bit NEON vector, and vceqq_u8 compares for equality to produce a mask. Explain their role in processing the gathered keys; do not invent instruction semantics."
+  }
+]

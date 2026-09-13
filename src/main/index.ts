@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
+import type { IndexMaterialOptions } from '../shared/preparation'
+import { preparationReportWithPython } from './python/python-engine-service'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, shell } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
@@ -20,6 +22,9 @@ import {
   removeLocalModelFile
 } from './models/local-model-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
+import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
+import { remoteGeneratorFetch, setRemoteGeneratorTransport } from './engine/remote-generator-network'
+import type { CloudConnectionInput, CloudGeneratorInput } from '../shared/cloud-generators'
 import {
   cancelOllamaPullModel,
   deleteOllamaModel,
@@ -32,6 +37,8 @@ import {
 import { searchOllamaLibrary } from './engine/ollama-library-search'
 import {
   rememberRemoteModelApiKeys,
+  setCloudCredentialResolver,
+  modelWithRememberedRemoteApiKey,
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
 import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
@@ -50,6 +57,17 @@ import type {
 const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
 const appIconFileName = 'tokensmith-icon.png'
+let cloudGenerators: CloudGeneratorService
+
+function withCloudStatus(state: AppStateSnapshot): AppStateSnapshot {
+  return { ...state, models: state.models.map(model => {
+    if (model.connectionId) return cloudGenerators.describeModel(model)
+    if (model.engine === 'remote' && (model.role === 'generator' || !model.role)) {
+      return { ...model, cloudCredentialStatus: modelWithRememberedRemoteApiKey(model).apiKey ? 'connected' : 'reconnect' }
+    }
+    return model
+  }) }
+}
 
 function getAppIconPath(): string {
   const candidates = app.isPackaged
@@ -87,7 +105,7 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
       await writeFile(getStatePath(), safeStateJson, 'utf8')
     }
 
-    return safeState
+    return withCloudStatus(safeState)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null
@@ -114,7 +132,7 @@ function createId(prefix: string): string {
 
 async function pickMaterials(): Promise<PickMaterialsResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Add PDFs',
+    title: 'Add documents',
     buttonLabel: 'Choose Folder',
     properties: ['openDirectory']
   })
@@ -226,7 +244,7 @@ function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): bo
 
 function isMarkdownSourcePath(path: string): boolean {
   const extension = extname(path).toLowerCase()
-  return extension === '.md' || extension === '.markdown'
+  return extension === '.md' || extension === '.markdown' || extension === '.txt'
 }
 
 interface IndexedPdfSourceResolution {
@@ -278,7 +296,7 @@ async function resolveIndexedPdfSource(source: ChatSource): Promise<IndexedPdfSo
     return {
       path: pdfPath,
       title: resolvedSource.title || source.documentTitle || source.title || parse(pdfPath).name,
-      page: normalizedPageNumber(resolvedSource.page) ?? sourcePageNumber(source),
+      page: sourcePageNumber(source) ?? normalizedPageNumber(resolvedSource.page),
       thumbnailPath: resolvedSource.thumbnailPath || source.thumbnailPath
     }
   }
@@ -430,13 +448,21 @@ function createMainWindow(): void {
 
 app.setName(appName)
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  setRemoteGeneratorTransport((input, init) => net.fetch(input instanceof URL ? input.toString() : input, { ...init, credentials: 'omit' }))
+  cloudGenerators = new CloudGeneratorService(join(app.getPath('userData'), 'cloud-connections.json'), safeStorage, remoteGeneratorFetch)
+  await cloudGenerators.initialize()
+  setCloudCredentialResolver(model => cloudGenerators.credentialFor(model))
   applyDockIcon()
 
   ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:get-log-file', () => readTokenSmithLogFile())
   ipcMain.handle('state:load', () => loadAppState())
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
+  ipcMain.handle('cloud:connections', () => cloudGenerators.status())
+  ipcMain.handle('cloud:discover', (_event, input: CloudConnectionInput) => cloudResult(() => cloudGenerators.discover(input)))
+  ipcMain.handle('cloud:connect-generator', (_event, input: CloudGeneratorInput) => cloudResult(() => cloudGenerators.connect(input)))
+  ipcMain.handle('cloud:cancel', (_event, requestId: string) => cloudGenerators.cancel(requestId))
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
   ipcMain.handle('engine:resolve-question', (_event, request: EngineQuestionRewriteRequest) => resolveChatQuestion(request))
@@ -477,14 +503,10 @@ app.whenReady().then(() => {
       materialId: string,
       materialPath: string,
       embeddingModel?: LocalModel,
-      options?: {
-        resume?: boolean
-        title?: string
-        cleaningProfileId?: CleaningProfileId
-        cleaningRuleIds?: CleaningRuleId[]
-      }
+      options?: IndexMaterialOptions
     ) => indexMaterialWithPython(materialPath, embeddingModel, materialId, options)
   )
+  ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string) => preparationReportWithPython(path, documentPath))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())
   ipcMain.handle('library:set-material-enabled', (_event, materialId: string, isActive: boolean) =>
     setMaterialEnabledWithPython(materialId, isActive)

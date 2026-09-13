@@ -1,3 +1,4 @@
+import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
@@ -52,6 +53,9 @@ export interface CourseMaterial {
   cleaningProfileName?: string
   cleaningProfileVersion?: number
   cleaningRuleIds?: CleaningRuleId[]
+  preparation?: PreparationSettings
+  preparationModelName?: string
+  preparationIssueCount?: number
   error?: string
   indexing?: MaterialIndexProgress
 }
@@ -72,6 +76,8 @@ export interface LocalModel {
   providerName?: string
   baseUrl?: string
   apiKey?: string
+  connectionId?: string
+  cloudCredentialStatus?: 'connected' | 'reconnect'
   remoteModelName?: string
   url?: string
   sizeBytes?: number
@@ -85,7 +91,7 @@ export interface LocalModel {
   addedAt: string
 }
 
-export type AppTheme = 'light' | 'system'
+export type AppTheme = 'light' | 'sarah-and-duck'
 export type AppFontSize = 'small' | 'medium' | 'large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
