@@ -106,6 +106,7 @@ export interface ModelRuntimeSettings {
   systemMessage: string
   chatTemplate: string
   suggestedFollowUpPrompt: string
+  starterQuestionPrompt?: string
   contextLength: number
   maxLength: number
   promptBatchSize: number

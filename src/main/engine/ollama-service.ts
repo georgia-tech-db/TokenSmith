@@ -31,6 +31,8 @@ import {
   parseFollowUpSuggestions,
   questionSuggestionCount,
   questionSuggestionMessages,
+  questionSuggestionSchema,
+  suggestionMaxTokens,
   shouldGenerateFollowUps,
   sourceContextBudgetForRequest,
   studyChatMessages,
@@ -856,7 +858,7 @@ async function runOllamaChatCompletion(
 
   const payload = (await response.json()) as OllamaChatResponse
   if (overrides.format && payload.done_reason === 'length') {
-    throw new Error('The question rewriter exceeded its output limit.')
+    throw new Error('The structured model response exceeded its output limit.')
   }
   const text = payload.message?.content ?? ''
   if (!text.trim()) {
@@ -912,7 +914,7 @@ async function generateOllamaFollowUpSuggestions(
     return []
   }
 
-  const maxTokens = Math.min(request.modelSettings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runOllamaChatCompletion(
@@ -920,7 +922,7 @@ async function generateOllamaFollowUpSuggestions(
     modelName,
     followUpSuggestionMessages(request, answer),
     request.modelSettings,
-    { maxTokens, temperature }
+    { maxTokens, temperature, format: questionSuggestionSchema(count) }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -981,7 +983,7 @@ export async function generateOllamaStudyQuestionSuggestions(
   const runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('question_suggestion_runtime_context_budget', runtimeRequest)
-  const maxTokens = Math.min(runtimeSettings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(runtimeSettings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runOllamaChatCompletion(
@@ -989,7 +991,7 @@ export async function generateOllamaStudyQuestionSuggestions(
     modelName,
     questionSuggestionMessages(runtimeRequest),
     runtimeSettings,
-    { maxTokens, temperature }
+    { maxTokens, temperature, format: questionSuggestionSchema(count) }
   )
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
@@ -999,5 +1001,8 @@ export async function generateOllamaStudyQuestionSuggestions(
     referenceQuestions,
     count
   )
+  writeTokenSmithLog('initial_question_suggestions', {
+    provider: 'ollama', modelName, rawResponse: text, suggestions, requestedCount: count
+  })
   return { suggestions }
 }

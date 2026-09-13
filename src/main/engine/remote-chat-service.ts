@@ -17,6 +17,7 @@ import {
   parseFollowUpSuggestions,
   questionSuggestionCount,
   questionSuggestionMessages,
+  suggestionMaxTokens,
   shouldGenerateFollowUps,
   studyChatMessages,
   type StudyChatMessage,
@@ -208,7 +209,7 @@ async function runRemoteChatCompletion(
 
   const payload = (await response.json()) as OpenAiCompatibleChatResponse
   if (overrides.requireComplete && payload.choices?.[0]?.finish_reason === 'length') {
-    throw new Error('The question rewriter exceeded its output limit.')
+    throw new Error('The model response exceeded its output limit.')
   }
   const text = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? ''
 
@@ -252,13 +253,13 @@ async function generateRemoteFollowUpSuggestions(
   if (count === 0) {
     return []
   }
-  const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runRemoteChatCompletion(
     config,
     followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature }
+    { maxTokens, temperature, requireComplete: true }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -327,10 +328,10 @@ export async function generateRemoteStudyQuestionSuggestions(
     apiKey: request.model.apiKey,
     settings
   }
-  const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature })
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
     .map((message) => message.text)
@@ -339,5 +340,8 @@ export async function generateRemoteStudyQuestionSuggestions(
     referenceQuestions,
     count
   )
+  writeTokenSmithLog('initial_question_suggestions', {
+    provider: 'remote', modelName: config.modelName, rawResponse: text, suggestions, requestedCount: count
+  })
   return { suggestions }
 }

@@ -1058,7 +1058,7 @@ button {
 }
 
 .starter-question-panel {
-  width: min(760px, 100%);
+  max-width: 760px;
   margin: 8px 0 32px 46px;
 }
 
@@ -1123,6 +1123,24 @@ button {
 .follow-up-row svg {
   flex: 0 0 auto;
   color: var(--muted);
+}
+
+.suggestion-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-text code {
+  white-space: normal;
+}
+
+.suggestion-text .katex {
+  font-size: 1em;
+}
+
+.suggestion-text .katex-display {
+  display: inline;
+  margin: 0;
 }
 
 .follow-up-row:hover,

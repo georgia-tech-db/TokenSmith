@@ -3,9 +3,9 @@ import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../s
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import {
   defaultFollowUpSuggestionCount,
-  defaultStarterQuestionPrompt,
+  normalizeStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
-  legacySuggestedFollowUpPrompt,
+  normalizeSuggestedFollowUpPrompt,
   minFollowUpSuggestionCount
 } from '../../shared/model-defaults'
 
@@ -21,17 +21,12 @@ const minAnswerReserveTokens = 256
 const maxAnswerReserveTokens = 1024
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
-  'Use the provided context as the factual basis for the answer.',
-  'Do not add facts from general knowledge when the context does not support them.',
-  'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
-  'Format the answer for readability: use short paragraphs with one idea each; use a compact bullet list or numbered list only for steps, comparisons, or multiple distinct points.',
-  'For how, why, definition, or elaboration questions, give a clear explanation instead of a one-sentence answer: name the idea, explain how it works, and include one brief concrete example or mini-walkthrough when the context supports one.',
-  'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
-  'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the current target. If the context supports only a related target, say the context does not say.',
-  'Do not overstate with words like always, faster, or better unless the context gives that condition.',
-  'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-  'If the context does not contain the answer, say that plainly and do not speculate.',
-  'Do not end by asking whether the student wants more detail.'
+  'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
+  'Use the supplied study material as the primary evidence for claims about this collection and its implementations. You may supplement it with well-established general knowledge to teach the concept or answer a follow-up. Put such additions under a "General background" heading rather than attributing them to the collection.',
+  'Explain what follows from the supplied code or mechanisms. Distinguish reasoning and illustrative examples from measured results. Never invent implementation details, benchmark numbers, or guarantees. Evidence about one object or workload does not establish the same claim for another.',
+  'If a specific judgment needs missing measurements or requirements, identify that uncertainty briefly and explain the relevant trade-off. Do not replace the explanation with a statement about missing context, and do not append unrelated limitations.',
+  'Match the student\'s request: for code, include the relevant fenced code or clearly labeled illustrative code; for an example, work through a small example. Explain how the mechanism works and why it matters, with enough detail to teach the idea. For comparisons or judgments, state the conclusion and its conditions without overstating them.',
+  'Use short paragraphs and compact lists where helpful. Do not repeat background already explained. Do not mention source labels, locators, or page numbers, and do not end by asking whether the student wants more detail.'
 ]
 
 function sourceContextInstructionText(): string {
@@ -335,7 +330,7 @@ export function sourceContext(sources: ChatSource[], options: SourceContextOptio
 export function sourceContextBudgetForRequest(request: EngineChatRequest | EngineQuestionSuggestionRequest): SourceContextBudget {
   const prompt = 'prompt' in request
     ? request.answerPrompt ?? request.prompt
-    : request.modelSettings?.suggestedFollowUpPrompt ?? ''
+    : formatFollowUpInstruction(suggestionPromptFor(request.modelSettings, 'starter'), questionSuggestionCount(request.applicationSettings))
   return packSourceContext(request.retrievedSources ?? [], {
     prompt,
     ...('prompt' in request ? {
@@ -343,7 +338,7 @@ export function sourceContextBudgetForRequest(request: EngineChatRequest | Engin
       referenceText: chatReferenceText(request)
     } : {}),
     model: request.model,
-    modelSettings: request.modelSettings,
+    modelSettings: 'prompt' in request ? request.modelSettings : { ...request.modelSettings, maxLength: suggestionMaxTokens },
     includeBudget: true
   }).budget
 }
@@ -425,7 +420,7 @@ function chatReferenceText(request: EngineChatRequest): string {
   const exchange = trimReferenceExchange(request.referenceExchange, historyTokens * estimatedCharsPerToken)
   return [
     '### Previous exchange (reference context, not factual evidence):',
-    'Use this only to identify what the current question refers to and preserve example identifiers. It may contain mistakes. Base factual claims on the retrieved context, not the previous answer.',
+    'Use this only to identify what the current question refers to and preserve example identifiers. It may contain mistakes. Do not treat the previous answer as evidence for factual claims.',
     JSON.stringify(exchange)
   ].join('\n')
 }
@@ -486,30 +481,23 @@ export function questionSuggestionCount(applicationSettings?: EngineChatRequest[
 
 export type SuggestionPromptKind = 'followUp' | 'starter'
 
-function defaultSuggestionPrompt(kind: SuggestionPromptKind): string {
-  return kind === 'starter' ? defaultStarterQuestionPrompt : defaultSuggestedFollowUpPrompt
-}
-
-function isBuiltInSuggestionPrompt(prompt: string): boolean {
-  const normalized = prompt.trim()
-  return normalized === '' ||
-    normalized === legacySuggestedFollowUpPrompt ||
-    normalized === defaultSuggestedFollowUpPrompt ||
-    normalized === defaultStarterQuestionPrompt
-}
-
 export function suggestionPromptFor(
   modelSettings: Partial<ModelRuntimeSettings> | undefined,
   kind: SuggestionPromptKind
 ): string {
-  const configuredPrompt = modelSettings?.suggestedFollowUpPrompt?.trim() ?? ''
-  return isBuiltInSuggestionPrompt(configuredPrompt)
-    ? defaultSuggestionPrompt(kind)
-    : configuredPrompt
+  return kind === 'starter'
+    ? normalizeStarterQuestionPrompt(modelSettings?.starterQuestionPrompt)
+    : normalizeSuggestedFollowUpPrompt(modelSettings?.suggestedFollowUpPrompt)
+}
+
+export const suggestionMaxTokens = 384
+
+export function questionSuggestionSchema(count: number): Record<string, unknown> {
+  return { type: 'array', items: { type: 'string' }, maxItems: count }
 }
 
 export function questionSuggestionMessages(request: EngineQuestionSuggestionRequest): StudyChatMessage[] {
-  const modelSettings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const modelSettings = { ...(modelAwareRuntimeSettings(request) ?? request.modelSettings), maxLength: suggestionMaxTokens }
   const systemMessage = modelSettings?.systemMessage?.trim()
   const count = questionSuggestionCount(request.applicationSettings)
   const kind: SuggestionPromptKind = request.messages.length === 0 ? 'starter' : 'followUp'
@@ -593,7 +581,6 @@ const followUpQuestionPattern =
   /\b(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b[^?\n]*\?/g
 const startsWithQuestionPattern =
   /^(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b/i
-const maxSuggestedQuestionWords = 18
 const suggestionSimilarityStopWords = new Set([
   'a',
   'about',
@@ -646,14 +633,9 @@ function normalizeSuggestionKey(suggestion: string): string {
 function isUsefulSuggestion(suggestion: string): boolean {
   return suggestion.length > 0 &&
     suggestion.length <= 180 &&
-    suggestionWordCount(suggestion) <= maxSuggestedQuestionWords &&
     suggestion.endsWith('?') &&
     !metaSuggestionPattern.test(suggestion) &&
     !awkwardSuggestionPattern.test(suggestion)
-}
-
-function suggestionWordCount(suggestion: string): number {
-  return normalizeSuggestionKey(suggestion).split(/\s+/).filter(Boolean).length
 }
 
 function comparableQuestionTokens(question: string): Set<string> {

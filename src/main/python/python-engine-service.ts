@@ -117,6 +117,7 @@ const visibleLogEvents = new Set([
   'chat_runtime_context_budget',
   'chat_question_rewrite',
   'follow_up_suggestions',
+  'initial_question_suggestions',
   'question_suggestion_request_context',
   'question_suggestion_runtime_context_budget',
   'library_search_request',

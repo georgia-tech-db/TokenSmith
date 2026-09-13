@@ -178,7 +178,7 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
     assert.equal(requestedUrl, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions')
     assert.equal(requestBody.model, 'gemini-2.5-flash')
     assert.match(requestBody.messages[0].content, /^Answer from sources\./)
-    assert.match(requestBody.messages[0].content, /keep the answer scoped/)
+    assert.match(requestBody.messages[0].content, /undergraduate understand the current question/)
     assert.match(requestBody.messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.equal(requestBody.max_tokens, 512)
     assert.equal(response.engineId, 'tokensmith')
@@ -343,9 +343,9 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
 
     assert.equal(requestBodies.length, 2)
     const followUpPrompt = requestBodies[1].messages.at(-1).content
-    assert.match(followUpPrompt, /Suggest up to 4 natural next questions a curious undergraduate student/i)
-    assert.match(followUpPrompt, /after this answer/i)
-    assert.match(followUpPrompt, /examples, intuition, code-level implementation, trade-offs/i)
+    assert.match(followUpPrompt, /Suggest up to 4 short next questions an undergraduate student/i)
+    assert.match(followUpPrompt, /after the latest answer/i)
+    assert.match(followUpPrompt, /small example, an implementation detail, or a limitation/i)
     assert.doesNotMatch(followUpPrompt, /very short factual/i)
     assert.doesNotMatch(followUpPrompt, /cannot be found/i)
     assert.doesNotMatch(followUpPrompt, /\{count\}/)

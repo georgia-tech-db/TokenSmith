@@ -19,6 +19,9 @@ const {
   suggestionPromptFor,
   studyChatMessages,
 } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
+const { defaultStarterQuestionPrompt, defaultSuggestedFollowUpPrompt, legacySuggestionPrompts,
+  normalizeStarterQuestionPrompt, normalizeSuggestedFollowUpPrompt } =
+  requireTranspiledTs('src/shared/model-defaults.ts')
 
 const addedAt = '2026-07-07T00:00:00.000Z'
 const databaseSource = {
@@ -34,17 +37,12 @@ const loggingSource = {
 const bplusTreeSource = buzzdbSource('ch09.019')
 const pinningSource = buzzdbSource('ch05.084')
 const databaseContext = [
-  'Use the provided context as the factual basis for the answer.',
-  'Do not add facts from general knowledge when the context does not support them.',
-  'Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep the answer scoped to the user\'s question.',
-  'Format the answer for readability: use short paragraphs with one idea each; use a compact bullet list or numbered list only for steps, comparisons, or multiple distinct points.',
-  'For how, why, definition, or elaboration questions, give a clear explanation instead of a one-sentence answer: name the idea, explain how it works, and include one brief concrete example or mini-walkthrough when the context supports one.',
-  'Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, name the comparison target, and state the workload or condition behind the trade-off.',
-  'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the current target. If the context supports only a related target, say the context does not say.',
-  'Do not overstate with words like always, faster, or better unless the context gives that condition.',
-  'Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-  'If the context does not contain the answer, say that plainly and do not speculate.',
-  'Do not end by asking whether the student wants more detail.',
+  'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
+  'Use the supplied study material as the primary evidence for claims about this collection and its implementations. You may supplement it with well-established general knowledge to teach the concept or answer a follow-up. Put such additions under a "General background" heading rather than attributing them to the collection.',
+  'Explain what follows from the supplied code or mechanisms. Distinguish reasoning and illustrative examples from measured results. Never invent implementation details, benchmark numbers, or guarantees. Evidence about one object or workload does not establish the same claim for another.',
+  'If a specific judgment needs missing measurements or requirements, identify that uncertainty briefly and explain the relevant trade-off. Do not replace the explanation with a statement about missing context, and do not append unrelated limitations.',
+  'Match the student\'s request: for code, include the relevant fenced code or clearly labeled illustrative code; for an example, work through a small example. Explain how the mechanism works and why it matters, with enough detail to teach the idea. For comparisons or judgments, state the conclusion and its conditions without overstating them.',
+  'Use short paragraphs and compact lists where helpful. Do not repeat background already explained. Do not mention source labels, locators, or page numbers, and do not end by asking whether the student wants more detail.',
   '',
   '### Context:',
   'Collection: Database Systems.pdf',
@@ -203,9 +201,11 @@ test('studyChatMessages sends standalone source context without raw prior conver
 
   assert.equal(chatMessages[0].role, 'system')
   assert.match(chatMessages[0].content, /Answer only from PDFs\./)
-  assert.match(chatMessages[0].content, /keep the answer scoped/)
-  assert.match(chatMessages[0].content, /short paragraphs with one idea each/)
-  assert.match(chatMessages[0].content, /include one brief concrete example/)
+  assert.match(chatMessages[0].content, /undergraduate understand the current question/)
+  assert.match(chatMessages[0].content, /General background/)
+  assert.match(chatMessages[0].content, /Never invent implementation details, benchmark numbers, or guarantees/)
+  assert.match(chatMessages[0].content, /short paragraphs and compact lists/)
+  assert.match(chatMessages[0].content, /work through a small example/)
   assert.equal(chatMessages.length, 2)
   assert.equal(chatMessages.some((message) => /Phase 3/.test(message.content)), false)
   assert.equal(chatMessages.at(-1).role, 'user')
@@ -244,7 +244,7 @@ test('studyChatMessages uses a resolved contextual prompt without copying raw hi
 
   assert.equal(chatMessages.length, 2)
   assert.equal(chatMessages[0].role, 'system')
-  assert.match(chatMessages[0].content, /Answer directly for a student/)
+  assert.match(chatMessages[0].content, /Open with a direct answer/)
   assert.equal(chatMessages.at(-1).role, 'user')
   assert.match(chatMessages.at(-1).content, /Previous question: What is pinning a page\?/)
   assert.match(chatMessages.at(-1).content, /Current question: why is that needed\?/)
@@ -292,7 +292,7 @@ test('question suggestion count and mode handling stay bounded', () => {
 test('questionSuggestionMessages uses source context before the shared question prompt', () => {
   const messages = questionSuggestionMessages(suggestionRequest({
     modelSettings: {
-      suggestedFollowUpPrompt: 'Use my shared question prompt for {count} questions.'
+      starterQuestionPrompt: 'Use my shared question prompt for {count} questions.'
     }
   }))
 
@@ -309,7 +309,7 @@ test('questionSuggestionMessages prefixes prompts without a count placeholder', 
       followUpSuggestionCount: 2
     },
     modelSettings: {
-      suggestedFollowUpPrompt: 'Ask about adjacent database concepts.'
+      starterQuestionPrompt: 'Ask about adjacent database concepts.'
     }
   }))
 
@@ -324,12 +324,12 @@ test('questionSuggestionMessages uses starter wording for new chats', () => {
   const prompt = messages.at(-1).content
 
   assert.deepEqual(messages[0], { role: 'user', content: databaseSuggestionContext })
-  assert.match(prompt, /first questions a curious undergraduate student/i)
-  assert.match(prompt, /serious study session/i)
-  assert.match(prompt, /Spread the questions across different sections/i)
-  assert.match(prompt, /Prefer named concepts, mechanisms, code structures/i)
-  assert.match(prompt, /Avoid trivial definition-only questions/i)
-  assert.match(prompt, /Avoid bare nouns like page, data, query/i)
+  assert.match(prompt, /short opening questions about the selected collection/i)
+  assert.match(prompt, /distinct main concepts/i)
+  assert.match(prompt, /broader, higher-level questions/i)
+  assert.match(prompt, /student has not read the material/i)
+  assert.match(prompt, /6-12 words/i)
+  assert.match(prompt, /JSON array/i)
   assert.doesNotMatch(prompt, /very short factual/i)
   assert.doesNotMatch(prompt, /cannot be found/i)
   assert.doesNotMatch(prompt, /Answer directly for a student/i)
@@ -344,11 +344,11 @@ test('questionSuggestionMessages uses follow-up wording once a chat has history'
   }))
   const prompt = messages.at(-1).content
 
-  assert.match(prompt, /natural next questions a curious undergraduate student/i)
-  assert.match(prompt, /after this answer/i)
-  assert.match(prompt, /concrete phrase, mechanism, trade-off, or claim/i)
-  assert.match(prompt, /latest answer the student just saw/i)
-  assert.match(prompt, /Keep each question short/i)
+  assert.match(prompt, /short next questions an undergraduate student/i)
+  assert.match(prompt, /after the latest answer/i)
+  assert.match(prompt, /specific idea, mechanism, or claim/i)
+  assert.match(prompt, /naturally follows from the answer/i)
+  assert.match(prompt, /6-12 words/i)
   assert.doesNotMatch(prompt, /first questions/)
   assert.doesNotMatch(prompt, /What part of this usually confuses people/)
 })
@@ -390,12 +390,20 @@ test('followUpSuggestionMessages uses only the current question and latest answe
   assert.doesNotMatch(messages[1].content, /MRU and scans/)
 })
 
-test('suggestionPromptFor treats saved built-in prompts as defaults', () => {
-  const oldPrompt = 'Suggest {count} very short factual follow-up questions that have not been answered yet or cannot be found inspired by the previous conversation and excerpts.'
-
-  assert.match(suggestionPromptFor({ suggestedFollowUpPrompt: oldPrompt }, 'starter'), /first questions/)
-  assert.match(suggestionPromptFor({ suggestedFollowUpPrompt: oldPrompt }, 'followUp'), /natural next questions/)
-  assert.equal(suggestionPromptFor({ suggestedFollowUpPrompt: 'Ask friendly questions.' }, 'starter'), 'Ask friendly questions.')
+test('migrates every known default but keeps the initial and custom follow-up prompts independent', () => {
+  for (const oldPrompt of legacySuggestionPrompts) {
+    const settings = { suggestedFollowUpPrompt: oldPrompt }
+    assert.equal(suggestionPromptFor(settings, 'starter'), defaultStarterQuestionPrompt)
+    assert.equal(suggestionPromptFor(settings, 'followUp'), defaultSuggestedFollowUpPrompt)
+  }
+  const settings = { suggestedFollowUpPrompt: 'Ask friendly questions.', starterQuestionPrompt: 'Ask broad questions.' }
+  assert.equal(suggestionPromptFor(settings, 'starter'), 'Ask broad questions.')
+  assert.equal(suggestionPromptFor(settings, 'followUp'), 'Ask friendly questions.')
+  assert.equal(suggestionPromptFor({ suggestedFollowUpPrompt: 'Ask friendly questions.' }, 'starter'), defaultStarterQuestionPrompt)
+  for (const invalid of [null, 12, {}, '  ']) {
+    assert.equal(normalizeStarterQuestionPrompt(invalid), defaultStarterQuestionPrompt)
+    assert.equal(normalizeSuggestedFollowUpPrompt(invalid), defaultSuggestedFollowUpPrompt)
+  }
 })
 
 test('formatFollowUpInstruction uses explicit placeholders without adding a second prefix', () => {
@@ -446,7 +454,10 @@ test('parseFollowUpSuggestions handles JSON, plain text, dedupe, and limits', ()
       'From the provided source, what is a dirty page?',
       'What kind of performance trade-offs can we expect in terms of hit rate and cache size if we increase the number of pages in the buffer pool for 2Q?'
     ].join('\n'), 4),
-    ['What problem does 2Q solve in the context of sequential flooding?']
+    [
+      'What problem does 2Q solve in the context of sequential flooding?',
+      'What kind of performance trade-offs can we expect in terms of hit rate and cache size if we increase the number of pages in the buffer pool for 2Q?'
+    ]
   )
 
   assert.deepEqual(

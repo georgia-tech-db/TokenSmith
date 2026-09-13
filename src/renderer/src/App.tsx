@@ -61,7 +61,8 @@ import {
   defaultStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
   followUpSuggestionCountOptions,
-  legacySuggestedFollowUpPrompt,
+  normalizeSuggestedFollowUpPrompt,
+  normalizeStarterQuestionPrompt,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
@@ -169,6 +170,7 @@ const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   systemMessage: '',
   chatTemplate: '',
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
+  starterQuestionPrompt: defaultStarterQuestionPrompt,
   contextLength: 2048,
   maxLength: 4096,
   promptBatchSize: 128,
@@ -867,21 +869,14 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
   const chatTemplate = typeof settings?.chatTemplate === 'string'
     ? settings.chatTemplate
     : defaultModelRuntimeSettings.chatTemplate
-  const rawSuggestedFollowUpPrompt = typeof settings?.suggestedFollowUpPrompt === 'string'
-    ? settings.suggestedFollowUpPrompt
-    : defaultModelRuntimeSettings.suggestedFollowUpPrompt
-  const suggestedFollowUpPrompt = [
-    '',
-    legacySuggestedFollowUpPrompt,
-    defaultStarterQuestionPrompt
-  ].includes(rawSuggestedFollowUpPrompt.trim())
-    ? defaultModelRuntimeSettings.suggestedFollowUpPrompt
-    : rawSuggestedFollowUpPrompt
+  const suggestedFollowUpPrompt = normalizeSuggestedFollowUpPrompt(settings?.suggestedFollowUpPrompt)
+  const starterQuestionPrompt = normalizeStarterQuestionPrompt(settings?.starterQuestionPrompt)
 
   return {
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
     chatTemplate,
     suggestedFollowUpPrompt,
+    starterQuestionPrompt,
     contextLength: Math.round(clampNumber(
       settings?.contextLength,
       defaultModelRuntimeSettings.contextLength,
@@ -2647,7 +2642,7 @@ function ChatScreen({
     activeMaterialKey,
     canSuggestStarterQuestions,
     selectedModel?.id,
-    selectedModelSettings.suggestedFollowUpPrompt,
+    selectedModelSettings.starterQuestionPrompt,
     settings.application.followUpSuggestionCount,
     settings.application.suggestionMode
   ])
@@ -3548,7 +3543,7 @@ function ChatScreen({
                 type="button"
                 onClick={() => handleUseStarterQuestion(question)}
               >
-                <span>{question}</span>
+                <MessageText text={question} inline />
                 <Plus size={18} aria-hidden="true" />
               </button>
             ))}
@@ -4713,7 +4708,7 @@ function AssistantMessage({
                   type="button"
                   onClick={() => onSelectFollowUp(suggestion)}
                 >
-                  <span>{suggestion}</span>
+                  <MessageText text={suggestion} inline />
                   <Plus size={18} aria-hidden="true" />
                 </button>
               ))}
@@ -7279,6 +7274,13 @@ function SettingsScreen({
                       minRows={7}
                       value={activeModelSettings.chatTemplate}
                       onChange={(chatTemplate) => updateModelSettings({ chatTemplate })}
+                    />
+                  </SettingsRow>
+                  <SettingsRow label="Initial Question Prompt" description="" wide>
+                    <TextAreaField
+                      ariaLabel="Initial question prompt"
+                      value={activeModelSettings.starterQuestionPrompt ?? defaultStarterQuestionPrompt}
+                      onChange={(starterQuestionPrompt) => updateModelSettings({ starterQuestionPrompt })}
                     />
                   </SettingsRow>
                   <SettingsRow

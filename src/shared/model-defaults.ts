@@ -5,7 +5,7 @@ export const defaultFollowUpSuggestionCount = followUpSuggestionCountOptions[1]
 export const legacySuggestedFollowUpPrompt =
   'Suggest {count} very short factual follow-up questions that have not been answered yet or cannot be found inspired by the previous conversation and excerpts.'
 
-export const defaultSuggestedFollowUpPrompt =
+const previousSuggestedFollowUpPrompt =
   [
     'Suggest up to {count} natural next questions a curious undergraduate student might ask after this answer.',
     'Make each question conversational, specific to the concept just discussed, and answerable from the course material.',
@@ -24,7 +24,7 @@ export const defaultSuggestedFollowUpPrompt =
     'Return only the questions, one per line.'
   ].join('\n')
 
-export const defaultStarterQuestionPrompt =
+const previousStarterQuestionPrompt =
   [
     'Suggest up to {count} first questions a curious undergraduate student might ask when opening these course materials.',
     'Spread the questions across different sections or topics in the selected material.',
@@ -40,3 +40,48 @@ export const defaultStarterQuestionPrompt =
     'Avoid quiz/exam wording, source/context wording, and generic reflection prompts about what is confusing.',
     'Return only the questions, one per line.'
   ].join('\n')
+
+export const defaultStarterQuestionPrompt = [
+  'Suggest up to {count} short opening questions about the selected collection for an undergraduate student.',
+  'Choose distinct main concepts represented in the material. Ask broader, higher-level questions about what they do, why they matter, or how they compare.',
+  'Assume the student has not read the material. Do not require knowledge of a numbered alternative, worked example, code symbol, or specific scenario.',
+  'Keep premises neutral: do not assume a technique is necessary or always better.',
+  'Use plain language and one idea per question, ideally 6-12 words. Name the concept so each question makes sense on its own.',
+  'Ask from the student to the tutor, not as a quiz. Avoid generic study advice and references to sources or sections.',
+  'Return fewer questions if there are fewer distinct topics. Return only a JSON array of question strings, without answers or explanations.'
+].join('\n')
+
+export const defaultSuggestedFollowUpPrompt = [
+  'Suggest up to {count} short next questions an undergraduate student might ask after the latest answer.',
+  'Choose a specific idea, mechanism, or claim in that answer that deserves further explanation. Do not repeat something already answered or already asked.',
+  'Use subjects the answer has already introduced. Do not introduce new technical names or theories the student has not encountered in the answer.',
+  'Ask about a reason, a small example, an implementation detail, or a limitation when it naturally follows from the answer. Do not invent new premises or unrelated topics.',
+  'Prefer questions that can be explained from the mechanisms already discussed, not judgments requiring missing measurements or undocumented behavior.',
+  'Use conversational language and one idea per question, ideally 6-12 words. Name the subject briefly, including in requests for examples or code.',
+  'Ask from the student to the tutor, not as a quiz. Avoid generic requests for more detail and references to sources or sections.',
+  'Return fewer questions when useful ideas run out. Return only a JSON array of question strings, without answers or explanations.'
+].join('\n')
+
+// Exact shipped defaults only: custom user instructions must survive upgrades.
+export const legacySuggestionPrompts = [
+  legacySuggestedFollowUpPrompt,
+  previousSuggestedFollowUpPrompt,
+  previousStarterQuestionPrompt,
+  [
+    'Suggest {count} natural next questions a curious undergraduate student might ask after this answer.',
+    'Make each question conversational, specific to the concept just discussed, and answerable from the course material.',
+    'Phrase them as questions from the student to the tutor, not questions that ask the student to think or recall.',
+    'Prefer concrete questions about examples, intuition, trade-offs, edge cases, or when the idea matters in practice.',
+    'Avoid quiz/exam wording, source/context wording, and generic reflection prompts about what is confusing.',
+    'Return only the questions, one per line.'
+  ].join('\n')
+]
+
+export function normalizeSuggestedFollowUpPrompt(prompt?: string): string {
+  const value = typeof prompt === 'string' ? prompt.trim() : ''
+  return !value || legacySuggestionPrompts.includes(value) ? defaultSuggestedFollowUpPrompt : value
+}
+
+export function normalizeStarterQuestionPrompt(prompt?: string): string {
+  return (typeof prompt === 'string' ? prompt.trim() : '') || defaultStarterQuestionPrompt
+}

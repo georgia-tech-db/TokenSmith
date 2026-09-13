@@ -17,6 +17,26 @@ writeFileSync(runtimePath, ts.transpileModule(readFileSync(sourcePath, 'utf8'), 
 }).outputText)
 const { MessageText } = await import(pathToFileURL(runtimePath).href)
 const render = (text) => renderToStaticMarkup(createElement(MessageText, { text }))
+const renderSuggestion = (text) => renderToStaticMarkup(createElement('button', null,
+  createElement(MessageText, { text, inline: true })))
+
+test('suggested questions render code, emphasis, and math inside one button', () => {
+  const html = renderSuggestion('How does `std::upper_bound` handle **equal** keys in $O(\\log N)$?')
+  assert.match(html, /<code>std::upper_bound<\/code>/)
+  assert.match(html, /<strong>equal<\/strong>/)
+  assert.match(html, /class="katex"/)
+  assert.doesNotMatch(html, /<p>|<div|\$|`|\*\*/)
+  assert.equal((html.match(/<button/g) || []).length, 1)
+})
+
+test('suggested questions cannot add links, controls, images, or block layout to a button', () => {
+  const html = renderSuggestion('# [Docs](https://example.com)\n\n- [ ] a task\n\n![pixel](https://example.com/pixel)\n\n```cpp\npath.push_back(node);\n```\n\n$$\nx^2\n$$')
+  assert.doesNotMatch(html, /<(?:a|input|img|div|p|pre|h1|ul|li)(?:\s|>)|href=|src=/)
+  assert.match(html, /Docs/)
+  assert.match(html, /path.push_back/)
+  assert.match(html, /class="katex"/)
+  assert.equal((html.match(/<button/g) || []).length, 1)
+})
 
 test('renders three nested list levels without flattening them', () => {
   assert.equal(render('- First level\n  1. Second level\n     - Third level\n  2. Second item\n- Last item'),
