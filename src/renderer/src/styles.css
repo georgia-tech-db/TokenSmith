@@ -3554,3 +3554,13 @@ button {
     white-space: normal;
   }
 }
+
+.message-math-display {
+  display: block;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.message-math-display .katex-display {
+  margin: 0.5em 0;
+}

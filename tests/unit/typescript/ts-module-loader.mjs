@@ -25,6 +25,7 @@ export function requireTranspiledTs(sourcePath) {
     const output = ts.transpileModule(source, {
       compilerOptions: {
         esModuleInterop: true,
+        jsx: ts.JsxEmit.ReactJSX,
         module: ts.ModuleKind.CommonJS,
         target: ts.ScriptTarget.ES2022
       },
