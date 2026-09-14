@@ -25,27 +25,21 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install Node dependencies
         run: npm ci
 
       - name: Build Python runtime
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          PYTHON_ROOT="$(python -c 'import pathlib, sys; print(pathlib.Path(sys.executable).resolve().parents[1])')"
-          mkdir -p app_runtime
-          rsync -a --delete \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            "$PYTHON_ROOT/" app_runtime/python/
+        run: npm run setup:python-runtime
 
       - name: Package macOS app
         run: npm run package:mac
+
+      - name: Verify packaged Python runtime
+        run: |
+          RUNTIME="release/mac/TokenSmith.app/Contents/Resources/app/app_runtime/python"
+          test -x "$RUNTIME/bin/python"
+          PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" \
+            "$RUNTIME/bin/python" -c 'import faiss, jinja2, numpy, pypdfium2, PIL'
 
       - name: Upload macOS package
         if: github.event_name == 'workflow_dispatch'
@@ -61,14 +55,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            TokenSmith 0.1.9 improves Ollama model management and makes first-turn study questions come from loaded PDFs.
+            TokenSmith 0.1.12 improves retrieval quality and makes packaged app builds use a reproducible private Python runtime.
 
             Major changes in this release:
-            - Adds Ollama library search and clearer model cards for local chat and embedder models.
-            - Shows real model download progress with pause, resume, and remove controls.
-            - Avoids activating incomplete model downloads.
-            - Uses the first indexed chunks from loaded PDFs to suggest first-turn study questions.
-            - Cleans answer wording so source and excerpt labels do not leak into chat responses.
+            - Adds hybrid semantic and keyword retrieval for better source grounding.
+            - Supports marked Markdown source text.
+            - Fixes Gemini model loading.
+            - Uses a pinned standalone Python runtime with pinned runtime dependencies.
+            - Verifies packaged app runtimes before uploading release artifacts.
+            - Avoids duplicate release artifacts from manual workflow runs.
 
             Platform assets are attached as their packaging workflows finish.
           files: release/TokenSmith-*-mac-*.dmg

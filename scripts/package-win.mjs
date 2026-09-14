@@ -50,20 +50,31 @@ async function copyIfExists(from, to) {
   await cp(from, to, {
     recursive: true,
     preserveTimestamps: true,
+    verbatimSymlinks: true,
     filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc')
   })
 }
 
+function requirePythonRuntime(appRuntimePath) {
+  const pythonExecutable = join(appRuntimePath, 'python', 'python.exe')
+  if (!existsSync(pythonExecutable)) {
+    throw new Error('TokenSmith Python runtime was not found. Run npm run setup:python-runtime before packaging.')
+  }
+}
+
 async function prepareAppPayload(resourcesPath) {
   const appPayloadPath = join(resourcesPath, 'app')
+  const appRuntimePath = join(rootDir, 'app_runtime')
 
   await mkdir(appPayloadPath, { recursive: true })
   await cp(join(rootDir, 'out'), join(appPayloadPath, 'out'), {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
   await copyIfExists(join(rootDir, 'python_engine'), join(appPayloadPath, 'python_engine'))
-  await copyIfExists(join(rootDir, 'app_runtime'), join(appPayloadPath, 'app_runtime'))
+  requirePythonRuntime(appRuntimePath)
+  await copyIfExists(appRuntimePath, join(appPayloadPath, 'app_runtime'))
   await writeJson(join(appPayloadPath, 'package.json'), {
     name: packageJson.name,
     version: appVersion,
@@ -87,7 +98,8 @@ async function preparePortableApp() {
   await mkdir(stagingDir, { recursive: true })
   await cp(electronDistPath, appDir, {
     recursive: true,
-    preserveTimestamps: true
+    preserveTimestamps: true,
+    verbatimSymlinks: true
   })
 
   await rm(appExePath, { recursive: true, force: true })

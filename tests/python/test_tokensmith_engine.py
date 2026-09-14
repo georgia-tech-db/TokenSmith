@@ -650,7 +650,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(application_settings, {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4})
+        self.assertEqual(
+            application_settings,
+            {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4, "searchMode": "hybrid"},
+        )
         self.assertEqual(engine.normalize_application_settings({"suggestionMode": "localDocs"})["suggestionMode"], "on")
         self.assertEqual(
             engine.normalize_application_settings({"suggestionMode": "off", "followUpSuggestionCount": 4})[
@@ -666,6 +669,49 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(model_settings["temperature"], 0.4)
         self.assertNotIn("chatNamePrompt", model_settings)
         self.assertNotIn("answerStyle", model_settings)
+
+    def test_search_mode_normalizes_and_defaults_to_hybrid(self):
+        self.assertEqual(engine.normalize_search_mode("keyword"), "keyword")
+        self.assertEqual(engine.normalize_search_mode("HYBRID"), "hybrid")
+        self.assertEqual(engine.normalize_search_mode(None), "hybrid")
+        self.assertEqual(engine.normalize_search_mode("nonsense"), "hybrid")
+        self.assertEqual(engine.normalize_application_settings({})["searchMode"], "hybrid")
+        self.assertEqual(
+            engine.normalize_application_settings({"searchMode": "hybrid"})["searchMode"], "hybrid"
+        )
+
+    def test_combine_search_hits_uses_rrf_for_hybrid(self):
+        vector_hits = [(1, 0.9), (2, 0.8), (3, 0.7), (4, 0.6)]
+        keyword_hits = [(10, 5.0), (11, 4.0), (2, 3.0), (12, 2.0)]
+
+        vector_only = engine.combine_search_hits("vector", vector_hits, keyword_hits, 4)
+        self.assertEqual([rowid for rowid, _ in vector_only], [1, 2, 3, 4])
+
+        keyword_only = engine.combine_search_hits("keyword", vector_hits, keyword_hits, 4)
+        self.assertEqual([rowid for rowid, _ in keyword_only], [10, 11, 2, 12])
+
+        hybrid = engine.combine_search_hits("hybrid", vector_hits, keyword_hits, 4)
+        self.assertEqual(len(hybrid), 4)
+        self.assertIn(10, [rowid for rowid, _score in hybrid])
+        self.assertIn(11, [rowid for rowid, _score in hybrid])
+
+    def test_combine_search_hits_preserves_keyword_rank_order(self):
+        vector_hits = [(3, 0.9), (4, 0.8)]
+        keyword_hits = [(1, 1.0), (2, 5.0)]
+
+        keyword_only = engine.combine_search_hits("keyword", vector_hits, keyword_hits, 2)
+        self.assertEqual([rowid for rowid, _score in keyword_only], [1, 2])
+
+    def test_build_fts_match_query_is_operator_safe(self):
+        self.assertEqual(
+            store.build_fts_match_query(["poems", "friendship"]),
+            '"poems" OR "friendship"',
+        )
+        self.assertEqual(
+            store.build_fts_match_query(["poems", "friendship"], "AND"),
+            '"poems" "friendship"',
+        )
+        self.assertEqual(store.build_fts_match_query(["match?", "poems"]), '"poems"')
 
     def test_default_model_runtime_settings_match_tokensmith_defaults(self):
         settings = engine.normalize_model_runtime_settings({})
@@ -961,6 +1007,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "query": "What does third normal form remove?",
                     "materials": [material],
                     "limit": 2,
+                    "searchMode": "vector",
                     "userDataPath": str(temp_path / "user-data"),
                 }
             )

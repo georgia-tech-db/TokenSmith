@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import random
+import re
 import sqlite3
 import time
 from datetime import datetime
@@ -19,6 +21,110 @@ except Exception:  # pragma: no cover - optional until app runtime is installed
 DB_NAME = "tokensmith.sqlite"
 FAISS_NAME = "tokensmith.faiss"
 SCHEMA_VERSION = 9
+KEYWORD_STOPWORDS: Set[str] = {
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "all",
+    "also",
+    "am",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "between",
+    "but",
+    "by",
+    "can",
+    "cant",
+    "cannot",
+    "could",
+    "did",
+    "do",
+    "does",
+    "doing",
+    "dont",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "having",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "just",
+    "may",
+    "me",
+    "more",
+    "most",
+    "need",
+    "no",
+    "not",
+    "of",
+    "on",
+    "only",
+    "or",
+    "our",
+    "over",
+    "same",
+    "should",
+    "so",
+    "some",
+    "such",
+    "than",
+    "that",
+    "the",
+    "their",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "up",
+    "use",
+    "used",
+    "using",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "whether",
+    "which",
+    "while",
+    "who",
+    "why",
+    "will",
+    "with",
+    "would",
+}
+MAX_KEYWORD_QUERY_TERMS = 8
+MAX_ANCHOR_DF_RATIO = 0.20
 
 
 def db_path(user_data_path: str) -> Path:
@@ -1018,6 +1124,171 @@ def vector_search(
     allowed = {int(chunk["rowid"]) for chunk in allowed_chunks}
 
     return [(rowid, score) for rowid, score in raw if rowid in allowed][:limit]
+
+
+def _active_chunks_filter(active_material_ids: Sequence[str]) -> Tuple[str, List[str]]:
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    return (
+        f"""
+        EXISTS (
+            SELECT 1
+            FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN collection_items ci ON ci.folder_id = d.folder_id
+            JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+            WHERE ch.id = chunks_fts.rowid
+              AND CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+              AND s.status = 'ready'
+              AND s.is_active = 1
+        )
+        """,
+        [str(material_id) for material_id in active_material_ids],
+    )
+
+
+def keyword_query_terms(query: str) -> List[str]:
+    terms: List[str] = []
+    seen: Set[str] = set()
+    for raw_term in re.findall(r"[0-9A-Za-z]+", query or ""):
+        term = raw_term.casefold()
+        if len(term) < 2 or term in KEYWORD_STOPWORDS or term in seen:
+            continue
+        terms.append(term)
+        seen.add(term)
+    return terms
+
+
+def build_fts_match_query(terms: Sequence[str], operator: str = "OR") -> str:
+    safe_terms = []
+    for term in terms:
+        normalized = str(term).casefold()
+        if re.fullmatch(r"[0-9a-z]+", normalized):
+            safe_terms.append(normalized)
+    if not safe_terms:
+        return ""
+    joiner = " " if operator == "AND" else " OR "
+    return joiner.join(f'"{term}"' for term in safe_terms)
+
+
+def keyword_terms_for_query(
+    user_data_path: str,
+    query: str,
+    active_material_ids: Sequence[str],
+    max_terms: int = MAX_KEYWORD_QUERY_TERMS,
+) -> List[str]:
+    terms = keyword_query_terms(query)
+    if not terms or not active_material_ids or max_terms <= 0:
+        return []
+
+    active_filter, active_params = _active_chunks_filter(active_material_ids)
+    with connect(user_data_path) as conn:
+        total_chunks = conn.execute(
+            f"""
+            SELECT COUNT(DISTINCT chunks_fts.rowid)
+            FROM chunks_fts
+            WHERE {active_filter}
+            """,
+            active_params,
+        ).fetchone()[0]
+
+        if not total_chunks:
+            return []
+
+        ranked_terms: List[Tuple[str, float, int, int]] = []
+        fallback_terms: List[Tuple[str, float, int, int]] = []
+        for index, term in enumerate(terms):
+            try:
+                df = int(
+                    conn.execute(
+                        f"""
+                        SELECT COUNT(DISTINCT chunks_fts.rowid)
+                        FROM chunks_fts
+                        WHERE chunks_fts MATCH ?
+                          AND {active_filter}
+                        """,
+                        [build_fts_match_query([term]), *active_params],
+                    ).fetchone()[0]
+                )
+            except sqlite3.OperationalError:
+                continue
+
+            if df <= 0:
+                continue
+
+            idf = math.log((float(total_chunks) + 1.0) / (float(df) + 1.0)) + 1.0
+            term_rank = (term, idf, df, index)
+            fallback_terms.append(term_rank)
+            if df / float(total_chunks) <= MAX_ANCHOR_DF_RATIO or len(term) >= 4:
+                ranked_terms.append(term_rank)
+
+    chosen_terms = ranked_terms or fallback_terms
+    chosen_terms.sort(key=lambda item: (-item[1], item[2], item[3]))
+    return [term for term, _idf, _df, _index in chosen_terms[:max_terms]]
+
+
+def keyword_search_with_match_query(
+    user_data_path: str,
+    match_query: str,
+    active_material_ids: Sequence[str],
+    limit: int,
+) -> List[Tuple[int, float]]:
+    if not active_material_ids or not match_query:
+        return []
+
+    active_filter, active_params = _active_chunks_filter(active_material_ids)
+
+    with connect(user_data_path) as conn:
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT rowid AS rowid, bm25(chunks_fts) AS score
+                FROM chunks_fts
+                WHERE chunks_fts MATCH ?
+                  AND {active_filter}
+                ORDER BY score
+                LIMIT ?
+                """,
+                [match_query, *active_params, limit],
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+    # bm25() is lower-is-better; flip the sign so higher means more relevant, like the vector scores.
+    return [(int(row["rowid"]), -float(row["score"])) for row in rows]
+
+
+def keyword_search(
+    user_data_path: str,
+    query: str,
+    active_material_ids: Sequence[str],
+    limit: int,
+    terms: Optional[Sequence[str]] = None,
+) -> List[Tuple[int, float]]:
+    """Rank chunks by BM25 relevance over the chunks_fts index."""
+    if not active_material_ids:
+        return []
+
+    match_terms = list(terms) if terms is not None else keyword_terms_for_query(user_data_path, query, active_material_ids)
+    if not match_terms:
+        return []
+
+    match_queries = []
+    if len(match_terms) > 1:
+        match_queries.append(build_fts_match_query(match_terms, "AND"))
+    match_queries.append(build_fts_match_query(match_terms, "OR"))
+
+    seen: Set[int] = set()
+    hits: List[Tuple[int, float]] = []
+    for match_query in match_queries:
+        for rowid, score in keyword_search_with_match_query(user_data_path, match_query, active_material_ids, limit):
+            if rowid in seen:
+                continue
+            hits.append((rowid, score))
+            seen.add(rowid)
+            if len(hits) >= limit:
+                return hits
+
+    return hits
 
 
 def fetch_sources(

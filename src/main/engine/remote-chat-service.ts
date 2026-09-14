@@ -22,13 +22,6 @@ interface OpenAiCompatibleModelList {
   data?: Array<{ id?: string }>
 }
 
-interface GeminiModelList {
-  models?: Array<{
-    name?: string
-    supportedGenerationMethods?: string[]
-  }>
-}
-
 interface OpenAiCompatibleChatResponse {
   choices?: Array<{
     message?: {
@@ -69,12 +62,6 @@ function normalizeListedModelId(modelId: string, baseUrl: string): string {
   }
 
   return trimmedModelId
-}
-
-function geminiNativeBaseUrl(baseUrl: string): string {
-  const url = new URL(normalizeBaseUrl(baseUrl))
-  url.pathname = url.pathname.replace(/\/openai$/, '')
-  return url.toString().replace(/\/+$/, '')
 }
 
 function assertRemoteModel(model: LocalModel): asserts model is LocalModel & {
@@ -134,6 +121,24 @@ function compareModelIds(left: string, right: string, preferredPrefix?: string):
   return compareNumberListsDescending(numericGroups(left), numericGroups(right)) || left.localeCompare(right)
 }
 
+function isLikelyEmbeddingModelId(modelId: string): boolean {
+  const lower = modelId.toLowerCase()
+  return lower.includes('embedding') || lower.includes('embed')
+}
+
+function listedModelMatchesRole(modelId: string, baseUrl: string, role: LocalModelRole): boolean {
+  if (!isGeminiOpenAiBaseUrl(baseUrl)) {
+    return true
+  }
+
+  if (role === 'both') {
+    return true
+  }
+
+  const embeddingModel = isLikelyEmbeddingModelId(modelId)
+  return role === 'embedder' ? embeddingModel : !embeddingModel
+}
+
 export async function listOpenAiCompatibleModels(
   apiKey: string,
   baseUrl: string,
@@ -144,35 +149,6 @@ export async function listOpenAiCompatibleModels(
     return []
   }
 
-  if (isGeminiOpenAiBaseUrl(normalizedBaseUrl)) {
-    const nativeBaseUrl = geminiNativeBaseUrl(normalizedBaseUrl)
-    const response = await fetch(`${nativeBaseUrl}/models`, {
-      headers: {
-        'x-goog-api-key': apiKey.trim(),
-        Accept: 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`Model list failed with HTTP ${response.status}.`)
-    }
-
-    const payload = (await response.json()) as GeminiModelList
-    const requiredMethod = role === 'embedder' ? 'embedContent' : 'generateContent'
-    const candidates = Array.from(
-      new Set(
-        (payload.models ?? [])
-          .filter((model) => model.supportedGenerationMethods?.includes(requiredMethod))
-          .map((model) => model.name)
-          .filter((id): id is string => Boolean(id))
-          .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
-          .filter((id) => Boolean(id))
-      )
-    ).sort((left, right) => compareModelIds(left, right, 'gemini-'))
-
-    return candidates
-  }
-
   const response = await fetch(`${normalizedBaseUrl}/models`, {
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
@@ -181,7 +157,7 @@ export async function listOpenAiCompatibleModels(
   })
 
   if (!response.ok) {
-    throw new Error(`Model list failed with HTTP ${response.status}.`)
+    throw new Error(`Model list failed with HTTP ${response.status}${await responseErrorDetail(response, apiKey)}.`)
   }
 
   const payload = (await response.json()) as OpenAiCompatibleModelList
@@ -190,9 +166,10 @@ export async function listOpenAiCompatibleModels(
     .filter((id): id is string => Boolean(id))
     .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
     .filter((id) => Boolean(id))
+    .filter((id) => listedModelMatchesRole(id, normalizedBaseUrl, role))
 
   return Array.from(new Set(modelIds))
-    .sort(compareModelIds)
+    .sort((left, right) => compareModelIds(left, right, isGeminiOpenAiBaseUrl(normalizedBaseUrl) ? 'gemini-' : undefined))
 }
 
 async function runRemoteChatCompletion(

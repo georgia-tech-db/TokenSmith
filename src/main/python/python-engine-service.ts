@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress } from '../../shared/app-state'
+import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
@@ -183,27 +183,27 @@ function logSource(source: ChatSource): Record<string, unknown> {
   }
 }
 
-function getPythonExecutable(): string {
-  const runtimeCandidates =
-    process.platform === 'win32'
-      ? [
-          join(app.getAppPath(), 'app_runtime', 'python', 'python.exe'),
-          join(app.getAppPath(), 'app_runtime', 'python', 'Scripts', 'python.exe'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'python.exe'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'Scripts', 'python.exe')
-        ]
-      : [
-          join(app.getAppPath(), 'app_runtime', 'python', 'bin', 'python'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'bin', 'python')
-        ]
+function getPythonRuntimeRoot(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'app', 'app_runtime', 'python')
+    : join(app.getAppPath(), 'app_runtime', 'python')
+}
 
-  for (const candidate of runtimeCandidates) {
-    if (existsSync(candidate)) {
-      return candidate
-    }
+function getPythonExecutable(): string {
+  const runtimeRoot = getPythonRuntimeRoot()
+  const pythonExecutable = process.platform === 'win32'
+    ? join(runtimeRoot, 'python.exe')
+    : join(runtimeRoot, 'bin', 'python')
+
+  if (existsSync(pythonExecutable)) {
+    return pythonExecutable
   }
 
-  throw new Error('The bundled TokenSmith Python runtime was not found. Run npm run setup:python-runtime before starting the app locally.')
+  throw new Error(
+    app.isPackaged
+      ? 'The TokenSmith installation is incomplete because its private Python runtime is missing. Reinstall TokenSmith.'
+      : 'The TokenSmith Python runtime was not found. Run npm run setup:python-runtime before starting the app locally.'
+  )
 }
 
 function getWorkerPath(): string {
@@ -592,12 +592,14 @@ export async function searchLibraryWithPython(
   query: string,
   materials: CourseMaterial[],
   limit: number,
-  embeddingModels?: LocalModel[]
+  embeddingModels?: LocalModel[],
+  searchMode?: SearchMode
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   writeLog('library_search_request', {
     query,
     limit,
+    searchMode,
     materials: materials.map((material) => ({
       id: material.id,
       title: material.title,
@@ -621,6 +623,7 @@ export async function searchLibraryWithPython(
       materials,
       limit,
       embeddingModels: resolvedEmbeddingModels,
+      searchMode,
       userDataPath: app.getPath('userData')
     },
     30_000

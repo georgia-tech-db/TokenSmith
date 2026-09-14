@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from datetime import datetime
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -46,6 +46,8 @@ if _NEEDS_STORE:
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            keyword_search,
+            keyword_terms_for_query,
             list_materials,
             set_material_active,
             source_document_for_source,
@@ -66,6 +68,8 @@ if _NEEDS_STORE:
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            keyword_search,
+            keyword_terms_for_query,
             list_materials,
             set_material_active,
             source_document_for_source,
@@ -1800,12 +1804,71 @@ def no_enabled_materials_reason(user_data_path: str) -> str:
     return "no_materials"
 
 
+SEARCH_MODES = ("vector", "keyword", "hybrid")
+DEFAULT_SEARCH_MODE = "hybrid"
+RRF_RANK_CONSTANT = 60.0
+HYBRID_KEYWORD_WEIGHT = 1.5
+HYBRID_VECTOR_WEIGHT = 1.0
+
+
+def normalize_search_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in SEARCH_MODES else DEFAULT_SEARCH_MODE
+
+
+def reciprocal_rank_fusion(
+    rankings: Sequence[Tuple[float, Sequence[int]]],
+    limit: int,
+    rank_constant: float = RRF_RANK_CONSTANT,
+) -> List[Tuple[int, float]]:
+    scores: Dict[int, float] = {}
+    first_seen: Dict[int, int] = {}
+    order = 0
+
+    for weight, rowids in rankings:
+        if weight <= 0:
+            continue
+        for index, rowid in enumerate(rowids):
+            if rowid not in first_seen:
+                first_seen[rowid] = order
+                order += 1
+            scores[rowid] = scores.get(rowid, 0.0) + (weight / (rank_constant + index + 1))
+
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], first_seen[item[0]]))
+    return ranked[:limit]
+
+
+def combine_search_hits(
+    mode: str,
+    vector_hits: Sequence[Tuple[int, float]],
+    keyword_hits: Sequence[Tuple[int, float]],
+    limit: int,
+) -> List[Tuple[int, float]]:
+    vector_ranked = sorted(vector_hits, key=lambda item: item[1], reverse=True)
+    keyword_ranked = list(keyword_hits)
+
+    if mode == "vector":
+        return vector_ranked[:limit]
+    if mode == "keyword":
+        return keyword_ranked[:limit]
+
+    return reciprocal_rank_fusion(
+        [
+            (HYBRID_KEYWORD_WEIGHT, [rowid for rowid, _score in keyword_ranked]),
+            (HYBRID_VECTOR_WEIGHT, [rowid for rowid, _score in vector_ranked]),
+        ],
+        limit,
+    )
+
+
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
 
     query = payload.get("query", "")
     limit = int(payload.get("limit") or 4)
+    search_mode = normalize_search_mode(payload.get("searchMode"))
+    candidate_limit = max(limit * 8, limit) if search_mode == "hybrid" else limit
     materials = payload.get("materials") or []
     embedding_specs = embedding_model_specs(payload)
     requested_active_materials = [
@@ -1840,7 +1903,9 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     vector_hits_by_rowid: Dict[int, Tuple[float, str]] = {}
     skipped_embedding_models: List[str] = []
 
-    for embedding_key, grouped_active_ids in active_ids_by_embedding_model.items():
+    for embedding_key, grouped_active_ids in (
+        active_ids_by_embedding_model.items() if search_mode in ("vector", "hybrid") else []
+    ):
         log_event("search_embedding_provider_resolve_start", embeddingKey=embedding_key)
         embed_text, embedding_reason = resolve_embedding_provider_for_key(embedding_key, embedding_specs)
         log_event(
@@ -1861,33 +1926,40 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             skipped_embedding_models.append(embedding_key)
             continue
 
-        for rowid, score in vector_search(user_data_path, query_embedding, grouped_active_ids, limit, embedding_key):
+        for rowid, score in vector_search(
+            user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key
+        ):
             current = vector_hits_by_rowid.get(rowid)
             if current is None or score > current[0]:
                 vector_hits_by_rowid[rowid] = (score, embedding_key)
 
-    vector_hits_with_models = sorted(
-        ((rowid, score, embedding_key) for rowid, (score, embedding_key) in vector_hits_by_rowid.items()),
-        key=lambda item: item[1],
-        reverse=True,
-    )
+    keyword_terms: List[str] = []
+    keyword_hits: List[Tuple[int, float]] = []
+    if search_mode in ("keyword", "hybrid"):
+        keyword_terms = keyword_terms_for_query(user_data_path, query, active_ids)
+        keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms)
+
+    vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
+    ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, limit)
+
     log_event(
         "search_results_ranked",
         queryChars=len(query),
+        searchMode=search_mode,
         embeddingModels=list(active_ids_by_embedding_model),
         skippedEmbeddingModels=skipped_embedding_models,
-        vectorHits=len(vector_hits_with_models),
-        topMode="vector" if vector_hits_with_models else None,
+        vectorHits=len(vector_hits),
+        keywordHits=len(keyword_hits),
+        keywordTerms=keyword_terms,
+        rankedHits=len(ranked),
     )
 
-    row_embedding_models = {rowid: embedding_key for rowid, _score, embedding_key in vector_hits_with_models}
-    rows = fetch_sources(
-        user_data_path,
-        [(rowid, score) for rowid, score, _embedding_key in vector_hits_with_models[:limit]],
-        active_ids,
-    )
+    row_embedding_models = {
+        rowid: embedding_key for rowid, (_score, embedding_key) in vector_hits_by_rowid.items()
+    }
+    rows = fetch_sources(user_data_path, ranked, active_ids)
     for row in rows:
-        row["retrieval_mode"] = "vector"
+        row["retrieval_mode"] = search_mode
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
     sources = [source_from_sqlite_chunk(row, query_tokens) for row in rows]
     return {"sources": sources, "reason": None if sources else "no_matching_sources"}
@@ -1957,6 +2029,7 @@ DEFAULT_APPLICATION_SETTINGS: Dict[str, Any] = {
     "cpuThreads": 4,
     "suggestionMode": "on",
     "followUpSuggestionCount": DEFAULT_FOLLOW_UP_SUGGESTION_COUNT,
+    "searchMode": DEFAULT_SEARCH_MODE,
 }
 
 def clamp_number(value: Any, default_value: float, minimum: float, maximum: float) -> float:
@@ -1995,6 +2068,7 @@ def normalize_application_settings(settings: Optional[Dict[str, Any]]) -> Dict[s
         "cpuThreads": int(round(clamp_number(settings.get("cpuThreads"), DEFAULT_APPLICATION_SETTINGS["cpuThreads"], 1, 64))),
         "suggestionMode": suggestion_mode,
         "followUpSuggestionCount": follow_up_count,
+        "searchMode": normalize_search_mode(settings.get("searchMode")),
     }
 
 
@@ -2364,6 +2438,7 @@ def chat(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "limit": limit,
                     "model": model,
                     "embeddingModels": payload.get("embeddingModels") or [],
+                    "searchMode": application_settings.get("searchMode"),
                 }
             )
             sources = search_result["sources"]
