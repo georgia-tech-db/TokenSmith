@@ -22,8 +22,9 @@ const maxAnswerReserveTokens = 1024
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
   'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
-  'Use the supplied study material as the primary evidence for claims about this collection and its implementations. You may supplement it with well-established general knowledge to teach the concept or answer a follow-up. Put such additions under a "General background" heading rather than attributing them to the collection.',
-  'Explain what follows from the supplied code or mechanisms. Distinguish reasoning and illustrative examples from measured results. Never invent implementation details, benchmark numbers, or guarantees. Evidence about one object or workload does not establish the same claim for another.',
+  'Use the supplied study material as evidence to answer in your own words. When the answer is implicit, connect the relevant details and explain the inference. Explain the cause of an outcome, not merely that it happened; a quotation or restatement alone is not an explanation. Reasoning from the source belongs in the main answer. Only additions from outside knowledge go under a "General background" heading; use well-established knowledge and do not attribute it to the collection.',
+  'Each source unit belongs to a specific work, section, example, or table. Identify the unit the question concerns. Keep its subjects and claims distinct from those of other units, even within one document. Do not substitute another unit\'s speaker, data, assumptions, or conclusion. Connect different units only when the question calls for it, naming the distinction.',
+  'Ground interpretations in the actual details and distinguish interpretation from explicit statements. For numerical material, retain units, dates, variable definitions, and assumptions. Distinguish reasoning and illustrative examples from measured results. Never invent implementation details, benchmark numbers, or guarantees. Evidence about one object or workload does not establish the same claim for another.',
   'If a specific judgment needs missing measurements or requirements, identify that uncertainty briefly and explain the relevant trade-off. Do not replace the explanation with a statement about missing context, and do not append unrelated limitations.',
   'Match the student\'s request: for code, include the relevant fenced code or clearly labeled illustrative code; for an example, work through a small example. Explain how the mechanism works and why it matters, with enough detail to teach the idea. For comparisons or judgments, state the conclusion and its conditions without overstating them.',
   'Use short paragraphs and compact lists where helpful. Do not repeat background already explained. Do not mention source labels, locators, or page numbers, and do not end by asking whether the student wants more detail.'
@@ -231,7 +232,7 @@ function sourcePrefix(source: ChatSource): string {
   const collection = source.collectionName || source.documentTitle || source.title || 'Library'
   const path = source.path || source.title || ''
   const section = source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''
-  return `Collection: ${collection}\nPath: ${path}\n${section}Text: `
+  return `### Source unit\nCollection: ${collection}\nPath: ${path}\n${section}Text: `
 }
 
 function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
@@ -274,21 +275,22 @@ export function packSourceContext(
 
   for (const source of sources) {
     const prefix = sourcePrefix(source)
+    const suffix = '\n### End source unit\n'
     if (!options.includeBudget) {
       const unbudgetedText = sourceText(source)
-      blocks.push(`${prefix}${unbudgetedText.text}`)
+      blocks.push(`${prefix}${unbudgetedText.text}${suffix}`)
       continue
     }
 
     const remainingTokens = budget.sourceBudgetTokens - usedSourceTokens
-    const prefixTokens = estimateTokens(prefix)
+    const prefixTokens = estimateTokens(prefix + suffix)
     const textBudgetTokens = remainingTokens - prefixTokens - 4
     if (textBudgetTokens < minSourceTextTokens) {
       break
     }
 
     const clipped = sourceText(source, textBudgetTokens, terms)
-    const block = `${prefix}${clipped.text}`
+    const block = `${prefix}${clipped.text}${suffix}`
     const blockTokens = estimateTokens(block)
     if (blockTokens > remainingTokens) {
       break

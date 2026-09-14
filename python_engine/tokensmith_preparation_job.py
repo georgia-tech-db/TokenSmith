@@ -53,12 +53,12 @@ def index(payload: dict, engine: Any) -> dict:
         engine.send_progress(payload.get('_requestId'), {'materialId': payload.get('materialId') or material_id,
                              'phase': phase, 'percent': percent, 'totalFiles': len(files), 'message': message, **extra})
 
-    def local_complete(messages: list[dict]) -> str:
+    def local_complete(messages: list[dict], schema: dict) -> str:
         if not model.get('path'):
             raise ValueError('The local preparation model file is unavailable.')
         llm = engine.load_llama(model['path'], {'contextLength': model.get('contextLength') or 8192})
         result = llm.create_chat_completion(messages=messages, temperature=0, max_tokens=3000,
-                                            response_format={'type': 'json_object'})
+                                            response_format={'type': 'json_object', 'schema': schema})
         return result['choices'][0]['message']['content']
 
     progress('parsing', 1, 'Reading documents')
@@ -88,7 +88,7 @@ def index(payload: dict, engine: Any) -> dict:
                 chunks = prepare_blocks(blocks, complete, model_cache, instructions,
                     lambda done, total, message: progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
                         f'{message}: {file_path.name}', processedFiles=file_index),
-                    window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)), audit=True)
+                    window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)))
                 document = {'id': engine.create_id('document'), 'materialId': material_id, 'title': file_path.stem,
                             'path': str(file_path), 'kind': engine.material_kind(file_path), 'pageCount': page_count,
                             'wordCount': sum(c['wordCount'] for c in chunks), 'chunkCount': len(chunks), 'status': 'ready'}

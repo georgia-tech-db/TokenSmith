@@ -6,6 +6,7 @@ node_modules/
 dist/
 out/
 release/
+/tmp/
 *.log
 .DS_Store
 __pycache__/

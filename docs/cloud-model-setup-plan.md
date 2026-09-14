@@ -1,5 +1,11 @@
 # Cloud model setup: student experience plan
 
+The [revised first-run and model workflow plan](first-run-setup-plan.md) supersedes
+the first-run and navigation recommendations below, including the original decision
+to keep a standalone Models pane. It records the post-commit UI audit, remaining
+work, and testing without deleting or redownloading installed models. The existing
+cloud implementation and its verification notes are retained here.
+
 Status: implemented in the working tree, September 13, 2026. The scope is cloud **generation** models. Nomic, embedding selection, and existing indexes remain unchanged. The design below records the original proposal; the implementation and verification notes here describe what shipped in this change.
 
 ## Implementation and verification

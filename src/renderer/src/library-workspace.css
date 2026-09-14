@@ -13,7 +13,13 @@
 .library-path-field button { flex-shrink: 0; }
 .library-workspace button:not(.primary-action):not(.library-back):not(.library-title) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: inherit; padding: 7px 10px; font: inherit; font-size: 13px; }
 .library-hint, .library-workspace small { color: var(--muted); font-size: 12px; }
-.library-preparation-settings { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--panel); }
+.library-preparation-choice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; font-size: 14px; }
+.library-preparation-modes { display: inline-flex; }
+.library-workspace .library-preparation-choice .library-preparation-modes button[aria-pressed] { min-width: 64px; border-radius: 0; }
+.library-workspace .library-preparation-choice .library-preparation-modes button:first-child { border-radius: 6px 0 0 6px; }
+.library-workspace .library-preparation-choice .library-preparation-modes button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.library-workspace .library-preparation-choice .library-preparation-modes button[aria-pressed=true] { background: var(--ink); color: var(--panel); }
+.library-preparation-settings { border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; background: var(--panel); }
 .library-preparation-settings summary { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .library-preparation-settings summary span { margin-left: auto; font-size: 12px; color: var(--muted); }
 .library-preparation-settings[open] > :not(summary) { margin-top: 16px; }

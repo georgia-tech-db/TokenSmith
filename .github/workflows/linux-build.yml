@@ -75,15 +75,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            TokenSmith 0.1.12 improves retrieval quality and makes packaged app builds use a reproducible private Python runtime.
+            TokenSmith 0.1.13 updates study chat, model setup, and collection preparation.
 
             Major changes in this release:
-            - Adds hybrid semantic and keyword retrieval for better source grounding.
-            - Supports marked Markdown source text.
-            - Fixes Gemini model loading.
-            - Uses a pinned standalone Python runtime with pinned runtime dependencies.
-            - Verifies packaged app runtimes before uploading release artifacts.
-            - Avoids duplicate release artifacts from manual workflow runs.
+            - Adds model-aware context budgets, rewritten follow-up queries, and source-unit retrieval.
+            - Adds cloud answer-model connections and improves Ollama model discovery.
+            - Adds Markdown/math rendering, suggested questions, quoting, question navigation, and inline editing.
+            - Defaults new collections to Basic preparation, with numbered-line AI preparation available as an experimental option.
+            - Preserves source text and supports resumable AI preparation with validated boundary numbers.
+            - Adds source-unit, preparation, chat, and model-discovery regression checks.
+
+            Known limitations: AI grouping and generated-answer quality remain uneven. Basic is recommended for authored BuzzDB Markdown; the broader first-run redesign remains planned.
 
             Platform assets are attached as their packaging workflows finish.
           files: |

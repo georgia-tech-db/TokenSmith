@@ -138,6 +138,9 @@ export interface ChatSource {
   chunkId?: string
   chunkRowid?: number | string
   chunkKind?: string
+  sourceUnitId?: string
+  sourceUnitComplete?: boolean
+  sourceChunkIds?: string[]
   tokensmithChunkId?: string
   tokensmithChapter?: string
   tokensmithChunkKind?: string

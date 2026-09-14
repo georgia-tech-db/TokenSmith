@@ -18,6 +18,13 @@ It does not contact a model or read/write the user's app data. Reload resets all
 The pure quote/edit transformations and edited-history pipeline contracts also run in
 `npm run test:unit:ts` via `chat-interactions.test.mjs`.
 
+For the clipped-selection regression, open `/tests/ui/selection-regression.html` with
+the same preview server. “Check final selection” changes the browser range immediately
+before clicking Add to chat, before the pending selection-change frame. “Check unfinished
+drag” verifies the action stays hidden while the pointer is down. Both must show PASS
+and insert the complete highlighted sentence while preserving the draft. The production
+component failed both checks before the fix.
+
 ## Cloud generator setup
 
 With the same preview server, open `/tests/ui/cloud-generators.html`. This uses the production App, picker, and connection sheet with a disposable fake bridge. Use demo strings only; no real key or network request is needed.

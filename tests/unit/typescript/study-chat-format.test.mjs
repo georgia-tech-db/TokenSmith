@@ -36,24 +36,14 @@ const loggingSource = {
 }
 const bplusTreeSource = buzzdbSource('ch09.019')
 const pinningSource = buzzdbSource('ch05.084')
-const databaseContext = [
-  'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
-  'Use the supplied study material as the primary evidence for claims about this collection and its implementations. You may supplement it with well-established general knowledge to teach the concept or answer a follow-up. Put such additions under a "General background" heading rather than attributing them to the collection.',
-  'Explain what follows from the supplied code or mechanisms. Distinguish reasoning and illustrative examples from measured results. Never invent implementation details, benchmark numbers, or guarantees. Evidence about one object or workload does not establish the same claim for another.',
-  'If a specific judgment needs missing measurements or requirements, identify that uncertainty briefly and explain the relevant trade-off. Do not replace the explanation with a statement about missing context, and do not append unrelated limitations.',
-  'Match the student\'s request: for code, include the relevant fenced code or clearly labeled illustrative code; for an example, work through a small example. Explain how the mechanism works and why it matters, with enough detail to teach the idea. For comparisons or judgments, state the conclusion and its conditions without overstating them.',
-  'Use short paragraphs and compact lists where helpful. Do not repeat background already explained. Do not mention source labels, locators, or page numbers, and do not end by asking whether the student wants more detail.',
-  '',
-  '### Context:',
-  'Collection: Database Systems.pdf',
-  'Path: Database Systems.pdf',
-  'Text: Transactions preserve atomicity and durability.'
-].join('\n')
 const databaseSuggestionContext = [
   '### Context:',
+  '### Source unit',
   'Collection: Database Systems.pdf',
   'Path: Database Systems.pdf',
-  'Text: Transactions preserve atomicity and durability.'
+  'Text: Transactions preserve atomicity and durability.',
+  '### End source unit',
+  ''
 ].join('\n')
 const ollamaChatModel = {
   id: 'ollama:llama3',
@@ -83,8 +73,26 @@ function suggestionRequest(overrides = {}) {
 }
 
 test('sourceContext uses a neutral context block without model-facing page locators', () => {
-  assert.equal(sourceContext([databaseSource]), databaseContext)
+  assert.ok(sourceContext([databaseSource]).endsWith(databaseSuggestionContext))
   assert.equal(sourceContext([databaseSource]).includes('Locator: Page 4'), false)
+})
+
+test('expanded units keep independent evidence boundaries within the model budget', () => {
+  const sources = [
+    { ...databaseSource, sectionHeader: 'Statement', context: 'USD millions; 2024 2025\nRevenue 12 15\nNotes.', sourceUnitComplete: true },
+    { ...databaseSource, sectionHeader: 'Other statement', context: 'Different dates and assumptions.' }
+  ]
+  const request = { ...suggestionRequest(), prompt: 'What is the revenue?', retrievedSources: sources,
+    modelSettings: { contextLength: 8192, maxLength: 1024 } }
+  const messages = studyChatMessages(request)
+  const context = messages.at(-1).content
+  assert.equal((context.match(/### Source unit\n/g) ?? []).length, 2)
+  assert.equal((context.match(/### End source unit/g) ?? []).length, 2)
+  assert.ok(context.indexOf('Notes.') < context.indexOf('### End source unit'))
+  assert.ok(context.indexOf('Other statement') > context.indexOf('### End source unit'))
+  const budget = sourceContextBudgetForRequest(request)
+  assert.equal(budget.truncatedSourceCount, 0)
+  assert.ok(budget.estimatedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens <= budget.modelContextTokens)
 })
 
 test('sourceContext prefers full chunk context over the short excerpt', () => {

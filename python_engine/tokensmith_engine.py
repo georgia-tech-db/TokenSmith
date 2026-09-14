@@ -43,6 +43,7 @@ if _NEEDS_STORE:
             embedding_models_by_collection_ids,
             enabled_material_ids_for_requests,
             fetch_sources,
+            expand_source_units,
             find_material_id_by_import_path,
             has_chunks,
             init_db,
@@ -65,6 +66,7 @@ if _NEEDS_STORE:
             embedding_models_by_collection_ids,
             enabled_material_ids_for_requests,
             fetch_sources,
+            expand_source_units,
             find_material_id_by_import_path,
             has_chunks,
             init_db,
@@ -927,6 +929,9 @@ def indexed_chunks(
                 "tokensmithChunkId": chunk.get("tokensmithChunkId"),
                 "tokensmithChapter": chunk.get("tokensmithChapter"),
                 "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+                "parentId": chunk.get("parentId"),
+                "part": chunk.get("part"),
+                "parts": chunk.get("parts"),
                 "embeddingModel": chunk_embedding_model,
             }
             indexed.append(stored_chunk)
@@ -974,6 +979,9 @@ def indexed_chunks(
             "tokensmithChunkId": chunk.get("tokensmithChunkId"),
             "tokensmithChapter": chunk.get("tokensmithChapter"),
             "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+            "parentId": chunk.get("parentId"),
+            "part": chunk.get("part"),
+            "parts": chunk.get("parts"),
             "embeddingModel": chunk_embedding_model,
             "embedding": embedding,
         }
@@ -1895,6 +1903,9 @@ def source_from_sqlite_chunk(
     }
     source = source_from_chunk(chunk, float(row.get("score") or 0), query_tokens)
     source["chunkRowid"] = row.get("rowid")
+    source["sourceUnitId"] = row.get("parent_id")
+    source["sourceUnitComplete"] = row.get("unit_complete")
+    source["sourceChunkIds"] = row.get("source_chunk_ids") or ([row["stable_chunk_id"]] if row.get("stable_chunk_id") else [])
     source["retrievalMode"] = row.get("retrieval_mode") or "vector"
     source["embeddingModel"] = row.get("query_embedding_model") or row.get("embedding_model")
     source["chunkEmbeddingModel"] = row.get("embedding_model")
@@ -2029,25 +2040,6 @@ def query_asks_for_exercise(query_terms: Sequence[str]) -> bool:
     return any(term in EXERCISE_QUERY_TERMS for term in query_terms)
 
 
-def source_row_cluster_key(row: Dict[str, Any]) -> str:
-    document_key = "|".join(
-        str(row.get(key) or "")
-        for key in ("material_id", "document_id", "path", "document_title")
-    )
-    section = normalize_text(str(row.get("section_header") or "")).casefold()
-    if section:
-        return f"{document_key}|section:{section}"
-
-    try:
-        position = int(row.get("chunk_index") or row.get("rowid") or 0)
-    except (TypeError, ValueError):
-        position = 0
-    if position > 0:
-        return f"{document_key}|chunk:{position // 4}"
-
-    return f"{document_key}|row:{row.get('rowid')}"
-
-
 def select_source_rows(
     rows: Sequence[Dict[str, Any]],
     query_terms: Sequence[str],
@@ -2073,7 +2065,6 @@ def select_source_rows(
 
     selected: List[Dict[str, Any]] = []
     selected_rowids: set[int] = set()
-    cluster_counts: Dict[str, int] = {}
 
     for _score, _index, row in sorted(scored_rows, key=lambda item: (-item[0], item[1])):
         if len(selected) >= limit:
@@ -2081,25 +2072,9 @@ def select_source_rows(
         rowid = int(row.get("rowid") or 0)
         if rowid in selected_rowids:
             continue
-        cluster_key = source_row_cluster_key(row)
-        if cluster_counts.get(cluster_key, 0) >= 2:
-            continue
         selected.append(row)
         selected_rowids.add(rowid)
-        cluster_counts[cluster_key] = cluster_counts.get(cluster_key, 0) + 1
-
-    if len(selected) < limit:
-        for _score, _index, row in sorted(scored_rows, key=lambda item: (-item[0], item[1])):
-            if len(selected) >= limit:
-                break
-            rowid = int(row.get("rowid") or 0)
-            if rowid in selected_rowids:
-                continue
-            selected.append(row)
-            selected_rowids.add(rowid)
-
-    selected_order = {int(row.get("rowid") or 0): index for index, row in enumerate(selected)}
-    return sorted(selected, key=lambda row: selected_order.get(int(row.get("rowid") or 0), len(selected_order)))
+    return selected
 
 
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2200,10 +2175,12 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         rowid: embedding_key for rowid, (_score, embedding_key) in vector_hits_by_rowid.items()
     }
     rows = fetch_sources(user_data_path, ranked, active_ids)
+    for row in rows:
+        row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
+    rows = expand_source_units(user_data_path, rows, active_ids)
     rows = select_source_rows(rows, query_tokens, keyword_terms, limit)
     for row in rows:
         row["retrieval_mode"] = search_mode
-        row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
     source_query_tokens = sorted(set([*query_tokens, *keyword_terms]))
     strip_exercise_context = not query_asks_for_exercise(query_tokens)
     sources = [
@@ -2254,6 +2231,7 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"sources": [], "reason": "no_indexed_chunks"}
 
     rows = starter_source_rows(user_data_path, active_ids, limit)
+    rows = expand_source_units(user_data_path, rows, active_ids)
     for row in rows:
         row["retrieval_mode"] = "starter"
         row["query_embedding_model"] = row.get("embedding_model")

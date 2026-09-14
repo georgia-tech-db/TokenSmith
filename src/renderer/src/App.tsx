@@ -1,5 +1,5 @@
 import { LibraryWorkspace } from './LibraryWorkspace'
-import { automaticPreparation, type IndexMaterialOptions } from '../../shared/preparation'
+import { defaultPreparation, type IndexMaterialOptions } from '../../shared/preparation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
@@ -1783,9 +1783,11 @@ export function App() {
       return
     }
 
-    const preparation = options.preparation ?? indexingMaterial?.preparation ?? automaticPreparation()
-    const preparationModel = options.preparationModel ?? appState.models.find(model =>
-      model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+    const preparation = options.preparation ?? indexingMaterial?.preparation ?? defaultPreparation()
+    const preparationModel = preparation.mode === 'ai'
+      ? options.preparationModel ?? appState.models.find(model =>
+        model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+      : undefined
     updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === materialId ? {
       ...item, preparation, status: 'indexing', error: undefined,
       isActive: item.indexedAt ? item.isActive : false,

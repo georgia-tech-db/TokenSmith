@@ -1,0 +1,43 @@
+[
+  {
+    "id": "poems", "pages": [1, 2, 3, 4, 5, 6, 7],
+    "independentHeadings": ["1.INVITATION", "2.HOW MANY", "3.LISTEN TO", "4.MASKS", "5.PANCAKE", "6.SNOWBALL", "7.SOMETHING MISSING", "8.UNDERFACE", "9.I WON", "10.PUT SOMETHING", "11.YESEES", "12.HUG", "13.RIDICULOUS", "14.MONSTERS", "15.EARLY BIRD", "16.JAKE", "17.COLORS", "18.MAGIC", "19.LITTLE", "20.FALLING", "21.FISH", "22.OURCHESTRA"],
+    "units": [
+      {"name": "Masks", "together": ["4.MASKS", "blue skin", "never knew"], "apart": ["5.PANCAKE"]},
+      {"name": "Magic", "together": ["18.MAGIC", "Sandra", "Eddie", "make myself"], "apart": ["19.LITTLE"]}
+    ],
+    "questions": ["Why do the two people in 'Masks' never find each other?", "What is the main idea of 'Magic'?", "In the poem 'Magic', how do Sandra and Eddie's experiences differ from the speaker's?"]
+  },
+  {
+    "id": "sec", "pages": [49, 50],
+    "units": [
+      {"name": "Balance sheet", "together": ["CONSOLIDATED BALANCE SHEETS", "in millions", "2024 2025", "126,843", "595,281"], "apart": ["CONSOLIDATED STATEMENTS OF INCOME"]},
+      {"name": "Income statement", "together": ["CONSOLIDATED STATEMENTS OF INCOME", "2023 2024 2025", "402,836", "132,170"], "apart": ["CONSOLIDATED BALANCE SHEETS"]}
+    ],
+    "questions": ["According to the income statement, what were Alphabet's 2025 revenue and net income, and what units are used?", "How did Alphabet's total assets change between 2024 and 2025?"]
+  },
+  {
+    "id": "calculus", "pages": [91, 92, 93],
+    "units": [
+      {"name": "Worked example", "together": ["Example 1.21", "Solution", "124 + 36", "horizontal hyperbola", "asymptotes given"], "apart": []},
+      {"name": "Standard form theorem", "together": ["Theorem 1.10", "horizontal major axis", "major axis is vertical"], "apart": ["Example 1.21"]}
+    ],
+    "questions": ["In Example 1.21, why do we add 36 and subtract 16 on the right while completing the square?", "What are the center and asymptotes of the hyperbola in Example 1.21?"]
+  },
+  {
+    "id": "looking_glass", "pages": [3, 4],
+    "units": [
+      {"name": "Design equation", "together": ["2.3 Design Equations", "By-example synthesis", "Auto-Tables. (1)"], "apart": ["3.1 Corpus and Mapping"]},
+      {"name": "Principle table", "together": ["Table 1: Design principle table", "Efficiency", "Reliability", "Security"], "apart": ["Table 2: Paper card example"]}
+    ],
+    "questions": ["How does Auto-Tables reduce the human effort required by its baseline?", "How does Looking-Glass distinguish a mechanism family from a design principle?"]
+  },
+  {
+    "id": "slides", "pages": [9, 10, 11, 12],
+    "units": [
+      {"name": "Normalization", "together": ["Processing Example - Normalization", "folds constant expressions", "Projection From Where"], "apart": ["Processing Example - Plan Generation"]},
+      {"name": "Plan generation", "together": ["Processing Example - Plan Generation", "constructs a physical plan", "department"], "apart": ["Processing Example - Normalization"]}
+    ],
+    "questions": ["How does normalization differ from plan generation in these query-processing slides?", "What does semantic analysis check before normalization?"]
+  }
+]

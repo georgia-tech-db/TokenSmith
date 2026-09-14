@@ -10,6 +10,25 @@ interface SelectedText {
   left: number
 }
 
+function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
+  const selected = window.getSelection()
+  const containerFor = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)
+    ?.closest('[data-chat-selectable]')
+  const container = containerFor(selected?.anchorNode ?? null)
+  if (!viewport || !selected || selected.isCollapsed || !selected.rangeCount || !container ||
+      !viewport.contains(container) || container !== containerFor(selected.focusNode)) return null
+  const text = selected.toString()
+  if (!text.trim()) return null
+  const rect = selected.getRangeAt(0).getBoundingClientRect()
+  const bounds = viewport.getBoundingClientRect()
+  if (rect.bottom < bounds.top || rect.top > bounds.bottom) return null
+  return {
+    text,
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - 168)),
+    top: Math.max(bounds.top + 4, Math.min(rect.top - 42, bounds.bottom - 42))
+  }
+}
+
 export function ConversationViewport({ messages, pending, children, onQuote, canQuote }: {
   messages: ChatMessage[]
   pending: boolean
@@ -82,44 +101,41 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     const viewport = viewportRef.current
     if (!viewport) return
     let frame = 0
+    let pointerDown = false
     const updateSelection = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        const selected = window.getSelection()
-        const containerFor = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)
-          ?.closest('[data-chat-selectable]')
-        const container = containerFor(selected?.anchorNode ?? null)
-        if (!selected || selected.isCollapsed || !selected.rangeCount || !container ||
-            !viewport.contains(container) || container !== containerFor(selected.focusNode) || !selected.toString().trim()) {
-          setSelection(null)
-          return
-        }
-        const rect = selected.getRangeAt(0).getBoundingClientRect()
-        const bounds = viewport.getBoundingClientRect()
-        if (rect.bottom < bounds.top || rect.top > bounds.bottom) {
-          setSelection(null)
-          return
-        }
-        setSelection({
-          text: selected.toString(),
-          left: Math.max(8, Math.min(rect.left, window.innerWidth - 168)),
-          top: Math.max(bounds.top + 4, Math.min(rect.top - 42, bounds.bottom - 42))
-        })
+        setSelection(pointerDown ? null : readChatSelection(viewport))
       })
     }
     const dismiss = () => {
       cancelAnimationFrame(frame)
       setSelection(null)
     }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('.selection-chat-action')) return
+      pointerDown = true
+      dismiss()
+    }
+    const onPointerUp = () => { pointerDown = false; updateSelection() }
+    const onPointerCancel = () => { pointerDown = false; dismiss() }
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
     document.addEventListener('selectionchange', updateSelection)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', onPointerCancel)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('blur', onPointerCancel)
     viewport.addEventListener('scroll', dismiss)
     window.addEventListener('resize', dismiss)
     return () => {
       dismiss()
       document.removeEventListener('selectionchange', updateSelection)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointercancel', onPointerCancel)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('blur', onPointerCancel)
       viewport.removeEventListener('scroll', dismiss)
       window.removeEventListener('resize', dismiss)
     }
@@ -186,7 +202,9 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
         <button className="selection-chat-action" type="button" style={{ top: selection.top, left: selection.left }}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
-            onQuote(selection.text)
+            // Selection-change rendering can lag behind the user's final range.
+            const current = readChatSelection(viewportRef.current)
+            if (current) onQuote(current.text)
             window.getSelection()?.removeAllRanges()
             setSelection(null)
           }}>

@@ -45,6 +45,6 @@ export interface PreparationReport {
   updatedAt?: string
 }
 
-export const automaticPreparation = (): PreparationSettings => ({
-  mode: 'ai', instructions: '', documentInstructions: {}
+export const defaultPreparation = (): PreparationSettings => ({
+  mode: 'basic', instructions: '', documentInstructions: {}
 })

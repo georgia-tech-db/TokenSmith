@@ -195,6 +195,10 @@ def init_db(user_data_path: str) -> None:
         ensure_column(conn, "chunks", "chunk_size", "INTEGER")
         ensure_column(conn, "chunks", "section_header", "TEXT")
         ensure_column(conn, "chunks", "stable_chunk_id", "TEXT")
+        ensure_column(conn, "chunks", "parent_id", "TEXT")
+        ensure_column(conn, "chunks", "unit_part", "INTEGER")
+        ensure_column(conn, "chunks", "unit_parts", "INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(document_id, parent_id, unit_part)")
         ensure_column(conn, "chunks", "tokensmith_chunk_id", "TEXT")
         ensure_column(conn, "chunks", "tokensmith_chapter", "TEXT")
         ensure_column(conn, "chunks", "chunk_kind", "TEXT")
@@ -1004,7 +1008,13 @@ def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
         ),
     )
     conn.execute("UPDATE chunks SET page_end = ? WHERE id = ?", (chunk.get("pageEnd"), cursor.lastrowid))
+    update_chunk_unit(conn, int(cursor.lastrowid), chunk)
     return int(cursor.lastrowid)
+
+
+def update_chunk_unit(conn: sqlite3.Connection, chunk_id: int, chunk: Dict[str, Any]) -> None:
+    conn.execute("UPDATE chunks SET parent_id = ?, unit_part = ?, unit_parts = ? WHERE id = ?",
+                 (chunk.get('parentId'), chunk.get('part'), chunk.get('parts'), chunk_id))
 
 
 def find_existing_chunk_id(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> Optional[int]:
@@ -1060,6 +1070,7 @@ def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             chunk_id,
         ),
     )
+    update_chunk_unit(conn, chunk_id, chunk)
     return chunk_id
 
 
@@ -1403,6 +1414,9 @@ def source_row_select() -> str:
             ch.tokensmith_chunk_id AS tokensmith_chunk_id,
             ch.tokensmith_chapter AS tokensmith_chapter,
             ch.chunk_kind AS chunk_kind,
+            ch.parent_id AS parent_id,
+            ch.unit_part AS unit_part,
+            ch.unit_parts AS unit_parts,
             ch.id AS chunk_index,
             ch.chunk_size AS chunk_size,
             ch.section_header AS section_header,
@@ -1416,6 +1430,53 @@ def source_row_select() -> str:
         JOIN tokensmith_collection_state s ON s.collection_id = col.id
         LEFT JOIN pdf_page_thumbnails pt ON pt.document_id = d.id AND pt.page = ch.page
     """
+
+
+def expand_source_units(
+    user_data_path: str, rows: List[Dict[str, Any]], active_material_ids: Sequence[str],
+    max_chars: int = 12000,
+) -> List[Dict[str, Any]]:
+    """Expand bounded source units, scoped by collection and document, before selection."""
+    expanded, seen = [], set()
+    active_ids = {str(value) for value in active_material_ids}
+    with connect(user_data_path) as conn:
+        for hit in rows:
+            if str(hit['material_id']) not in active_ids:
+                continue
+            parent = hit.get('parent_id')
+            key = (hit['material_id'], hit['document_id'], parent)
+            if not parent:
+                expanded.append(hit)
+                continue
+            if key in seen:
+                continue
+            size = conn.execute(
+                'SELECT SUM(LENGTH(chunk_text)) FROM chunks WHERE document_id = ? AND parent_id = ?',
+                (hit['document_id'], parent),
+            ).fetchone()[0] or 0
+            if size > max_chars:
+                # Large units stay as matching parts; prompt packing has the final token budget.
+                expanded.append({**hit, 'unit_complete': False})
+                continue
+            parts = [dict(row) for row in conn.execute(
+                f"""{source_row_select()}
+                    WHERE CAST(col.id AS TEXT) = ? AND d.id = ? AND ch.parent_id = ?
+                    AND s.status = 'ready' AND s.is_active = 1 ORDER BY ch.unit_part, ch.id""",
+                key,
+            ).fetchall()]
+            if not parts or [p['unit_part'] for p in parts] != list(range(1, len(parts) + 1)) or any(
+                p['unit_parts'] != len(parts) for p in parts
+            ):
+                expanded.append({**hit, 'unit_complete': False})
+                continue
+            seen.add(key)
+            text = ''.join(part['text'] for part in parts)
+            expanded.append({**parts[0], 'score': hit.get('score'), 'text': text,
+                'query_embedding_model': hit.get('query_embedding_model'),
+                'chunk_size': len(text), 'word_count': len(text.split()),
+                'page_end': parts[-1]['page_end'], 'line_to': parts[-1]['line_to'],
+                'unit_complete': True, 'source_chunk_ids': [p['stable_chunk_id'] for p in parts]})
+    return expanded
 
 
 def get_chunks_by_rowids(

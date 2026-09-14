@@ -188,6 +188,9 @@ function logSource(source: ChatSource): Record<string, unknown> {
     chunkId: source.chunkId,
     chunkRowid: source.chunkRowid,
     chunkKind: source.chunkKind,
+    sourceUnitId: source.sourceUnitId,
+    sourceUnitComplete: source.sourceUnitComplete,
+    sourceChunkIds: source.sourceChunkIds,
     tokensmithChunkId: source.tokensmithChunkId,
     tokensmithChapter: source.tokensmithChapter,
     tokensmithChunkKind: source.tokensmithChunkKind,
@@ -299,6 +302,8 @@ function appPythonEnv(pythonExecutable: string): Record<string, string> {
     ...(hasStdlib ? { PYTHONHOME: runtimeRoot } : {}),
     ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {}),
     PYTHONIOENCODING: 'utf-8',
+    // Keep Python caches out of the signed application bundle.
+    PYTHONDONTWRITEBYTECODE: '1',
     PYTHONNOUSERSITE: '1'
   }
 
