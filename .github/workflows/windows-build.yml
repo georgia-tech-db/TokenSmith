@@ -71,6 +71,4 @@ jobs:
             - Adds source-unit, preparation, chat, and model-discovery regression checks.
 
             Known limitations: AI grouping and generated-answer quality remain uneven. Basic is recommended for authored BuzzDB Markdown; the broader first-run redesign remains planned.
-
-            Platform assets are attached as their packaging workflows finish.
           files: release/TokenSmith-*-win-*.zip
