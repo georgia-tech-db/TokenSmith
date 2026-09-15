@@ -8,13 +8,16 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
 // Compile the actual renderer to ESM; its Markdown plugins are ESM-only.
-const sourcePath = resolve('src/renderer/src/MessageText.tsx')
 const runtimePath = resolve('.coverage-ts-runtime/message-text.mjs')
 mkdirSync(resolve('.coverage-ts-runtime'), { recursive: true })
-writeFileSync(runtimePath, ts.transpileModule(readFileSync(sourcePath, 'utf8'), {
-  fileName: sourcePath,
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
-}).outputText)
+for (const [sourceName, outputName] of [['MessageText.tsx', 'message-text.mjs'], ['remark-model-math.ts', 'remark-model-math.mjs']]) {
+  const sourcePath = resolve('src/renderer/src', sourceName)
+  const output = ts.transpileModule(readFileSync(sourcePath, 'utf8'), {
+    fileName: sourcePath,
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
+  }).outputText.replace("from './remark-model-math'", "from './remark-model-math.mjs'")
+  writeFileSync(resolve('.coverage-ts-runtime', outputName), output)
+}
 const { MessageText } = await import(pathToFileURL(runtimePath).href)
 const render = (text) => renderToStaticMarkup(createElement(MessageText, { text }))
 const renderSuggestion = (text) => renderToStaticMarkup(createElement('button', null,
@@ -124,4 +127,70 @@ test('model content cannot run HTML, open local files, or load images', () => {
   assert.doesNotMatch(html, /<script|<img|<iframe|href=|src=/)
   const link = render('[Docs](https://example.com/docs)')
   assert.match(link, /href="https:\/\/example.com\/docs" target="_blank" rel="noopener noreferrer"/)
+})
+
+test('renders standard and bare parentheses/bracket equations', () => {
+  for (const expression of [String.raw`\(\frac{1}{2} \times 50 = 25\)`, '( 20 + 50 = 70 )', '( 50 + (0.235 * 50) = 61.75 )']) {
+    assert.match(render(expression), /class="katex"/)
+    assert.doesNotMatch(render(expression), /katex-display|katex-error/)
+  }
+  for (const expression of [String.raw`[ \text{Final Price} = $50 + (0.235 \times $50) ]`, String.raw`\[
+\frac{1}{2} + \text{Total}_{new} = 70
+\]`]) {
+    assert.match(render(expression), /class="katex-display"/)
+    assert.doesNotMatch(render(expression), /katex-error|TOKSMATH/)
+  }
+})
+
+test('keeps prices as text alongside existing dollar-delimited math', () => {
+  const html = render(String.raw`It costs $50 or $61.75. **Total:** $100. Compare $O(\log N)$, $1$s, and $20 + 50 = 70$.`)
+  assert.match(html, /It costs \$50 or \$61\.75\. <strong>Total:<\/strong> \$100\./)
+  assert.equal((html.match(/class="katex"/g) || []).length, 3)
+  assert.doesNotMatch(html, /katex-error/)
+  assert.match(render('($50) [$61.75] (before tax) [estimated]'), /\(\$50\) \[\$61\.75\] \(before tax\) \[estimated\]/)
+})
+
+test('keeps new delimiters out of code, links, and reference definitions', () => {
+  const html = render('`(1 + 2)` and `\\(x\\)`\n\n```text\n[1 + 2]\n$50 and $61.75\n```\n\n    (3 + 4)\n\n[1 + 2](https://example.com/calc(1+2))\n\n[ref][1 + 2]\n\n[1 + 2]: https://example.com')
+  assert.doesNotMatch(html, /class="katex"|TOKSMATH/)
+  assert.match(html, /<code>\(1 \+ 2\)<\/code>/)
+  assert.match(html, /href="https:\/\/example.com\/calc\(1\+2\)"/)
+  assert.match(html, /\$50 and \$61\.75/)
+})
+
+test('new math works inside emphasis, lists, tables, and inline suggestions', () => {
+  const html = render(String.raw`**Result: (20 + 50 = 70)**
+
+- First: \(x_1 + x_2\)
+  - Second: [ \frac{1}{2} ]
+
+| Value |
+| --- |
+| (1 + 2) |`)
+  assert.equal((html.match(/class="katex"/g) || []).length, 4)
+  assert.match(html, /<strong>Result:/)
+  assert.match(html, /<table>/)
+  assert.equal((html.match(/<ul>/g) || []).length, 2)
+  const suggestion = renderSuggestion(String.raw`What is \[\frac{1}{2}\]?`)
+  assert.match(suggestion, /class="katex-display"/)
+  assert.doesNotMatch(suggestion, /<(?:div|p|pre)(?:\s|>)/)
+})
+
+test('incomplete and invalid new equations do not break the message', () => {
+  for (const input of [String.raw`\(\frac{}\)`, String.raw`[\frac{1}{]`, String.raw`\(20 + 50`, '[20 + 50']) {
+    const html = render('Before ' + input + '\n\nAfter.')
+    assert.match(html, /Before/)
+    assert.match(html, /After\./)
+    assert.doesNotMatch(html, /TOKSMATH/)
+  }
+  const html = render(String.raw`\(\href{javascript:alert(1)}{x}\)`)
+  assert.doesNotMatch(html, /href=|<script|<img/)
+  assert.match(render('TOKSMATH0END (1 + 2)'), /TOKSMATH0END/)
+})
+
+
+test('currency cannot hide code spans or alter their literal contents', () => {
+  const html = render('Pay $50 then `(1 + 2)` and `$61.75`.')
+  assert.match(html, /Pay \$50 then <code>\(1 \+ 2\)<\/code> and <code>\$61\.75<\/code>/)
+  assert.doesNotMatch(html, /TOKSMATH|class="katex"/)
 })
