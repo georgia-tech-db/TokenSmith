@@ -106,6 +106,7 @@ export interface ApplicationSettings {
   followUpSuggestionCount: number
   showSources: boolean
   cpuThreads: number
+  typoCorrectionEnabled: boolean
 }
 
 export interface ModelRuntimeSettings {

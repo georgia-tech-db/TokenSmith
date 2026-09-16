@@ -25,8 +25,16 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
       Awaited<ReturnType<TokenSmithBridge['starterSources']>>
     >,
-  searchLibrary: (query, materials, limit, embeddingModels, searchMode) =>
-    ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels, searchMode) as Promise<
+  searchLibrary: (query, materials, limit, embeddingModels, searchMode, typoCorrectionEnabled) =>
+    ipcRenderer.invoke(
+      'library:search',
+      query,
+      materials,
+      limit,
+      embeddingModels,
+      searchMode,
+      typoCorrectionEnabled
+    ) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>
     >,
   getPdfForSource: (source) =>

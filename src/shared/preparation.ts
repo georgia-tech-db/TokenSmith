@@ -15,6 +15,7 @@ export interface IndexMaterialOptions {
   cleaningRuleIds?: import('./cleaning').CleaningRuleId[]
   preparation?: PreparationSettings
   preparationModel?: LocalModel
+  typoCorrectionEnabled?: boolean
 }
 
 export interface PreparedChunk {

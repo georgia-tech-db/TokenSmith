@@ -204,7 +204,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   searchMode: 'hybrid',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  cpuThreads: 4
+  cpuThreads: 4,
+  typoCorrectionEnabled: false
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -879,7 +880,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
+    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64)),
+    typoCorrectionEnabled: settings?.typoCorrectionEnabled ?? defaultApplicationSettings.typoCorrectionEnabled
   }
 }
 
@@ -1806,7 +1808,8 @@ export function App() {
         cleaningRuleIds:
           options.cleaningRuleIds ??
           indexingMaterial?.cleaningRuleIds ??
-          defaultCleaningRuleIdsForProfile(options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId)
+          defaultCleaningRuleIdsForProfile(options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId),
+        typoCorrectionEnabled: appState.settings.application.typoCorrectionEnabled
       })
       .then((indexedMaterial) => {
         if (indexRequestSequenceRef.current.get(materialId) !== requestSequence) {
@@ -4022,7 +4025,7 @@ function ChatScreen({
           search: (query) => {
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode)
+              searchEmbeddingModels, settings.application.searchMode, settings.application.typoCorrectionEnabled)
           }
         })
         conversationContextMode = prepared.resolution.mode
@@ -6823,6 +6826,13 @@ function SettingsScreen({
                   step={1}
                   value={settings.maxSources}
                   onChange={(maxSources) => onSettingsChange({ maxSources })}
+                />
+              </SettingsRow>
+              <SettingsRow label="Typo Correction" description="Automatically correct likely misspellings in your query against each textbook's vocabulary.">
+                <CheckboxField
+                  ariaLabel="Typo correction"
+                  checked={settings.application.typoCorrectionEnabled}
+                  onChange={(typoCorrectionEnabled) => updateApplicationSettings({ typoCorrectionEnabled })}
                 />
               </SettingsRow>
             </SettingsGroup>
