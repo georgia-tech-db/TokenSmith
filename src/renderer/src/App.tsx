@@ -10,6 +10,7 @@ import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
+import { ChatDepthPicker } from './ChatDepthPicker'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
 import './cloud-generators.css'
@@ -24,6 +25,7 @@ import type {
   ComputeDevice,
   Conversation,
   CourseMaterial,
+  ExplanationDepth,
   LocalModel,
   LocalModelRole,
   MaterialIndexProgress,
@@ -202,6 +204,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   defaultModelId: '',
   suggestionMode: 'on',
   searchMode: 'hybrid',
+  explanationDepthEnabled: false,
+  explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
   cpuThreads: 4
@@ -877,6 +881,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     defaultModelId,
     suggestionMode,
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
+    explanationDepthEnabled: settings?.explanationDepthEnabled ?? defaultApplicationSettings.explanationDepthEnabled,
+    explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
     cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
@@ -2410,6 +2416,9 @@ export function App() {
             onSelectModel={selectModel}
             onConnectCloud={openCloudSetup}
             onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
+            onExplanationDepthChange={(explanationDepth) =>
+              updateSettings({ application: { ...appState.settings.application, explanationDepth } })
+            }
             onToggleMaterialActive={toggleMaterialActive}
           />
         )}
@@ -2485,6 +2494,7 @@ function ChatScreen({
   onSelectModel,
   onConnectCloud,
   onManageModels,
+  onExplanationDepthChange,
   onToggleMaterialActive
 }: {
   activeConversationId: string
@@ -2503,6 +2513,7 @@ function ChatScreen({
   onSelectModel: (modelId: string) => void
   onConnectCloud: (model?: LocalModel) => void
   onManageModels: () => void
+  onExplanationDepthChange: (depth: ExplanationDepth) => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
     updater: (current: Pick<AppStateSnapshot, 'activeConversationId' | 'conversations'>) => Pick<
@@ -4177,8 +4188,14 @@ function ChatScreen({
           >
             <PanelIcon />
           </button>
-          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
-            onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
+          <div className="chat-topbar-controls">
+            <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+              onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
+            {settings.application.explanationDepthEnabled && (
+              <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending}
+                onSelect={onExplanationDepthChange} />
+            )}
+          </div>
           <button
             className="library-pill"
             type="button"
@@ -6803,6 +6820,16 @@ function SettingsScreen({
                     { label: 'Keyword', value: 'keyword' },
                     { label: 'Hybrid', value: 'hybrid' }
                   ]}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Explanation Depth"
+                description="Show a depth picker in the chat bar so you can ask for a simpler or more in-depth explanation question by question."
+              >
+                <CheckboxField
+                  ariaLabel="Explanation depth"
+                  checked={settings.application.explanationDepthEnabled}
+                  onChange={(explanationDepthEnabled) => updateApplicationSettings({ explanationDepthEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="CPU Threads" description="The number of CPU threads used for inference.">
