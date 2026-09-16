@@ -1,6 +1,6 @@
 {
   "name": "tokensmith-electron",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "description": "Student-focused desktop app for local, source-backed study chat.",
   "main": "./out/main/index.js",
   "private": true,
@@ -15,9 +15,12 @@
     "test:unit:python": "node scripts/python-dev.mjs unit",
     "test:coverage:ts": "c8 node --test tests/unit/typescript/*.test.mjs",
     "test:coverage:python": "node scripts/python-dev.mjs coverage",
+    "test:benchmark": "node scripts/python-dev.mjs benchmark",
+    "test:embedding-benchmark": "node scripts/python-dev.mjs embedding-benchmark",
+    "build:embedding-benchmark-cache": "node scripts/python-dev.mjs build-embedding-benchmark-cache",
     "test:integration": "node scripts/python-dev.mjs integration",
     "test:integration:gguf": "node scripts/python-dev.mjs integration:gguf",
-    "test": "npm run test:unit:ts && npm run test:unit:python && npm run test:integration",
+    "test": "npm run test:unit:ts && npm run test:unit:python && npm run test:benchmark && npm run test:integration",
     "coverage": "npm run test:coverage:ts && npm run test:coverage:python",
     "build": "npm run typecheck && electron-vite build",
     "package:mac": "node scripts/package-mac.mjs",
@@ -25,10 +28,15 @@
     "package:linux": "node scripts/package-linux.mjs"
   },
   "dependencies": {
+    "katex": "^0.16.47",
     "lucide-react": "^1.16.0",
     "pdfjs-dist": "^5.6.205",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

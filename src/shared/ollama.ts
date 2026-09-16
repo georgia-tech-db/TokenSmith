@@ -12,6 +12,7 @@ export interface OllamaModelInfo {
     family?: string
     parameterSize?: string
     quantizationLevel?: string
+    contextLength?: number
   }
 }
 

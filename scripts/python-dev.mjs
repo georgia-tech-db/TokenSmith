@@ -1,7 +1,13 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
-import { basename, delimiter, dirname, join, relative, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { delimiter, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import { standaloneRuntime } from './python-runtime-manifest.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const appRuntimeRoot = join(root, 'app_runtime', 'python')
@@ -9,6 +15,7 @@ const appRuntimePython = process.platform === 'win32'
   ? join(appRuntimeRoot, 'python.exe')
   : join(appRuntimeRoot, 'bin', 'python')
 const task = process.argv[2]
+const taskArgs = process.argv.slice(3)
 
 function runtimeCandidates() {
   return existsSync(appRuntimePython) ? [appRuntimePython] : []
@@ -58,7 +65,7 @@ function inspectPython(python) {
   const code = [
     'import json, pathlib, sys',
     'executable = pathlib.Path(sys.executable).resolve()',
-    'root = executable.parents[1]',
+    'root = executable.parent if sys.platform == "win32" else executable.parents[1]',
     'print(json.dumps({',
     '  "executable": str(executable),',
     '  "root": str(root),',
@@ -89,63 +96,6 @@ function inspectPython(python) {
 function versionIsSupported(info) {
   const [major, minor] = info.version ?? []
   return major > 3 || (major === 3 && minor >= 10)
-}
-
-function isCondaPython(info) {
-  const normalizedRoot = resolve(info.root)
-  const loweredRoot = normalizedRoot.toLowerCase()
-  return (
-    existsSync(join(normalizedRoot, 'conda-meta')) ||
-    existsSync(join(normalizedRoot, 'pkgs')) ||
-    loweredRoot.includes('/miniforge') ||
-    loweredRoot.includes('/miniconda') ||
-    loweredRoot.includes('/anaconda')
-  )
-}
-
-function buildPythonCandidates() {
-  const candidates = []
-
-  if (process.platform === 'darwin') {
-    candidates.push(
-      '/opt/homebrew/opt/python@3.12/bin/python3.12',
-      '/usr/local/opt/python@3.12/bin/python3.12',
-      '/opt/homebrew/bin/python3.12',
-      '/usr/local/bin/python3.12'
-    )
-  }
-
-  candidates.push('python3.12', 'python3', 'python')
-  return [...new Set(candidates)]
-}
-
-function selectBuildPython() {
-  const skipped = []
-
-  for (const candidate of buildPythonCandidates()) {
-    const info = inspectPython(candidate)
-    if (!info) {
-      continue
-    }
-    if (!versionIsSupported(info)) {
-      skipped.push(`${candidate} (${info.version?.join('.') ?? 'unknown'} is too old)`)
-      continue
-    }
-    if (isCondaPython(info)) {
-      skipped.push(`${candidate} (${info.root} is a Conda root)`)
-      continue
-    }
-    return info
-  }
-
-  if (skipped.length) {
-    console.error('Skipped Python runtimes:')
-    for (const reason of skipped) {
-      console.error(`  - ${reason}`)
-    }
-  }
-
-  return null
 }
 
 function canRun(python, code) {
@@ -189,33 +139,16 @@ function runPython(python, args, env = {}) {
   return result.status ?? 1
 }
 
-function runNode(script, args = []) {
+function runNode(script, args = [], env = {}) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd: root,
-    stdio: 'inherit'
-  })
-  return result.status ?? 1
-}
-
-function copyRuntime(sourceRoot) {
-  rmSync(appRuntimeRoot, { recursive: true, force: true })
-  mkdirSync(dirname(appRuntimeRoot), { recursive: true })
-  cpSync(sourceRoot, appRuntimeRoot, {
-    recursive: true,
-    dereference: true,
-    preserveTimestamps: true,
-    filter: (source) => {
-      const name = basename(source)
-      return (
-        name !== '__pycache__' &&
-        name !== 'conda-meta' &&
-        name !== 'envs' &&
-        name !== 'EXTERNALLY-MANAGED' &&
-        name !== 'pkgs' &&
-        !source.endsWith('.pyc')
-      )
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...env
     }
   })
+  return result.status ?? 1
 }
 
 function ensureRuntimePythonAlias() {
@@ -234,25 +167,25 @@ function ensureRuntimePythonAlias() {
 
   try {
     symlinkSync(pythonBinary, appRuntimePython)
-  } catch {
-    copyFileSync(join(binPath, pythonBinary), appRuntimePython)
+  } catch (error) {
+    throw new Error(`Could not create the TokenSmith Python executable alias: ${error.message}`)
   }
 }
 
 function runtimePythonLib() {
+  if (process.platform === 'win32') {
+    const windowsLib = join(appRuntimeRoot, 'Lib')
+    if (existsSync(windowsLib)) {
+      return windowsLib
+    }
+  }
+
   const libRoot = join(appRuntimeRoot, 'lib')
   const pythonLibName = readdirSync(libRoot).find((name) => /^python3\.\d+$/.test(name))
   if (!pythonLibName) {
     throw new Error(`Could not find Python stdlib under ${libRoot}.`)
   }
   return join(libRoot, pythonLibName)
-}
-
-function resetRuntimeSitePackages() {
-  const sitePackages = join(runtimePythonLib(), 'site-packages')
-  rmSync(sitePackages, { recursive: true, force: true })
-  mkdirSync(sitePackages, { recursive: true })
-  return sitePackages
 }
 
 function runCommand(command, args, { allowFailure = false } = {}) {
@@ -267,6 +200,82 @@ function runCommand(command, args, { allowFailure = false } = {}) {
   }
 
   return result
+}
+
+async function sha256(filePath) {
+  const hash = createHash('sha256')
+  const file = createReadStream(filePath)
+
+  for await (const chunk of file) {
+    hash.update(chunk)
+  }
+
+  return hash.digest('hex')
+}
+
+async function downloadFile(url, destination) {
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok || !response.body) {
+    throw new Error(`Could not download the Python runtime: HTTP ${response.status} ${response.statusText}.`)
+  }
+
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(destination))
+}
+
+async function downloadStandaloneRuntime() {
+  const runtime = standaloneRuntime()
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'tokensmith-python-runtime-'))
+  const archivePath = join(temporaryDirectory, runtime.filename)
+
+  try {
+    console.log(`[python-runtime] Downloading Python ${runtime.pythonVersion} for ${runtime.key}.`)
+    await downloadFile(runtime.url, archivePath)
+
+    const actualSha256 = await sha256(archivePath)
+    if (actualSha256 !== runtime.sha256) {
+      throw new Error(`Python runtime checksum mismatch: expected ${runtime.sha256}, received ${actualSha256}.`)
+    }
+
+    rmSync(appRuntimeRoot, { recursive: true, force: true })
+    mkdirSync(dirname(appRuntimeRoot), { recursive: true })
+    runCommand('tar', ['-xzf', archivePath, '-C', dirname(appRuntimeRoot)])
+
+    if (!existsSync(appRuntimeRoot)) {
+      throw new Error(`The Python runtime archive did not contain the expected ${appRuntimeRoot} directory.`)
+    }
+
+    console.log(`[python-runtime] Verified ${runtime.filename}.`)
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true })
+  }
+}
+
+function installRuntimeDependencies(python) {
+  const sitePackages = join(runtimePythonLib(), 'site-packages')
+  const temporarySitePackages = join(appRuntimeRoot, '.tokensmith-site-packages')
+  rmSync(temporarySitePackages, { recursive: true, force: true })
+
+  const status = runPython(python, [
+    '-m',
+    'pip',
+    'install',
+    '--disable-pip-version-check',
+    '--no-compile',
+    '--target',
+    temporarySitePackages,
+    '-r',
+    'requirements-runtime.txt'
+  ], { PYTHONNOUSERSITE: '1' })
+
+  if (status !== 0) {
+    rmSync(temporarySitePackages, { recursive: true, force: true })
+    return status
+  }
+
+  rmSync(sitePackages, { recursive: true, force: true })
+  mkdirSync(dirname(sitePackages), { recursive: true })
+  renameSync(temporarySitePackages, sitePackages)
+  return 0
 }
 
 function runtimeMachOCandidates(directoryPath, pythonBinPath, candidates = []) {
@@ -381,24 +390,9 @@ function patchMacPythonRuntime() {
   console.log('[python-runtime] Rewrote and signed bundled Python framework links.')
 }
 
-function setup() {
-  const buildPythonInfo = selectBuildPython()
-
-  if (!buildPythonInfo || !versionIsSupported(buildPythonInfo)) {
-    console.error('No usable Python 3.10+ runtime was found for building app_runtime.')
-    console.error('Install a non-Conda Python 3.10+ runtime, then run npm run setup:python-runtime again.')
-    process.exit(1)
-  }
-
-  if (isCondaPython(buildPythonInfo)) {
-    console.error(`Refusing to build app_runtime from Conda root: ${buildPythonInfo.root}`)
-    process.exit(1)
-  }
-
-  console.log(`[python-runtime] Copying clean Python ${buildPythonInfo.root} -> ${appRuntimeRoot}`)
-  copyRuntime(buildPythonInfo.root)
+async function setup() {
+  await downloadStandaloneRuntime()
   ensureRuntimePythonAlias()
-  const sitePackages = resetRuntimeSitePackages()
   patchMacPythonRuntime()
 
   if (!existsSync(appRuntimePython)) {
@@ -415,21 +409,8 @@ function setup() {
     console.error(`Copied runtime resolved outside app_runtime: ${runtimeInfo.root}`)
     process.exit(1)
   }
-  if (isCondaPython(runtimeInfo)) {
-    console.error(`Copied runtime still looks like Conda: ${runtimeInfo.root}`)
-    process.exit(1)
-  }
 
-  let status = runPython(buildPythonInfo.executable, [
-    '-m',
-    'pip',
-    'install',
-    '--upgrade',
-    '--target',
-    sitePackages,
-    '-r',
-    'requirements-runtime.txt'
-  ], { PYTHONNOUSERSITE: '1' })
+  let status = installRuntimeDependencies(appRuntimePython)
   if (status !== 0) {
     process.exit(1)
   }
@@ -453,17 +434,35 @@ function requireRuntimePython({ requireCoverage = false } = {}) {
   return python
 }
 
+function embeddingBenchmarkPython() {
+  const configuredPython = process.env.TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON
+  if (!configuredPython) {
+    return requireRuntimePython()
+  }
+
+  const info = inspectPython(configuredPython)
+  if (!info || !versionIsSupported(info)) {
+    console.error('TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON must point to a usable Python 3.10+ executable.')
+    process.exit(1)
+  }
+  return { ...info, executable: configuredPython }
+}
+
 function runIntegration({ requireGguf = false } = {}) {
   requireRuntimePython()
   const args = requireGguf ? ['--require-gguf'] : []
 
   const tests = requireGguf
     ? [
+        'tests/integration/buzzdb-context-routing.test.mjs',
         'tests/integration/python-engine-pdf.test.mjs',
         'tests/integration/gerard-larcher-chat.test.mjs',
         'tests/integration/annita-demetriou-chat.test.mjs'
       ]
-    : ['tests/integration/python-engine-pdf.test.mjs']
+    : [
+        'tests/integration/buzzdb-context-routing.test.mjs',
+        'tests/integration/python-engine-pdf.test.mjs'
+      ]
 
   for (const test of tests) {
     const status = runNode(test, args)
@@ -473,11 +472,35 @@ function runIntegration({ requireGguf = false } = {}) {
   }
 }
 
+function runBenchmark() {
+  const python = requireRuntimePython()
+  process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', [], {
+    TOKENSMITH_BENCHMARK_PYTHON: python.executable,
+    ...pythonEnv(python.executable)
+  }))
+}
+
 if (task === 'setup' || task === 'setup-runtime') {
-  setup()
+  await setup()
 } else if (task === 'unit') {
   const python = requireRuntimePython()
   process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']))
+} else if (task === 'benchmark') {
+  runBenchmark()
+} else if (task === 'embedding-benchmark') {
+  const python = embeddingBenchmarkPython()
+  process.exit(runPython(
+    python.executable,
+    ['-m', 'unittest', 'tests.benchmarks.test_buzzdb_fastembed'],
+    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+  ))
+} else if (task === 'build-embedding-benchmark-cache') {
+  const python = embeddingBenchmarkPython()
+  process.exit(runPython(
+    python.executable,
+    ['tests/benchmarks/build_buzzdb_fastembed_cache.py', ...taskArgs],
+    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+  ))
 } else if (task === 'coverage') {
   const python = requireRuntimePython({ requireCoverage: true })
   const coverageStatus = runPython(
@@ -493,6 +516,6 @@ if (task === 'setup' || task === 'setup-runtime') {
 } else if (task === 'integration:gguf') {
   runIntegration({ requireGguf: true })
 } else {
-  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|coverage|integration|integration:gguf>')
+  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration|integration:gguf>')
   process.exit(1)
 }

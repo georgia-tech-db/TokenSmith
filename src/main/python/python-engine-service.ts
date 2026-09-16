@@ -1,9 +1,11 @@
+import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
+import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress } from '../../shared/app-state'
+import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
@@ -19,6 +21,7 @@ interface PythonRequest {
     | 'remove_material'
     | 'resolve_source_document'
     | 'preview_cleaning'
+    | 'preparation_report'
   payload: Record<string, unknown>
 }
 
@@ -43,6 +46,8 @@ interface IndexMaterialResult {
 
 interface SearchResult {
   sources: ChatSource[]
+  queryTerms?: string[]
+  keywordTerms?: string[]
 }
 
 interface ListMaterialsResult {
@@ -51,10 +56,17 @@ interface ListMaterialsResult {
 
 interface ResolvedSourceDocument {
   chunkId?: number | string
+  chunkRowid?: number | string
+  chunkKind?: string
+  tokensmithChunkId?: string
+  tokensmithChapter?: string
+  tokensmithChunkKind?: string
   documentId?: number | string
   path: string
   title?: string
   page?: number
+  lineFrom?: number
+  lineTo?: number
   collectionName?: string
   thumbnailPath?: string
 }
@@ -105,7 +117,12 @@ function localIsoTimestamp(date = new Date()): string {
 const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
+  'chat_runtime_context_budget',
+  'chat_question_rewrite',
+  'follow_up_suggestions',
+  'initial_question_suggestions',
   'question_suggestion_request_context',
+  'question_suggestion_runtime_context_budget',
   'library_search_request',
   'library_search_result'
 ])
@@ -119,7 +136,6 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
     return
   }
 
-  const logPath = getLogFilePath()
   const payload = {
     time: localIsoTimestamp(),
     event,
@@ -127,6 +143,7 @@ function writeLog(event: string, detail: Record<string, unknown> = {}): void {
   }
 
   try {
+    const logPath = getLogFilePath()
     mkdirSync(dirname(logPath), { recursive: true })
     appendFileSync(logPath, `${JSON.stringify(payload)}\n`, 'utf8')
   } catch {
@@ -167,6 +184,18 @@ function logSource(source: ChatSource): Record<string, unknown> {
   return {
     title: source.title,
     locator: source.locator,
+    sourceId: source.sourceId,
+    chunkId: source.chunkId,
+    chunkRowid: source.chunkRowid,
+    chunkKind: source.chunkKind,
+    sourceUnitId: source.sourceUnitId,
+    sourceUnitComplete: source.sourceUnitComplete,
+    sourceChunkIds: source.sourceChunkIds,
+    tokensmithChunkId: source.tokensmithChunkId,
+    tokensmithChapter: source.tokensmithChapter,
+    tokensmithChunkKind: source.tokensmithChunkKind,
+    queryTerms: source.queryTerms,
+    keywordTerms: source.keywordTerms,
     documentTitle: source.documentTitle,
     collectionName: source.collectionName,
     sectionHeader: source.sectionHeader,
@@ -181,27 +210,27 @@ function logSource(source: ChatSource): Record<string, unknown> {
   }
 }
 
-function getPythonExecutable(): string {
-  const runtimeCandidates =
-    process.platform === 'win32'
-      ? [
-          join(app.getAppPath(), 'app_runtime', 'python', 'python.exe'),
-          join(app.getAppPath(), 'app_runtime', 'python', 'Scripts', 'python.exe'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'python.exe'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'Scripts', 'python.exe')
-        ]
-      : [
-          join(app.getAppPath(), 'app_runtime', 'python', 'bin', 'python'),
-          join(process.resourcesPath, 'app', 'app_runtime', 'python', 'bin', 'python')
-        ]
+function getPythonRuntimeRoot(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'app', 'app_runtime', 'python')
+    : join(app.getAppPath(), 'app_runtime', 'python')
+}
 
-  for (const candidate of runtimeCandidates) {
-    if (existsSync(candidate)) {
-      return candidate
-    }
+function getPythonExecutable(): string {
+  const runtimeRoot = getPythonRuntimeRoot()
+  const pythonExecutable = process.platform === 'win32'
+    ? join(runtimeRoot, 'python.exe')
+    : join(runtimeRoot, 'bin', 'python')
+
+  if (existsSync(pythonExecutable)) {
+    return pythonExecutable
   }
 
-  throw new Error('The bundled TokenSmith Python runtime was not found. Run npm run setup:python-runtime before starting the app locally.')
+  throw new Error(
+    app.isPackaged
+      ? 'The TokenSmith installation is incomplete because its private Python runtime is missing. Reinstall TokenSmith.'
+      : 'The TokenSmith Python runtime was not found. Run npm run setup:python-runtime before starting the app locally.'
+  )
 }
 
 function getWorkerPath(): string {
@@ -273,6 +302,8 @@ function appPythonEnv(pythonExecutable: string): Record<string, string> {
     ...(hasStdlib ? { PYTHONHOME: runtimeRoot } : {}),
     ...(pythonPathParts.length ? { PYTHONPATH: pythonPathParts.join(delimiter) } : {}),
     PYTHONIOENCODING: 'utf-8',
+    // Keep Python caches out of the signed application bundle.
+    PYTHONDONTWRITEBYTECODE: '1',
     PYTHONNOUSERSITE: '1'
   }
 
@@ -474,6 +505,7 @@ async function requestPython<T>(
   onProgress?: (progress: MaterialIndexProgress) => void,
   materialId?: string
 ): Promise<T> {
+  if (command === 'index_material') return isolatedIndexRequest<T>(payload, timeoutMs, onProgress, materialId)
   const activeWorker = ensureWorker()
   const id = createId('py')
   const request: PythonRequest = {
@@ -500,6 +532,72 @@ async function requestPython<T>(
   })
 }
 
+// Indexing has its own worker so long preparation jobs do not block source search.
+const indexingJobs = new Map<string, () => void>()
+let indexingQueue: Promise<unknown> = Promise.resolve()
+app?.on('before-quit', () => { for (const stop of indexingJobs.values()) stop() })
+
+function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: number,
+  onProgress?: (progress: MaterialIndexProgress) => void, materialId = createId('index')): Promise<T> {
+  let cancelled = false
+  let child: ChildProcessWithoutNullStreams | undefined
+  let rejectJob: ((error: Error) => void) | undefined
+  const stopWorker = () => {
+    if (!child?.pid) return
+    try {
+      if (process.platform === 'win32') child.kill('SIGTERM')
+      else process.kill(-child.pid, 'SIGTERM')
+    } catch { /* The job may already have exited. */ }
+  }
+  const stop = () => {
+    cancelled = true
+    stopWorker()
+    rejectJob?.(new Error('Indexing was cancelled.'))
+  }
+  indexingJobs.set(materialId, stop)
+  const run = async (): Promise<T> => {
+    if (cancelled) throw new Error('Indexing was cancelled.')
+    return new Promise<T>((resolve, reject) => {
+      const python = getPythonExecutable()
+      child = spawn(python, [getWorkerPath()], {
+        detached: process.platform !== 'win32',
+        env: { ...process.env, ...appPythonEnv(python), TOKENSMITH_LOG_FILE: getLogFilePath(), PYTHONIOENCODING: 'utf-8' },
+        stdio: 'pipe'
+      })
+      let buffer = ''
+      let settled = false
+      const finish = (error?: Error, result?: T) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        stopWorker()
+        if (error) reject(error)
+        else resolve(result as T)
+      }
+      const timer = setTimeout(() => finish(new Error('Preparation stopped responding. Resume to continue from saved work.')), timeoutMs)
+      rejectJob = error => finish(error)
+      child.stdout.on('data', (data: Buffer) => {
+        buffer += data.toString('utf8')
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          let message: PythonResponse<T>
+          try { message = JSON.parse(line) as PythonResponse<T> } catch { continue }
+          if (message.progress) { timer.refresh(); onProgress?.(message.progress); continue }
+          if (message.id === materialId) finish(message.ok ? undefined : new Error(message.error || 'Preparation failed.'), message.result)
+        }
+      })
+      child.stderr.on('data', () => { /* Worker logs directly to its configured log file. */ })
+      child.once('error', error => finish(error))
+      child.once('exit', () => { if (!settled) finish(new Error('The preparation worker stopped. Resume to continue.')) })
+      child.stdin.end(JSON.stringify({ id: materialId, command: 'index_material', payload }) + '\n')
+    })
+  }
+  const result = indexingQueue.then(run).finally(() => { if (indexingJobs.get(materialId) === stop) indexingJobs.delete(materialId) })
+  indexingQueue = result.catch(() => undefined)
+  return result
+}
+
 export async function getPythonEngineHealth(): Promise<HealthResult> {
   return requestPython<HealthResult>('health', {}, 30_000)
 }
@@ -514,12 +612,7 @@ export async function indexMaterialWithPython(
   materialPath: string,
   model?: LocalModel,
   materialId?: string,
-  options?: {
-    resume?: boolean
-    title?: string
-    cleaningProfileId?: CleaningProfileId
-    cleaningRuleIds?: CleaningRuleId[]
-  }
+  options?: IndexMaterialOptions
 ): Promise<CourseMaterial> {
   const result = await requestPython<IndexMaterialResult>(
     'index_material',
@@ -530,7 +623,9 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
-      model: resolveEmbeddingModel(model),
+      model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
+      preparation: options?.preparation,
+      preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       userDataPath: app.getPath('userData')
     },
     180_000,
@@ -539,6 +634,10 @@ export async function indexMaterialWithPython(
   )
 
   return result.material
+}
+
+export async function preparationReportWithPython(path: string, documentPath?: string): Promise<PreparationReport> {
+  return requestPython<PreparationReport>('preparation_report', { path, documentPath, userDataPath: app.getPath('userData') })
 }
 
 export async function previewCleaningWithPython(
@@ -561,6 +660,8 @@ export async function previewCleaningWithPython(
 }
 
 export async function cancelMaterialIndexingWithPython(materialId: string): Promise<void> {
+  const stop = indexingJobs.get(materialId)
+  if (stop) { stop(); return }
   const cancelledRequestIds: string[] = []
 
   for (const [id, request] of pendingRequests) {
@@ -590,12 +691,14 @@ export async function searchLibraryWithPython(
   query: string,
   materials: CourseMaterial[],
   limit: number,
-  embeddingModels?: LocalModel[]
+  embeddingModels?: LocalModel[],
+  searchMode?: SearchMode
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   writeLog('library_search_request', {
     query,
     limit,
+    searchMode,
     materials: materials.map((material) => ({
       id: material.id,
       title: material.title,
@@ -619,6 +722,7 @@ export async function searchLibraryWithPython(
       materials,
       limit,
       embeddingModels: resolvedEmbeddingModels,
+      searchMode,
       userDataPath: app.getPath('userData')
     },
     30_000
@@ -626,6 +730,8 @@ export async function searchLibraryWithPython(
 
   writeLog('library_search_result', {
     query,
+    queryTerms: result.queryTerms,
+    keywordTerms: result.keywordTerms,
     sourceCount: result.sources.length,
     sources: result.sources.map(logSource)
   })

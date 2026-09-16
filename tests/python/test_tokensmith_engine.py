@@ -88,6 +88,21 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             + gguf_string(template)
         )
 
+    def write_gguf_with_context_length(self, path: Path, context_length: int) -> None:
+        def gguf_string(value: str) -> bytes:
+            data = value.encode("utf-8")
+            return struct.pack("<Q", len(data)) + data
+
+        path.write_bytes(
+            b"GGUF"
+            + struct.pack("<I", 3)
+            + struct.pack("<Q", 0)
+            + struct.pack("<Q", 1)
+            + gguf_string("llama.context_length")
+            + struct.pack("<I", 4)
+            + struct.pack("<I", context_length)
+        )
+
     def unit_embedding_model(self) -> dict:
         return {
             "id": "unit-embedder",
@@ -202,6 +217,57 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertGreaterEqual(len(contextual_chunks), 1)
         self.assertEqual(contextual_chunks[0]["sectionHeader"], "12.1 Magnetic Disks")
         self.assertNotIn("sectionHeader", plain_chunks[0])
+
+    def test_chunk_tokensmith_markdown_respects_explicit_markers(self):
+        text = (
+            "Preamble table of contents should not become a chunk.\n"
+            '<!-- tokensmith:chunk id="ch07.003" chapter="7" section="7.1 Indexes" kind="prose" -->\n'
+            "\n"
+            "Indexes speed up lookup operations in database systems.\n"
+            "\n"
+            "<!-- tokensmith:chunk id='ch07.004' chapter='7' section='7.1 Indexes' kind='code' -->\n"
+            "```sql\n"
+            "CREATE INDEX idx_orders ON orders(order_id);\n"
+            "```\n"
+        )
+
+        chunks = engine.chunk_tokensmith_markdown(text)
+
+        self.assertEqual(len(chunks), 2)
+        self.assertNotIn("Preamble", chunks[0]["text"])
+        self.assertNotIn("tokensmith:chunk", chunks[0]["text"])
+        self.assertEqual(chunks[0]["tokensmithChunkId"], "ch07.003")
+        self.assertEqual(chunks[0]["tokensmithChapter"], "7")
+        self.assertEqual(chunks[0]["tokensmithChunkKind"], "prose")
+        self.assertEqual(chunks[0]["sectionHeader"], "7.1 Indexes")
+        self.assertEqual(chunks[0]["lineFrom"], 4)
+        self.assertEqual(chunks[0]["lineTo"], 4)
+        self.assertEqual(chunks[1]["tokensmithChunkId"], "ch07.004")
+        self.assertEqual(chunks[1]["tokensmithChunkKind"], "code")
+        self.assertIn("CREATE INDEX", chunks[1]["text"])
+
+    def test_prepare_index_file_uses_tokensmith_markdown_chunks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            md_path = Path(temp_dir) / "buzzdb-book.tokensmith.md"
+            md_path.write_text(
+                (
+                    "Preamble table of contents should be ignored by explicit chunking.\n"
+                    '<!-- tokensmith:chunk id="ch01.001" chapter="1" section="Chapter 1" kind="prose" -->\n'
+                    "Database systems manage records, pages, transactions, and indexes for reliable storage.\n"
+                    '<!-- tokensmith:chunk id="ch01.002" chapter="1" section="1.1 Files" kind="prose" -->\n'
+                    "Plain files make consistency, recovery, and concurrent access harder as applications grow.\n"
+                ),
+                encoding="utf-8",
+            )
+
+            document, chunks = engine.prepare_index_file("material-1", md_path)
+
+        self.assertEqual(document["status"], "ready")
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual([chunk["tokensmithChunkId"] for chunk in chunks], ["ch01.001", "ch01.002"])
+        self.assertEqual(chunks[0]["sectionHeader"], "Chapter 1")
+        self.assertNotIn("Preamble", chunks[0]["text"])
+        self.assertNotIn("Plain files", chunks[0]["text"])
 
     def test_clean_pages_removes_repeated_edges_and_repairs_wrapped_lines(self):
         pages = [
@@ -599,7 +665,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(application_settings, {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4})
+        self.assertEqual(
+            application_settings,
+            {"cpuThreads": 8, "suggestionMode": "on", "followUpSuggestionCount": 4, "searchMode": "hybrid"},
+        )
         self.assertEqual(engine.normalize_application_settings({"suggestionMode": "localDocs"})["suggestionMode"], "on")
         self.assertEqual(
             engine.normalize_application_settings({"suggestionMode": "off", "followUpSuggestionCount": 4})[
@@ -615,6 +684,49 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(model_settings["temperature"], 0.4)
         self.assertNotIn("chatNamePrompt", model_settings)
         self.assertNotIn("answerStyle", model_settings)
+
+    def test_search_mode_normalizes_and_defaults_to_hybrid(self):
+        self.assertEqual(engine.normalize_search_mode("keyword"), "keyword")
+        self.assertEqual(engine.normalize_search_mode("HYBRID"), "hybrid")
+        self.assertEqual(engine.normalize_search_mode(None), "hybrid")
+        self.assertEqual(engine.normalize_search_mode("nonsense"), "hybrid")
+        self.assertEqual(engine.normalize_application_settings({})["searchMode"], "hybrid")
+        self.assertEqual(
+            engine.normalize_application_settings({"searchMode": "hybrid"})["searchMode"], "hybrid"
+        )
+
+    def test_combine_search_hits_uses_rrf_for_hybrid(self):
+        vector_hits = [(1, 0.9), (2, 0.8), (3, 0.7), (4, 0.6)]
+        keyword_hits = [(10, 5.0), (11, 4.0), (2, 3.0), (12, 2.0)]
+
+        vector_only = engine.combine_search_hits("vector", vector_hits, keyword_hits, 4)
+        self.assertEqual([rowid for rowid, _ in vector_only], [1, 2, 3, 4])
+
+        keyword_only = engine.combine_search_hits("keyword", vector_hits, keyword_hits, 4)
+        self.assertEqual([rowid for rowid, _ in keyword_only], [10, 11, 2, 12])
+
+        hybrid = engine.combine_search_hits("hybrid", vector_hits, keyword_hits, 4)
+        self.assertEqual(len(hybrid), 4)
+        self.assertIn(10, [rowid for rowid, _score in hybrid])
+        self.assertIn(11, [rowid for rowid, _score in hybrid])
+
+    def test_combine_search_hits_preserves_keyword_rank_order(self):
+        vector_hits = [(3, 0.9), (4, 0.8)]
+        keyword_hits = [(1, 1.0), (2, 5.0)]
+
+        keyword_only = engine.combine_search_hits("keyword", vector_hits, keyword_hits, 2)
+        self.assertEqual([rowid for rowid, _score in keyword_only], [1, 2])
+
+    def test_build_fts_match_query_is_operator_safe(self):
+        self.assertEqual(
+            store.build_fts_match_query(["poems", "friendship"]),
+            '"poems" OR "friendship"',
+        )
+        self.assertEqual(
+            store.build_fts_match_query(["poems", "friendship"], "AND"),
+            '"poems" "friendship"',
+        )
+        self.assertEqual(store.build_fts_match_query(["match?", "poems"]), '"poems"')
 
     def test_default_model_runtime_settings_match_tokensmith_defaults(self):
         settings = engine.normalize_model_runtime_settings({})
@@ -649,6 +761,26 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertEqual(settings["repeatPenalty"], 1.1)
         self.assertEqual(settings["chatTemplate"], "custom chat template")
         self.assertEqual(settings["suggestedFollowUpPrompt"], "custom follow-up prompt")
+
+    def test_model_runtime_settings_use_gguf_context_length_metadata(self):
+        original_cache = engine._CONTEXT_LENGTH_CACHE
+
+        try:
+            engine._CONTEXT_LENGTH_CACHE = {}
+            with tempfile.TemporaryDirectory() as temp_dir:
+                model_path = Path(temp_dir) / "model.gguf"
+                self.write_gguf_with_context_length(model_path, 8192)
+
+                settings = engine.model_runtime_settings_from_payload(
+                    {"modelSettings": {"contextLength": 2048, "maxLength": 128}},
+                    {"name": "Unit GGUF", "path": str(model_path)},
+                    {},
+                )
+        finally:
+            engine._CONTEXT_LENGTH_CACHE = original_cache
+
+        self.assertEqual(settings["contextLength"], 8192)
+        self.assertEqual(settings["maxLength"], 128)
 
     def test_request_llama_embedding_uses_worker_protocol(self):
         class FakeStdin:
@@ -910,6 +1042,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "query": "What does third normal form remove?",
                     "materials": [material],
                     "limit": 2,
+                    "searchMode": "vector",
                     "userDataPath": str(temp_path / "user-data"),
                 }
             )
@@ -921,6 +1054,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(search["sources"][0]["documentTitle"], "database-note")
             self.assertEqual(search["sources"][0]["collectionName"], material["title"])
             self.assertIsNotNone(search["sources"][0]["documentId"])
+            self.assertTrue(str(search["sources"][0]["chunkId"]).startswith("auto:"))
+            self.assertIsInstance(search["sources"][0]["chunkRowid"], int)
+            self.assertIn(material["id"], search["sources"][0]["sourceId"])
+            self.assertIn(str(note_path.resolve()), search["sources"][0]["sourceId"])
 
             resolved_source = engine.resolve_source_document(
                 {
@@ -941,6 +1078,19 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIsNotNone(resolved_by_document)
             self.assertEqual(resolved_by_document["path"], str(note_path.resolve()))
 
+            resolved_by_stable_chunk_id = engine.resolve_source_document(
+                {
+                    "source": {
+                        "materialId": material["id"],
+                        "chunkId": search["sources"][0]["chunkId"],
+                    },
+                    "userDataPath": str(temp_path / "user-data"),
+                }
+            )["source"]
+            self.assertIsNotNone(resolved_by_stable_chunk_id)
+            self.assertEqual(resolved_by_stable_chunk_id["path"], str(note_path.resolve()))
+            self.assertEqual(resolved_by_stable_chunk_id["chunkId"], search["sources"][0]["chunkId"])
+
             engine.remove_material(
                 {
                     "materialId": material["id"],
@@ -955,6 +1105,165 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     }
                 )["source"]
             )
+
+    def test_tokensmith_markdown_source_ids_are_collection_scoped(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            first_dir = temp_path / "first"
+            second_dir = temp_path / "second"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            first_book = first_dir / "book.tokensmith.md"
+            second_book = second_dir / "book.tokensmith.md"
+            body = (
+                '<!-- tokensmith:chunk id="ch01.001" chapter="1" section="1.1 Stable Identity" kind="prose" -->\n'
+                "Stable identity explains that a chunk label can repeat across collections while the collection "
+                "and path keep the source unique for retrieval logs and source opening."
+            )
+            first_book.write_text(body, encoding="utf-8")
+            second_book.write_text(body.replace("retrieval logs", "saved conversations"), encoding="utf-8")
+
+            first_material = self.index_material_with_unit_embedder(
+                {"path": str(first_book), "userDataPath": user_data_path}
+            )["material"]
+            second_material = self.index_material_with_unit_embedder(
+                {"path": str(second_book), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "stable identity collections path unique",
+                    "materials": [first_material, second_material],
+                    "limit": 4,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+            sources = [source for source in search["sources"] if source["chunkId"] == "ch01.001"]
+
+            self.assertEqual(len(sources), 2)
+            self.assertEqual({source["tokensmithChunkId"] for source in sources}, {"ch01.001"})
+            self.assertEqual({source["tokensmithChapter"] for source in sources}, {"1"})
+            self.assertEqual({source["tokensmithChunkKind"] for source in sources}, {"prose"})
+            self.assertEqual({source["chunkKind"] for source in sources}, {"prose"})
+            self.assertEqual(len({source["sourceId"] for source in sources}), 2)
+            self.assertEqual({source["materialId"] for source in sources}, {first_material["id"], second_material["id"]})
+
+            resolved_first = engine.resolve_source_document(
+                {
+                    "source": {"materialId": first_material["id"], "chunkId": "ch01.001"},
+                    "userDataPath": user_data_path,
+                }
+            )["source"]
+            resolved_second = engine.resolve_source_document(
+                {
+                    "source": {"materialId": second_material["id"], "chunkId": "ch01.001"},
+                    "userDataPath": user_data_path,
+                }
+            )["source"]
+
+            self.assertEqual(resolved_first["path"], str(first_book.resolve()))
+            self.assertEqual(resolved_second["path"], str(second_book.resolve()))
+            self.assertEqual(resolved_first["chunkId"], "ch01.001")
+            self.assertEqual(resolved_second["chunkId"], "ch01.001")
+
+    def test_keyword_search_returns_corrected_terms_on_sources(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "hashing-note.txt"
+            note_path.write_text(
+                (
+                    "Hashing is designed for fast equality lookups, but it does not preserve sorted order for range scans. "
+                    "Students use this comparison to decide when a hash index is useful and when an ordered access path "
+                    "is a better fit. "
+                ) * 4,
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Does hasing help equality lookups?",
+                    "materials": [material],
+                    "limit": 2,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertGreaterEqual(len(search["sources"]), 1)
+            self.assertIn("hashing", search["keywordTerms"])
+            self.assertIn("hashing", search["sources"][0]["keywordTerms"])
+            self.assertIn("hashing", search["sources"][0]["queryTerms"])
+
+    def test_source_selection_demotes_exercises_for_concept_questions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "buffer-pool.tokensmith.md"
+            note_path.write_text(
+                '<!-- tokensmith:chunk id="ch05.001" chapter="5" section="5.1.1 Check Your Understanding" kind="list" -->\n'
+                "Check Your Understanding: Why is pinning needed in a buffer pool?\n\n"
+                '<!-- tokensmith:chunk id="ch05.002" chapter="5" section="5.1 Buffer Management" kind="prose" -->\n'
+                "Pinning is needed because a page that is actively being used must stay resident in a buffer "
+                "frame and must not be selected as the victim for replacement.",
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Why is pinning needed in a buffer pool?",
+                    "materials": [material],
+                    "limit": 1,
+                    "searchMode": "keyword",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertEqual(len(search["sources"]), 1)
+            self.assertEqual(search["sources"][0]["chunkId"], "ch05.002")
+
+    def test_source_selection_strips_embedded_exercise_tail_for_concept_questions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            user_data_path = str(temp_path / "user-data")
+            note_path = temp_path / "replacement.tokensmith.md"
+            note_path.write_text(
+                '<!-- tokensmith:chunk id="ch06.001" chapter="6" section="6.5.4 No Silver Bullet" kind="prose" -->\n'
+                "Policy choice depends on workload and application behavior, so the simulator compares trade-offs.\n\n"
+                "> #### Check Your Understanding\n"
+                "> Design a short access pattern where simple LRU would achieve a higher hit rate than 2Q.\n\n"
+                '<!-- tokensmith:chunk id="ch06.002" chapter="6" section="6.4.2.1 Worked Example: Surviving a Scan" kind="prose" -->\n'
+                "2Q outperforms LRU when a hot working set is followed by a large one-time sequential scan. "
+                "New scan pages enter the FIFO queue and do not evict promoted hot pages from the protected LRU list.",
+                encoding="utf-8",
+            )
+            material = self.index_material_with_unit_embedder(
+                {"path": str(note_path), "userDataPath": user_data_path}
+            )["material"]
+
+            search = self.search_library_with_unit_embedder(
+                {
+                    "query": "Where would 2Q outperform LRU?",
+                    "materials": [material],
+                    "limit": 2,
+                    "searchMode": "hybrid",
+                    "userDataPath": user_data_path,
+                }
+            )
+
+            self.assertGreaterEqual(len(search["sources"]), 1)
+            self.assertEqual(search["sources"][0]["chunkId"], "ch06.002")
+            combined_context = "\n".join(source["context"] for source in search["sources"])
+            self.assertNotIn("Check Your Understanding", combined_context)
+            self.assertNotIn("simple LRU would achieve a higher hit rate", combined_context)
 
     def test_index_material_resume_skips_existing_chunk_embeddings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1517,6 +1826,14 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "tokens",
                     "chunk_size",
                     "section_header",
+                    "stable_chunk_id",
+                    "tokensmith_chunk_id",
+                    "tokensmith_chapter",
+                    "chunk_kind",
+                    "page_end",
+                    "parent_id",
+                    "unit_part",
+                    "unit_parts",
                 ],
             )
             self.assertEqual(table_columns["embeddings"], ["model", "folder_id", "chunk_id", "embedding"])
@@ -1807,7 +2124,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             def fake_completion(prompt, model_path, model_settings, application_settings=None):
                 calls.append((prompt, model_path, model_settings, application_settings))
                 if len(calls) == 1:
-                    return "A primary key uniquely identifies each row."
+                    return (
+                        "A primary key uniquely identifies each row. Foreign keys reference primary keys, "
+                        "and normalization reduces duplication."
+                    )
                 return "1. How do foreign keys use primary keys?\n2. What problems does normalization reduce?\n3. Which table should own the key?"
 
             try:
@@ -1833,6 +2153,9 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertRegex(calls[1][0], r"Generate 2 suggested follow-up questions")
             self.assertRegex(calls[1][0], r"Ask about adjacent database concepts")
+            self.assertRegex(calls[1][0], r"Current question:\s+What is a primary key\?")
+            self.assertRegex(calls[1][0], r"Latest answer:\s+A primary key uniquely identifies each row")
+            self.assertNotRegex(calls[1][0], r"### Context")
             self.assertEqual(
                 response["followUpSuggestions"],
                 [
@@ -1840,6 +2163,20 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                     "What problems does normalization reduce?",
                 ],
             )
+
+    def test_default_follow_up_prompt_is_student_question_oriented(self):
+        self.assertIn("curious undergraduate student", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("concrete phrase, mechanism, trade-off, or claim", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("examples, intuition", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("latest answer the student just saw", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertIn("Keep each question short", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertNotIn("very short factual", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+        self.assertNotIn("cannot be found", engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
+
+        settings = engine.normalize_model_runtime_settings(
+            {"suggestedFollowUpPrompt": engine.LEGACY_SUGGESTED_FOLLOW_UP_PROMPT}
+        )
+        self.assertEqual(settings["suggestedFollowUpPrompt"], engine.DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT)
 
     def test_parse_follow_up_suggestions_discards_model_preface(self):
         suggestions = engine.parse_follow_up_suggestions(
@@ -1856,6 +2193,78 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
                 "How did Annita Demetriou become Speaker of the House?",
             ],
         )
+
+    def test_parse_follow_up_suggestions_discards_meta_questions(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "1. Based on the context, what is atomicity?\n"
+            "2. What part of this usually confuses people?\n"
+            "3. Can you think of another recovery scenario?\n"
+            "4. Can you show a tiny transaction example?\n"
+            "5. Can you show a tiny transaction example?"
+        )
+
+        self.assertEqual(suggestions, ["Can you show a tiny transaction example?"])
+
+    def test_parse_follow_up_suggestions_prefers_complete_lines(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "What happens when the log fills up?\n"
+            "How does recovery behave after a crash? Does it replay every record?\n"
+            "Can you show a tiny transaction example?"
+        )
+
+        self.assertEqual(
+            suggestions,
+            [
+                "What happens when the log fills up?",
+                "How does recovery behave after a crash?",
+                "Can you show a tiny transaction example?",
+            ],
+        )
+
+    def test_parse_follow_up_suggestions_allows_normal_context_phrasing(self):
+        suggestions = engine.parse_follow_up_suggestions(
+            "What problem does 2Q solve in the context of sequential flooding?\n"
+            "From the provided source, what is a dirty page?\n"
+            "How does BuzzDB handle every edge case in the cache replacement implementation when several pages are initially cold during the simulation?"
+        )
+
+        self.assertEqual(
+            suggestions,
+            ["What problem does 2Q solve in the context of sequential flooding?"],
+        )
+
+    def test_filter_suggested_questions_removes_recent_repeats(self):
+        suggestions = engine.filter_suggested_questions(
+            [
+                "What is an example of a real-world application where LRU would significantly outperform 2Q?",
+                "How does 2Q handle cache misses during large scans?",
+                "What trade-off does 2Q make compared with LRU?",
+            ],
+            ["What is an example of a real-world application where 2Q would significantly outperform LRU?"],
+            4,
+        )
+
+        self.assertEqual(
+            suggestions,
+            [
+                "How does 2Q handle cache misses during large scans?",
+                "What trade-off does 2Q make compared with LRU?",
+            ],
+        )
+
+    def test_suggestions_do_not_pad_empty_or_short_model_outputs(self):
+        for model_text, expected in [
+            ("[]", []),
+            ("I cannot suggest a question.", []),
+            ('["Why must lookups wait during rehashing?"]', ["Why must lookups wait during rehashing?"]),
+        ]:
+            with self.subTest(model_text=model_text):
+                self.assertEqual(
+                    engine.filter_suggested_questions(
+                        engine.parse_follow_up_suggestions(model_text, 8), [], 4
+                    ),
+                    expected,
+                )
 
     def test_chat_with_sources_reports_generator_failure_without_extracting_answer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2034,7 +2443,12 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
         self.assertIn("Ignore previous instructions", prompt)
         self.assertIn("A primary key identifies a row.", prompt)
         self.assertIn("Prefer bullet lists for study answers.", prompt)
-        self.assertIn("Answer directly. Do not quote the context before answering.", prompt)
+        self.assertIn("Answer directly for a student with enough detail", prompt)
+        self.assertIn("keep the answer scoped to the user's question", prompt)
+        self.assertIn("name the comparison target", prompt)
+        self.assertIn("start with the conclusion", prompt)
+        self.assertIn("Do not overstate with words like always, faster, or better", prompt)
+        self.assertIn("Do not quote the context before answering.", prompt)
         self.assertIn("### Context", prompt)
         self.assertIn("Collection:", prompt)
         self.assertIn("Path: Course", prompt)
@@ -2068,8 +2482,8 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             },
         )
 
-        self.assertNotIn("[system]", prompt)
-        self.assertIn("[user]Use the context below", prompt)
+        self.assertIn("[system]Use the provided context as the factual basis", prompt)
+        self.assertIn("[user]### Context", prompt)
         self.assertIn("### Context", prompt)
         self.assertIn("[assistant]", prompt)
         self.assertTrue(prompt.endswith("[assistant]"))

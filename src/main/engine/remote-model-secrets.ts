@@ -1,6 +1,11 @@
 import type { AppStateSnapshot, LocalModel } from '../../shared/app-state'
 
 const remoteApiKeys = new Map<string, string>()
+let cloudCredentialResolver: (model: LocalModel) => string | undefined = () => undefined
+
+export function setCloudCredentialResolver(resolve: typeof cloudCredentialResolver): void {
+  cloudCredentialResolver = resolve
+}
 
 function cleanApiKey(apiKey?: string): string | undefined {
   const trimmed = apiKey?.trim()
@@ -33,7 +38,7 @@ export function modelWithRememberedRemoteApiKey(model: LocalModel): LocalModel {
     return model
   }
 
-  const apiKey = cleanApiKey(model.apiKey) ?? remoteApiKeys.get(model.id)
+  const apiKey = model.connectionId ? cloudCredentialResolver(model) : cleanApiKey(model.apiKey) ?? remoteApiKeys.get(model.id)
   if (!apiKey) {
     return model
   }

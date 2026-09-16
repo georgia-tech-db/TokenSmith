@@ -1,0 +1,292 @@
+[
+  {
+    "id": "pinning_followup_why_needed",
+    "priorQuestion": "What is pinning a page?",
+    "priorAnswer": "Pinning keeps a page from being evicted while a component is using it.",
+    "priorSourceIds": ["ch05.084"],
+    "prompt": "why is that needed?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch05.084", "ch05.085", "ch05.090", "ch02.046", "ch06.012", "ch09.019"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["pinning", "page"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch05.084"],
+    "expectedChunkIds": ["ch05.084"],
+    "requiredPromptContext": ["silent data corruption", "ineligible for eviction"],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenPromptContext": ["Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "bplus_followup_why_better",
+    "priorQuestion": "What exactly is a B+ tree and how is it different from a binary search tree?",
+    "priorAnswer": "A B+ tree is a wide, shallow search tree designed for disk pages.",
+    "priorSourceIds": ["ch09.019"],
+    "prompt": "why is it better?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch09.019", "ch09.020", "ch09.030", "ch10.011", "ch07.015", "ch09.047", "ch02.046"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["b+", "tree"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch09.019"],
+    "expectedChunkIds": ["ch09.019"],
+    "requiredPromptContext": ["not a binary tree", "wide, shallow tree", "disk read"],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenPromptContext": ["A better approach is to use a spatial index", "Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "lru_followup_elaborate",
+    "priorQuestion": "How does the LRU policy ensure that hot pages stay in the buffer, while cold pages are evicted?",
+    "priorAnswer": "LRU keeps recently touched pages near the front of its list and evicts from the back.",
+    "priorSourceIds": ["ch06.059", "ch06.045"],
+    "prompt": "Elaborate on that.",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch06.057", "ch06.059", "ch06.064", "ch05.046", "ch05.047", "ch06.044", "ch06.045"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["lru", "hot", "cold"],
+    "expectedQueryExcludes": ["2q", "fifo", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch06.045"],
+    "expectedChunkIds": ["ch06.044", "ch06.045"],
+    "maxSelectedFromChunkIds": {
+      "chunkIds": ["ch06.057", "ch06.059", "ch06.064"],
+      "max": 1
+    },
+    "requiredPromptContext": ["This trace shows the dynamism of the LRU policy", "identifies page 3 as the LRU victim"],
+    "forbiddenPromptContext": ["The 2Q policy's first choice"]
+  },
+  {
+    "id": "sequence_set_hashing_contrast",
+    "priorQuestion": "What exact part of the B+ tree makes the range scan fast?",
+    "priorAnswer": "The sequence set connects the leaf pages, so a range scan can continue through adjacent leaves.",
+    "priorSourceIds": ["ch09.030", "ch09.033"],
+    "prompt": "Does that mean we should always prefer it over hashing?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch09.013", "ch08.057", "ch08.058", "ch08.059", "ch09.015", "ch09.030", "ch09.033", "ch10.020"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["hashing", "b+", "tree", "range", "scan"],
+    "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+    "expectedChunkIds": ["ch09.030", "ch08.059"],
+    "expectedAnyChunkIdWithinRank": {
+      "chunkIds": ["ch08.058", "ch08.059"],
+      "within": 2
+    },
+    "rankAnyBeforeAny": {
+      "earlierChunkIds": ["ch08.058", "ch08.059"],
+      "laterChunkIds": ["ch09.033"]
+    },
+    "requiredPromptContext": ["The hash index is a specialized tool", "sequence set"],
+    "forbiddenChunkIds": ["ch10.020"]
+  },
+  {
+    "id": "twoq_lru_answer_derived_chain",
+    "seedQuestion": "How is 2Q different from LRU?",
+    "seedAnswer": "2Q differs from LRU by using a FIFO queue for new pages and a protected LRU list for pages that prove they are hot. LRU treats all pages by recency, so a sequential scan can push out valuable hot pages. 2Q lets scan pages flow through FIFO while frequently reused pages stay in the protected LRU list.",
+    "seedSourceIds": ["ch06.057", "ch06.059", "ch06.081", "ch06.082"],
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "turns": [
+      {
+        "id": "hot_pages_value",
+        "prompt": "Why are those more valuable?",
+        "candidateChunkIds": ["ch06.055", "ch06.057", "ch06.059", "ch06.064", "ch06.066", "ch06.081", "ch06.082", "ch06.083", "ch05.046", "ch09.019"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["valuable", "2q", "lru"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch06.057", "ch06.059", "ch06.081", "ch06.082"],
+          "within": 2
+        },
+        "expectedChunkIds": ["ch06.057"],
+        "requiredPromptContext": ["demonstrated, lasting value", "truly \"hot\" data"],
+        "assistantAnswer": "Hot pages are valuable because they are likely to be reused soon; evicting them causes future misses and expensive disk reads."
+      },
+      {
+        "id": "fifo_filter_keeps_scan_pages_away",
+        "prompt": "How does FIFO keep those scan pages from replacing them?",
+        "candidateChunkIds": ["ch06.057", "ch06.059", "ch06.064", "ch06.066", "ch06.081", "ch06.082", "ch06.083", "ch05.046", "ch09.019"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["fifo", "scan", "pages", "valuable"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch06.059", "ch06.082"],
+          "within": 4
+        },
+        "expectedChunkIds": ["ch06.059"],
+        "requiredPromptContext": ["new pages (6, 7, 8...) were admitted to the FIFO queue", "Because these scan pages were never accessed a second time"],
+        "forbiddenChunkIds": ["ch09.019"]
+      }
+    ]
+  },
+  {
+    "id": "slotted_page_slot_entry_definition",
+    "priorQuestion": "Why do slotted pages keep record IDs stable after deletes?",
+    "priorAnswer": "A slotted page keeps the RID stable because the RID names a page and a slot; the slot stores where the tuple bytes currently live.",
+    "priorSourceIds": ["ch04.044", "ch04.045"],
+    "prompt": "In that design, what exactly does each slto store?",
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "candidateChunkIds": ["ch04.018", "ch04.019", "ch04.023", "ch04.024", "ch04.025", "ch04.026", "ch04.027", "ch04.044", "ch04.045", "ch04.046", "ch07.021", "ch07.022"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["slot", "anatomy"],
+    "expectedQueryExcludes": ["stable", "deletes", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch04.019", "ch04.025", "ch04.026"],
+    "expectedChunkIds": ["ch04.019"],
+    "requiredPromptContext": ["bool empty = true", "uint16_t offset", "uint16_t length"],
+    "forbiddenChunkIds": ["ch07.021", "ch07.022"]
+  },
+  {
+    "id": "column_store_tradeoff_chain",
+    "seedQuestion": "What is a column store?",
+    "seedAnswer": "A column store groups values from the same attribute together instead of storing entire rows contiguously.",
+    "seedSourceIds": ["ch15.021", "ch15.027"],
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "turns": [
+      {
+        "id": "analytics_benefit",
+        "prompt": "Why is that useful for analytical queries?",
+        "candidateChunkIds": ["ch15.021", "ch15.023", "ch15.024", "ch15.034", "ch15.035", "ch15.039", "ch15.045", "ch15.046", "ch13.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["analytical", "queries", "column", "store"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.039", "ch15.046"],
+        "expectedChunkIds": ["ch15.039", "ch15.021"],
+        "requiredPromptContext": ["query needs 2 out of 8 columns", "read only the specific columns it needs"],
+        "forbiddenChunkIds": ["ch13.090"],
+        "assistantAnswer": "Column stores help analytical queries because they often read only a few columns, so the system can skip unrelated columns and reduce I/O."
+      },
+      {
+        "id": "full_row_waste",
+        "prompt": "Why is loading entire rows wasteful there?",
+        "candidateChunkIds": ["ch15.021", "ch15.023", "ch15.024", "ch15.034", "ch15.035", "ch15.039", "ch15.045", "ch15.046", "ch13.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["loading", "entire", "rows", "wasteful"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.021", "ch15.046"],
+        "expectedChunkIds": ["ch15.021"],
+        "requiredPromptContext": ["every row and every column", "immediately discard"],
+        "forbiddenChunkIds": ["ch13.090"],
+        "assistantAnswer": "Loading entire rows is wasteful for analytics because the query may only need two columns, so unrelated columns consume disk bandwidth and are discarded."
+      },
+      {
+        "id": "full_row_useful",
+        "prompt": "When is loading an entire row actually useful?",
+        "candidateChunkIds": ["ch15.021", "ch15.034", "ch15.035", "ch15.040", "ch15.045", "ch15.046", "ch15.047", "ch15.048", "ch15.049", "ch09.019"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["loading", "entire", "row"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.046"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.046", "ch15.047"],
+          "within": 4
+        },
+        "requiredPromptContext": ["access an entire row at once", "fetching a user's complete profile"],
+        "forbiddenChunkIds": ["ch15.049"]
+      }
+    ]
+  },
+  {
+    "id": "vectorized_execution_chain",
+    "seedQuestion": "How does the traditional iterator model process analytical queries after columnar storage reduces I/O?",
+    "seedAnswer": "The iterator model pulls one tuple at a time through GetNext calls; once columnar storage reduces I/O, that tuple-at-a-time CPU overhead becomes the bottleneck.",
+    "seedSourceIds": ["ch15.074", "ch15.080"],
+    "limit": 4,
+    "carriedSourceLimit": 2,
+    "turns": [
+      {
+        "id": "iterator_cpu_overhead",
+        "prompt": "Why is that bad?",
+        "candidateChunkIds": ["ch15.074", "ch15.080", "ch15.081", "ch11.019", "ch11.022", "ch11.030", "ch15.045", "ch15.090"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["iterator", "model", "cpu"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.080"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.074", "ch15.080"],
+          "within": 2
+        },
+        "requiredPromptContext": ["one-tuple-at-a-time approach is profoundly inefficient", "virtual function call", "instruction cache and branch predictor"],
+        "assistantAnswer": "It is bad because per-tuple calls and code switching dominate CPU time, so vectorized processing is the alternative."
+      },
+      {
+        "id": "vectorized_unit_of_work",
+        "prompt": "What does the vectorized model change?",
+        "candidateChunkIds": ["ch15.074", "ch15.080", "ch15.081", "ch15.082", "ch15.084", "ch11.019", "ch11.030", "ch15.045"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["vectorized", "model", "change"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.081"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.081"],
+          "within": 2
+        },
+        "requiredPromptContext": ["retrieve a batch of values at a time", "overhead of function calls is now amortized"],
+        "assistantAnswer": "The vectorized model changes the unit of work from one tuple to a batch or vector of values."
+      },
+      {
+        "id": "simd_hardware_parallelism",
+        "prompt": "How does SIMD build on that idea?",
+        "candidateChunkIds": ["ch15.081", "ch15.082", "ch15.083", "ch15.084", "ch15.085", "ch15.086", "ch15.087", "ch15.090", "ch15.091"],
+        "expectedMode": "standalone",
+        "expectedQueryIncludes": ["simd", "build", "idea"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedChunkIds": ["ch15.082"],
+        "expectedAnyChunkIdWithinRank": {
+          "chunkIds": ["ch15.082", "ch15.083", "ch15.084"],
+          "within": 4
+        },
+        "requiredPromptContext": ["Single Instruction, Multiple Data", "single CPU instruction can operate"],
+        "assistantAnswer": "SIMD applies one CPU instruction to multiple values in a vector register."
+      },
+      {
+        "id": "page_scan_gather_process_scatter",
+        "prompt": "What does gather-proces-scatter mean there?",
+        "candidateChunkIds": ["ch15.081", "ch15.084", "ch15.088", "ch15.089", "ch15.090", "ch15.092", "ch15.093", "ch15.094", "ch04.025", "ch04.026"],
+        "expectedMode": "contextual",
+        "expectedQueryIncludes": ["gather", "process", "scatter"],
+        "expectedQueryExcludes": ["buzzdbbook", "tokensmith"],
+        "expectedFirstChunkIds": ["ch15.093"],
+        "expectedChunkIds": ["ch15.093"],
+        "requiredPromptContext": ["gather-process-scatter", "contiguous temporary array", "vceqq_u8"],
+        "forbiddenChunkIds": ["ch04.025", "ch04.026"]
+      }
+    ]
+  },
+  {
+    "id": "confirmation_yes_continues_previous_topic",
+    "priorQuestion": "What is an atomic operation?",
+    "priorAnswer": "An atomic operation is all-or-nothing. It either completes entirely or has no effect.",
+    "priorSourceIds": ["ch01.097"],
+    "prompt": "Yes",
+    "limit": 3,
+    "carriedSourceLimit": 1,
+    "candidateChunkIds": ["ch10.014", "ch01.097", "ch01.099"],
+    "expectedMode": "contextual",
+    "expectedQueryIncludes": ["atomic", "operation"],
+    "expectedQueryExcludes": ["yes", "proximitysearch", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch01.097"],
+    "expectedChunkIds": ["ch01.097"],
+    "requiredPromptContext": ["single, indivisible unit of work", "all-or-nothing"],
+    "forbiddenPromptContext": ["proximitySearch"]
+  },
+  {
+    "id": "fresh_definition_beats_stale_context",
+    "priorQuestion": "What is a thread-safe data structure?",
+    "priorAnswer": "A thread-safe data structure can be accessed by multiple threads without race conditions. Atomic operations can help.",
+    "priorSourceIds": ["ch01.099"],
+    "prompt": "What is an atomic operation?",
+    "limit": 1,
+    "carriedSourceLimit": 1,
+    "candidateChunkIds": ["ch01.097", "ch01.099", "ch10.014"],
+    "expectedMode": "standalone",
+    "expectedQueryIncludes": ["atomic", "operation"],
+    "expectedQueryExcludes": ["thread-safe", "buzzdbbook", "tokensmith"],
+    "expectedFirstChunkIds": ["ch01.097"],
+    "expectedChunkIds": ["ch01.097"],
+    "requiredPromptContext": ["single, indivisible unit of work", "It either completes in its entirety"],
+    "forbiddenPromptContext": ["proximitySearch"]
+  }
+]

@@ -1,9 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
+import type { IndexMaterialOptions } from '../shared/preparation'
+import { preparationReportWithPython } from './python/python-engine-service'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, shell } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
-import { listEngines, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
+import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   cancelMaterialIndexingWithPython,
   indexMaterialWithPython,
@@ -20,6 +22,9 @@ import {
   removeLocalModelFile
 } from './models/local-model-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
+import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
+import { remoteGeneratorFetch, setRemoteGeneratorTransport } from './engine/remote-generator-network'
+import type { CloudConnectionInput, CloudGeneratorInput } from '../shared/cloud-generators'
 import {
   cancelOllamaPullModel,
   deleteOllamaModel,
@@ -32,13 +37,17 @@ import {
 import { searchOllamaLibrary } from './engine/ollama-library-search'
 import {
   rememberRemoteModelApiKeys,
+  setCloudCredentialResolver,
+  modelWithRememberedRemoteApiKey,
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
-import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole } from '../shared/app-state'
+import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
   EngineQuestionSuggestionRequest,
+  EngineQuestionRewriteRequest,
+  MarkdownSourceDocument,
   PdfSourceDocument,
   PdfSourceThumbnail,
   PickMaterialFolderResult,
@@ -48,6 +57,17 @@ import type {
 const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
 const appIconFileName = 'tokensmith-icon.png'
+let cloudGenerators: CloudGeneratorService
+
+function withCloudStatus(state: AppStateSnapshot): AppStateSnapshot {
+  return { ...state, models: state.models.map(model => {
+    if (model.connectionId) return cloudGenerators.describeModel(model)
+    if (model.engine === 'remote' && (model.role === 'generator' || !model.role)) {
+      return { ...model, cloudCredentialStatus: modelWithRememberedRemoteApiKey(model).apiKey ? 'connected' : 'reconnect' }
+    }
+    return model
+  }) }
+}
 
 function getAppIconPath(): string {
   const candidates = app.isPackaged
@@ -85,7 +105,7 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
       await writeFile(getStatePath(), safeStateJson, 'utf8')
     }
 
-    return safeState
+    return withCloudStatus(safeState)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null
@@ -112,7 +132,7 @@ function createId(prefix: string): string {
 
 async function pickMaterials(): Promise<PickMaterialsResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Add PDFs',
+    title: 'Add documents',
     buttonLabel: 'Choose Folder',
     properties: ['openDirectory']
   })
@@ -205,17 +225,26 @@ function isSameOrChildPath(parentPath: string, childPath: string): boolean {
   return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): boolean {
+function indexedMaterialAllowsSource(material: CourseMaterial, sourcePath: string): boolean {
   const materialPath = normalizeSourcePath(material.path)
   if (!materialPath) {
     return false
   }
 
   if (material.kind === 'folder') {
-    return isSameOrChildPath(materialPath, pdfPath)
+    return isSameOrChildPath(materialPath, sourcePath)
   }
 
-  return materialPath === pdfPath
+  return materialPath === sourcePath
+}
+
+function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): boolean {
+  return indexedMaterialAllowsSource(material, pdfPath)
+}
+
+function isMarkdownSourcePath(path: string): boolean {
+  const extension = extname(path).toLowerCase()
+  return extension === '.md' || extension === '.markdown' || extension === '.txt'
 }
 
 interface IndexedPdfSourceResolution {
@@ -267,7 +296,7 @@ async function resolveIndexedPdfSource(source: ChatSource): Promise<IndexedPdfSo
     return {
       path: pdfPath,
       title: resolvedSource.title || source.documentTitle || source.title || parse(pdfPath).name,
-      page: normalizedPageNumber(resolvedSource.page) ?? sourcePageNumber(source),
+      page: sourcePageNumber(source) ?? normalizedPageNumber(resolvedSource.page),
       thumbnailPath: resolvedSource.thumbnailPath || source.thumbnailPath
     }
   }
@@ -354,6 +383,36 @@ async function getPdfThumbnailForSource(source: ChatSource): Promise<PdfSourceTh
   }
 }
 
+async function getMarkdownForSource(source: ChatSource): Promise<MarkdownSourceDocument> {
+  const resolvedSource = await resolveSourceDocumentWithPython(source).catch(() => null)
+  const markdownPath = normalizeSourcePath(resolvedSource?.path || source.path)
+  if (!markdownPath || !isMarkdownSourcePath(markdownPath)) {
+    throw new Error('This source is not backed by a Markdown file.')
+  }
+
+  const indexedMaterials = await listIndexedMaterialsWithPython()
+  const isIndexed = indexedMaterials.some((material) => indexedMaterialAllowsSource(material, markdownPath))
+  if (!isIndexed) {
+    throw new Error('This Markdown file is not part of the indexed library.')
+  }
+
+  const markdownStat = statSync(markdownPath)
+  if (!markdownStat.isFile()) {
+    throw new Error('The source Markdown file is no longer available.')
+  }
+
+  return {
+    title: resolvedSource?.title || source.documentTitle || source.title || parse(markdownPath).name,
+    path: markdownPath,
+    text: readFileSync(markdownPath, 'utf8'),
+    chunkText: source.context || source.excerpt,
+    locator: source.locator,
+    sectionHeader: source.sectionHeader,
+    lineFrom: source.lineFrom ?? resolvedSource?.lineFrom,
+    lineTo: source.lineTo ?? resolvedSource?.lineTo
+  }
+}
+
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -389,15 +448,24 @@ function createMainWindow(): void {
 
 app.setName(appName)
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  setRemoteGeneratorTransport((input, init) => net.fetch(input instanceof URL ? input.toString() : input, { ...init, credentials: 'omit' }))
+  cloudGenerators = new CloudGeneratorService(join(app.getPath('userData'), 'cloud-connections.json'), safeStorage, remoteGeneratorFetch)
+  await cloudGenerators.initialize()
+  setCloudCredentialResolver(model => cloudGenerators.credentialFor(model))
   applyDockIcon()
 
   ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:get-log-file', () => readTokenSmithLogFile())
   ipcMain.handle('state:load', () => loadAppState())
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
+  ipcMain.handle('cloud:connections', () => cloudGenerators.status())
+  ipcMain.handle('cloud:discover', (_event, input: CloudConnectionInput) => cloudResult(() => cloudGenerators.discover(input)))
+  ipcMain.handle('cloud:connect-generator', (_event, input: CloudGeneratorInput) => cloudResult(() => cloudGenerators.connect(input)))
+  ipcMain.handle('cloud:cancel', (_event, requestId: string) => cloudGenerators.cancel(requestId))
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
+  ipcMain.handle('engine:resolve-question', (_event, request: EngineQuestionRewriteRequest) => resolveChatQuestion(request))
   ipcMain.handle('engine:suggest-questions', (_event, request: EngineQuestionSuggestionRequest) =>
     suggestChatQuestions(request)
   )
@@ -406,13 +474,14 @@ app.whenReady().then(() => {
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
     starterSourcesWithPython(materials, limit)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[]) =>
-    searchLibraryWithPython(query, materials, limit, embeddingModels)
+  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) =>
+    searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode)
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))
   ipcMain.handle('library:get-pdf-thumbnail-for-source', (_event, source: ChatSource) =>
     getPdfThumbnailForSource(source)
   )
+  ipcMain.handle('library:get-markdown-for-source', (_event, source: ChatSource) => getMarkdownForSource(source))
   ipcMain.handle('library:cancel-index-material', (_event, materialId: string) =>
     cancelMaterialIndexingWithPython(materialId)
   )
@@ -434,14 +503,10 @@ app.whenReady().then(() => {
       materialId: string,
       materialPath: string,
       embeddingModel?: LocalModel,
-      options?: {
-        resume?: boolean
-        title?: string
-        cleaningProfileId?: CleaningProfileId
-        cleaningRuleIds?: CleaningRuleId[]
-      }
+      options?: IndexMaterialOptions
     ) => indexMaterialWithPython(materialPath, embeddingModel, materialId, options)
   )
+  ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string) => preparationReportWithPython(path, documentPath))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())
   ipcMain.handle('library:set-material-enabled', (_event, materialId: string, isActive: boolean) =>
     setMaterialEnabledWithPython(materialId, isActive)

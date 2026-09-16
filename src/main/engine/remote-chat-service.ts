@@ -1,36 +1,38 @@
 import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
+import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
   EngineChatRequest,
   EngineChatResponse,
   EngineQuestionSuggestionRequest,
   EngineQuestionSuggestionResponse
 } from '../../shared/engine'
+import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
+import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { remoteChatParameters } from './remote-chat-parameters'
+import { remoteGeneratorFetch } from './remote-generator-network'
+import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
-  defaultFollowUpPrompt,
+  followUpSuggestionMessages,
   followUpSuggestionCount,
-  formatFollowUpInstruction,
+  modelAwareRuntimeSettings,
   parseFollowUpSuggestions,
   questionSuggestionCount,
   questionSuggestionMessages,
+  suggestionMaxTokens,
   shouldGenerateFollowUps,
   studyChatMessages,
-  type StudyChatMessage
+  type StudyChatMessage,
+  filterSuggestedQuestions
 } from './study-chat-format'
 
 interface OpenAiCompatibleModelList {
   data?: Array<{ id?: string }>
 }
 
-interface GeminiModelList {
-  models?: Array<{
-    name?: string
-    supportedGenerationMethods?: string[]
-  }>
-}
-
 interface OpenAiCompatibleChatResponse {
   choices?: Array<{
+    finish_reason?: string
     message?: {
       content?: string
     }
@@ -69,12 +71,6 @@ function normalizeListedModelId(modelId: string, baseUrl: string): string {
   }
 
   return trimmedModelId
-}
-
-function geminiNativeBaseUrl(baseUrl: string): string {
-  const url = new URL(normalizeBaseUrl(baseUrl))
-  url.pathname = url.pathname.replace(/\/openai$/, '')
-  return url.toString().replace(/\/+$/, '')
 }
 
 function assertRemoteModel(model: LocalModel): asserts model is LocalModel & {
@@ -134,6 +130,24 @@ function compareModelIds(left: string, right: string, preferredPrefix?: string):
   return compareNumberListsDescending(numericGroups(left), numericGroups(right)) || left.localeCompare(right)
 }
 
+function isLikelyEmbeddingModelId(modelId: string): boolean {
+  const lower = modelId.toLowerCase()
+  return lower.includes('embedding') || lower.includes('embed')
+}
+
+function listedModelMatchesRole(modelId: string, baseUrl: string, role: LocalModelRole): boolean {
+  if (!isGeminiOpenAiBaseUrl(baseUrl)) {
+    return true
+  }
+
+  if (role === 'both') {
+    return true
+  }
+
+  const embeddingModel = isLikelyEmbeddingModelId(modelId)
+  return role === 'embedder' ? embeddingModel : !embeddingModel
+}
+
 export async function listOpenAiCompatibleModels(
   apiKey: string,
   baseUrl: string,
@@ -144,35 +158,6 @@ export async function listOpenAiCompatibleModels(
     return []
   }
 
-  if (isGeminiOpenAiBaseUrl(normalizedBaseUrl)) {
-    const nativeBaseUrl = geminiNativeBaseUrl(normalizedBaseUrl)
-    const response = await fetch(`${nativeBaseUrl}/models`, {
-      headers: {
-        'x-goog-api-key': apiKey.trim(),
-        Accept: 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`Model list failed with HTTP ${response.status}.`)
-    }
-
-    const payload = (await response.json()) as GeminiModelList
-    const requiredMethod = role === 'embedder' ? 'embedContent' : 'generateContent'
-    const candidates = Array.from(
-      new Set(
-        (payload.models ?? [])
-          .filter((model) => model.supportedGenerationMethods?.includes(requiredMethod))
-          .map((model) => model.name)
-          .filter((id): id is string => Boolean(id))
-          .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
-          .filter((id) => Boolean(id))
-      )
-    ).sort((left, right) => compareModelIds(left, right, 'gemini-'))
-
-    return candidates
-  }
-
   const response = await fetch(`${normalizedBaseUrl}/models`, {
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
@@ -181,7 +166,7 @@ export async function listOpenAiCompatibleModels(
   })
 
   if (!response.ok) {
-    throw new Error(`Model list failed with HTTP ${response.status}.`)
+    throw new Error(`Model list failed with HTTP ${response.status}${await responseErrorDetail(response, apiKey)}.`)
   }
 
   const payload = (await response.json()) as OpenAiCompatibleModelList
@@ -190,29 +175,31 @@ export async function listOpenAiCompatibleModels(
     .filter((id): id is string => Boolean(id))
     .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
     .filter((id) => Boolean(id))
+    .filter((id) => listedModelMatchesRole(id, normalizedBaseUrl, role))
 
   return Array.from(new Set(modelIds))
-    .sort(compareModelIds)
+    .sort((left, right) => compareModelIds(left, right, isGeminiOpenAiBaseUrl(normalizedBaseUrl) ? 'gemini-' : undefined))
 }
 
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
   messages: StudyChatMessage[],
-  overrides: { maxTokens?: number; temperature?: number } = {}
+  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean } = {}
 ): Promise<string> {
-  const response = await fetch(config.endpoint, {
+  const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey.trim()}`,
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
+    signal: AbortSignal.timeout(180_000),
     body: JSON.stringify({
       model: config.modelName,
       messages,
-      max_tokens: overrides.maxTokens ?? config.settings?.maxLength,
-      temperature: overrides.temperature ?? config.settings?.temperature,
-      top_p: config.settings?.topP
+      ...remoteChatParameters(config.endpoint, config.modelName,
+        overrides.maxTokens ?? config.settings?.maxLength,
+        overrides.temperature ?? config.settings?.temperature, config.settings?.topP)
     })
   })
 
@@ -223,6 +210,9 @@ async function runRemoteChatCompletion(
   }
 
   const payload = (await response.json()) as OpenAiCompatibleChatResponse
+  if (overrides.requireComplete && payload.choices?.[0]?.finish_reason === 'length') {
+    throw new Error('The model response exceeded its output limit.')
+  }
   const text = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? ''
 
   if (!text.trim()) {
@@ -230,6 +220,26 @@ async function runRemoteChatCompletion(
   }
 
   return text.trim()
+}
+
+export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+  assertRemoteModel(request.model)
+  if (!lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
+  const started = performance.now()
+  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const messages = questionRewriteMessages({ ...request, modelSettings: settings })
+  const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
+  const text = await runRemoteChatCompletion({
+    endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
+    modelName, apiKey: request.model.apiKey, settings
+  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true })
+  const resolution = parseQuestionRewrite(text, request.prompt)
+  writeTokenSmithLog('chat_question_rewrite', {
+    modelName, prompt: request.prompt, modelMessages: messages,
+    rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
+    durationMs: performance.now() - started
+  })
+  return resolution
 }
 
 async function generateRemoteFollowUpSuggestions(
@@ -245,29 +255,35 @@ async function generateRemoteFollowUpSuggestions(
   if (count === 0) {
     return []
   }
-  const prompt = formatFollowUpInstruction(
-    request.modelSettings?.suggestedFollowUpPrompt?.trim() || defaultFollowUpPrompt(),
-    count
-  )
-  const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runRemoteChatCompletion(
     config,
-    [...studyChatMessages(request), { role: 'assistant', content: answer }, { role: 'user', content: prompt }],
-    { maxTokens, temperature }
+    followUpSuggestionMessages(request, answer),
+    { maxTokens, temperature, requireComplete: true }
   )
-  const suggestions = parseFollowUpSuggestions(text, count)
-  if (suggestions.length === 0) {
-    throw new Error('The remote model did not return any suggested questions.')
-  }
+  const referenceQuestions = [
+    ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
+    request.prompt
+  ].filter((question) => question.trim().length > 0)
+  const suggestions = filterSuggestedQuestions(
+    parseFollowUpSuggestions(text, count * 2),
+    referenceQuestions,
+    count
+  )
+  writeTokenSmithLog('follow_up_suggestions', {
+    provider: 'remote', modelName: config.modelName, prompt: request.prompt,
+    rawResponse: text, suggestions, requestedCount: count
+  })
   return suggestions
 }
 
 export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
-  const settings = request.modelSettings
+  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
   const endpoint = `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`
   const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
   const config = {
@@ -276,12 +292,12 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     apiKey: request.model.apiKey,
     settings
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(request))
+  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(request, answer.text, config)
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
   } catch (error) {
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
   }
@@ -306,19 +322,28 @@ export async function generateRemoteStudyQuestionSuggestions(
     return { suggestions: [] }
   }
 
+  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
+  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
   const config = {
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
     apiKey: request.model.apiKey,
-    settings: request.modelSettings
+    settings
   }
-  const maxTokens = Math.min(config.settings?.maxLength ?? 160, 160)
+  const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(request), { maxTokens, temperature })
-  const suggestions = parseFollowUpSuggestions(text, count)
-  if (suggestions.length === 0) {
-    throw new Error('The remote model did not return any suggested questions.')
-  }
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
+  const referenceQuestions = runtimeRequest.messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.text)
+  const suggestions = filterSuggestedQuestions(
+    parseFollowUpSuggestions(text, count * 2),
+    referenceQuestions,
+    count
+  )
+  writeTokenSmithLog('initial_question_suggestions', {
+    provider: 'remote', modelName: config.modelName, rawResponse: text, suggestions, requestedCount: count
+  })
   return { suggestions }
 }

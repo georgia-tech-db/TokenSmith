@@ -9,6 +9,10 @@ const tokenSmithBridge: TokenSmithBridge = {
   saveAppState: (state) =>
     ipcRenderer.invoke('state:save', state) as Promise<Awaited<ReturnType<TokenSmithBridge['saveAppState']>>>,
   listEngines: () => ipcRenderer.invoke('engine:list') as Promise<Awaited<ReturnType<TokenSmithBridge['listEngines']>>>,
+  resolveChatQuestion: (request) =>
+    ipcRenderer.invoke('engine:resolve-question', request) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['resolveChatQuestion']>>
+    >,
   sendChatMessage: (request) =>
     ipcRenderer.invoke('engine:chat', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['sendChatMessage']>>
@@ -21,8 +25,8 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
       Awaited<ReturnType<TokenSmithBridge['starterSources']>>
     >,
-  searchLibrary: (query, materials, limit, embeddingModels) =>
-    ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels) as Promise<
+  searchLibrary: (query, materials, limit, embeddingModels, searchMode) =>
+    ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels, searchMode) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>
     >,
   getPdfForSource: (source) =>
@@ -32,6 +36,10 @@ const tokenSmithBridge: TokenSmithBridge = {
   getPdfThumbnailForSource: (source) =>
     ipcRenderer.invoke('library:get-pdf-thumbnail-for-source', source) as Promise<
       Awaited<ReturnType<TokenSmithBridge['getPdfThumbnailForSource']>>
+    >,
+  getMarkdownForSource: (source) =>
+    ipcRenderer.invoke('library:get-markdown-for-source', source) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['getMarkdownForSource']>>
     >,
   pickMaterials: () =>
     ipcRenderer.invoke('library:pick-materials') as Promise<
@@ -49,6 +57,7 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:preview-cleaning', materialPath, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['previewCleaning']>>
     >,
+  preparationReport: (path, documentPath) => ipcRenderer.invoke('library:preparation-report', path, documentPath),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>
     ipcRenderer.invoke('library:index-material', materialId, materialPath, embeddingModel, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['indexMaterial']>>
@@ -117,6 +126,10 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('models:list-remote-provider-models', apiKey, baseUrl, role) as Promise<
       Awaited<ReturnType<TokenSmithBridge['listRemoteProviderModels']>>
     >,
+  getCloudConnections: () => ipcRenderer.invoke('cloud:connections'),
+  discoverCloudModels: (input) => ipcRenderer.invoke('cloud:discover', input),
+  connectCloudGenerator: (input) => ipcRenderer.invoke('cloud:connect-generator', input),
+  cancelCloudSetup: (requestId) => ipcRenderer.invoke('cloud:cancel', requestId),
   removeModel: (model) =>
     ipcRenderer.invoke('models:remove-model', model) as Promise<Awaited<ReturnType<TokenSmithBridge['removeModel']>>>,
 }

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Chat UI Layout Checks</title></head>
+  <body style="margin:0">
+    <label style="display:block;padding:8px;font:14px sans-serif">Preview width
+      <select aria-label="Preview width"><option>1280</option><option>866</option><option>390</option></select>
+    </label>
+    <iframe title="Chat UI preview" style="display:block;width:1280px;height:800px;border:0"></iframe>
+    <script>
+      const frame = document.querySelector('iframe')
+      frame.src = './chat-interactions.html' + location.search
+      document.querySelector('select').addEventListener('change', event => { frame.style.width = event.target.value + 'px' })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,133 @@
+[
+  {
+    "id": "pinning_needed",
+    "portedFrom": "old_db_textbook:buffer_manager_pinning",
+    "question": "Why is page pinning needed in a buffer manager?",
+    "topK": 8,
+    "expectedChunkIds": ["ch05.084", "ch05.090"],
+    "minExpectedHits": 1,
+    "requiredContext": [
+      "ineligible for eviction",
+      "silent data corruption"
+    ],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenContext": ["Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "lru_sequential_scan",
+    "portedFrom": "old_db_textbook:replacement_policy_lru_scan",
+    "question": "What is sequential flooding and why does it make LRU fail?",
+    "topK": 8,
+    "expectedChunkIds": ["ch06.012", "ch05.119", "ch06.064"],
+    "minExpectedHits": 1,
+    "requiredContext": [
+      "sequential flooding",
+      "temporal locality"
+    ]
+  },
+  {
+    "id": "bplus_vs_binary_tree",
+    "portedFrom": "old_db_textbook:bplus_tree_vs_binary_search_tree",
+    "question": "Why is a B+ tree preferred over a binary search tree for disk-based database indexes?",
+    "topK": 8,
+    "expectedChunkIds": ["ch09.019", "ch09.023"],
+    "minExpectedHits": 1,
+    "requiredContext": [
+      "not a binary tree",
+      "wide, shallow tree",
+      "disk read"
+    ],
+    "forbiddenChunkIds": ["ch02.046"],
+    "forbiddenContext": ["Phase 3: Compose the Tuple"]
+  },
+  {
+    "id": "hash_range_queries",
+    "portedFrom": "old_db_textbook:hash_index_range_query",
+    "question": "Why does a hash index struggle with range queries?",
+    "topK": 8,
+    "expectedChunkIds": ["ch09.002", "ch08.057", "ch09.013", "ch09.015"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "range queries",
+      "hash function",
+      "natural ordering"
+    ]
+  },
+  {
+    "id": "bplus_sequence_set",
+    "portedFrom": "old_db_textbook:bplus_tree_range_scan",
+    "question": "Why does the B+ tree sequence set make range scans efficient?",
+    "topK": 8,
+    "expectedChunkIds": ["ch09.021", "ch09.030", "ch09.033", "ch09.102"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "sequence set",
+      "next pointer",
+      "range scan"
+    ]
+  },
+  {
+    "id": "aggregation_grouping",
+    "portedFrom": "old_db_textbook:group_by_aggregation",
+    "question": "How does BuzzDB implement GROUP BY aggregation with a hash table?",
+    "topK": 8,
+    "expectedChunkIds": ["ch13.022", "ch13.028", "ch13.052"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "HashAggregationOperator",
+      "grouping columns",
+      "hash table"
+    ]
+  },
+  {
+    "id": "wal_write_ordering",
+    "portedFrom": "old_db_textbook:write_ahead_logging",
+    "question": "Why does write-ahead logging require write ordering control in the buffer manager?",
+    "topK": 8,
+    "expectedChunkIds": ["ch05.016", "ch06.096"],
+    "minExpectedHits": 1,
+    "requiredContext": [
+      "Write-Ahead Logging",
+      "before the page itself",
+      "crash recovery"
+    ]
+  },
+  {
+    "id": "oltp_vs_olap",
+    "portedFrom": "old_db_textbook:oltp_olap_workloads",
+    "question": "What is the difference between OLTP and OLAP workloads?",
+    "topK": 8,
+    "expectedChunkIds": ["ch15.002", "ch15.008", "ch15.012"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "Online Transaction Processing",
+      "Online Analytical Processing",
+      "performance goals"
+    ]
+  },
+  {
+    "id": "column_store_analytics",
+    "portedFrom": "old_db_textbook:column_store_analytical_queries",
+    "question": "Why is a column store faster for analytical queries that read only a few columns?",
+    "topK": 8,
+    "expectedChunkIds": ["ch15.021", "ch15.032", "ch15.039"],
+    "minExpectedHits": 1,
+    "requiredContext": [
+      "column-oriented",
+      "read only the specific columns",
+      "I/O required"
+    ]
+  },
+  {
+    "id": "volcano_iterator_model_alias",
+    "question": "Why is the Volcano model inefficient for analytical queries?",
+    "topK": 8,
+    "expectedChunkIds": ["ch15.074", "ch15.080"],
+    "minExpectedHits": 2,
+    "requiredContext": [
+      "also known as the Volcano or pipeline model",
+      "virtual function call",
+      "instruction cache and branch predictor"
+    ]
+  }
+]
