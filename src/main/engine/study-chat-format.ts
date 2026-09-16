@@ -1,5 +1,4 @@
 import type { ChatSource, ModelRuntimeSettings } from '../../shared/app-state'
-import { abstentionAnswer } from '../../shared/confidence'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import {
   defaultFollowUpSuggestionCount,
@@ -17,8 +16,11 @@ export function sourceContext(sources: ChatSource[]): string {
   return [
     'Use the context below only when it is relevant to the question.',
     'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-    'Answer only from the context. Do not fall back on your own knowledge when the context does not cover the question.',
-    `If the context does not contain the answer, reply with exactly this sentence and nothing else: ${abstentionAnswer}`,
+    // No refusal instruction on purpose. The model always gives its own answer;
+    // scoreAnswerConfidence decides whether it is grounded enough to show. Telling
+    // the model to emit the abstention string meant we graded text we injected and
+    // the real answer was never produced, so there was nothing to reveal.
+    'Prefer the context over your own knowledge when the two disagree.',
     '',
     '### Context:',
     ...sources.map((source) => {

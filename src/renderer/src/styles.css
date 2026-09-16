@@ -3541,3 +3541,49 @@ button {
     white-space: normal;
   }
 }
+
+.suppressed-answer {
+  margin-top: 10px;
+}
+
+.suppressed-answer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.28));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.suppressed-answer-toggle:hover {
+  opacity: 1;
+}
+
+.suppressed-answer-chevron {
+  transition: transform 140ms ease;
+}
+
+.suppressed-answer-chevron.open {
+  transform: rotate(180deg);
+}
+
+.suppressed-answer-body {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--warning, #b8860b);
+  border-radius: 6px;
+  background: rgba(184, 134, 11, 0.07);
+}
+
+.suppressed-answer-warning {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  opacity: 0.8;
+}

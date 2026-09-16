@@ -61,6 +61,7 @@ export function withAnswerConfidence(
       abstained: true
     }
 
+    // The model abstained on its own, so there is no withheld answer to reveal.
     return { ...response, text: abstentionAnswer, confidence, followUpSuggestions: [] }
   }
 
@@ -73,6 +74,7 @@ export function withAnswerConfidence(
     return {
       ...response,
       text: abstentionAnswer,
+      suppressedText: text,
       confidence,
       followUpSuggestions: []
     }

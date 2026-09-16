@@ -224,3 +224,41 @@ test('answerStatusLabel reads plainly', () => {
   assert.equal(answerStatusLabel('partial'), 'Partially supported')
   assert.equal(answerStatusLabel('unsupported'), 'Not supported')
 })
+
+test('an abstained answer keeps the original text so the UI can offer it', () => {
+  const request = { prompt: 'What is the capital of France?', retrievedSources: [weakSource] }
+  const original = 'Paris is the capital of France.'
+  const result = withAnswerConfidence(request, {
+    text: original,
+    sources: [weakSource],
+    modelName: 'test',
+    engineId: 'tokensmith'
+  })
+
+  assert.equal(result.text, abstentionAnswer)
+  assert.equal(result.confidence.abstained, true)
+  assert.equal(result.suppressedText, original, 'the withheld answer must survive for "See answer anyway"')
+})
+
+test('a supported answer carries no suppressed text', () => {
+  const request = { prompt: 'What does a transaction preserve?', retrievedSources: [strongSource] }
+  const result = withAnswerConfidence(request, {
+    text: 'A transaction preserves atomicity and durability across a database crash.',
+    sources: [strongSource],
+    modelName: 'test',
+    engineId: 'tokensmith'
+  })
+
+  assert.equal(result.confidence.abstained, false)
+  assert.equal(result.suppressedText, undefined)
+})
+
+test('a model that abstains on its own offers nothing to reveal', () => {
+  const result = withAnswerConfidence(
+    { prompt: 'What is the capital of France?', retrievedSources: [weakSource] },
+    { text: abstentionAnswer, sources: [weakSource], modelName: 'test', engineId: 'tokensmith' }
+  )
+
+  assert.equal(result.confidence.abstained, true)
+  assert.equal(result.suppressedText, undefined, 'must not offer the abstention sentence as the answer')
+})

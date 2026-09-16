@@ -13,7 +13,6 @@ const {
   studyChatMessages
 } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 
-const { abstentionAnswer } = requireTranspiledTs('src/shared/confidence.ts')
 
 const addedAt = '2026-07-07T00:00:00.000Z'
 const databaseSource = {
@@ -29,8 +28,7 @@ const loggingSource = {
 const databaseContext = [
   'Use the context below only when it is relevant to the question.',
   'Answer directly. Do not quote the context before answering. Do not mention context labels, source labels, excerpt labels, locators, or page numbers.',
-  'Answer only from the context. Do not fall back on your own knowledge when the context does not cover the question.',
-  `If the context does not contain the answer, reply with exactly this sentence and nothing else: ${abstentionAnswer}`,
+  'Prefer the context over your own knowledge when the two disagree.',
   '',
   '### Context:',
   'Collection: Database Systems.pdf',

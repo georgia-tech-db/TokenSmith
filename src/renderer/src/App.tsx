@@ -3726,6 +3726,7 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
+        suppressedText: reply.suppressedText,
         confidence: reply.confidence,
         kind: 'quizFeedback',
         quiz: {
@@ -3925,6 +3926,7 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
+        suppressedText: reply.suppressedText,
         sources: settings.application.showSources ? reply.sources : [],
         confidence: reply.confidence,
         followUpSuggestions: reply.followUpSuggestions ?? [],
@@ -4555,6 +4557,7 @@ function AssistantMessage({
         </h3>
         {message.confidence && <ConfidenceBadge confidence={message.confidence} />}
         <MessageText text={message.text} />
+        {message.suppressedText && <SuppressedAnswer text={message.suppressedText} />}
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4606,6 +4609,41 @@ function AssistantMessage({
         )}
       </div>
     </article>
+  )
+}
+
+/**
+ * The answer the scorer withheld. Abstaining is the right default, but a student
+ * who wants to judge the ungrounded answer for themselves should be able to.
+ */
+function SuppressedAnswer({ text }: { text: string }) {
+  const [revealed, setRevealed] = useState(false)
+
+  return (
+    <div className="suppressed-answer">
+      <button
+        className="suppressed-answer-toggle"
+        type="button"
+        aria-expanded={revealed}
+        onClick={() => setRevealed((current) => !current)}
+      >
+        <ChevronDown
+          className={revealed ? 'suppressed-answer-chevron open' : 'suppressed-answer-chevron'}
+          size={15}
+          aria-hidden="true"
+        />
+        <span>{revealed ? 'Hide unverified answer' : 'See answer anyway'}</span>
+      </button>
+      {revealed && (
+        <div className="suppressed-answer-body">
+          <p className="suppressed-answer-warning">
+            This answer is not supported by your indexed material. Check it against the source before
+            relying on it.
+          </p>
+          <MessageText text={text} />
+        </div>
+      )}
+    </div>
   )
 }
 

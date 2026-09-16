@@ -146,6 +146,8 @@ export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
+  /** The model's original answer when the scorer replaced it with an abstention. */
+  suppressedText?: string
   sources?: ChatSource[]
   confidence?: AnswerConfidence
   followUpSuggestions?: string[]
