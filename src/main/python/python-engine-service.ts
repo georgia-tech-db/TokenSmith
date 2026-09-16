@@ -623,6 +623,7 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
+      typoCorrectionEnabled: options?.typoCorrectionEnabled === true,
       model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
@@ -692,7 +693,8 @@ export async function searchLibraryWithPython(
   materials: CourseMaterial[],
   limit: number,
   embeddingModels?: LocalModel[],
-  searchMode?: SearchMode
+  searchMode?: SearchMode,
+  typoCorrectionEnabled?: boolean
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   writeLog('library_search_request', {
@@ -723,6 +725,7 @@ export async function searchLibraryWithPython(
       limit,
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
+      typoCorrectionEnabled: typoCorrectionEnabled === true,
       userDataPath: app.getPath('userData')
     },
     30_000

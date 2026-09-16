@@ -474,8 +474,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
     starterSourcesWithPython(materials, limit)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) =>
-    searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode)
+  ipcMain.handle(
+    'library:search',
+    (
+      _event,
+      query: string,
+      materials: CourseMaterial[],
+      limit: number,
+      embeddingModels?: LocalModel[],
+      searchMode?: SearchMode,
+      typoCorrectionEnabled?: boolean
+    ) => searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, typoCorrectionEnabled)
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))
   ipcMain.handle('library:get-pdf-thumbnail-for-source', (_event, source: ChatSource) =>
