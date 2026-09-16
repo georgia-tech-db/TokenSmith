@@ -81,10 +81,12 @@ import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import {
   quizFeedbackPrompt,
+  quizFeedbackRetryPrompt,
   quizQuestionPrompt,
   quizSourcePoolSize,
   quizSourceLimit,
-  quizTotalQuestions
+  quizTotalQuestions,
+  validateQuizFeedback
 } from '@shared/quiz'
 import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
@@ -3815,7 +3817,23 @@ function ChatScreen({
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
 
     try {
-      const retrievedSources = quizState.currentSources
+      const feedbackQuery = `${quizState.currentQuestion}\n${answer}`
+      let retrievedSources = quizState.currentSources
+      if (window.tokensmith && activeMaterials.length > 0) {
+        try {
+          const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
+          const searchResults = await window.tokensmith.searchLibrary(
+            feedbackQuery,
+            activeMaterials,
+            quizSourceLimit,
+            searchEmbeddingModels
+          )
+          if (searchResults.length > 0) {
+            retrievedSources = searchResults
+          }
+        } catch (searchError) {
+        }
+      }
 
       if (requestSequenceRef.current !== requestSequence) {
         return
@@ -3826,13 +3844,15 @@ function ChatScreen({
       }
 
       setPendingSources(settings.application.showSources ? retrievedSources : [])
+      const feedbackPrompt = quizFeedbackPrompt({
+        answer,
+        question: quizState.currentQuestion,
+        questionNumber: quizState.questionNumber,
+        totalQuestions: quizState.totalQuestions
+      })
+
       const reply = await window.tokensmith?.sendChatMessage({
-        prompt: quizFeedbackPrompt({
-          answer,
-          question: quizState.currentQuestion,
-          questionNumber: quizState.questionNumber,
-          totalQuestions: quizState.totalQuestions
-        }),
+        prompt: feedbackPrompt,
         messages: activeConversation.messages,
         materials: activeMaterials,
         model: selectedModel,
@@ -3850,17 +3870,38 @@ function ChatScreen({
         return
       }
 
+      const feedbackCheck = validateQuizFeedback(reply.text)
+      let feedbackText = reply.text
+      let feedbackSources = reply.sources
+      if (!feedbackCheck.valid) {
+        const retryReply = await window.tokensmith?.sendChatMessage({
+          prompt: quizFeedbackRetryPrompt(feedbackPrompt, feedbackCheck.issues),
+          messages: activeConversation.messages,
+          materials: activeMaterials,
+          model: selectedModel,
+          settings,
+          applicationSettings: quizApplicationSettings(settings.application),
+          modelSettings: activeModelSettings,
+          retrievedSources
+        })
+
+        if (retryReply && validateQuizFeedback(retryReply.text).valid) {
+          feedbackText = retryReply.text
+          feedbackSources = retryReply.sources
+        }
+      }
+
       const feedbackMessage: ChatMessage = {
         id: createId('assistant'),
         role: 'assistant',
-        text: reply.text,
+        text: feedbackText,
         kind: 'quizFeedback',
         quiz: {
           questionNumber: quizState.questionNumber,
           totalQuestions: quizState.totalQuestions,
           complete: quizState.questionNumber >= quizState.totalQuestions
         },
-        sources: settings.application.showSources ? reply.sources : []
+        sources: settings.application.showSources ? feedbackSources : []
       }
       const nextQuestionNumber = quizState.questionNumber + 1
       let nextQuestionMessage: ChatMessage | undefined
