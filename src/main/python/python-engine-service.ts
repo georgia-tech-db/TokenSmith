@@ -17,6 +17,7 @@ interface PythonRequest {
     | 'search'
     | 'starter_sources'
     | 'list_materials'
+    | 'build_vocabularies'
     | 'set_material_enabled'
     | 'remove_material'
     | 'resolve_source_document'
@@ -623,6 +624,7 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
+      typoCorrectionEnabled: options?.typoCorrectionEnabled === true,
       model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
@@ -692,7 +694,8 @@ export async function searchLibraryWithPython(
   materials: CourseMaterial[],
   limit: number,
   embeddingModels?: LocalModel[],
-  searchMode?: SearchMode
+  searchMode?: SearchMode,
+  typoCorrectionEnabled?: boolean
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   writeLog('library_search_request', {
@@ -723,6 +726,7 @@ export async function searchLibraryWithPython(
       limit,
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
+      typoCorrectionEnabled: typoCorrectionEnabled === true,
       userDataPath: app.getPath('userData')
     },
     30_000
@@ -751,6 +755,19 @@ export async function starterSourcesWithPython(materials: CourseMaterial[], limi
   )
 
   return result.sources
+}
+
+// Long timeout: this walks every ready material that has no vocabulary yet.
+export async function buildVocabulariesWithPython(): Promise<number> {
+  const result = await requestPython<{ built: number }>(
+    'build_vocabularies',
+    {
+      userDataPath: app.getPath('userData')
+    },
+    180_000
+  )
+
+  return result.built
 }
 
 export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]> {
