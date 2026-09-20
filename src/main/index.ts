@@ -35,6 +35,7 @@ import {
   startOllamaService
 } from './engine/ollama-service'
 import { searchOllamaLibrary } from './engine/ollama-library-search'
+import { detectDeviceCapabilities } from './system/detect-device-capabilities'
 import {
   rememberRemoteModelApiKeys,
   setCloudCredentialResolver,
@@ -457,6 +458,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:get-log-file', () => readTokenSmithLogFile())
+  ipcMain.handle('device:capabilities', () =>
+    detectDeviceCapabilities(
+      process.env.OLLAMA_MODELS?.trim() || app.getPath('home'),
+      () => app.getGPUInfo('complete')
+    )
+  )
   ipcMain.handle('state:load', () => loadAppState())
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
   ipcMain.handle('cloud:connections', () => cloudGenerators.status())
