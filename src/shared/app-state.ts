@@ -96,11 +96,16 @@ export type AppFontSize = 'small' | 'medium' | 'large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
 export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
+export type ChatModelMode = 'local' | 'online'
 
 export interface ApplicationSettings {
   theme: AppTheme
   fontSize: AppFontSize
-  defaultModelId: string
+  /** Kept while migrating settings written before per-mode defaults. */
+  defaultModelId?: string
+  defaultLocalModelId: string
+  defaultOnlineModelId: string
+  defaultChatMode: ChatModelMode
   suggestionMode: SuggestionMode
   searchMode: SearchMode
   followUpSuggestionCount: number
@@ -194,6 +199,9 @@ export interface Conversation {
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
+  chatModelMode?: ChatModelMode
+  localModelId?: string
+  onlineModelId?: string
   quizState?: QuizState
 }
 

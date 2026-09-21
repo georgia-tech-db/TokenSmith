@@ -1,3 +1,8 @@
+.chat-model-switcher { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-mode-toggle { display: flex; flex: none; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+.chat-mode-toggle button { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; font-weight: 650; }
+.chat-mode-toggle button.is-active { color: var(--text); background: var(--panel); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); }
+.chat-mode-toggle button:disabled { cursor: default; opacity: .6; }
 .chat-model-control { position: relative; min-width: 0; max-width: min(420px, 55vw); }
 .chat-model-trigger { display: flex; align-items: center; gap: 9px; max-width: 100%; padding: 9px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; cursor: pointer; font-weight: 600; }
 .chat-model-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -70,6 +75,10 @@
 .cloud-generator-entry p { margin: 0; color: var(--muted); line-height: 1.5; }
 .cloud-generator-advanced summary { padding: 12px 0; cursor: pointer; color: var(--muted); }
 @media (max-width: 560px) {
+  .chat-model-switcher { gap: 3px; }
+  .chat-mode-toggle button { padding: 6px; }
+  .chat-mode-toggle button span { display: none; }
+  .chat-model-trigger { padding-right: 7px; padding-left: 7px; }
   .cloud-dialog-body { padding: 12px 20px 22px; }
   .cloud-dialog-header { padding: 14px 14px 3px; }
   .cloud-dialog-body h2 { font-size: 23px; }

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Cloud, Laptop, Plus, Search, Settings2 } from 'lucide-react'
-import type { LocalModel } from '@shared/app-state'
+import type { ChatModelMode, LocalModel } from '@shared/app-state'
 import { isCloudGenerator } from '@shared/cloud-generators'
 
-export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onConnect, onManage }: {
+export function ChatModelPicker({ models, selectedModel, disabled, mode, canUseLocal, canUseOnline, onModeChange, onSelect, onConnect, onManage }: {
   models: LocalModel[]; selectedModel?: LocalModel; disabled: boolean
+  mode: ChatModelMode; canUseLocal: boolean; canUseOnline: boolean
+  onModeChange: (mode: ChatModelMode) => void
   onSelect: (id: string) => void; onConnect: (model?: LocalModel) => void; onManage: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -24,7 +26,16 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
     document.addEventListener('pointerdown', outside)
     return () => document.removeEventListener('pointerdown', outside)
   }, [open])
-  return <div className="chat-model-control" ref={root} onBlur={event => {
+  return <div className="chat-model-switcher">
+    <div className="chat-mode-toggle" role="group" aria-label="Answer model location">
+      <button type="button" className={mode === 'local' ? 'is-active' : ''} aria-pressed={mode === 'local'}
+        disabled={disabled} title={canUseLocal ? 'Use the local model for this conversation' : 'Set up a local model'}
+        onClick={() => onModeChange('local')}><Laptop size={15} /><span>Local</span></button>
+      <button type="button" className={mode === 'online' ? 'is-active' : ''} aria-pressed={mode === 'online'}
+        disabled={disabled} title={canUseOnline ? 'Use the online model for this conversation' : 'Connect an online model'}
+        onClick={() => onModeChange('online')}><Cloud size={15} /><span>Online</span></button>
+    </div>
+    <div className="chat-model-control" ref={root} onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
   }} onKeyDown={event => {
     if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close() }
@@ -47,7 +58,7 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
         {(['device', 'cloud'] as const).map(group => {
           const entries = filtered.filter(model => (model.engine === 'remote') === (group === 'cloud'))
           return entries.length > 0 && <div key={group}>
-            <p className="cloud-eyebrow">{group === 'cloud' ? 'Cloud' : 'On this device'}</p>
+            <p className="cloud-eyebrow">{group === 'cloud' ? 'Online' : 'On this device'}</p>
             {entries.map(model => <button type="button" className="chat-model-option" key={model.id}
               aria-label={`${label(model)}${model.status !== 'ready' ? ', reconnect' : ''}`}
               onClick={() => { close(); model.status === 'ready' ? onSelect(model.id) : onConnect(model) }}>
@@ -56,12 +67,13 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
             </button>)}
           </div>
         })}
-        {!filtered.length && <p className="cloud-muted">{choices.length ? 'No matching models.' : 'Choose a cloud model to get started.'}</p>}
+        {!filtered.length && <p className="cloud-muted">{choices.length ? 'No matching models.' : 'Choose an online model to get started.'}</p>}
       </div>
       <div className="chat-model-menu-footer">
-        <button type="button" onClick={() => { close(); onConnect() }}><Plus size={17} /><span>Connect a cloud model</span></button>
+        <button type="button" onClick={() => { close(); onConnect() }}><Plus size={17} /><span>Connect an online model</span></button>
         <button type="button" onClick={() => { close(); onManage() }}><Settings2 size={16} /><span>Manage models</span></button>
       </div>
     </div>}
+    </div>
   </div>
 }
