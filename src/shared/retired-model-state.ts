@@ -24,7 +24,7 @@ export function removeRetiredModelState(state: AppStateSnapshot): AppStateSnapsh
       ...state.settings,
       application: {
         ...state.settings.application,
-        defaultModelId: retiredIds.has(state.settings.application?.defaultModelId) ? '' : state.settings.application?.defaultModelId
+        defaultModelId: retiredIds.has(state.settings.application?.defaultModelId ?? '') ? '' : state.settings.application?.defaultModelId
       },
       modelSettingsById: Object.fromEntries(Object.entries(state.settings.modelSettingsById ?? {}).filter(([id]) => !retiredIds.has(id)))
     } : state.settings
