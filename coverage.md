@@ -2,12 +2,11 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| TypeScript / TSX | 2954/13803 | 21.4% |
-| Python | 2549/2908 | 87.7% |
-| Combined | 5503/16711 | 32.9% |
+| Frontend / Electron (TypeScript / TSX) | 2954/13803 | 21.4% |
+| Backend (Python) | 2549/2908 | 87.7% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
-Combined coverage is weighted by reported line counts, not an average of percentages.
+TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.
 Measured with c8 (V8 line coverage) and coverage.py (executable Python lines).
 This measures unit-test execution, not answer accuracy or full end-to-end coverage.
 
@@ -62,6 +61,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: a430389acc62613901cdf8321c2bb8541109ba78
+Measured commit: 176a3a11131c50421bf81e6107a63830355c0cd9
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/35755696351)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/35757122420)
