@@ -6,7 +6,8 @@ import { MessageText } from './MessageText'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
-import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
+import { replaceQuestion, type ChatDraft } from './chat-interactions'
+import { SelectedPassagePreview } from './SelectedPassagePreview'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -20,6 +21,7 @@ import type {
   ApplicationSettings,
   AppStateSnapshot,
   ChatMessage,
+  ChatSelectedPassage,
   ChatSource,
   ComputeDevice,
   Conversation,
@@ -2511,7 +2513,7 @@ function ChatScreen({
     >
   ) => void
 }) {
-  const [draft, setDraft] = useState('')
+  const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({})
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
@@ -2544,6 +2546,13 @@ function ChatScreen({
     conversations[0] ??
     starterConversations[0]
   const isPending = pendingConversationId === activeConversation.id
+  const { text: draft, selectedPassage } = drafts[activeConversation.id] ?? { text: '' }
+  function updateDraft(update: Partial<ChatDraft>) {
+    setDrafts((current) => ({ ...current, [activeConversation.id]: { ...(current[activeConversation.id] ?? { text: '' }), ...update } }))
+  }
+  function clearDraft() {
+    setDrafts((current) => ({ ...current, [activeConversation.id]: { text: '' } }))
+  }
   const activeQuizState = activeConversation.quizState?.active ? activeConversation.quizState : undefined
   const activeMaterials = materials.filter((material) => (material.status === 'ready' || Boolean(material.indexedAt)) && material.isActive !== false)
   const libraryTitle = getLibraryTitle(materials)
@@ -2720,7 +2729,6 @@ function ChatScreen({
       conversations: [newConversation, ...current.conversations],
       activeConversationId: newConversation.id
     }))
-    setDraft('')
     setPendingConversationId(null)
     setPendingStatusText(null)
     setPendingSources([])
@@ -2808,6 +2816,11 @@ function ChatScreen({
     }
 
     requestSequenceRef.current += pendingConversationId === conversationId ? 1 : 0
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
@@ -2850,7 +2863,7 @@ function ChatScreen({
       activeConversationId: freshConversation.id
     }))
 
-    setDraft('')
+    setDrafts({})
     setPendingConversationId(null)
     setPendingStatusText(null)
     setPendingSources([])
@@ -2871,8 +2884,8 @@ function ChatScreen({
     void navigator.clipboard.writeText(text).catch(() => undefined)
   }
 
-  function handleQuoteSelection(text: string) {
-    setDraft((current) => addQuoteToDraft(current, text))
+  function handleQuoteSelection(passage: ChatSelectedPassage) {
+    updateDraft({ selectedPassage: passage })
     requestAnimationFrame(() => {
       const input = composerInputRef.current
       input?.focus()
@@ -3703,7 +3716,7 @@ function ChatScreen({
       })
     }))
 
-    setDraft('')
+    clearDraft()
     setExpandedMessageId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
@@ -3801,7 +3814,7 @@ function ChatScreen({
       )
     }))
 
-    setDraft('')
+    clearDraft()
     setExpandedMessageId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
@@ -3948,7 +3961,7 @@ function ChatScreen({
     void handleStartQuiz()
   }
 
-  async function submitPrompt(rawPrompt: string, editMessageId?: string) {
+  async function submitPrompt(rawPrompt: string, editMessageId?: string, passage?: ChatSelectedPassage) {
     const prompt = rawPrompt.trim()
     if (!prompt || pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
@@ -3959,7 +3972,7 @@ function ChatScreen({
       return
     }
 
-    const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt) : undefined
+    const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt, passage) : undefined
     if (editMessageId && !editedMessages) return
     const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
     const targetConversationId = activeConversation.id
@@ -3967,7 +3980,8 @@ function ChatScreen({
     const userMessage: ChatMessage = {
       id: editMessageId ?? createId('user'),
       role: 'user',
-      text: prompt
+      text: prompt,
+      ...(passage ? { selectedPassage: passage } : {})
     }
 
     onChatStateChange((current) => ({
@@ -3985,7 +3999,7 @@ function ChatScreen({
         }
       })
     }))
-    if (!editMessageId) setDraft('')
+    if (!editMessageId) clearDraft()
     setEditingQuestionId(null)
     setExpandedMessageId(null)
     setPdfViewer(null)
@@ -4000,7 +4014,7 @@ function ChatScreen({
     const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
     const retrievalSourceLimit = modelAwareRetrievalLimit(settings.maxSources, selectedModel, activeModelSettings)
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
-    let conversationContextMode: ChatMessage['conversationContextMode'] = 'standalone'
+    let conversationContextMode: ChatMessage['conversationContextMode'] = passage ? 'contextual' : 'standalone'
     let rewrittenRequest: EngineChatRequest | undefined
     let clarificationReply: EngineChatResponse | undefined
 
@@ -4011,6 +4025,7 @@ function ChatScreen({
         setPendingStatusText('understanding question ...')
         const prepared = await prepareRewrittenStudyChat({
           prompt,
+          selectedPassage: passage,
           messages: history,
           materials: activeMaterials,
           model: selectedModel,
@@ -4058,6 +4073,7 @@ function ChatScreen({
 
       const reply = clarificationReply ?? await window.tokensmith.sendChatMessage(rewrittenRequest ?? {
         prompt,
+        selectedPassage: passage,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
         messages: history,
         materials: activeMaterials,
@@ -4113,7 +4129,7 @@ function ChatScreen({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await submitPrompt(draft)
+    await submitPrompt(draft, undefined, selectedPassage)
   }
 
   return (
@@ -4193,7 +4209,7 @@ function ChatScreen({
 
         <div className="chat-body">
           <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending}
-            onQuote={handleQuoteSelection} canQuote={!editingQuestionId && !pendingConversationId && Boolean(selectedModel)}>
+            onQuote={handleQuoteSelection} canQuote={!activeQuizState && !editingQuestionId && !pendingConversationId && Boolean(selectedModel)}>
             {activeConversation.messages.length === 0 && !isPending ? (
               <>
                 {renderChatSetupCard()}
@@ -4208,10 +4224,11 @@ function ChatScreen({
                     editing={editingQuestionId === message.id}
                     editDisabled={Boolean(pendingConversationId) || !selectedModel}
                     laterQuestions={activeConversation.messages.slice(activeConversation.messages.indexOf(message) + 1).filter((item) => item.role === 'user').length}
-                    onCopy={() => handleCopyQuestion(message.text)}
+                    onCopy={() => handleCopyQuestion(message.selectedPassage
+                      ? `Selected passage:\n${message.selectedPassage.text}\n\n${message.text}` : message.text)}
                     onEdit={() => setEditingQuestionId(message.id)}
                     onCancelEdit={() => setEditingQuestionId(null)}
-                    onSaveEdit={(text) => void submitPrompt(text, message.id)}
+                    onSaveEdit={(text, passage) => void submitPrompt(text, message.id, passage)}
                   />
                 ) : (
                   <AssistantMessage
@@ -4256,6 +4273,9 @@ function ChatScreen({
               </button>
             )}
             <div className="composer">
+              {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
+                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
+                onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
               <button
                 className={`quiz-toggle-button ${activeQuizState ? 'is-active' : ''}`}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || (!activeQuizState && !canUseQuiz)}
@@ -4271,14 +4291,14 @@ function ChatScreen({
                 rows={1}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
                 ref={composerInputRef}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => updateDraft({ text: event.target.value })}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                     event.preventDefault()
                     event.currentTarget.form?.requestSubmit()
                   }
                 }}
-                placeholder={composerPlaceholder}
+                placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder}
                 value={draft}
               />
               <button
@@ -4692,7 +4712,7 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
   onCopy: () => void
   onEdit: () => void
   onCancelEdit: () => void
-  onSaveEdit: (text: string) => void
+  onSaveEdit: (text: string, selectedPassage?: ChatSelectedPassage) => void
 }) {
   const label = quizMessageLabel(message)
 
@@ -4704,8 +4724,11 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
           You
           {label && <span>{label}</span>}
         </h3>
-        {editing ? <QuestionEditor key={message.id} text={message.text} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
-          <div data-chat-selectable><MessageText text={message.text} /></div>
+        {editing ? <QuestionEditor key={message.id} text={message.text} selectedPassage={message.selectedPassage} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
+          <>
+            {message.selectedPassage && <SelectedPassagePreview passage={message.selectedPassage} />}
+            <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={message.text} /></div>
+          </>
         )}
         {!editing && <div className="message-actions" aria-label="Question actions">
           <button className="message-action" type="button" aria-label="Edit question" title="Edit question" disabled={editDisabled} onClick={onEdit}>
@@ -4753,7 +4776,7 @@ function AssistantMessage({
             {durationLabel && <span>{durationLabel}</span>}
           </div>
         )}
-        <div data-chat-selectable><MessageText text={message.text} /></div>
+        <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={message.text} /></div>
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">

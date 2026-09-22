@@ -2,25 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { addQuoteToDraft, replaceQuestion } = requireTranspiledTs('src/renderer/src/chat-interactions.ts')
+const { replaceQuestion } = requireTranspiledTs('src/renderer/src/chat-interactions.ts')
+const { selectChatPassage } = requireTranspiledTs('src/shared/chat-selection.ts')
 const { prepareRewrittenStudyChat } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
-
-test('adding a selection keeps the existing draft and quotes every line', () => {
-  assert.equal(addQuoteToDraft('Why is this needed?', 'Track the path.\nUpdate the parent.'),
-    '> Track the path.\n> Update the parent.\n\nWhy is this needed?')
-})
-
-test('quotes preserve blank lines and code without interpreting the text', () => {
-  assert.equal(addQuoteToDraft('', '  path.push_back(node);\r\n\r\nnode = child;  '),
-    '> path.push_back(node);\n> \n> node = child;\n\n')
-  assert.equal(addQuoteToDraft('draft', ' \n '), 'draft')
-})
-
-test('adding another quote does not erase a previous quote or draft', () => {
-  const first = addQuoteToDraft('Explain this.', 'First selection')
-  assert.equal(addQuoteToDraft(first, 'Second selection'),
-    '> Second selection\n\n> First selection\n\nExplain this.')
-})
 
 const history = Object.freeze([
   Object.freeze({ id: 'q1', role: 'user', text: 'What is a B+ tree?' }),
@@ -30,6 +14,49 @@ const history = Object.freeze([
   Object.freeze({ id: 'q3', role: 'user', text: 'Give an example.' }),
   Object.freeze({ id: 'a3', role: 'assistant', text: 'Here is an example.' })
 ])
+
+test('a selected passage snapshots its own message and original question, not the latest turn', () => {
+  assert.deepEqual(selectChatPassage(history, 'a1', 'balanced search tree'), {
+    messageId: 'a1', role: 'assistant', text: 'balanced search tree', question: 'What is a B+ tree?'
+  })
+  assert.deepEqual(selectChatPassage(history, 'q2', 'track the path'), {
+    messageId: 'q2', role: 'user', text: 'track the path', question: 'Why track the path?'
+  })
+})
+
+test('selections preserve code, whitespace, math and markup literally without editing the question', () => {
+  const text = '  path.push_back(node);\r\n\r\nnode = child;\n$x > 1$ <tag>'
+  const passage = selectChatPassage(history, 'a3', text)
+  assert.equal(passage.text, text)
+  assert.equal(history.at(-1).text, 'Here is an example.')
+  assert.deepEqual(JSON.parse(JSON.stringify(passage)), passage)
+})
+
+test('empty or stale selections are not attached', () => {
+  assert.equal(selectChatPassage(history, 'a1', ' \n '), undefined)
+  assert.equal(selectChatPassage(history, 'missing', 'A passage'), undefined)
+})
+
+test('selecting from an answer to an attached-passage question retains its earlier reference', () => {
+  const selectedPassage = selectChatPassage(history, 'a1', 'balanced search tree')
+  const messages = [...history,
+    { id: 'q4', role: 'user', text: 'Why?', selectedPassage },
+    { id: 'a4', role: 'assistant', text: 'To bound search depth.' }
+  ]
+  const selection = selectChatPassage(messages, 'a4', 'search depth')
+  assert.match(selection.question, /balanced search tree/)
+  assert.match(selection.question, /Question: Why\?/)
+})
+
+test('in-place edits can retain or remove a selected passage without changing the original question', () => {
+  const selectedPassage = selectChatPassage(history, 'a1', 'balanced search tree')
+  const messages = [...history, { id: 'q4', role: 'user', text: 'Why?', selectedPassage }]
+  const edited = replaceQuestion(messages, 'q4', 'How does that work?', selectedPassage)
+  assert.equal(edited.at(-1).selectedPassage, selectedPassage)
+  assert.equal(edited.at(-1).text, 'How does that work?')
+  assert.equal(replaceQuestion(messages, 'q4', 'A different question').at(-1).selectedPassage, undefined)
+  assert.equal(messages.at(-1).selectedPassage, selectedPassage)
+})
 
 test('an edit replaces a question in place, keeping its id and only its preceding history', () => {
   const edited = replaceQuestion(history, 'q2', '  How are parents updated?  ')

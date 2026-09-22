@@ -127,6 +127,7 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
 
   return {
     prompt: request.prompt,
+    selectedPassage: request.selectedPassage,
     answerPrompt: request.answerPrompt,
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',

@@ -1,6 +1,7 @@
 import type {
   ApplicationSettings,
   ChatMessage,
+  ChatSelectedPassage,
   ChatSource,
   CourseMaterial,
   LocalModel,
@@ -18,6 +19,7 @@ export interface ChatReferenceExchange {
 
 export interface EngineQuestionRewriteRequest {
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   messages: ChatMessage[]
   model: LocalModel
   modelSettings?: ModelRuntimeSettings
@@ -36,6 +38,7 @@ export interface EngineInfo {
 
 export interface EngineChatRequest {
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode

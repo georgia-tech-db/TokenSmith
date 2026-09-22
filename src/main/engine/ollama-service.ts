@@ -870,7 +870,7 @@ async function runOllamaChatCompletion(
 
 export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
   assertOllamaModel(request.model)
-  if (!lastChatExchange(request.messages)) {
+  if (!request.selectedPassage && !lastChatExchange(request.messages)) {
     return { mode: 'standalone', query: request.prompt, clarification: '' }
   }
   const started = performance.now()
@@ -883,7 +883,7 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
     maxTokens: 512, temperature: 0, format: questionRewriteSchema
   })
   try {
-    const resolution = parseQuestionRewrite(text, request.prompt)
+    const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
     writeTokenSmithLog('chat_question_rewrite', {
       modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
       rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,

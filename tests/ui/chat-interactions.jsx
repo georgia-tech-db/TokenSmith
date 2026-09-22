@@ -30,7 +30,7 @@ window.tokensmith = {
   onOllamaPullProgress: () => () => {},
   sendChatMessage: async (request) => {
     await new Promise((resolve) => setTimeout(resolve, 800))
-    return { text: `Test reply. Earlier message IDs: ${request.messages.map((message) => message.id).join(', ') || '(none)'}.\n\nQuestion received:\n\n${request.prompt}`, sources: [], followUpSuggestions: [] }
+    return { text: `Test reply. Earlier message IDs: ${request.messages.map((message) => message.id).join(', ') || '(none)'}.\n\nQuestion received:\n\n${request.prompt}${request.selectedPassage ? `\n\nSelected passage from ${request.selectedPassage.messageId}:\n\n${request.selectedPassage.text}\n\nOriginal question: ${request.selectedPassage.question}` : ''}`, sources: [], followUpSuggestions: [] }
   }
 }
 await import('../../src/renderer/src/main.tsx')

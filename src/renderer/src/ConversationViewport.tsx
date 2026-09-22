@@ -2,10 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDown, MessageSquarePlus } from 'lucide-react'
-import type { ChatMessage } from '@shared/app-state'
+import type { ChatMessage, ChatSelectedPassage } from '@shared/app-state'
+import { selectChatPassage } from '@shared/chat-selection'
 
 interface SelectedText {
   text: string
+  messageId: string
   top: number
   left: number
 }
@@ -18,12 +20,14 @@ function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
   if (!viewport || !selected || selected.isCollapsed || !selected.rangeCount || !container ||
       !viewport.contains(container) || container !== containerFor(selected.focusNode)) return null
   const text = selected.toString()
-  if (!text.trim()) return null
+  const messageId = container.getAttribute('data-chat-message-id')
+  if (!text.trim() || !messageId) return null
   const rect = selected.getRangeAt(0).getBoundingClientRect()
   const bounds = viewport.getBoundingClientRect()
   if (rect.bottom < bounds.top || rect.top > bounds.bottom) return null
   return {
     text,
+    messageId,
     left: Math.max(8, Math.min(rect.left, window.innerWidth - 168)),
     top: Math.max(bounds.top + 4, Math.min(rect.top - 42, bounds.bottom - 42))
   }
@@ -33,7 +37,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   messages: ChatMessage[]
   pending: boolean
   children: ReactNode
-  onQuote: (text: string) => void
+  onQuote: (passage: ChatSelectedPassage) => void
   canQuote: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -204,11 +208,12 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           onClick={() => {
             // Selection-change rendering can lag behind the user's final range.
             const current = readChatSelection(viewportRef.current)
-            if (current) onQuote(current.text)
+            const passage = current && selectChatPassage(messages, current.messageId, current.text)
+            if (passage) onQuote(passage)
             window.getSelection()?.removeAllRanges()
             setSelection(null)
           }}>
-          <MessageSquarePlus size={16} aria-hidden="true" /> Add to chat
+          <MessageSquarePlus size={16} aria-hidden="true" /> Ask about this
         </button>, document.body
       )}
     </div>

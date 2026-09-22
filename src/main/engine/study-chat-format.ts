@@ -1,6 +1,7 @@
 import type { ChatSource, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
+import { questionWithSelection, selectedPassageReference } from '../../shared/chat-selection'
 import {
   defaultFollowUpSuggestionCount,
   normalizeStarterQuestionPrompt,
@@ -417,6 +418,7 @@ export function answerWithOrderedSources(text: string, sources: ChatSource[]): {
 }
 
 function chatReferenceText(request: EngineChatRequest): string {
+  if (request.selectedPassage) return selectedPassageReference(request.selectedPassage)
   if (request.conversationContextMode !== 'contextual' || !request.referenceExchange) return ''
   const historyTokens = Math.min(1536, Math.floor(effectiveContextLength(request.model, request.modelSettings) / 4))
   const exchange = trimReferenceExchange(request.referenceExchange, historyTokens * estimatedCharsPerToken)
@@ -434,7 +436,7 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = (request.referenceExchange ? request.prompt : request.answerPrompt ?? request.prompt).trim()
   const referenceText = chatReferenceText(request)
-  const context = sourceContext(request.retrievedSources ?? [], {
+  const { context, budget } = packSourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
     evidenceQuery: request.retrievalQuery,
     referenceText,
@@ -443,6 +445,9 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
     includeBudget: true,
     includeInstructions: false
   })
+  if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
+    throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
+  }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
     : answerPrompt
@@ -556,7 +561,7 @@ export function followUpSuggestionMessages(request: EngineChatRequest, answer: s
   messages.push({
     role: 'user',
     content: [
-      `Current question:\n${request.prompt.trim()}`,
+      `Current question:\n${questionWithSelection(request.prompt.trim(), request.selectedPassage)}`,
       `Latest answer:\n${clippedSuggestionAnswer(answer)}`,
       `Already asked (avoid repeats):\n${request.messages.filter((message) => message.role === 'user').slice(-8).map((message) => message.text).join('\n')}`,
       suggestionPrompt

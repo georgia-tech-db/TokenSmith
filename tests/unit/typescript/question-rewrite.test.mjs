@@ -155,3 +155,95 @@ test('remote chat uses the same rewrite contract without a heuristic routing pat
     assert.equal(result.query, base.prompt)
   } finally { globalThis.fetch = originalFetch }
 })
+
+const selectedPassage = {
+  messageId: 'older-answer', role: 'assistant', question: 'Why do databases use slotted pages?',
+  text: 'The slot ID stays the same during compaction.'
+}
+
+test('an explicit selection replaces unrelated recent history in rewrite input', () => {
+  const messages = questionRewriteMessages({ ...base, prompt: 'Why is that necessary?', selectedPassage })
+  const input = JSON.parse(messages[1].content)
+  assert.deepEqual(input, {
+    current_question: 'Why is that necessary?', previous_exchange: null,
+    selected_passage: { role: 'assistant', original_question: selectedPassage.question, text: selectedPassage.text }
+  })
+  assert.match(messages[0].content, /not factual evidence/)
+  assert.doesNotMatch(messages[1].content, /checkpoint/)
+})
+
+test('the query resolved from a selection survives a standalone mode label', () => {
+  const result = parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'Why must slot IDs remain stable during compaction?', clarification: '' }), 'Why?', true)
+  assert.equal(result.mode, 'contextual')
+  assert.equal(result.query, 'Why must slot IDs remain stable during compaction?')
+})
+
+test('a selected older passage reaches retrieval and generation without replaying the latest answer', async () => {
+  const prompt = 'Why is that necessary?'
+  const result = await prepareRewrittenStudyChat({ ...base, prompt, selectedPassage }, {
+    resolve: async (request) => {
+      assert.deepEqual(request.selectedPassage, selectedPassage)
+      return { mode: 'standalone', query: 'Why must slotted page slot IDs remain stable during compaction?', clarification: '' }
+    },
+    search: async (query) => { assert.match(query, /slot IDs/); return [source] }
+  })
+  assert.equal(result.resolution.mode, 'contextual')
+  assert.equal(result.request.prompt, prompt)
+  assert.equal(result.request.answerPrompt, prompt)
+  assert.equal(result.request.referenceExchange, undefined)
+  assert.deepEqual(result.request.selectedPassage, selectedPassage)
+  const content = studyChatMessages(result.request).at(-1).content
+  assert.match(content, /slot ID stays the same/)
+  assert.match(content, /not factual evidence/)
+  assert.match(content, /correct errors/)
+  assert.doesNotMatch(content, /checkpoint/)
+  assert.ok(content.endsWith(`Question: ${prompt}`))
+})
+
+test('a saved selection works even when its original message is absent', async () => {
+  let rewritten = false
+  const result = await prepareRewrittenStudyChat({ ...base, messages: [], selectedPassage }, {
+    resolve: async () => { rewritten = true; return { mode: 'contextual', query: 'slot ID stability', clarification: '' } },
+    search: async () => []
+  })
+  assert.ok(rewritten)
+  assert.match(studyChatMessages(result.request).at(-1).content, /slot ID stays the same/)
+})
+
+test('selection text is included in model budgeting, never silently dropped or truncated', () => {
+  const selected = { ...base, selectedPassage }
+  assert.ok(sourceContextBudgetForRequest(selected).sourceBudgetTokens < sourceContextBudgetForRequest(base).sourceBudgetTokens)
+  const oversized = { ...base, selectedPassage: { ...selectedPassage, text: 'Long selection '.repeat(10000) } }
+  assert.throws(() => questionRewriteMessages(oversized), /Select a shorter passage/)
+  assert.throws(() => studyChatMessages(oversized), /Select a shorter passage/)
+})
+
+test('the next follow-up retains a saved selected passage in its reference exchange', () => {
+  const exchange = lastChatExchange([
+    { role: 'user', text: 'Why is that necessary?', selectedPassage },
+    { role: 'assistant', text: 'It preserves record references.' }
+  ])
+  assert.match(exchange.question, /slot ID stays the same/)
+  assert.match(exchange.question, /Why is that necessary/)
+})
+
+test('Ollama and cloud rewriters honor selections without requiring a complete latest exchange', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  try {
+    globalThis.fetch = async (_url, options) => {
+      const payload = JSON.parse(options.body)
+      const input = JSON.parse(payload.messages[1].content)
+      assert.equal(input.selected_passage.text, selectedPassage.text)
+      assert.equal(input.previous_exchange, null)
+      calls++
+      const content = JSON.stringify({ mode: 'contextual', query: 'slot ID compaction', clarification: '' })
+      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content }, choices: [{ finish_reason: 'stop', message: { content } }] }) }
+    }
+    assert.equal((await resolveOllamaChatQuestion({ ...base, messages: [], selectedPassage })).mode, 'contextual')
+    assert.equal((await resolveRemoteChatQuestion({ ...base, messages: [], selectedPassage, model: {
+      engine: 'remote', remoteModelName: 'remote-test', apiKey: 'test-key', baseUrl: 'https://provider.example/v1', contextLength: 8192
+    } })).mode, 'contextual')
+    assert.equal(calls, 2)
+  } finally { globalThis.fetch = originalFetch }
+})

@@ -6,7 +6,9 @@ Run `npx vite --config tests/ui/vite.config.mjs --host 127.0.0.1 --port 5186`, t
 This renders the real app with a disposable, in-memory bridge and deterministic replies.
 It does not contact a model or read/write the user's app data. Reload resets all test chats.
 
-- Highlight part of a question or answer, including text across inline formatting. Add it to chat; confirm the quote is present and an existing draft is preserved.
+- Highlight part of a question or answer, including text across inline formatting. Click Ask about this; confirm a separate passage preview appears, the existing draft is unchanged, and the question field receives focus. Selection alone must not enable Send.
+- Remove the passage; confirm the draft remains. Select a different passage; confirm it replaces the preview. Switch chats and back; drafts and selections must stay with their own chat.
+- Send a question with a passage. The test reply must report the exact passage, original question, and source message ID separately from the question. Edit that question; keep or remove the passage, cancel once, then resend. Cancel must leave the saved selection unchanged.
 - Select across two messages or inside a source/suggestion/editor. The selection action should not appear.
 - Jump to each question using the rail; verify the preview, active tick, and return-to-latest button. Scroll up while a reply arrives; the view should not jump down.
 - Open an older question's editor, modify it, then Cancel or Escape. The original question, later turns, and composer draft must remain intact.
@@ -15,14 +17,14 @@ It does not contact a model or read/write the user's app data. Reload resets all
 - Use `?long=1` for 80 questions.
 - Open `chat-interactions-frame.html` to check 1280px, 866px and 390px layouts. Select the populated chat at 1280px, then change Preview width. The long-chat parameter works with the frame too.
 
-The pure quote/edit transformations and edited-history pipeline contracts also run in
+The selection/edit transformations and edited-history pipeline contracts also run in
 `npm run test:unit:ts` via `chat-interactions.test.mjs`.
 
 For the clipped-selection regression, open `/tests/ui/selection-regression.html` with
 the same preview server. “Check final selection” changes the browser range immediately
-before clicking Add to chat, before the pending selection-change frame. “Check unfinished
+before clicking Ask about this, before the pending selection-change frame. “Check unfinished
 drag” verifies the action stays hidden while the pointer is down. Both must show PASS
-and insert the complete highlighted sentence while preserving the draft. The production
+and attach the complete highlighted sentence while preserving the draft. The production
 component failed both checks before the fix.
 
 ## Cloud generator setup

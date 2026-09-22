@@ -163,10 +163,18 @@ export interface ChatSource {
   chunkEmbeddingModel?: string
 }
 
+export interface ChatSelectedPassage {
+  messageId: string
+  role: MessageRole
+  text: string
+  question?: string
+}
+
 export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
+  selectedPassage?: ChatSelectedPassage
   sources?: ChatSource[]
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
   responseDurationMs?: number
