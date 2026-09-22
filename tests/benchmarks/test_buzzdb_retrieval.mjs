@@ -31,11 +31,11 @@ function parseJsonOutput(output) {
 
 function runBuzzdbHybridBenchmark() {
   const python = process.env.TOKENSMITH_BENCHMARK_PYTHON ?? 'python3'
-  const result = spawnSync(python, ['-m', 'tests.benchmarks.test_buzzdb_fastembed', '--json'], {
+  const result = spawnSync(python, ['-m', 'tests.benchmarks.test_buzzdb_embeddings', '--json'], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' },
+    env: { ...process.env, TOKENSMITH_RUN_EMBEDDING_BENCHMARK: '1' },
     maxBuffer: 16 * 1024 * 1024
   })
 
@@ -100,11 +100,11 @@ function writeReport(suites, passed) {
   const escapeCell = (value) => String(value).replaceAll('|', '\\|').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\r?\n/g, ' ')
   const lines = [
     '## BuzzDB Benchmark', '',
-    '**Scope:** real CPU embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
+    '**Scope:** app-matched Ollama Nomic embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
     '| Suite | Passed | Rate |', '| --- | --- | --- |',
     ...suites.map((suite) => `| ${escapeCell(suite.label)} | ${suite.passed}/${suite.total} | ${suite.total ? (100 * suite.passed / suite.total).toFixed(1) : '0.0'}% |`),
     '', ...suites.filter((suite) => suite.model).map((suite) =>
-      `Embedder: \`${escapeCell(suite.model)}\`. Fresh query embedding time: ${(suite.measurements?.fresh_query_embedding_seconds ?? 0).toFixed(2)}s.`
+      `Embedder: \`${escapeCell(suite.model)}\`, digest \`${escapeCell(suite.modelDigest)}\`, Ollama \`${escapeCell(suite.ollamaVersion)}\`. Fresh query embedding time: ${(suite.measurements?.fresh_query_embedding_seconds ?? 0).toFixed(2)}s.`
     ),
     '', '| Case | Result | Details |', '| --- | --- | --- |',
     ...suites.flatMap((suite) => (suite.cases ?? []).map((item) =>

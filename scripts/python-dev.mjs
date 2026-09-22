@@ -14,10 +14,6 @@ const appRuntimeRoot = join(root, 'app_runtime', 'python')
 const appRuntimePython = process.platform === 'win32'
   ? join(appRuntimeRoot, 'python.exe')
   : join(appRuntimeRoot, 'bin', 'python')
-const benchmarkEnvironment = join(root, 'tmp', 'embedding-benchmark-venv')
-const benchmarkPython = process.platform === 'win32'
-  ? join(benchmarkEnvironment, 'Scripts', 'python.exe')
-  : join(benchmarkEnvironment, 'bin', 'python')
 const task = process.argv[2]
 const taskArgs = process.argv.slice(3)
 
@@ -102,26 +98,10 @@ function versionIsSupported(info) {
   return major > 3 || (major === 3 && minor >= 10)
 }
 
-function canRun(python, code) {
-  const result = spawnSync(python, ['-c', code], {
-    cwd: root,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      ...pythonEnv(python)
-    }
-  })
-  return result.status === 0
-}
-
-function findRuntimePython({ requireCoverage = false } = {}) {
+function findRuntimePython() {
   for (const python of runtimeCandidates()) {
     const info = inspectPython(python)
     if (!info || !versionIsSupported(info)) {
-      continue
-    }
-    if (requireCoverage && !canRun(info.executable, 'import coverage')) {
       continue
     }
     return info
@@ -428,38 +408,14 @@ async function setup() {
   }
 }
 
-function requireRuntimePython({ requireCoverage = false } = {}) {
-  const python = findRuntimePython({ requireCoverage })
+function requireRuntimePython() {
+  const python = findRuntimePython()
   if (!python) {
     console.error('No TokenSmith Python runtime was found.')
     console.error('Run npm run setup:python-runtime to build app_runtime/python.')
     process.exit(1)
   }
   return python
-}
-
-function setupEmbeddingBenchmark() {
-  const python = requireRuntimePython()
-  const status = runPython(python.executable, ['-m', 'venv', benchmarkEnvironment])
-  if (status !== 0) {
-    process.exit(status)
-  }
-  process.exit(runPython(benchmarkPython, [
-    '-m', 'pip', 'install', '--disable-pip-version-check',
-    '-r', 'requirements-runtime.txt', '-r', 'requirements-embedding-benchmark.txt'
-  ]))
-}
-
-function embeddingBenchmarkPython() {
-  const configuredPython = process.env.TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON ?? benchmarkPython
-  const info = inspectPython(configuredPython)
-  if (!info || !versionIsSupported(info)) {
-    console.error(process.env.TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON
-      ? 'TOKENSMITH_EMBEDDING_BENCHMARK_PYTHON must point to a usable Python 3.10+ executable.'
-      : 'No benchmark Python environment was found. Run npm run setup:embedding-benchmark first.')
-    process.exit(1)
-  }
-  return { ...info, executable: configuredPython }
 }
 
 function runIntegration({ requireGguf = false } = {}) {
@@ -487,7 +443,7 @@ function runIntegration({ requireGguf = false } = {}) {
 }
 
 function runBenchmark() {
-  const python = embeddingBenchmarkPython()
+  const python = requireRuntimePython()
   process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', [], {
     TOKENSMITH_BENCHMARK_PYTHON: python.executable,
     ...pythonEnv(python.executable)
@@ -496,42 +452,44 @@ function runBenchmark() {
 
 if (task === 'setup' || task === 'setup-runtime') {
   await setup()
-} else if (task === 'setup-embedding-benchmark') {
-  setupEmbeddingBenchmark()
 } else if (task === 'unit') {
   const python = requireRuntimePython()
   process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']))
 } else if (task === 'benchmark') {
   runBenchmark()
 } else if (task === 'embedding-benchmark') {
-  const python = embeddingBenchmarkPython()
+  const python = requireRuntimePython()
   process.exit(runPython(
     python.executable,
-    ['-m', 'unittest', 'tests.benchmarks.test_buzzdb_fastembed'],
-    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+    ['-m', 'unittest', 'tests.benchmarks.test_buzzdb_embeddings'],
+    { TOKENSMITH_RUN_EMBEDDING_BENCHMARK: '1' }
   ))
 } else if (task === 'build-embedding-benchmark-cache') {
-  const python = embeddingBenchmarkPython()
+  const python = requireRuntimePython()
   process.exit(runPython(
     python.executable,
-    ['tests/benchmarks/build_buzzdb_fastembed_cache.py', ...taskArgs],
-    { TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' }
+    ['tests/benchmarks/build_buzzdb_embedding_cache.py', ...taskArgs]
   ))
 } else if (task === 'coverage') {
-  const python = requireRuntimePython({ requireCoverage: true })
+  const python = requireRuntimePython()
+  // Test tooling lives outside the packaged runtime.
+  const env = { PYTHONPATH: [resolve('tmp/coverage-tools'), pythonEnv(python.executable).PYTHONPATH].filter(Boolean).join(delimiter) }
   const coverageStatus = runPython(
     python.executable,
-    ['-m', 'coverage', 'run', '-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']
+    ['-m', 'coverage', 'run', '-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py'],
+    env
   )
   if (coverageStatus !== 0) {
     process.exit(coverageStatus)
   }
-  process.exit(runPython(python.executable, ['-m', 'coverage', 'report']))
+  const reportStatus = runPython(python.executable, ['-m', 'coverage', 'report'], env)
+  if (reportStatus !== 0) process.exit(reportStatus)
+  process.exit(runPython(python.executable, ['-m', 'coverage', 'json', '-o', '.coverage-reports/python.json'], env))
 } else if (task === 'integration') {
   runIntegration()
 } else if (task === 'integration:gguf') {
   runIntegration({ requireGguf: true })
 } else {
-  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|setup-embedding-benchmark|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration|integration:gguf>')
+  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration|integration:gguf>')
   process.exit(1)
 }
