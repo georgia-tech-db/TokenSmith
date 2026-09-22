@@ -51,7 +51,7 @@ jobs:
         run: npm run test:integration
 
   publish-coverage:
-    name: Publish coverage badge
+    name: Publish coverage badges
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -81,7 +81,9 @@ jobs:
             const runUrl = `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`
             const summary = `${report.summary}\nMeasured commit: ${context.sha}\n\n[CI run](${runUrl})\n`
             const tree = await github.rest.git.createTree({ ...repo, tree: [
-              { path: 'coverage.json', mode: '100644', type: 'blob', content: JSON.stringify(report.badge) },
+              ...Object.entries(report.badges).map(([language, badge]) => ({
+                path: `${language}-coverage.json`, mode: '100644', type: 'blob', content: JSON.stringify(badge)
+              })),
               { path: 'coverage.md', mode: '100644', type: 'blob', content: summary }
             ] })
             const commit = await github.rest.git.createCommit({ ...repo,

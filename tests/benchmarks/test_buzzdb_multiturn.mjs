@@ -54,7 +54,13 @@ export async function runBuzzdbMultiturnBenchmark() {
           assert.ok(!packed.includes('### Previous exchange'))
         }
       } catch (error) { failures.push(error.message) }
-      results.push({ id, passed: failures.length === 0, failures })
+      results.push({
+        id, question: turn.prompt, referenceAnswer: turn.referenceAnswer ?? turn.assistantAnswer,
+        referenceExchange: messages.length ? { question: previousQuestion, answer: previousAnswer } : undefined,
+        evidenceLabel: 'Fixture evidence (mock search, not live retrieval)',
+        evidence: sources.map(source => ({ chunkIds: [source.chunkId], section: source.sectionHeader, context: source.context })),
+        passed: failures.length === 0, failures
+      })
       previousQuestion = turn.prompt
       previousAnswer = turn.assistantAnswer
     }

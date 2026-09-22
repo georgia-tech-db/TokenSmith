@@ -7,15 +7,17 @@ function fixture() {
     total: { lines: { covered: 90, total: 100 } },
     'src/test.ts': { lines: { covered: 90, total: 100 } },
     'src/untested.tsx': { lines: { covered: 0, total: 800 } }
-  }, { files: { 'python_engine/test.py': { summary: { covered_lines: 10, num_statements: 100, percent_covered: 70 } } } })
+  }, { files: { 'python_engine/test.py': { summary: { covered_lines: 40, num_statements: 100, percent_covered: 70 } } } })
 }
 
-test('coverage uses weighted line counts, including untested files, not branch percentages', () => {
+test('coverage reports languages separately, including untested files, not branch percentages', () => {
   const report = fixture()
-  assert.equal(report.combined.percent, 10)
-  assert.equal(report.combined.total, 1000)
-  assert.equal(report.badge.message, '10.0%')
-  assert.equal(report.python.percent, 10)
+  assert.equal(report.typescript.percent, 10)
+  assert.equal(report.typescript.total, 900)
+  assert.equal(report.badges.typescript.message, '10.0%')
+  assert.equal(report.badges.python.message, '40.0%')
+  assert.equal(report.python.percent, 40)
+  assert.doesNotMatch(formatReport(report), /Combined/)
   assert.match(formatReport(report), /src\/untested.tsx/)
 })
 

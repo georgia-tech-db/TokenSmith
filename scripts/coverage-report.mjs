@@ -25,12 +25,15 @@ export function summarizeCoverage(ts, python) {
   }))
   const typescript = sum(tsFiles)
   const py = sum(pythonFiles)
-  const combined = sum([typescript, py])
+  const badge = (label, value) => ({ schemaVersion: 1, label, message: `${value.percent.toFixed(1)}%`,
+    color: value.percent >= 80 ? 'brightgreen' : value.percent >= 60 ? 'yellow' : 'orange' })
   return {
-    typescript, python: py, combined,
+    typescript, python: py,
     files: [...tsFiles, ...pythonFiles].sort((a, b) => a.path.localeCompare(b.path)),
-    badge: { schemaVersion: 1, label: 'line coverage', message: `${combined.percent.toFixed(1)}%`,
-      color: combined.percent >= 80 ? 'brightgreen' : combined.percent >= 60 ? 'yellow' : 'orange' }
+    badges: {
+      typescript: badge('frontend TS coverage', typescript),
+      python: badge('backend Python coverage', py)
+    }
   }
 }
 
@@ -55,9 +58,9 @@ export function formatReport(report) {
   return [
     '## Unit-Test Line Coverage', '',
     '| Scope | Covered / total lines | Coverage |', '| --- | ---: | ---: |',
-    row('TypeScript / TSX', report.typescript), row('Python', report.python), row('Combined', report.combined), '',
+    row('Frontend / Electron (TypeScript / TSX)', report.typescript), row('Backend (Python)', report.python), '',
     'Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.',
-    'Combined coverage is weighted by reported line counts, not an average of percentages.',
+    'TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.',
     'Measured with c8 (V8 line coverage) and coverage.py (executable Python lines).',
     'This measures unit-test execution, not answer accuracy or full end-to-end coverage.', '',
     '<details><summary>Per-file coverage</summary>', '',
@@ -75,8 +78,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   ])
   const summary = formatReport(report)
   writeFileSync('.coverage-reports/summary.md', summary)
-  writeFileSync('.coverage-reports/badge.json', JSON.stringify(report.badge))
+  for (const [language, badge] of Object.entries(report.badges)) {
+    writeFileSync(`.coverage-reports/${language}-coverage.json`, JSON.stringify(badge))
+  }
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `report=${JSON.stringify({ badge: report.badge, summary })}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `report=${JSON.stringify({ badges: report.badges, summary })}\n`)
   console.log(summary.split('<details>')[0])
 }

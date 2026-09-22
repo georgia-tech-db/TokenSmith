@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runBuzzdbMultiturnBenchmark } from './test_buzzdb_multiturn.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -97,10 +97,35 @@ function writeReport(suites, passed) {
     writeFileSync(reportPath, `${JSON.stringify({ passed, suites }, null, 2)}\n`)
   }
   if (!process.env.GITHUB_STEP_SUMMARY) return
-  const escapeCell = (value) => String(value).replaceAll('|', '\\|').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\r?\n/g, ' ')
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatBenchmarkSummary(suites))
+}
+
+export function formatBenchmarkSummary(suites) {
+  const escapeCell = (value) => String(value).replaceAll('&', '&amp;').replaceAll('|', '&#124;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\r?\n/g, ' ')
+  const details = (item) => {
+    const parts = []
+    if (item.referenceExchange) {
+      parts.push(`**Prior question (fixture):** ${escapeCell(item.referenceExchange.question)}`,
+        `**Prior answer (fixture):** ${escapeCell(item.referenceExchange.answer)}`)
+    }
+    if (item.question) parts.push(`**Question:** ${escapeCell(item.question)}`)
+    if (item.referenceAnswer) parts.push(`**Reference answer (not generated):** ${escapeCell(item.referenceAnswer)}`)
+    if (item.evidence) {
+      parts.push(`**${escapeCell(item.evidenceLabel)}:**`)
+      if (!item.evidence.length) parts.push('No evidence returned.')
+      for (const [index, source] of item.evidence.entries()) {
+        const text = source.context.replace(/\s+/g, ' ').trim()
+        const excerpt = text.slice(0, 320) + (text.length > 320 ? '...' : '')
+        parts.push(`${index + 1}. ${escapeCell(source.chunkIds.join(', '))}: ${escapeCell(source.section)} - ${escapeCell(excerpt)}`)
+      }
+    }
+    if (item.failures?.length) parts.push(`**Failures:** ${escapeCell(item.failures.join('; '))}`)
+    return parts.join('<br>')
+  }
   const lines = [
     '## BuzzDB Benchmark', '',
     '**Scope:** app-matched Ollama Nomic embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
+    'Reference answers are authored expectations, not model output or automatically graded answers. Evidence excerpts are shortened for display; the JSON report retains full selected context.', '',
     '| Suite | Passed | Rate |', '| --- | --- | --- |',
     ...suites.map((suite) => `| ${escapeCell(suite.label)} | ${suite.passed}/${suite.total} | ${suite.total ? (100 * suite.passed / suite.total).toFixed(1) : '0.0'}% |`),
     '', ...suites.filter((suite) => suite.model).map((suite) =>
@@ -108,30 +133,32 @@ function writeReport(suites, passed) {
     ),
     '', '| Case | Result | Details |', '| --- | --- | --- |',
     ...suites.flatMap((suite) => (suite.cases ?? []).map((item) =>
-      `| ${escapeCell(item.id)} | ${item.passed ? 'PASS' : 'FAIL'} | ${escapeCell((item.failures ?? []).join('; '))} |`
+      `| ${escapeCell(item.id)} | ${item.passed ? 'PASS' : 'FAIL'} | ${details(item)} |`
     )), ''
   ]
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'))
+  return lines.join('\n')
 }
 
-const suites = []
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const suites = []
 
-try {
-  suites.push(runBuzzdbHybridBenchmark())
-} catch (error) {
-  suites.push(failureSuite('hybrid_retrieval', 'hybrid evidence coverage', error))
-}
+  try {
+    suites.push(runBuzzdbHybridBenchmark())
+  } catch (error) {
+    suites.push(failureSuite('hybrid_retrieval', 'hybrid evidence coverage', error))
+  }
 
-try {
-  suites.push(await runBuzzdbMultiturnBenchmark())
-} catch (error) {
-  suites.push(failureSuite('multi_turn', 'multi-turn', error))
-}
+  try {
+    suites.push(await runBuzzdbMultiturnBenchmark())
+  } catch (error) {
+    suites.push(failureSuite('multi_turn', 'multi-turn', error))
+  }
 
-const passed = printSummary(suites)
-printFailures(suites)
-writeReport(suites, passed)
+  const passed = printSummary(suites)
+  printFailures(suites)
+  writeReport(suites, passed)
 
-if (!passed) {
-  process.exitCode = 1
+  if (!passed) {
+    process.exitCode = 1
+  }
 }

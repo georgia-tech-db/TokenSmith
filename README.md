@@ -8,7 +8,8 @@
 
 [![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)
 [![Accuracy benchmark (retrieval)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml)
-[![Code coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Fcoverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
+[![Frontend TypeScript coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Ftypescript-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
+[![Backend Python coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Fpython-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
 
 TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
 
@@ -95,6 +96,9 @@ Every pull request, push to `main`, and merge-queue change runs:
 
 The benchmark badge is a pass/fail regression check, **not generated-answer accuracy**.
 Its Actions summary shows per-question evidence coverage and the measured pass rate.
+Each Details cell shows the question, an authored reference answer (not generated
+or automatically graded), and ranked retrieved-source excerpts. Conversation
+checks label their prior exchange and evidence as fixtures, not live retrieval.
 The conversation checks mock the rewrite model and search; they do not grade live
 follow-up understanding or generated answers. CI starts its own CPU-only Ollama
 service with no cloud keys or paid model calls. The CPU runtime, model weights,
@@ -119,12 +123,13 @@ After the first successful GitHub runs, configure branch protection to require
 `Build and tests` and `BuzzDB hybrid retrieval and conversation contracts` before
 merging. The README badges track `main`, while each PR has its own check results.
 
-The coverage badge reports **unit-test line coverage** across `src/` (TypeScript
-and TSX, including untested UI files, excluding declarations) and `python_engine/`.
-CI shows separate language totals and per-file coverage. The combined percentage
-is weighted by line counts, not averaged across languages. It is a reporting
-metric, not an accuracy score or a minimum-coverage gate. Only a successful CI
-push on `main` publishes the badge and small report to `codex/coverage-badge`;
+The two coverage badges report **unit-test line coverage** separately for
+frontend/Electron TypeScript and backend Python. TypeScript includes all of
+`src/`: UI, Electron main/preload, and shared modules, including untested files
+but excluding declarations. Python covers `python_engine/`. CI shows language
+totals and per-file coverage. These are reporting metrics, not accuracy scores
+or minimum-coverage gates. Only a successful CI
+push on `main` publishes the badges and small report to `codex/coverage-badge`;
 PRs cannot overwrite it. No coverage artifacts or external-service secrets are needed.
 
 To run coverage locally without modifying the packaged Python runtime:

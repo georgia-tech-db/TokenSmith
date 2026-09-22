@@ -199,6 +199,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         results = []
         for case in self.cases:
             hits = []
+            sources = []
             try:
                 response = self.retrieve_sources(case.get("retrievalQuery") or case["question"], int(case.get("topK", 8)))
                 sources = response["sources"]
@@ -208,7 +209,15 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
                 failures = validate_grounding_case(case, response.get("keywordTerms", []), hits, context)
             except Exception as error:
                 failures = [str(error)]
-            results.append({"id": case["id"], "passed": not failures, "hits": hits, "failures": failures})
+            results.append({
+                "id": case["id"], "question": case["question"],
+                "referenceAnswer": case["referenceAnswer"],
+                "passed": not failures, "hits": hits, "failures": failures,
+                "evidenceLabel": "Retrieved evidence (rank order)",
+                "evidence": [{"chunkIds": source.get("sourceChunkIds") or [source["tokensmithChunkId"]],
+                              "section": source.get("sectionHeader", ""), "context": source["context"]}
+                             for source in sources],
+            })
         self.measurements["retrieval_seconds"] = time.perf_counter() - start
         passed = sum(result["passed"] for result in results)
         type(self).report = {
