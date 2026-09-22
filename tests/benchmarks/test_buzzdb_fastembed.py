@@ -2,16 +2,19 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 from python_engine import tokensmith_engine as engine
 from python_engine import tokensmith_store as store
+from tests.benchmarks.test_buzzdb_grounding import validate_grounding_case
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,7 +24,6 @@ COLLECTION_ID = "1"
 FASTEMBED_MODEL = os.environ.get("TOKENSMITH_FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5")
 FASTEMBED_MODEL_KEY = f"fastembed:{FASTEMBED_MODEL}"
 FASTEMBED_BATCH_SIZE = int(os.environ.get("TOKENSMITH_FASTEMBED_BATCH_SIZE", "64"))
-MIN_HYBRID_RECALL = float(os.environ.get("TOKENSMITH_FASTEMBED_MIN_HYBRID_RECALL", "0.80"))
 
 
 def sha256_bytes(data):
@@ -77,7 +79,7 @@ def require_fastembed():
 
 
 def instantiate_text_embedding(TextEmbedding):
-    kwargs = {"model_name": FASTEMBED_MODEL}
+    kwargs = {"model_name": FASTEMBED_MODEL, "threads": int(os.environ.get("TOKENSMITH_FASTEMBED_THREADS", "2"))}
     cache_dir = os.environ.get("TOKENSMITH_FASTEMBED_CACHE_DIR")
     if cache_dir:
         kwargs["cache_dir"] = cache_dir
@@ -119,6 +121,10 @@ def all_chunks():
     return [chunk for chunk in chunks if chunk.get("tokensmithChunkId")]
 
 
+def chunks_sha256(chunks):
+    return sha256_bytes(json.dumps(chunks, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
 def compute_embedding_bundle():
     cases = load_cases()
     chunks = all_chunks()
@@ -154,6 +160,7 @@ def compute_embedding_bundle():
         "modelKey": FASTEMBED_MODEL_KEY,
         "fixture": str(FIXTURE_PATH.relative_to(ROOT)),
         "fixtureSha256": fixture_sha256(),
+        "chunksSha256": chunks_sha256(chunks),
         "cases": str(CASES_PATH.relative_to(ROOT)),
         "casesSha256": cases_sha256(cases),
         "chunkCount": len(chunks),
@@ -236,6 +243,7 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
             raise unittest.SkipTest("FastEmbed benchmark is opt-in.")
 
         cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temp_dir.cleanup)
         cls.user_data_path = cls.temp_dir.name
         cls.cases = load_cases()
         cls.chunks = all_chunks()
@@ -244,16 +252,10 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
         cls.bundle = load_embedding_bundle()
         cls.measurements = cls.bundle["metadata"].get("measurements", {})
         cls.validate_bundle()
-        cls.query_embedding_by_text = {
-            query_text: np.asarray(embedding, dtype=np.float32)
-            for query_text, embedding in zip(cls.bundle["query_texts"], cls.bundle["query_embeddings"])
-        }
+        # Only book vectors are reused. Query inference and all retrieval stages run afresh.
+        cls.embedder = instantiate_text_embedding(require_fastembed())
+        cls.measurements["fresh_query_embedding_seconds"] = 0.0
         cls.index_fixture_from_bundle()
-
-    @classmethod
-    def tearDownClass(cls):
-        if hasattr(cls, "temp_dir"):
-            cls.temp_dir.cleanup()
 
     @classmethod
     def validate_bundle(cls):
@@ -264,6 +266,10 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
             raise AssertionError(f"Embedding cache model is {metadata.get('model')}; expected {FASTEMBED_MODEL}.")
         if metadata.get("fixtureSha256") != fixture_sha256():
             raise AssertionError("Embedding cache does not match the current BuzzDBBook fixture.")
+        if metadata.get("chunksSha256") != chunks_sha256(cls.chunks):
+            raise AssertionError("Embedding cache does not match the current parsed chunks; rebuild it.")
+        if cls.bundle["chunk_ids"] != [chunk["tokensmithChunkId"] for chunk in cls.chunks]:
+            raise AssertionError("Embedding cache is missing, duplicating, or reordering book chunks.")
         if metadata.get("caseIds") != expected_case_ids:
             raise AssertionError("Embedding cache case order does not match the benchmark cases.")
         metadata_query_texts = metadata.get("queryTexts") or metadata.get("questions") or []
@@ -278,6 +284,10 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
         missing = [chunk_id for chunk_id in cls.bundle["chunk_ids"] if chunk_id not in cls.chunk_by_id]
         if missing:
             raise AssertionError(f"Embedding cache references unknown chunks: {missing[:5]}")
+        for key in ("passage_embeddings", "query_embeddings"):
+            vectors = cls.bundle[key]
+            if vectors.ndim != 2 or not np.isfinite(vectors).all() or not np.all(np.linalg.norm(vectors, axis=1) > 0):
+                raise AssertionError(f"Embedding cache contains invalid {key}.")
 
     @classmethod
     def index_fixture_from_bundle(cls):
@@ -314,74 +324,67 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
         store.rebuild_faiss(cls.user_data_path, FASTEMBED_MODEL_KEY)
         cls.measurements["faiss_rebuild_seconds"] = time.perf_counter() - start
 
-    def retrieve_ids(self, mode, question, query_embedding, top_k):
-        candidate_limit = max(top_k * 8, top_k) if mode == "hybrid" else top_k
-        vector_hits = store.vector_search(
-            self.user_data_path,
-            query_embedding,
-            [COLLECTION_ID],
-            candidate_limit,
-            FASTEMBED_MODEL_KEY,
-        )
-        if mode == "vector":
-            hits = engine.combine_search_hits("vector", vector_hits, [], top_k)
-        else:
-            keyword_terms = store.keyword_terms_for_query(self.user_data_path, question, [COLLECTION_ID])
-            keyword_hits = store.keyword_search(
-                self.user_data_path,
-                question,
-                [COLLECTION_ID],
-                candidate_limit,
-                keyword_terms,
-            )
-            hits = engine.combine_search_hits("hybrid", vector_hits, keyword_hits, top_k)
-        return [self.chunk_id_by_rowid[rowid] for rowid, _score in hits]
+    def retrieve_sources(self, question, top_k):
+        def embed_query(text):
+            start = time.perf_counter()
+            vector = embed_many(self.embedder, "query_embed", [text])[0]
+            self.measurements["fresh_query_embedding_seconds"] += time.perf_counter() - start
+            return vector
 
-    def case_is_grounded(self, case, hit_ids):
-        matched = [chunk_id for chunk_id in case.get("expectedChunkIds", []) if chunk_id in hit_ids]
-        if len(matched) < int(case.get("minExpectedHits", 1)):
-            return False
-        context = normalize_text("\n\n".join(self.chunk_by_id[chunk_id]["text"] for chunk_id in hit_ids))
-        for required in case.get("requiredContext", []):
-            if normalize_text(required) not in context:
-                return False
-        for forbidden in case.get("forbiddenContext", []):
-            if normalize_text(forbidden) in context:
-                return False
-        return True
+        vector_hit_count = 0
 
-    def test_fastembed_vector_and_hybrid_retrieval(self):
-        vector_passed = 0
-        hybrid_passed = 0
+        def vector_search(*args, **kwargs):
+            nonlocal vector_hit_count
+            hits = store.vector_search(*args, **kwargs)
+            vector_hit_count += len(hits)
+            return hits
+
+        # Adapt the test-only CPU embedder; ranking, FTS, FAISS and source selection are production code.
+        with patch.object(engine, "resolve_embedding_provider_for_key", return_value=(embed_query, None)), \
+                patch.object(engine, "vector_search", side_effect=vector_search):
+            result = engine.search_library({
+                "userDataPath": self.user_data_path,
+                "query": question,
+                "searchMode": "hybrid",
+                "limit": top_k,
+                "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
+            })
+        self.assertGreater(vector_hit_count, 0, "Hybrid benchmark must not silently fall back to keyword-only search.")
+        self.assertIsNone(result.get("reason"), result.get("reason"))
+        return result
+
+    def test_fastembed_hybrid_retrieval(self):
         query_seconds = 0.0
-        failures = []
+        results = []
 
         for case in self.cases:
             top_k = int(case.get("topK", 8))
             query_text = case_retrieval_query(case)
-            self.assertIn(
-                query_text,
-                self.query_embedding_by_text,
-                f"Embedding cache is missing the exact benchmark retrieval query for {case['id']}.",
-            )
-            query_embedding = self.query_embedding_by_text[query_text]
             start = time.perf_counter()
-            vector_ids = self.retrieve_ids("vector", query_text, query_embedding, top_k)
-            hybrid_ids = self.retrieve_ids("hybrid", query_text, query_embedding, top_k)
+            hits = []
+            try:
+                response = self.retrieve_sources(query_text, top_k)
+                sources = response["sources"]
+                hits = list(dict.fromkeys(
+                    chunk_id for source in sources
+                    for chunk_id in (source.get("sourceChunkIds") or [source["tokensmithChunkId"]])
+                ))
+                context = normalize_text("\n\n".join(source["context"] for source in sources))
+                failures = validate_grounding_case(case, response.get("keywordTerms", []), hits, context)
+            except Exception as error:
+                failures = [str(error)]
             query_seconds += time.perf_counter() - start
-
-            if self.case_is_grounded(case, vector_ids):
-                vector_passed += 1
-            if self.case_is_grounded(case, hybrid_ids):
-                hybrid_passed += 1
-            else:
-                failures.append(f"{case['id']}: hybrid hits={hybrid_ids}")
+            results.append({"id": case["id"], "passed": not failures, "hits": hits, "failures": failures})
 
         total = len(self.cases)
-        hybrid_recall = hybrid_passed / total
+        hybrid_passed = sum(result["passed"] for result in results)
         self.measurements["query_seconds"] = query_seconds
-        self.measurements["vector_grounding"] = f"{vector_passed}/{total}"
         self.measurements["hybrid_grounding"] = f"{hybrid_passed}/{total}"
+        type(self).report = {
+            "name": "hybrid_retrieval", "label": "hybrid evidence coverage (real CPU embeddings)",
+            "unit": "questions", "passed": hybrid_passed, "total": total,
+            "model": FASTEMBED_MODEL, "cases": results, "measurements": self.measurements,
+        }
 
         print(
             "FastEmbed BuzzDB benchmark: "
@@ -394,15 +397,27 @@ class BuzzDBFastEmbedBenchmarkTests(unittest.TestCase):
             f"insert={self.measurements['db_insert_seconds']:.2f}s; "
             f"faiss={self.measurements['faiss_rebuild_seconds']:.2f}s; "
             f"queries={query_seconds:.2f}s; "
-            f"vector={vector_passed}/{total}; hybrid={hybrid_passed}/{total}"
+            f"fresh_query_embed={self.measurements['fresh_query_embedding_seconds']:.2f}s; "
+            f"hybrid={hybrid_passed}/{total}"
         )
 
-        self.assertGreaterEqual(
-            hybrid_recall,
-            MIN_HYBRID_RECALL,
-            "FastEmbed hybrid grounding fell below threshold. " + "; ".join(failures),
+        self.assertGreater(total, 0, "No benchmark cases were loaded.")
+        self.assertEqual(
+            hybrid_passed, total,
+            "Hybrid evidence regression: " + json.dumps([result for result in results if not result["passed"]]),
         )
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if "--json" in sys.argv:
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(BuzzDBFastEmbedBenchmarkTests)
+        result = unittest.TextTestRunner().run(suite)
+        report = getattr(BuzzDBFastEmbedBenchmarkTests, "report", None)
+        if report is None:
+            report = {"name": "hybrid_retrieval", "label": "hybrid evidence coverage", "unit": "checks",
+                      "passed": 0, "total": 1, "cases": [{"id": "setup", "passed": False,
+                      "failures": [str(error) for _, error in result.errors] or ["Benchmark did not run."]}]}
+        print(json.dumps(report))
+        raise SystemExit(0 if result.wasSuccessful() and not result.skipped and report["passed"] == report["total"] else 1)
+    else:
+        unittest.main()

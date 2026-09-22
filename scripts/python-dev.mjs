@@ -473,7 +473,7 @@ function runIntegration({ requireGguf = false } = {}) {
 }
 
 function runBenchmark() {
-  const python = requireRuntimePython()
+  const python = embeddingBenchmarkPython()
   process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', [], {
     TOKENSMITH_BENCHMARK_PYTHON: python.executable,
     ...pythonEnv(python.executable)

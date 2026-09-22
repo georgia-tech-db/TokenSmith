@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Set up bundled Python
+        run: npm run setup:python-runtime
+      - name: Typecheck and build
+        run: npm run build
+      - name: TypeScript unit tests
+        run: npm run test:unit:ts
+      - name: Python unit tests
+        run: npm run test:unit:python
+      - name: Python worker and conversation integration tests
+        run: npm run test:integration

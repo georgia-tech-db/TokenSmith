@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runBuzzdbMultiturnBenchmark } from './test_buzzdb_multiturn.mjs'
@@ -28,13 +29,14 @@ function parseJsonOutput(output) {
   return JSON.parse(lines.at(-1))
 }
 
-function runBuzzdbGroundingBenchmark() {
+function runBuzzdbHybridBenchmark() {
   const python = process.env.TOKENSMITH_BENCHMARK_PYTHON ?? 'python3'
-  const result = spawnSync(python, ['tests/benchmarks/test_buzzdb_grounding.py', '--json'], {
+  const result = spawnSync(python, ['-m', 'tests.benchmarks.test_buzzdb_fastembed', '--json'], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env
+    env: { ...process.env, TOKENSMITH_RUN_FASTEMBED_BENCHMARK: '1' },
+    maxBuffer: 16 * 1024 * 1024
   })
 
   if (result.error) {
@@ -53,7 +55,7 @@ function runBuzzdbGroundingBenchmark() {
     parsed.passed = 0
     parsed.total = Math.max(1, parsed.total)
     parsed.cases = [{
-      id: 'grounding',
+      id: 'hybrid_retrieval',
       passed: false,
       failures: [result.stderr.trim() || `Python exited with status ${result.status}.`]
     }]
@@ -81,21 +83,43 @@ function printFailures(suites) {
 }
 
 function printSummary(suites) {
-  const passed = suites.reduce((sum, suite) => sum + suite.passed, 0)
-  const total = suites.reduce((sum, suite) => sum + suite.total, 0)
-  console.log(`BuzzDB retrieval benchmark: ${passed}/${total} checks passed.`)
+  console.log('BuzzDB benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
   for (const suite of suites) {
     console.log(`- ${suite.label}: ${suite.passed}/${suite.total} ${suite.unit}`)
   }
-  return passed === total
+  return suites.every((suite) => suite.total > 0 && suite.passed === suite.total)
+}
+
+function writeReport(suites, passed) {
+  const reportPath = process.env.TOKENSMITH_BENCHMARK_REPORT_PATH
+  if (reportPath) {
+    mkdirSync(dirname(resolve(reportPath)), { recursive: true })
+    writeFileSync(reportPath, `${JSON.stringify({ passed, suites }, null, 2)}\n`)
+  }
+  if (!process.env.GITHUB_STEP_SUMMARY) return
+  const escapeCell = (value) => String(value).replaceAll('|', '\\|').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\r?\n/g, ' ')
+  const lines = [
+    '## BuzzDB Benchmark', '',
+    '**Scope:** real CPU embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
+    '| Suite | Passed | Rate |', '| --- | --- | --- |',
+    ...suites.map((suite) => `| ${escapeCell(suite.label)} | ${suite.passed}/${suite.total} | ${suite.total ? (100 * suite.passed / suite.total).toFixed(1) : '0.0'}% |`),
+    '', ...suites.filter((suite) => suite.model).map((suite) =>
+      `Embedder: \`${escapeCell(suite.model)}\`. Fresh query embedding time: ${(suite.measurements?.fresh_query_embedding_seconds ?? 0).toFixed(2)}s.`
+    ),
+    '', '| Case | Result | Details |', '| --- | --- | --- |',
+    ...suites.flatMap((suite) => (suite.cases ?? []).map((item) =>
+      `| ${escapeCell(item.id)} | ${item.passed ? 'PASS' : 'FAIL'} | ${escapeCell((item.failures ?? []).join('; '))} |`
+    )), ''
+  ]
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'))
 }
 
 const suites = []
 
 try {
-  suites.push(runBuzzdbGroundingBenchmark())
+  suites.push(runBuzzdbHybridBenchmark())
 } catch (error) {
-  suites.push(failureSuite('grounding', 'grounding', error))
+  suites.push(failureSuite('hybrid_retrieval', 'hybrid evidence coverage', error))
 }
 
 try {
@@ -106,6 +130,7 @@ try {
 
 const passed = printSummary(suites)
 printFailures(suites)
+writeReport(suites, passed)
 
 if (!passed) {
   process.exitCode = 1

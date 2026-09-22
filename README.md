@@ -6,6 +6,9 @@
 
 # TokenSmith
 
+[![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)
+[![Accuracy benchmark (retrieval)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml)
+
 TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
 
 It runs locally on your machine, retrieves passages relevant to your question from your documents, and shows the **page sources** with each answer.
@@ -68,12 +71,44 @@ Start the app locally:
 npm run dev
 ```
 
-Run tests:
+Install the CPU benchmark embedder and run tests (use
+`app_runtime/python/python.exe` on Windows):
 
 ```sh
+app_runtime/python/bin/python -m pip install -r requirements-embedding-benchmark.txt
 npm run typecheck
 npm test
 ```
+
+## CI And Benchmarks
+
+Every pull request, push to `main`, and merge-queue change runs:
+
+- **CI:** typechecking, production build, TypeScript/Python unit tests, and Python-worker/conversation integration tests.
+- **Accuracy benchmark (retrieval):** BuzzDBBook questions using real CPU embeddings and the app's hybrid search, including source expansion and final source selection. Conversation-contract checks run alongside it and are reported separately.
+
+The benchmark badge is a pass/fail regression check, **not generated-answer accuracy**.
+Its Actions summary shows per-question evidence coverage and the measured pass rate.
+The conversation checks mock the rewrite model and search; they do not grade live
+follow-up understanding or generated answers. CI uses no cloud keys, Ollama service,
+or paid model calls. Model weights and book embeddings are cached, but queries are
+embedded afresh and the search index is rebuilt on every run. PR checks do not
+upload packaged apps or other build artifacts.
+
+Run just the benchmark after the developer setup above:
+
+```sh
+npm run test:benchmark
+```
+
+The first benchmark run downloads `BAAI/bge-small-en-v1.5` and embeds the book.
+For repeat runs, set `TOKENSMITH_FASTEMBED_EMBEDDINGS_PATH` to a cache produced by
+`npm run build:embedding-benchmark-cache -- <path>`. Stale caches fail validation.
+Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally.
+
+After the first successful GitHub runs, configure branch protection to require
+`Build and tests` and `BuzzDB hybrid retrieval and conversation contracts` before
+merging. The README badges track `main`, while each PR has its own check results.
 
 ## Packaging
 

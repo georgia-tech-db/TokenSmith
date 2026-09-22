@@ -1,0 +1,56 @@
+name: Accuracy benchmark (retrieval)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: BuzzDB hybrid retrieval and conversation contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      TOKENSMITH_FASTEMBED_CACHE_DIR: ${{ github.workspace }}/tmp/fastembed-models
+      TOKENSMITH_FASTEMBED_EMBEDDINGS_PATH: ${{ github.workspace }}/tmp/buzzdb-fastembed-cache.npz
+      TOKENSMITH_FASTEMBED_THREADS: '2'
+      TOKENSMITH_BENCHMARK_REPORT_PATH: tmp/benchmark-results.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Set up bundled Python
+        run: npm run setup:python-runtime
+      - name: Install CPU benchmark embedder
+        run: app_runtime/python/bin/python -m pip install -r requirements-embedding-benchmark.txt
+      - name: Cache embedder weights
+        uses: actions/cache@v4
+        with:
+          path: tmp/fastembed-models
+          key: fastembed-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('requirements-embedding-benchmark.txt') }}
+      - name: Cache book embeddings
+        id: book-cache
+        uses: actions/cache@v4
+        with:
+          path: tmp/buzzdb-fastembed-cache.npz
+          key: buzzdb-embeddings-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('requirements-runtime.txt', 'requirements-embedding-benchmark.txt', 'python_engine/*.py', 'tests/fixtures/buzzdb/buzzdb-book.tokensmith.md', 'tests/benchmarks/buzzdb_grounding_cases.json', 'tests/benchmarks/test_buzzdb_fastembed.py') }}
+      - name: Embed book on cache miss
+        if: steps.book-cache.outputs.cache-hit != 'true'
+        run: npm run build:embedding-benchmark-cache -- "$TOKENSMITH_FASTEMBED_EMBEDDINGS_PATH"
+      - name: Run benchmark with fresh query embeddings
+        run: npm run test:benchmark
