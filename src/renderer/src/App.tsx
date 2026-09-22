@@ -2537,6 +2537,7 @@ function ChatScreen({
   const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
+  const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   const activeConversation =
@@ -2661,39 +2662,41 @@ function ChatScreen({
       return
     }
 
+    const tokensmith = window.tokensmith
     let cancelled = false
+    const requestId = `${activeConversation.id}:${++starterQuestionRequestSequenceRef.current}`
     setStarterQuestionSuggestions([])
     setStarterQuestionStatus('loading')
     setStarterQuestionError(null)
 
-    void window.tokensmith
-      .suggestChatQuestions({
-        messages: activeConversation.messages,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: settings.application,
-        modelSettings: selectedModelSettings,
-        retrievedSources: []
-      })
-      .then((response) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions(response.suggestions)
-        setStarterQuestionStatus('idle')
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions([])
-        setStarterQuestionStatus('error')
-        setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
-      })
+    const startTimer = window.setTimeout(() => {
+      void tokensmith
+        .suggestChatQuestions(requestId, {
+          messages: activeConversation.messages,
+          materials: activeMaterials,
+          model: selectedModel,
+          settings,
+          applicationSettings: settings.application,
+          modelSettings: selectedModelSettings,
+          retrievedSources: []
+        })
+        .then((response) => {
+          if (cancelled) return
+          setStarterQuestionSuggestions(response.suggestions)
+          setStarterQuestionStatus('idle')
+        })
+        .catch((error) => {
+          if (cancelled) return
+          setStarterQuestionSuggestions([])
+          setStarterQuestionStatus('error')
+          setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
+        })
+    }, 150)
 
     return () => {
       cancelled = true
+      window.clearTimeout(startTimer)
+      void tokensmith.cancelChatQuestionSuggestions(requestId).catch(() => undefined)
     }
   }, [
     activeConversation.id,

@@ -830,7 +830,7 @@ async function runOllamaChatCompletion(
   modelName: string,
   messages: StudyChatMessage[],
   settings?: ModelRuntimeSettings,
-  overrides: { maxTokens?: number; temperature?: number; format?: Record<string, unknown> } = {}
+  overrides: { maxTokens?: number; temperature?: number; format?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<string> {
   const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
     method: 'POST',
@@ -849,7 +849,8 @@ async function runOllamaChatCompletion(
       ...(overrides.format ? { format: overrides.format } : {}),
       stream: false,
       think: false
-    })
+    }),
+    signal: overrides.signal
   }, 180_000)
 
   if (!response.ok) {
@@ -969,7 +970,8 @@ export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<
 }
 
 export async function generateOllamaStudyQuestionSuggestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
   assertOllamaModel(request.model)
 
@@ -991,7 +993,7 @@ export async function generateOllamaStudyQuestionSuggestions(
     modelName,
     questionSuggestionMessages(runtimeRequest),
     runtimeSettings,
-    { maxTokens, temperature, format: questionSuggestionSchema(count) }
+    { maxTokens, temperature, format: questionSuggestionSchema(count), signal }
   )
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
