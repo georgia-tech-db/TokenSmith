@@ -1,11 +1,18 @@
 {
-  "all": false,
+  "all": true,
+  "src": ["src"],
   "include": [
-    ".coverage-ts-runtime/**/*.ts"
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".coverage-ts-runtime/**"
   ],
+  "exclude": ["**/*.d.ts"],
+  "exclude-after-remap": true,
+  "extension": [".ts", ".tsx", ".mjs"],
   "reporter": [
     "text",
-    "lcov"
+    "lcov",
+    "json-summary"
   ],
   "reports-dir": ".coverage-reports/typescript"
 }
