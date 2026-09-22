@@ -1,3 +1,5 @@
+import type { AnswerConfidence } from './confidence'
+
 import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
@@ -167,7 +169,10 @@ export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
+  /** The model's original answer when the scorer replaced it with an abstention. */
+  suppressedText?: string
   sources?: ChatSource[]
+  confidence?: AnswerConfidence
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
   responseDurationMs?: number
   followUpSuggestions?: string[]

@@ -7,6 +7,7 @@ import type {
   ModelRuntimeSettings,
   TokenSmithSettings
 } from './app-state'
+import type { AnswerConfidence } from './confidence'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ConversationContextMode = 'standalone' | 'contextual'
@@ -53,7 +54,10 @@ export interface EngineChatResponse {
   engineId: EngineInfo['id']
   modelName: string
   text: string
+  /** The model's original answer when the scorer replaced it with an abstention. */
+  suppressedText?: string
   sources: ChatSource[]
+  confidence?: AnswerConfidence
   followUpSuggestions?: string[]
   followUpError?: string
 }

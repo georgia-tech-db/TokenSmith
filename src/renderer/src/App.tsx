@@ -54,6 +54,8 @@ import {
   type CleaningProfileId,
   type CleaningRuleId
 } from '@shared/cleaning'
+import type { AnswerConfidence, AnswerStatus } from '@shared/confidence'
+import { answerStatusLabel } from '@shared/confidence'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -107,6 +109,9 @@ import {
   Search,
   SendHorizonal,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   Sparkles,
   Square,
   Trash2,
@@ -3854,6 +3859,8 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
+        suppressedText: reply.suppressedText,
+        confidence: reply.confidence,
         kind: 'quizFeedback',
         quiz: {
           questionNumber: quizState.questionNumber,
@@ -4076,7 +4083,9 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
+        suppressedText: reply.suppressedText,
         sources: settings.application.showSources ? reply.sources : [],
+        confidence: reply.confidence,
         conversationContextMode,
         responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
         followUpSuggestions: reply.followUpSuggestions ?? [],
@@ -4753,7 +4762,9 @@ function AssistantMessage({
             {durationLabel && <span>{durationLabel}</span>}
           </div>
         )}
+        {message.confidence && <ConfidenceBadge confidence={message.confidence} />}
         <div data-chat-selectable><MessageText text={message.text} /></div>
+        {message.suppressedText && <SuppressedAnswer text={message.suppressedText} />}
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4811,6 +4822,74 @@ function AssistantMessage({
       </div>
     </article>
   )
+}
+
+/**
+ * The answer the scorer withheld. Abstaining is the right default, but a student
+ * who wants to judge the ungrounded answer for themselves should be able to.
+ */
+function SuppressedAnswer({ text }: { text: string }) {
+  const [revealed, setRevealed] = useState(false)
+
+  return (
+    <div className="suppressed-answer">
+      <button
+        className="suppressed-answer-toggle"
+        type="button"
+        aria-expanded={revealed}
+        onClick={() => setRevealed((current) => !current)}
+      >
+        <ChevronDown
+          className={revealed ? 'suppressed-answer-chevron open' : 'suppressed-answer-chevron'}
+          size={15}
+          aria-hidden="true"
+        />
+        <span>{revealed ? 'Hide unverified answer' : 'See answer anyway'}</span>
+      </button>
+      {revealed && (
+        <div className="suppressed-answer-body">
+          <p className="suppressed-answer-warning">
+            This answer is not supported by your indexed material. Check it against the source before
+            relying on it.
+          </p>
+          <MessageText text={text} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConfidenceBadge({ confidence }: { confidence: AnswerConfidence }) {
+  const percent = Math.round(confidence.score * 100)
+  const breakdown = [
+    `Retrieval match ${Math.round(confidence.retrievalScore * 100)}%`,
+    `Answer-context alignment ${Math.round(confidence.alignmentScore * 100)}%`
+  ].join(' \u00b7 ')
+
+  return (
+    <div
+      className={`confidence-badge confidence-${confidence.status}`}
+      title={breakdown}
+      aria-label={`Answer status: ${answerStatusLabel(confidence.status)}, confidence ${percent} percent. ${breakdown}`}
+    >
+      <ConfidenceIcon status={confidence.status} />
+      <span className="confidence-label">{answerStatusLabel(confidence.status)}</span>
+      <span className="confidence-score">{percent}%</span>
+      {confidence.abstained && <span className="confidence-abstained">abstained</span>}
+    </div>
+  )
+}
+
+function ConfidenceIcon({ status }: { status: AnswerStatus }) {
+  if (status === 'supported') {
+    return <ShieldCheck size={15} aria-hidden="true" />
+  }
+
+  if (status === 'partial') {
+    return <ShieldQuestion size={15} aria-hidden="true" />
+  }
+
+  return <ShieldAlert size={15} aria-hidden="true" />
 }
 
 function SourceTray({
