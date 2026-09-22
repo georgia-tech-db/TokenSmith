@@ -17,10 +17,12 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('engine:chat', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['sendChatMessage']>>
     >,
-  suggestChatQuestions: (request) =>
-    ipcRenderer.invoke('engine:suggest-questions', request) as Promise<
+  suggestChatQuestions: (requestId, request) =>
+    ipcRenderer.invoke('engine:suggest-questions', requestId, request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['suggestChatQuestions']>>
     >,
+  cancelChatQuestionSuggestions: (requestId) =>
+    ipcRenderer.invoke('engine:cancel-suggest-questions', requestId) as Promise<void>,
   starterSources: (materials, limit) =>
     ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
       Awaited<ReturnType<TokenSmithBridge['starterSources']>>
