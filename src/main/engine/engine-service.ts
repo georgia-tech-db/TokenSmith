@@ -10,10 +10,13 @@ import type {
   EngineQuestionSuggestionRequest,
   EngineQuestionSuggestionResponse
 } from '../../shared/engine'
+import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
+import { modelWithRememberedRemoteApiKey } from './remote-model-secrets'
+import { resolveRemoteChatQuestion } from './remote-chat-service'
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
-import { generateOllamaStudyQuestionSuggestions, runOllamaStudyEngine } from './ollama-service'
-import { questionSuggestionMessages, studyChatMessages } from './study-chat-format'
+import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine } from './ollama-service'
+import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
   request: EngineQuestionSuggestionRequest
@@ -57,6 +60,14 @@ export async function sendChatMessage(request: EngineChatRequest): Promise<Engin
   return response
 }
 
+export async function resolveChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request)
+  if (request.model.engine === 'remote') {
+    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) })
+  }
+  throw new Error('Question rewriting requires an Ollama or remote chat model.')
+}
+
 export async function suggestChatQuestions(
   request: EngineQuestionSuggestionRequest
 ): Promise<EngineQuestionSuggestionResponse> {
@@ -73,6 +84,15 @@ function logSource(source: ChatSource): Record<string, unknown> {
   return {
     title: source.title,
     locator: source.locator,
+    sourceId: source.sourceId,
+    chunkId: source.chunkId,
+    chunkRowid: source.chunkRowid,
+    chunkKind: source.chunkKind,
+    tokensmithChunkId: source.tokensmithChunkId,
+    tokensmithChapter: source.tokensmithChapter,
+    tokensmithChunkKind: source.tokensmithChunkKind,
+    queryTerms: source.queryTerms,
+    keywordTerms: source.keywordTerms,
     documentTitle: source.documentTitle,
     collectionName: source.collectionName,
     sectionHeader: source.sectionHeader,
@@ -107,7 +127,12 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
 
   return {
     prompt: request.prompt,
+    answerPrompt: request.answerPrompt,
+    retrievalQuery: request.retrievalQuery,
+    conversationContextMode: request.conversationContextMode ?? 'standalone',
+    referenceExchange: request.referenceExchange,
     model: logModel(request),
+    contextBudget: sourceContextBudgetForRequest(request),
     systemPrompt,
     sourceCount: request.retrievedSources?.length ?? 0,
     sources: (request.retrievedSources ?? []).map(logSource),
@@ -135,6 +160,7 @@ function questionSuggestionLogDetails(request: EngineQuestionSuggestionRequest):
       providerId: request.model.providerId
     },
     systemPrompt,
+    contextBudget: sourceContextBudgetForRequest(request),
     sourceCount: request.retrievedSources?.length ?? 0,
     sources: (request.retrievedSources ?? []).map(logSource),
     modelMessages: messages.map((message) => ({

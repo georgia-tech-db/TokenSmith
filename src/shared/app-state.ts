@@ -1,3 +1,4 @@
+import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
@@ -52,6 +53,9 @@ export interface CourseMaterial {
   cleaningProfileName?: string
   cleaningProfileVersion?: number
   cleaningRuleIds?: CleaningRuleId[]
+  preparation?: PreparationSettings
+  preparationModelName?: string
+  preparationIssueCount?: number
   error?: string
   indexing?: MaterialIndexProgress
 }
@@ -72,10 +76,13 @@ export interface LocalModel {
   providerName?: string
   baseUrl?: string
   apiKey?: string
+  connectionId?: string
+  cloudCredentialStatus?: 'connected' | 'reconnect'
   remoteModelName?: string
   url?: string
   sizeBytes?: number
   ramRequiredGb?: number
+  contextLength?: number
   parameters?: string
   quant?: string
   type?: string
@@ -84,9 +91,10 @@ export interface LocalModel {
   addedAt: string
 }
 
-export type AppTheme = 'light' | 'system'
+export type AppTheme = 'light' | 'sarah-and-duck'
 export type AppFontSize = 'small' | 'medium' | 'large'
 export type SuggestionMode = 'on' | 'off'
+export type SearchMode = 'vector' | 'keyword' | 'hybrid'
 export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
 
 export interface ApplicationSettings {
@@ -94,6 +102,7 @@ export interface ApplicationSettings {
   fontSize: AppFontSize
   defaultModelId: string
   suggestionMode: SuggestionMode
+  searchMode: SearchMode
   followUpSuggestionCount: number
   showSources: boolean
   cpuThreads: number
@@ -103,6 +112,7 @@ export interface ModelRuntimeSettings {
   systemMessage: string
   chatTemplate: string
   suggestedFollowUpPrompt: string
+  starterQuestionPrompt?: string
   contextLength: number
   maxLength: number
   promptBatchSize: number
@@ -122,20 +132,33 @@ export interface ChatSource {
   title: string
   locator: string
   excerpt: string
+  context?: string
   materialId?: string
+  sourceId?: string
   chunkId?: string
   chunkRowid?: number | string
+  chunkKind?: string
+  sourceUnitId?: string
+  sourceUnitComplete?: boolean
+  sourceChunkIds?: string[]
+  tokensmithChunkId?: string
+  tokensmithChapter?: string
+  tokensmithChunkKind?: string
+  queryTerms?: string[]
+  keywordTerms?: string[]
   documentId?: number | string
   documentTitle?: string
   collectionName?: string
   sectionHeader?: string
   path?: string
+  lineFrom?: number
+  lineTo?: number
   pageStart?: number
   pageEnd?: number
   thumbnailPath?: string
   chunkSize?: number
   score?: number
-  retrievalMode?: 'vector' | 'starter'
+  retrievalMode?: 'vector' | 'keyword' | 'hybrid' | 'starter'
   embeddingModel?: string
   chunkEmbeddingModel?: string
 }
@@ -145,6 +168,8 @@ export interface ChatMessage {
   role: MessageRole
   text: string
   sources?: ChatSource[]
+  conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
+  responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string
   kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'

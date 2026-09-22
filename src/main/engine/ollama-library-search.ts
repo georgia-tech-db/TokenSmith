@@ -81,12 +81,30 @@ function parseTagCount(value?: string): number | undefined {
   return Number.isFinite(count) ? count : undefined
 }
 
-function absoluteOllamaUrl(href?: string): string {
-  if (!href) {
-    return `${ollamaLibraryBaseUrl}/library`
+function modelLink(html: string): { name: string; url: string } | undefined {
+  for (const match of html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)) {
+    try {
+      const url = new URL(decodeHtml(match[1]), ollamaLibraryBaseUrl)
+      const name = url.pathname.match(/^\/library\/([a-z0-9][a-z0-9._-]*)\/?$/i)?.[1]
+      if (url.origin === ollamaLibraryBaseUrl && name) return { name, url: url.toString() }
+    } catch { /* Ignore links that are not model pages. */ }
   }
+  return undefined
+}
 
-  return new URL(href, ollamaLibraryBaseUrl).toString()
+function visibleCardMetadata(html: string) {
+  const paragraphs = Array.from(html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi))
+  const stats = paragraphs.find((match) => /\b(?:Pulls|Tags|Updated)\b/.test(stripHtml(match[1])))
+  const text = stats ? stripHtml(stats[1]) : ''
+  const badges = Array.from(html.slice(0, stats?.index ?? html.length).matchAll(/<span\b[^>]*>([^<]*)<\/span>/gi))
+    .map((match) => stripHtml(match[1]))
+  return {
+    capabilities: badges.filter((value) => /^(?:tools|thinking|vision|embedding|cloud|completion|insert)$/i.test(value)),
+    sizes: badges.filter((value) => /^\d+(?:\.\d+)?[bmt]$/i.test(value)),
+    pulls: text.match(/([\d.,]+[KMBT]?)\s+Pulls\b/i)?.[1],
+    tagCount: parseTagCount(text.match(/([\d,]+)\s+Tags\b/i)?.[1]),
+    updated: text.match(/\bUpdated\s+(.+)$/i)?.[1]
+  }
 }
 
 function normalizeSearchText(value: string): string {
@@ -120,29 +138,34 @@ function resultMatchesQuery(result: OllamaSearchResult, query: string): boolean 
 }
 
 export function parseOllamaSearchResults(html: string): OllamaSearchResult[] {
-  const resultItems = Array.from(html.matchAll(/<li\b[^>]*\bx-test-model\b[^>]*>([\s\S]*?)<\/li>/gi))
+  // Ollama's public pages no longer consistently include their internal x-test attributes.
+  const resultItems = Array.from(html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi))
   const seen = new Set<string>()
 
   return resultItems
     .map((match): OllamaSearchResult | undefined => {
       const itemHtml = match[1]
-      const name = modelNameForItem(itemHtml)
-      if (!name || seen.has(name.toLowerCase())) {
+      const link = modelLink(itemHtml)
+      if (!link || !/<h[1-6]\b|\bx-test-(?:search-response-title|model-title)\b/i.test(itemHtml)) return undefined
+      const name = modelNameForItem(itemHtml) ?? link.name
+      if (seen.has(name.toLowerCase())) {
         return undefined
       }
 
       seen.add(name.toLowerCase())
-      const href = itemHtml.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1]
+      const visible = visibleCardMetadata(itemHtml)
+      const capabilities = textsForAttribute(itemHtml, 'x-test-capability')
+      const sizes = textsForAttribute(itemHtml, 'x-test-size')
 
       return {
         name,
         description: descriptionForModel(itemHtml),
-        url: absoluteOllamaUrl(href),
-        capabilities: textsForAttribute(itemHtml, 'x-test-capability'),
-        sizes: textsForAttribute(itemHtml, 'x-test-size'),
-        pulls: textForAttribute(itemHtml, 'x-test-pull-count'),
-        tagCount: parseTagCount(textForAttribute(itemHtml, 'x-test-tag-count')),
-        updated: textForAttribute(itemHtml, 'x-test-updated')
+        url: link.url,
+        capabilities: capabilities.length ? capabilities : visible.capabilities,
+        sizes: sizes.length ? sizes : visible.sizes,
+        pulls: textForAttribute(itemHtml, 'x-test-pull-count') ?? visible.pulls,
+        tagCount: parseTagCount(textForAttribute(itemHtml, 'x-test-tag-count')) ?? visible.tagCount,
+        updated: textForAttribute(itemHtml, 'x-test-updated') ?? visible.updated
       }
     })
     .filter((result): result is OllamaSearchResult => Boolean(result))
@@ -179,7 +202,14 @@ export async function searchOllamaLibrary(
       throw new Error(`Ollama search failed with HTTP ${response.status}.`)
     }
 
-    return parseOllamaSearchResults(await response.text())
+    const html = await response.text()
+    const results = parseOllamaSearchResults(html)
+    if (!results.length && !/\bid=["']repo["']|No (?:models|results) found/i.test(html)) {
+      throw new Error('Could not read Ollama’s model catalog. Please try again or enter a model name directly.')
+    }
+    return results
+      .filter((result) => role !== 'embedder' || result.capabilities.includes('embedding'))
+      .filter((result) => role !== 'generator' || !result.capabilities.includes('embedding'))
       .filter((result) => resultMatchesQuery(result, normalizedQuery))
       .slice(0, Math.max(1, limit))
   } catch (error) {

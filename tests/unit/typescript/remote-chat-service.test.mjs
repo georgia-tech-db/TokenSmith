@@ -68,19 +68,19 @@ test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts rece
   globalThis.fetch = async (url, options) => {
     requestedUrls.push(String(url))
     assert.equal(options.headers.Accept, 'application/json')
+    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
 
     if (String(url).endsWith('/models')) {
-      assert.equal(options.headers['x-goog-api-key'], 'gemini-key')
       return {
         ok: true,
         json: async () => ({
-          models: [
-            { name: 'models/antigravity-preview-05-26', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] },
-            { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] },
-            { name: 'models/imagen-4.0', supportedGenerationMethods: ['predict'] }
+          data: [
+            { id: 'models/antigravity-preview-05-26' },
+            { id: 'models/gemini-3.5-flash' },
+            { id: 'models/gemini-2.5-pro' },
+            { id: 'models/gemini-2.0-flash' },
+            { id: 'models/gemini-embedding-001' },
+            { id: 'models/text-embedding-004' }
           ]
         })
       }
@@ -95,8 +95,8 @@ test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts rece
       'https://generativelanguage.googleapis.com/v1beta/openai/'
     )
 
-    assert.equal(requestedUrls[0], 'https://generativelanguage.googleapis.com/v1beta/models')
-    assert.deepEqual(requestedUrls, ['https://generativelanguage.googleapis.com/v1beta/models'])
+    assert.equal(requestedUrls[0], 'https://generativelanguage.googleapis.com/v1beta/openai/models')
+    assert.deepEqual(requestedUrls, ['https://generativelanguage.googleapis.com/v1beta/openai/models'])
     assert.deepEqual(models, [
       'gemini-3.5-flash',
       'gemini-2.5-pro',
@@ -112,16 +112,16 @@ test('listOpenAiCompatibleModels lists Gemini embedding models when requested', 
   const originalFetch = globalThis.fetch
 
   globalThis.fetch = async (url, options) => {
-    assert.equal(String(url), 'https://generativelanguage.googleapis.com/v1beta/models')
-    assert.equal(options.headers['x-goog-api-key'], 'gemini-key')
+    assert.equal(String(url), 'https://generativelanguage.googleapis.com/v1beta/openai/models')
+    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
 
     return {
       ok: true,
       json: async () => ({
-        models: [
-          { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
-          { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
-          { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] }
+        data: [
+          { id: 'models/gemini-3.5-flash' },
+          { id: 'models/text-embedding-004' },
+          { id: 'models/gemini-embedding-001' }
         ]
       })
     }
@@ -177,7 +177,8 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
 
     assert.equal(requestedUrl, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions')
     assert.equal(requestBody.model, 'gemini-2.5-flash')
-    assert.equal(requestBody.messages[0].content, 'Answer from sources.')
+    assert.match(requestBody.messages[0].content, /^Answer from sources\./)
+    assert.match(requestBody.messages[0].content, /undergraduate understand the current question/)
     assert.match(requestBody.messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.equal(requestBody.max_tokens, 512)
     assert.equal(response.engineId, 'tokensmith')
@@ -201,7 +202,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
             message: {
               content:
                 requestBodies.length === 1
-                  ? 'Atomicity makes a transaction all-or-nothing.'
+                  ? 'Atomicity makes a transaction all-or-nothing, so rollback matters when part of a transaction fails.'
                   : '1. How does durability differ from atomicity?\n2. Why does rollback matter for atomicity?\n3. Which ACID property covers isolation?'
             }
           }
@@ -223,13 +224,77 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
     }))
 
     assert.equal(requestBodies.length, 2)
-    assert.equal(requestBodies[1].messages.at(-2).role, 'assistant')
-    assert.equal(requestBodies[1].messages.at(-2).content, 'Atomicity makes a transaction all-or-nothing.')
-    assert.equal(requestBodies[1].messages.at(-1).content, 'Generate 2 suggested follow-up questions.\nSuggest follow-up questions.')
+    assert.equal(requestBodies[1].messages.length, 1)
+    assert.match(requestBodies[1].messages.at(-1).content, /Current question:\nWhat is atomicity\?/)
+    assert.match(requestBodies[1].messages.at(-1).content, /Latest answer:\nAtomicity makes a transaction all-or-nothing/)
+    assert.match(requestBodies[1].messages.at(-1).content, /Generate 2 suggested follow-up questions\.\nSuggest follow-up questions\./)
+    assert.doesNotMatch(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.deepEqual(response.followUpSuggestions, [
       'How does durability differ from atomicity?',
       'Why does rollback matter for atomicity?'
     ])
+  })
+})
+
+test('runRemoteStudyEngine keeps a short model list without inventing extra questions', async () => {
+  const requestBodies = []
+
+  await withMockFetch(async (_url, options) => {
+    const body = JSON.parse(String(options.body))
+    requestBodies.push(body)
+
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                requestBodies.length === 1
+                  ? 'No. 2Q uses FIFO and LRU queues to balance recency and frequency for scans.'
+                  : [
+                      'How does 2Q balance recency and frequency?'
+                    ].join('\n')
+            }
+          }
+        ]
+      })
+    }
+  }, async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      prompt: "Isn't contention also a problem in 2Q?",
+      applicationSettings: {
+        suggestionMode: 'on',
+        followUpSuggestionCount: 4
+      },
+      modelSettings: {
+        maxLength: 512,
+        temperature: 0.2,
+        topP: 0.95
+      }
+    }))
+
+    assert.equal(requestBodies.length, 2)
+    assert.deepEqual(response.followUpSuggestions, [
+      'How does 2Q balance recency and frequency?'
+    ])
+  })
+})
+
+test('runRemoteStudyEngine accepts an empty suggestion list without replacing it or the answer', async () => {
+  let calls = 0
+  await withMockFetch(async () => ({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content: ++calls === 1
+      ? 'Atomicity makes a transaction all-or-nothing.' : '[]' } }] })
+  }), async () => {
+    const response = await runRemoteStudyEngine(remoteStudyRequest({
+      applicationSettings: { suggestionMode: 'on', followUpSuggestionCount: 4 }
+    }))
+    assert.equal(calls, 2)
+    assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
+    assert.deepEqual(response.followUpSuggestions, [])
+    assert.equal(response.followUpError, undefined)
   })
 })
 
@@ -248,7 +313,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
             message: {
               content:
                 requestBodies.length === 1
-                  ? 'The chapter covers physical storage media.'
+                  ? 'The chapter covers physical storage media such as magnetic disks and flash storage, storage reliability, and how storage choices affect system design.'
                   : 'What are the main categories of storage media?\nHow do magnetic disks and flash storage compare?\nWhy does storage reliability matter?\nHow do storage choices affect system design?'
             }
           }
@@ -278,8 +343,11 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
 
     assert.equal(requestBodies.length, 2)
     const followUpPrompt = requestBodies[1].messages.at(-1).content
-    assert.match(followUpPrompt, /Suggest 4 very short factual follow-up questions/i)
-    assert.match(followUpPrompt, /previous conversation and excerpts/i)
+    assert.match(followUpPrompt, /Suggest up to 4 short next questions an undergraduate student/i)
+    assert.match(followUpPrompt, /after the latest answer/i)
+    assert.match(followUpPrompt, /small example, an implementation detail, or a limitation/i)
+    assert.doesNotMatch(followUpPrompt, /very short factual/i)
+    assert.doesNotMatch(followUpPrompt, /cannot be found/i)
     assert.doesNotMatch(followUpPrompt, /\{count\}/)
     assert.deepEqual(response.followUpSuggestions, [
       'What are the main categories of storage media?',

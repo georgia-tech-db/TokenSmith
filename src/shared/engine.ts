@@ -9,6 +9,24 @@ import type {
 } from './app-state'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
+export type ConversationContextMode = 'standalone' | 'contextual'
+
+export interface ChatReferenceExchange {
+  question: string
+  answer: string
+}
+
+export interface EngineQuestionRewriteRequest {
+  prompt: string
+  messages: ChatMessage[]
+  model: LocalModel
+  modelSettings?: ModelRuntimeSettings
+}
+
+export type QuestionRewrite =
+  | { mode: ConversationContextMode; query: string; clarification: '' }
+  | { mode: 'clarify'; query: ''; clarification: string }
+
 export interface EngineInfo {
   id: 'tokensmith'
   name: string
@@ -18,6 +36,10 @@ export interface EngineInfo {
 
 export interface EngineChatRequest {
   prompt: string
+  answerPrompt?: string
+  retrievalQuery?: string
+  conversationContextMode?: ConversationContextMode
+  referenceExchange?: ChatReferenceExchange
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel
@@ -70,6 +92,17 @@ export interface PdfSourceThumbnail {
   dataUrl: string
   path: string
   page?: number
+}
+
+export interface MarkdownSourceDocument {
+  title: string
+  path: string
+  text: string
+  chunkText: string
+  locator?: string
+  sectionHeader?: string
+  lineFrom?: number
+  lineTo?: number
 }
 
 export interface CleaningPreviewPage {

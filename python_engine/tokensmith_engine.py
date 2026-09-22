@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from datetime import datetime
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -43,9 +43,12 @@ if _NEEDS_STORE:
             embedding_models_by_collection_ids,
             enabled_material_ids_for_requests,
             fetch_sources,
+            expand_source_units,
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            keyword_search,
+            keyword_terms_for_query,
             list_materials,
             set_material_active,
             source_document_for_source,
@@ -63,9 +66,12 @@ if _NEEDS_STORE:
             embedding_models_by_collection_ids,
             enabled_material_ids_for_requests,
             fetch_sources,
+            expand_source_units,
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            keyword_search,
+            keyword_terms_for_query,
             list_materials,
             set_material_active,
             source_document_for_source,
@@ -124,6 +130,10 @@ SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 MAX_FOLDER_FILES = 120
 DEFAULT_CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 0
+TOKENSMITH_CHUNK_MARKER_RE = re.compile(r"<!--\s*tokensmith:chunk\b(?P<attrs>.*?)-->", re.IGNORECASE | re.DOTALL)
+TOKENSMITH_CHUNK_ATTR_RE = re.compile(
+    r"""([A-Za-z_][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))"""
+)
 PDF_THUMBNAIL_CACHE_DIR = "tokensmith-pdf-thumbnails"
 PDF_THUMBNAIL_SCALE = 0.2
 PDF_THUMBNAIL_MAX_SIZE = (180, 240)
@@ -134,24 +144,38 @@ ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END = "<<<END>>>"
 STOP_WORDS = {
     "a",
+    "always",
+    "also",
     "an",
     "and",
     "are",
     "as",
     "at",
+    "bad",
     "be",
+    "best",
+    "better",
     "by",
     "does",
     "for",
     "from",
+    "good",
     "how",
     "i",
     "in",
     "is",
     "it",
+    "just",
+    "mean",
+    "need",
     "of",
     "on",
+    "one",
     "or",
+    "prefer",
+    "preferable",
+    "preferred",
+    "prefers",
     "that",
     "the",
     "this",
@@ -164,6 +188,8 @@ STOP_WORDS = {
     "who",
     "why",
     "with",
+    "worse",
+    "worst",
 }
 
 
@@ -186,10 +212,14 @@ _GENERATOR_CACHE: Dict[str, Any] = {}
 _EMBEDDER_CACHE: Dict[str, Any] = {}
 _EMBEDDER_FAILURES: Dict[str, str] = {}
 _CHAT_TEMPLATE_CACHE: Dict[str, Optional[str]] = {}
+_CONTEXT_LENGTH_CACHE: Dict[str, Optional[int]] = {}
 VISIBLE_LOG_EVENTS = {
+    "follow_up_suggestions",
     "chat_request_context",
     "chat_response_context",
+    "chat_runtime_context_budget",
     "question_suggestion_request_context",
+    "question_suggestion_runtime_context_budget",
     "library_search_request",
     "library_search_result",
 }
@@ -289,6 +319,12 @@ GGUF_SCALAR_SIZES = {
     11: 8,  # int64
     12: 8,  # float64
 }
+GGUF_UNSIGNED_INT_FORMATS = {
+    0: "<B",
+    2: "<H",
+    4: "<I",
+    10: "<Q",
+}
 
 
 def read_exact(handle: Any, size: int) -> bytes:
@@ -344,6 +380,57 @@ def read_gguf_metadata_string(model_path: str, key: str) -> Optional[str]:
             skip_gguf_value(handle, value_type)
 
     return None
+
+
+def read_gguf_metadata_uint_by_suffix(model_path: str, suffix: str) -> Optional[int]:
+    path = Path(model_path).expanduser()
+    if not path.exists():
+        return None
+
+    normalized_suffix = suffix.casefold()
+    with path.open("rb") as handle:
+        if read_exact(handle, 4) != b"GGUF":
+            return None
+        _version = struct.unpack("<I", read_exact(handle, 4))[0]
+        _tensor_count = struct.unpack("<Q", read_exact(handle, 8))[0]
+        metadata_count = struct.unpack("<Q", read_exact(handle, 8))[0]
+
+        for _index in range(metadata_count):
+            metadata_key = read_gguf_string(handle)
+            value_type = struct.unpack("<I", read_exact(handle, 4))[0]
+            if metadata_key.casefold().endswith(normalized_suffix):
+                value_format = GGUF_UNSIGNED_INT_FORMATS.get(value_type)
+                if value_format is None:
+                    return None
+                return int(struct.unpack(value_format, read_exact(handle, GGUF_SCALAR_SIZES[value_type]))[0])
+            skip_gguf_value(handle, value_type)
+
+    return None
+
+
+def gguf_context_length(model_path: Optional[str]) -> Optional[int]:
+    if not model_path:
+        return None
+
+    try:
+        cache_key = normalize_model_path(model_path)
+    except Exception:
+        cache_key = str(model_path)
+
+    if cache_key in _CONTEXT_LENGTH_CACHE:
+        return _CONTEXT_LENGTH_CACHE[cache_key]
+
+    try:
+        context_length = read_gguf_metadata_uint_by_suffix(cache_key, ".context_length")
+    except Exception as error:
+        log_event("gguf_context_length_read_failed", modelPath=cache_key, error=str(error))
+        context_length = None
+
+    if context_length is not None and context_length <= 0:
+        context_length = None
+
+    _CONTEXT_LENGTH_CACHE[cache_key] = context_length
+    return context_length
 
 
 def gguf_chat_template(model_path: Optional[str]) -> str:
@@ -453,7 +540,7 @@ def extract_text_plain(path: Path) -> Tuple[str, Optional[int]]:
     return normalize_text(path.read_text(encoding="utf-8", errors="ignore")), None
 
 
-def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None, include_layout_hints: bool = False) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     if pdfium is None:
         raise EngineError("pypdfium2 is not installed in the Python runtime.")
 
@@ -472,12 +559,13 @@ def extract_pdf_raw_pages_pdfium(path: Path, page_limit: Optional[int] = None) -
             try:
                 text_page = page.get_textpage()
                 page_text = text_page.get_text_range() or ""
+                image_count = sum(1 for _ in page.get_objects(filter=[pdfium.raw.FPDF_PAGEOBJ_IMAGE])) if include_layout_hints else 0
             finally:
                 if text_page is not None:
                     text_page.close()
                 page.close()
-            if page_text:
-                pages.append({"page": page_number, "text": page_text})
+            if page_text or include_layout_hints:
+                pages.append({"page": page_number, "text": page_text, **({"imageCount": image_count} if include_layout_hints else {})})
             log_event("pdfium_page_extracted", path=str(path), page=page_number, chars=len(page_text))
     finally:
         pdf.close()
@@ -622,6 +710,67 @@ def section_headers_in_text(text: str, cleaning_rule_ids: Optional[List[str]] = 
         if header and (not headers or headers[-1] != header):
             headers.append(header)
     return headers
+
+
+def has_tokensmith_chunk_markers(text: str) -> bool:
+    return bool(TOKENSMITH_CHUNK_MARKER_RE.search(text))
+
+
+def parse_tokensmith_chunk_attrs(raw_attrs: str) -> Dict[str, str]:
+    attrs: Dict[str, str] = {}
+    for match in TOKENSMITH_CHUNK_ATTR_RE.finditer(raw_attrs):
+        value = next((group for group in match.groups()[1:] if group is not None), "")
+        attrs[match.group(1)] = value.strip()
+    return attrs
+
+
+def line_number_at_offset(text: str, offset: int) -> int:
+    return text.count("\n", 0, max(0, offset)) + 1
+
+
+def chunk_tokensmith_markdown(text: str, cleaning_rule_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    markers = list(TOKENSMITH_CHUNK_MARKER_RE.finditer(text))
+    if not markers:
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    for index, marker in enumerate(markers):
+        next_start = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        raw_content = text[marker.end():next_start]
+        content = normalize_text(raw_content)
+        if not content:
+            continue
+
+        leading = len(raw_content) - len(raw_content.lstrip())
+        trailing = len(raw_content.rstrip())
+        start_offset = marker.end() + leading
+        end_offset = marker.end() + trailing
+        attrs = parse_tokensmith_chunk_attrs(marker.group("attrs") or "")
+        section_header = attrs.get("section")
+        if not section_header:
+            detected_headers = section_headers_in_text(content, cleaning_rule_ids)
+            section_header = detected_headers[-1] if detected_headers else None
+
+        chunk = {
+            "text": content,
+            "wordCount": count_words(content),
+            "startOffset": start_offset,
+            "endOffset": end_offset,
+            "lineFrom": line_number_at_offset(text, start_offset),
+            "lineTo": line_number_at_offset(text, max(start_offset, end_offset - 1)),
+            "chunkSize": len(content),
+            "tokensmithChunkIndex": index + 1,
+        }
+        if section_header:
+            chunk["sectionHeader"] = section_header
+        if attrs.get("id"):
+            chunk["tokensmithChunkId"] = attrs["id"]
+        if attrs.get("chapter"):
+            chunk["tokensmithChapter"] = attrs["chapter"]
+        if attrs.get("kind"):
+            chunk["tokensmithChunkKind"] = attrs["kind"]
+        chunks.append(chunk)
+    return chunks
 
 
 def chunk_text(
@@ -777,6 +926,12 @@ def indexed_chunks(
                 "chunkIndex": index,
                 "chunkSize": chunk.get("chunkSize"),
                 "sectionHeader": chunk.get("sectionHeader"),
+                "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+                "tokensmithChapter": chunk.get("tokensmithChapter"),
+                "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+                "parentId": chunk.get("parentId"),
+                "part": chunk.get("part"),
+                "parts": chunk.get("parts"),
                 "embeddingModel": chunk_embedding_model,
             }
             indexed.append(stored_chunk)
@@ -821,6 +976,12 @@ def indexed_chunks(
             "chunkIndex": index,
             "chunkSize": chunk.get("chunkSize"),
             "sectionHeader": chunk.get("sectionHeader"),
+            "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+            "tokensmithChapter": chunk.get("tokensmithChapter"),
+            "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+            "parentId": chunk.get("parentId"),
+            "part": chunk.get("part"),
+            "parts": chunk.get("parts"),
             "embeddingModel": chunk_embedding_model,
             "embedding": embedding,
         }
@@ -856,6 +1017,17 @@ def prepare_index_file(
             text = normalize_text("\n\n".join(page["text"] for page in pdf_pages))
             word_count = count_words(text)
             chunks = chunk_pdf_pages(pdf_pages, cleaning_rule_ids) if word_count >= 20 else []
+        elif path.suffix.lower() in {".md", ".markdown"}:
+            raw_text = path.read_text(encoding="utf-8", errors="ignore")
+            page_count = None
+            if has_tokensmith_chunk_markers(raw_text):
+                chunks = chunk_tokensmith_markdown(raw_text, cleaning_rule_ids)
+                text = normalize_text("\n\n".join(chunk["text"] for chunk in chunks))
+                word_count = sum(int(chunk.get("wordCount") or 0) for chunk in chunks)
+            else:
+                text = normalize_text(raw_text)
+                word_count = count_words(text)
+                chunks = chunk_text(text, page_count, cleaning_rule_ids) if word_count >= 20 else []
         else:
             text, page_count = extract_text(path, cleaning_profile_id, cleaning_rule_ids)
             word_count = count_words(text)
@@ -973,8 +1145,12 @@ def preview_chunks_for_file(
     if path.suffix.lower() == ".pdf":
         chunks = chunk_pdf_pages(pages, cleaning_rule_ids)
     else:
-        text = normalize_text("\n\n".join(page["text"] for page in pages))
-        chunks = chunk_text(text, page_count, cleaning_rule_ids)
+        raw_text = path.read_text(encoding="utf-8", errors="ignore")
+        if path.suffix.lower() in {".md", ".markdown"} and has_tokensmith_chunk_markers(raw_text):
+            chunks = chunk_tokensmith_markdown(raw_text, cleaning_rule_ids)
+        else:
+            text = normalize_text("\n\n".join(page["text"] for page in pages))
+            chunks = chunk_text(text, page_count, cleaning_rule_ids)
 
     return [
         {
@@ -984,6 +1160,9 @@ def preview_chunks_for_file(
             "pageEnd": chunk.get("pageEnd"),
             "chunkSize": chunk.get("chunkSize"),
             "sectionHeader": chunk.get("sectionHeader"),
+            "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+            "tokensmithChapter": chunk.get("tokensmithChapter"),
+            "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
         }
         for chunk in chunks[:6]
     ]
@@ -1064,6 +1243,12 @@ def summarize_material(path: Path, material_id: str, documents: List[Dict[str, A
 
 
 def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if payload.get("preparation"):
+        try:
+            from tokensmith_preparation_job import index
+        except ImportError:
+            from python_engine.tokensmith_preparation_job import index
+        return index(payload, sys.modules[__name__])
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
 
@@ -1341,22 +1526,35 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
     document_title = chunk.get("documentTitle") or material_title
     title = material_title if material_title == document_title else f"{material_title} / {document_title}"
     text = normalize_text(chunk.get("text", ""))
+    chunk_id = chunk.get("stableChunkId") or chunk.get("tokensmithChunkId") or chunk.get("id")
+    source_id = "|".join(
+        str(part)
+        for part in (chunk.get("materialId"), chunk.get("path"), chunk_id)
+        if part is not None and str(part).strip()
+    )
     return {
         "title": title,
         "locator": locator_for_chunk(chunk),
         "excerpt": excerpt_for(text, query_tokens),
         "context": text,
         "materialId": chunk.get("materialId"),
-        "chunkId": chunk.get("id"),
+        "sourceId": source_id or None,
+        "chunkId": chunk_id,
         "documentId": chunk.get("documentId"),
         "documentTitle": document_title,
         "collectionName": material_title,
         "path": chunk.get("path"),
+        "lineFrom": chunk.get("lineFrom"),
+        "lineTo": chunk.get("lineTo"),
         "pageStart": chunk.get("pageStart"),
         "pageEnd": chunk.get("pageEnd"),
         "thumbnailPath": chunk.get("thumbnailPath"),
         "chunkSize": chunk.get("chunkSize"),
         "sectionHeader": chunk.get("sectionHeader"),
+        "chunkKind": chunk.get("chunkKind") or chunk.get("tokensmithChunkKind"),
+        "tokensmithChunkId": chunk.get("tokensmithChunkId"),
+        "tokensmithChapter": chunk.get("tokensmithChapter"),
+        "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
         "score": score,
     }
 
@@ -1672,7 +1870,15 @@ def excerpt_for(text: str, query_tokens: List[str]) -> str:
     return f"{prefix}{excerpt}{suffix}"
 
 
-def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Dict[str, Any]:
+def source_from_sqlite_chunk(
+    row: Dict[str, Any],
+    query_tokens: List[str],
+    *,
+    strip_exercises: bool = False,
+) -> Dict[str, Any]:
+    text = row.get("text") or ""
+    if strip_exercises:
+        text = strip_embedded_exercise_text(str(text))
     chunk = {
         "id": row.get("id"),
         "materialId": row.get("material_id"),
@@ -1680,16 +1886,26 @@ def source_from_sqlite_chunk(row: Dict[str, Any], query_tokens: List[str]) -> Di
         "materialTitle": row.get("material_title"),
         "documentTitle": row.get("document_title"),
         "path": row.get("path"),
-        "text": row.get("text") or "",
+        "text": text,
+        "lineFrom": row.get("line_from"),
+        "lineTo": row.get("line_to"),
         "pageStart": row.get("page_start"),
         "pageEnd": row.get("page_end"),
         "thumbnailPath": row.get("thumbnail_path"),
+        "stableChunkId": row.get("stable_chunk_id"),
+        "tokensmithChunkId": row.get("tokensmith_chunk_id"),
+        "tokensmithChapter": row.get("tokensmith_chapter"),
+        "tokensmithChunkKind": row.get("chunk_kind"),
+        "chunkKind": row.get("chunk_kind"),
         "chunkIndex": row.get("chunk_index"),
         "chunkSize": row.get("chunk_size"),
         "sectionHeader": row.get("section_header"),
     }
     source = source_from_chunk(chunk, float(row.get("score") or 0), query_tokens)
     source["chunkRowid"] = row.get("rowid")
+    source["sourceUnitId"] = row.get("parent_id")
+    source["sourceUnitComplete"] = row.get("unit_complete")
+    source["sourceChunkIds"] = row.get("source_chunk_ids") or ([row["stable_chunk_id"]] if row.get("stable_chunk_id") else [])
     source["retrievalMode"] = row.get("retrieval_mode") or "vector"
     source["embeddingModel"] = row.get("query_embedding_model") or row.get("embedding_model")
     source["chunkEmbeddingModel"] = row.get("embedding_model")
@@ -1707,18 +1923,174 @@ def no_enabled_materials_reason(user_data_path: str) -> str:
     return "no_materials"
 
 
+SEARCH_MODES = ("vector", "keyword", "hybrid")
+DEFAULT_SEARCH_MODE = "hybrid"
+RRF_RANK_CONSTANT = 60.0
+HYBRID_KEYWORD_WEIGHT = 1.5
+HYBRID_VECTOR_WEIGHT = 1.0
+EXERCISE_QUERY_TERMS = {
+    "check",
+    "exercise",
+    "exercises",
+    "practice",
+    "problem",
+    "problems",
+    "question",
+    "questions",
+    "quiz",
+    "understanding",
+}
+EXERCISE_HEADING_RE = re.compile(
+    r"(?im)^[ \t>]*(?:#{1,6}\s*)?(?:\d+(?:\.\d+)*\s*)?check your understanding\b.*$"
+)
+
+
+def normalize_search_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in SEARCH_MODES else DEFAULT_SEARCH_MODE
+
+
+def reciprocal_rank_fusion(
+    rankings: Sequence[Tuple[float, Sequence[int]]],
+    limit: int,
+    rank_constant: float = RRF_RANK_CONSTANT,
+) -> List[Tuple[int, float]]:
+    scores: Dict[int, float] = {}
+    first_seen: Dict[int, int] = {}
+    order = 0
+
+    for weight, rowids in rankings:
+        if weight <= 0:
+            continue
+        for index, rowid in enumerate(rowids):
+            if rowid not in first_seen:
+                first_seen[rowid] = order
+                order += 1
+            scores[rowid] = scores.get(rowid, 0.0) + (weight / (rank_constant + index + 1))
+
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], first_seen[item[0]]))
+    return ranked[:limit]
+
+
+def combine_search_hits(
+    mode: str,
+    vector_hits: Sequence[Tuple[int, float]],
+    keyword_hits: Sequence[Tuple[int, float]],
+    limit: int,
+) -> List[Tuple[int, float]]:
+    vector_ranked = sorted(vector_hits, key=lambda item: item[1], reverse=True)
+    keyword_ranked = list(keyword_hits)
+
+    if mode == "vector":
+        return vector_ranked[:limit]
+    if mode == "keyword":
+        return keyword_ranked[:limit]
+
+    return reciprocal_rank_fusion(
+        [
+            (HYBRID_KEYWORD_WEIGHT, [rowid for rowid, _score in keyword_ranked]),
+            (HYBRID_VECTOR_WEIGHT, [rowid for rowid, _score in vector_ranked]),
+        ],
+        limit,
+    )
+
+
+def strip_embedded_exercise_text(text: str) -> str:
+    match = EXERCISE_HEADING_RE.search(str(text or ""))
+    if not match:
+        return str(text or "")
+    return str(text or "")[: match.start()].rstrip()
+
+
+def source_row_text(row: Dict[str, Any], *, strip_exercises: bool = False) -> str:
+    text = str(row.get("text") or "")
+    if strip_exercises:
+        text = strip_embedded_exercise_text(text)
+    metadata = " ".join(
+        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title")
+    )
+    return f"{metadata} {text}"
+
+
+def source_row_query_matches(row: Dict[str, Any], terms: Sequence[str], *, strip_exercises: bool = False) -> int:
+    tokens = set(tokenize(source_row_text(row, strip_exercises=strip_exercises)))
+    return sum(1 for term in terms if term in tokens)
+
+
+def source_row_query_coverage(row: Dict[str, Any], terms: Sequence[str], *, strip_exercises: bool = False) -> float:
+    if not terms:
+        return 0.0
+    return source_row_query_matches(row, terms, strip_exercises=strip_exercises) / float(len(terms))
+
+
+def source_row_is_exercise(row: Dict[str, Any]) -> bool:
+    chunk_kind = str(row.get("chunk_kind") or "").casefold()
+    section = str(row.get("section_header") or "").casefold()
+    text = str(row.get("text") or "").casefold()
+    return (
+        chunk_kind in {"exercise", "question", "quiz"}
+        or "check your understanding" in section
+        or section.strip() in {"exercise", "exercises", "questions"}
+        or bool(EXERCISE_HEADING_RE.search(text))
+        or text.lstrip().startswith(("check your understanding", "#### check your understanding"))
+    )
+
+
+def query_asks_for_exercise(query_terms: Sequence[str]) -> bool:
+    return any(term in EXERCISE_QUERY_TERMS for term in query_terms)
+
+
+def select_source_rows(
+    rows: Sequence[Dict[str, Any]],
+    query_terms: Sequence[str],
+    keyword_terms: Sequence[str],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    useful_terms = list(dict.fromkeys([*keyword_terms, *query_terms]))
+    exercise_requested = query_asks_for_exercise(query_terms)
+    scored_rows: List[Tuple[float, int, Dict[str, Any]]] = []
+    total_rows = max(1, len(rows))
+
+    for index, row in enumerate(rows):
+        strip_exercises = not exercise_requested
+        coverage = source_row_query_coverage(row, useful_terms, strip_exercises=strip_exercises)
+        match_count = source_row_query_matches(row, useful_terms, strip_exercises=strip_exercises)
+        rank_score = 1.0 - (index / float(total_rows))
+        exercise_penalty = 0.0 if exercise_requested or not source_row_is_exercise(row) else 2.5
+        adjusted_score = rank_score + coverage * 1.5 + min(match_count, 4) * 0.15 - exercise_penalty
+        scored_rows.append((adjusted_score, index, row))
+
+    selected: List[Dict[str, Any]] = []
+    selected_rowids: set[int] = set()
+
+    for _score, _index, row in sorted(scored_rows, key=lambda item: (-item[0], item[1])):
+        if len(selected) >= limit:
+            break
+        rowid = int(row.get("rowid") or 0)
+        if rowid in selected_rowids:
+            continue
+        selected.append(row)
+        selected_rowids.add(rowid)
+    return selected
+
+
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
 
     query = payload.get("query", "")
     limit = int(payload.get("limit") or 4)
+    search_mode = normalize_search_mode(payload.get("searchMode"))
+    candidate_limit = max(limit * 8, limit) if search_mode in ("keyword", "hybrid") else limit
     materials = payload.get("materials") or []
     embedding_specs = embedding_model_specs(payload)
     requested_active_materials = [
         material
         for material in materials
-        if material.get("id") and material.get("status") == "ready" and material.get("isActive") is not False
+        if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
     active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
@@ -1747,7 +2119,9 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     vector_hits_by_rowid: Dict[int, Tuple[float, str]] = {}
     skipped_embedding_models: List[str] = []
 
-    for embedding_key, grouped_active_ids in active_ids_by_embedding_model.items():
+    for embedding_key, grouped_active_ids in (
+        active_ids_by_embedding_model.items() if search_mode in ("vector", "hybrid") else []
+    ):
         log_event("search_embedding_provider_resolve_start", embeddingKey=embedding_key)
         embed_text, embedding_reason = resolve_embedding_provider_for_key(embedding_key, embedding_specs)
         log_event(
@@ -1768,36 +2142,68 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             skipped_embedding_models.append(embedding_key)
             continue
 
-        for rowid, score in vector_search(user_data_path, query_embedding, grouped_active_ids, limit, embedding_key):
+        for rowid, score in vector_search(
+            user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key
+        ):
             current = vector_hits_by_rowid.get(rowid)
             if current is None or score > current[0]:
                 vector_hits_by_rowid[rowid] = (score, embedding_key)
 
-    vector_hits_with_models = sorted(
-        ((rowid, score, embedding_key) for rowid, (score, embedding_key) in vector_hits_by_rowid.items()),
-        key=lambda item: item[1],
-        reverse=True,
-    )
+    keyword_terms: List[str] = []
+    keyword_hits: List[Tuple[int, float]] = []
+    if search_mode in ("keyword", "hybrid"):
+        keyword_terms = keyword_terms_for_query(user_data_path, query, active_ids)
+        keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms)
+
+    vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
+    ranked_limit = candidate_limit if search_mode in ("keyword", "hybrid") else limit
+    ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, ranked_limit)
+
     log_event(
         "search_results_ranked",
         queryChars=len(query),
+        searchMode=search_mode,
         embeddingModels=list(active_ids_by_embedding_model),
         skippedEmbeddingModels=skipped_embedding_models,
-        vectorHits=len(vector_hits_with_models),
-        topMode="vector" if vector_hits_with_models else None,
+        vectorHits=len(vector_hits),
+        keywordHits=len(keyword_hits),
+        keywordTerms=keyword_terms,
+        candidateHits=len(ranked),
     )
 
-    row_embedding_models = {rowid: embedding_key for rowid, _score, embedding_key in vector_hits_with_models}
-    rows = fetch_sources(
-        user_data_path,
-        [(rowid, score) for rowid, score, _embedding_key in vector_hits_with_models[:limit]],
-        active_ids,
-    )
+    row_embedding_models = {
+        rowid: embedding_key for rowid, (_score, embedding_key) in vector_hits_by_rowid.items()
+    }
+    rows = fetch_sources(user_data_path, ranked, active_ids)
     for row in rows:
-        row["retrieval_mode"] = "vector"
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
-    sources = [source_from_sqlite_chunk(row, query_tokens) for row in rows]
-    return {"sources": sources, "reason": None if sources else "no_matching_sources"}
+    rows = expand_source_units(user_data_path, rows, active_ids)
+    rows = select_source_rows(rows, query_tokens, keyword_terms, limit)
+    for row in rows:
+        row["retrieval_mode"] = search_mode
+    source_query_tokens = sorted(set([*query_tokens, *keyword_terms]))
+    strip_exercise_context = not query_asks_for_exercise(query_tokens)
+    sources = [
+        source_from_sqlite_chunk(row, source_query_tokens, strip_exercises=strip_exercise_context)
+        for row in rows
+    ]
+    for source in sources:
+        source["queryTerms"] = source_query_tokens
+        source["keywordTerms"] = list(keyword_terms)
+    log_event(
+        "search_sources_selected",
+        queryChars=len(query),
+        searchMode=search_mode,
+        selectedHits=len(rows),
+        selectedChunkIds=[row.get("stable_chunk_id") or row.get("rowid") for row in rows],
+        exerciseChunks=sum(1 for row in rows if source_row_is_exercise(row)),
+    )
+    return {
+        "sources": sources,
+        "reason": None if sources else "no_matching_sources",
+        "queryTerms": source_query_tokens,
+        "keywordTerms": keyword_terms,
+    }
 
 
 def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1807,7 +2213,7 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     requested_active_materials = [
         material
         for material in materials
-        if material.get("id") and material.get("status") == "ready" and material.get("isActive") is not False
+        if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
     active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
@@ -1825,17 +2231,40 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"sources": [], "reason": "no_indexed_chunks"}
 
     rows = starter_source_rows(user_data_path, active_ids, limit)
+    rows = expand_source_units(user_data_path, rows, active_ids)
     for row in rows:
         row["retrieval_mode"] = "starter"
         row["query_embedding_model"] = row.get("embedding_model")
 
-    sources = [source_from_sqlite_chunk(row, []) for row in rows]
+    sources = [source_from_sqlite_chunk(row, [], strip_exercises=True) for row in rows]
     return {"sources": sources, "reason": None if sources else "no_indexed_chunks"}
 
 
-DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = (
+LEGACY_SUGGESTED_FOLLOW_UP_PROMPT = (
     "Suggest {count} very short factual follow-up questions that have not been answered yet "
     "or cannot be found inspired by the previous conversation and excerpts."
+)
+DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = "\n".join(
+    [
+        "Suggest up to {count} natural next questions a curious undergraduate student might ask after this answer.",
+        "Make each question conversational, specific to the concept just discussed, and answerable from the course material.",
+        "Each question must attach to a concrete phrase, mechanism, trade-off, or claim in the latest answer.",
+        "When possible, ask about an idea the answer used but did not fully explain.",
+        "Prefer conceptually linked why/how questions over generic requests for more detail.",
+        "Base the questions on the latest answer the student just saw, not earlier turns or unrelated source details.",
+        "Do not introduce a term, method, workload, or scenario unless it appeared in the latest answer or current question.",
+        "Keep each question short, ideally under 12 words.",
+        "Name the subject in every question, including requests for an example or code. Return fewer questions when useful ideas run out.",
+        "Phrase them as questions from the student to the tutor, not questions that ask the student to think or recall.",
+        (
+            "Prefer simple questions about why a named thing matters, how a named mechanism works, concrete examples, "
+            "intuition, code-level implementation, trade-offs, edge cases, or the workloads already described."
+        ),
+        "Do not repeat a question the student already asked.",
+        "Do not ask for external real-world applications unless the material names one.",
+        "Avoid quiz/exam wording, source/context wording, and generic reflection prompts about what is confusing.",
+        "Return only the questions, one per line.",
+    ]
 )
 
 
@@ -1859,11 +2288,14 @@ DEFAULT_MODEL_RUNTIME_SETTINGS: Dict[str, Any] = {
     "gpuLayers": -1,
     "device": "applicationDefault",
 }
+DEFAULT_AUTO_CONTEXT_CAP_TOKENS = 8192
+MAX_CONTEXT_TOKENS = 32768
 
 DEFAULT_APPLICATION_SETTINGS: Dict[str, Any] = {
     "cpuThreads": 4,
     "suggestionMode": "on",
     "followUpSuggestionCount": DEFAULT_FOLLOW_UP_SUGGESTION_COUNT,
+    "searchMode": DEFAULT_SEARCH_MODE,
 }
 
 def clamp_number(value: Any, default_value: float, minimum: float, maximum: float) -> float:
@@ -1902,6 +2334,7 @@ def normalize_application_settings(settings: Optional[Dict[str, Any]]) -> Dict[s
         "cpuThreads": int(round(clamp_number(settings.get("cpuThreads"), DEFAULT_APPLICATION_SETTINGS["cpuThreads"], 1, 64))),
         "suggestionMode": suggestion_mode,
         "followUpSuggestionCount": follow_up_count,
+        "searchMode": normalize_search_mode(settings.get("searchMode")),
     }
 
 
@@ -1911,9 +2344,9 @@ def normalize_model_runtime_settings(settings: Optional[Dict[str, Any]]) -> Dict
     if device not in {"applicationDefault", "cpu", "gpu"}:
         device = DEFAULT_MODEL_RUNTIME_SETTINGS["device"]
     chat_template = str(settings.get("chatTemplate") or DEFAULT_MODEL_RUNTIME_SETTINGS["chatTemplate"])
-    suggested_follow_up_prompt = str(
-        settings.get("suggestedFollowUpPrompt") or DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
-    )
+    suggested_follow_up_prompt = str(settings.get("suggestedFollowUpPrompt") or "").strip()
+    if suggested_follow_up_prompt in {"", LEGACY_SUGGESTED_FOLLOW_UP_PROMPT}:
+        suggested_follow_up_prompt = DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
 
     return {
         "systemMessage": str(settings.get("systemMessage") or DEFAULT_MODEL_RUNTIME_SETTINGS["systemMessage"]),
@@ -1958,15 +2391,34 @@ def normalize_model_runtime_settings(settings: Optional[Dict[str, Any]]) -> Dict
     }
 
 
+def effective_model_context_length(model: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]]) -> int:
+    normalized_settings = normalize_model_runtime_settings(settings)
+    discovered = None
+    if isinstance(model, dict):
+        discovered = model.get("contextLength")
+        if discovered is None:
+            discovered = gguf_context_length(str(model.get("path") or ""))
+
+    discovered_context = int(round(clamp_number(discovered, 0, 0, MAX_CONTEXT_TOKENS)))
+    configured_context = int(normalized_settings["contextLength"])
+    if discovered_context > 0:
+        return min(discovered_context, max(configured_context, DEFAULT_AUTO_CONTEXT_CAP_TOKENS))
+    return configured_context
+
+
 def model_runtime_settings_from_payload(payload: Dict[str, Any], model: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(payload.get("modelSettings"), dict):
-        return normalize_model_runtime_settings(payload["modelSettings"])
+        normalized = normalize_model_runtime_settings(payload["modelSettings"])
+        normalized["contextLength"] = effective_model_context_length(model, normalized)
+        return normalized
 
     model_id = str(model.get("id") or "")
     model_defaults = settings.get("modelDefaults") if isinstance(settings.get("modelDefaults"), dict) else {}
     model_settings_by_id = settings.get("modelSettingsById") if isinstance(settings.get("modelSettingsById"), dict) else {}
     model_settings = model_settings_by_id.get(model_id) if isinstance(model_settings_by_id.get(model_id), dict) else {}
-    return normalize_model_runtime_settings({**model_defaults, **model_settings})
+    normalized = normalize_model_runtime_settings({**model_defaults, **model_settings})
+    normalized["contextLength"] = effective_model_context_length(model, normalized)
+    return normalized
 
 
 def application_settings_from_payload(payload: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -2004,16 +2456,42 @@ def render_chat_template(chat_template: str, messages: List[Dict[str, str]]) -> 
     return rendered if rendered.strip() else None
 
 
-def local_source_context(sources: List[Dict[str, Any]], *, max_chars: Optional[int] = None) -> str:
+SOURCE_CONTEXT_INSTRUCTIONS = [
+    "Use the provided context as the factual basis for the answer.",
+    "Do not add facts from general knowledge when the context does not support them.",
+    (
+        "Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep "
+        "the answer scoped to the user's question."
+    ),
+    (
+        "Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, "
+        "name the comparison target, and state the workload or condition behind the trade-off."
+    ),
+    (
+        'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the '
+        "current target. If the context supports only a related target, say the context does not say."
+    ),
+    "Do not overstate with words like always, faster, or better unless the context gives that condition.",
+    "Do not quote the context before answering. Do not mention context labels.",
+    "If the context does not contain the answer, say that plainly and do not speculate.",
+    "Do not end by asking whether the student wants more detail.",
+]
+
+
+def local_source_context(
+    sources: List[Dict[str, Any]],
+    *,
+    max_chars: Optional[int] = None,
+    include_instructions: bool = True,
+) -> str:
     if not sources:
         return ""
 
-    parts = [
-        "Use the context below only when it is relevant to the question.\n",
-        "Answer directly. Do not quote the context before answering. Do not mention context labels.\n",
-        "If the context does not contain the answer, say that plainly.\n\n",
-        "### Context:\n",
-    ]
+    parts: List[str] = []
+    if include_instructions:
+        parts.extend(f"{instruction}\n" for instruction in SOURCE_CONTEXT_INSTRUCTIONS)
+        parts.append("\n")
+    parts.append("### Context:\n")
     for source in sources:
         text = normalize_text(source.get("context") or source.get("excerpt", ""))
         if max_chars is not None:
@@ -2039,8 +2517,12 @@ def generation_messages(
     model_settings: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
     system_message = str((model_settings or {}).get("systemMessage") or "").strip()
-    user_content = f"{local_source_context(sources)}{normalize_text(prompt)}"
+    source_context = local_source_context(sources, include_instructions=False)
+    user_content = f"{source_context}\nQuestion: {normalize_text(prompt)}" if source_context else normalize_text(prompt)
     messages: List[Dict[str, str]] = []
+    if sources:
+        source_instructions = "\n".join(SOURCE_CONTEXT_INSTRUCTIONS)
+        system_message = f"{system_message}\n\n{source_instructions}" if system_message else source_instructions
     if system_message:
         messages.append({"role": "system", "content": system_message})
     messages.append({"role": "user", "content": user_content})
@@ -2080,10 +2562,20 @@ def format_follow_up_prompt(
     else:
         suffix = "" if count == 1 else "s"
         suggestion_prompt = f"Generate {count} suggested follow-up question{suffix}.\n{suggestion_prompt}"
+    system_message = str(model_settings.get("systemMessage") or "").strip()
+    latest_answer = normalize_text(answer)
+    if len(latest_answer) > 4000:
+        latest_answer = latest_answer[:4000].strip() + "..."
+    user_content = "\n\n".join(
+        [
+            f"Current question:\n{normalize_text(prompt)}",
+            f"Latest answer:\n{latest_answer}",
+            suggestion_prompt,
+        ]
+    )
     messages = [
-        *generation_messages(prompt, sources[:3], model_settings),
-        {"role": "assistant", "content": normalize_text(answer)},
-        {"role": "user", "content": suggestion_prompt},
+        *([{"role": "system", "content": system_message}] if system_message else []),
+        {"role": "user", "content": user_content},
     ]
     chat_template = str(model_settings.get("chatTemplate") or "") or gguf_chat_template(model_path)
     rendered_template = render_chat_template(chat_template, messages)
@@ -2094,7 +2586,140 @@ def format_follow_up_prompt(
     return "\n\n".join(f"{message['role']}: {message['content']}" for message in messages) + "\nassistant:"
 
 
-FOLLOW_UP_QUESTION_RE = re.compile(r"\b(?:What|Where|How|Why|When|Who|Which|Whose|Whom)\b[^?]*\?")
+FOLLOW_UP_QUESTION_RE = re.compile(
+    r"\b(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b[^?\n]*\?"
+)
+STARTS_WITH_QUESTION_RE = re.compile(
+    r"^(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b",
+    re.IGNORECASE,
+)
+META_SUGGESTION_RE = re.compile(
+    r"\b(?:(?:based on|according to|from)\s+(?:the\s+)?(?:given\s+|provided\s+)?"
+    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
+    r"passage|passages|question|source|sources|text)|"
+    r"in\s+(?:the\s+)?(?:given|provided)\s+"
+    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
+    r"passage|passages|question|source|sources|text))\b",
+    re.IGNORECASE,
+)
+AWKWARD_SUGGESTION_RE = re.compile(
+    r"\b(?:given answer|given question|provided context|provided excerpt|provided source|"
+    r"can you think of|usually confuses people|what part of this|what parts of this)\b",
+    re.IGNORECASE,
+)
+MAX_SUGGESTED_QUESTION_WORDS = 18
+
+
+def normalized_suggestion_key(suggestion: str) -> str:
+    return re.sub(r"[^\w]+", " ", suggestion.casefold()).strip()
+
+
+SUGGESTION_SIMILARITY_STOP_WORDS = {
+    "a",
+    "about",
+    "after",
+    "an",
+    "and",
+    "are",
+    "as",
+    "be",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "of",
+    "on",
+    "or",
+    "the",
+    "that",
+    "this",
+    "to",
+    "was",
+    "what",
+    "when",
+    "where",
+    "which",
+    "why",
+    "with",
+    "would",
+    "you",
+}
+
+
+def comparable_question_tokens(question: str) -> set[str]:
+    return {
+        token
+        for token in normalized_suggestion_key(question).split()
+        if len(token) > 1 and token not in SUGGESTION_SIMILARITY_STOP_WORDS and not token.isdigit()
+    }
+
+
+
+
+def question_overlap(left: str, right: str) -> float:
+    left_tokens = comparable_question_tokens(left)
+    right_tokens = comparable_question_tokens(right)
+    smaller_size = min(len(left_tokens), len(right_tokens))
+    if smaller_size < 3:
+        return 0.0
+    return len(left_tokens.intersection(right_tokens)) / float(smaller_size)
+
+
+def is_repeated_question(suggestion: str, reference_questions: Sequence[str]) -> bool:
+    suggestion_key = normalized_suggestion_key(suggestion)
+    for question in reference_questions:
+        reference_key = normalized_suggestion_key(question)
+        if reference_key and (suggestion_key == reference_key or question_overlap(suggestion, question) >= 0.85):
+            return True
+    return False
+
+
+def suggestion_word_count(suggestion: str) -> int:
+    return len([token for token in normalized_suggestion_key(suggestion).split() if token])
+
+
+def filter_suggested_questions(
+    suggestions: Sequence[str],
+    reference_questions: Sequence[str],
+    limit: int,
+) -> List[str]:
+    filtered: List[str] = []
+    seen: set[str] = set()
+    if limit <= 0:
+        return filtered
+
+    for suggestion in suggestions:
+        key = normalized_suggestion_key(suggestion)
+        if not key or key in seen or not is_useful_suggestion(suggestion) or is_repeated_question(suggestion, reference_questions):
+            continue
+        seen.add(key)
+        filtered.append(suggestion)
+        if len(filtered) >= limit:
+            break
+
+    return filtered
+
+
+def is_useful_suggestion(suggestion: str) -> bool:
+    return (
+        bool(suggestion)
+        and len(suggestion) <= 180
+        and suggestion_word_count(suggestion) <= MAX_SUGGESTED_QUESTION_WORDS
+        and suggestion.endswith("?")
+        and not META_SUGGESTION_RE.search(suggestion)
+        and not AWKWARD_SUGGESTION_RE.search(suggestion)
+    )
+
+
 
 
 def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
@@ -2113,6 +2738,21 @@ def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
         parsed_lines = []
 
     if not parsed_lines:
+        for line in stripped_text.splitlines():
+            line = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\).\:-])\s*", "", line).strip()
+            if not line.endswith("?"):
+                continue
+            if line.count("?") == 1:
+                parsed_lines.append(line)
+                continue
+            line_questions = [match.group(0).strip() for match in FOLLOW_UP_QUESTION_RE.finditer(line)]
+            if STARTS_WITH_QUESTION_RE.search(line):
+                if line_questions:
+                    parsed_lines.append(line_questions[0])
+            else:
+                parsed_lines.extend(line_questions)
+
+    if not parsed_lines:
         parsed_lines = [match.group(0) for match in FOLLOW_UP_QUESTION_RE.finditer(stripped_text)]
 
     suggestions: List[str] = []
@@ -2124,9 +2764,9 @@ def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
         if not match:
             continue
         suggestion = match.group(0).strip()
-        if len(suggestion) > 180:
-            suggestion = f"{suggestion[:177].rstrip()}..."
-        suggestion_key = suggestion.casefold()
+        if not is_useful_suggestion(suggestion):
+            continue
+        suggestion_key = normalized_suggestion_key(suggestion)
         if suggestion_key in seen:
             continue
         suggestions.append(suggestion)
@@ -2247,7 +2887,14 @@ def generate_follow_up_suggestions(
         log_event("follow_up_generation_failed", error=str(error))
         return []
 
-    return parse_follow_up_suggestions(suggestion_text, suggestion_count)
+    suggestions = filter_suggested_questions(
+        parse_follow_up_suggestions(suggestion_text, suggestion_count * 2),
+        [prompt],
+        suggestion_count,
+    )
+    log_event("follow_up_suggestions", provider="gguf", prompt=prompt,
+              rawResponse=suggestion_text, suggestions=suggestions, requestedCount=suggestion_count)
+    return suggestions
 
 
 def chat(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2271,6 +2918,7 @@ def chat(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "limit": limit,
                     "model": model,
                     "embeddingModels": payload.get("embeddingModels") or [],
+                    "searchMode": application_settings.get("searchMode"),
                 }
             )
             sources = search_result["sources"]
@@ -2340,6 +2988,14 @@ def health(_payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def preparation_report(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from tokensmith_preparation_job import report
+    except ImportError:
+        from python_engine.tokensmith_preparation_job import report
+    return report(payload)
+
+
 def list_indexed_materials(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"materials": list_materials(payload["userDataPath"])}
 
@@ -2371,6 +3027,7 @@ COMMANDS = {
     "health": health,
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,
+    "preparation_report": preparation_report,
     "search": search_library,
     "starter_sources": starter_sources,
     "chat": chat,

@@ -1,8 +1,49 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const { parseOllamaSearchResults, searchOllamaLibrary } = requireTranspiledTs('src/main/engine/ollama-library-search.ts')
+const currentLibraryHtml = readFileSync(new URL('../../fixtures/ollama-library-qwen.html', import.meta.url), 'utf8')
+
+test('current public cards work without internal test attributes', () => {
+  const results = parseOllamaSearchResults(currentLibraryHtml)
+  assert.equal(results.length, 2)
+  assert.deepEqual(results[0], {
+    name: 'qwen3',
+    description: 'Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models.',
+    url: 'https://ollama.com/library/qwen3',
+    capabilities: ['tools', 'thinking'], sizes: ['0.6b', '1.7b', '4b', '8b', '14b', '30b', '32b', '235b'],
+    pulls: '37M', tagCount: 58, updated: '11 months ago'
+  })
+  assert.deepEqual(results[1].capabilities, ['embedding'])
+  assert.deepEqual(results[1].sizes, ['0.6b', '4b', '8b'])
+})
+
+test('catalog parsing ignores navigation, foreign links, and duplicate model cards', () => {
+  const html = '<li><a href="/library/qwen3">Navigation only</a></li>' + currentLibraryHtml + currentLibraryHtml +
+    '<li><a href="https://example.com/library/pretend"><h2>Pretend</h2></a></li>'
+  assert.equal(parseOllamaSearchResults(html).length, 2)
+})
+
+test('search distinguishes chat and embedding models with current public markup', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: true, text: async () => currentLibraryHtml })
+  try {
+    assert.deepEqual((await searchOllamaLibrary('qwen', 'generator')).map(x => x.name), ['qwen3'])
+    assert.deepEqual((await searchOllamaLibrary('qwen', 'embedder')).map(x => x.name), ['qwen3-embedding'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('unreadable catalog pages report a search failure, while genuine empty results stay empty', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => ({ ok: true, text: async () => '<html>Temporarily unavailable</html>' })
+    await assert.rejects(searchOllamaLibrary('qwen'), /Could not read Ollama/)
+    globalThis.fetch = async () => ({ ok: true, text: async () => '<div id="repo"><ul></ul></div>' })
+    assert.deepEqual(await searchOllamaLibrary('nonexistent'), [])
+  } finally { globalThis.fetch = originalFetch }
+})
 
 const ollamaSearchHtml = `
   <ul>
