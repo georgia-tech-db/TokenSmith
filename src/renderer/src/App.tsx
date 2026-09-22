@@ -167,6 +167,9 @@ const stateStorageKey = 'tokensmith-app-state-v1'
 const maxSourceTrayCards = 5
 const defaultCollectionChunkSize = 1000
 const pdfViewerRenderScale = 1.45
+// React Strict Mode immediately runs an effect setup/cleanup cycle in development.
+// This gives that cleanup time to cancel before a starter-question request is sent.
+const starterQuestionDebounceMs = 150
 
 const defaultMaterials: CourseMaterial[] = []
 
@@ -2691,7 +2694,7 @@ function ChatScreen({
           setStarterQuestionStatus('error')
           setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
         })
-    }, 150)
+    }, starterQuestionDebounceMs)
 
     return () => {
       cancelled = true
