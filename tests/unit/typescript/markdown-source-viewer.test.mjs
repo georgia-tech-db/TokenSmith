@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createElement } from 'react'
@@ -13,7 +13,10 @@ for (const filename of ['markdown-source.ts', 'MarkdownSourceViewer.tsx']) {
   const sourcePath = resolve('src/renderer/src', filename)
   const output = ts.transpileModule(readFileSync(sourcePath, 'utf8'), {
     fileName: sourcePath,
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+      inlineSourceMap: true, inlineSources: true, sourceRoot: `${dirname(sourcePath)}/`
+    }
   }).outputText.replace("from './markdown-source'", "from './markdown-source.mjs'")
   writeFileSync(resolve(runtime, filename.replace(/\.tsx?$/, '.mjs')), output)
 }

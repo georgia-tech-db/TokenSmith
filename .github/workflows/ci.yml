@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      coverage-report: ${{ steps.coverage.outputs.report }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Set up bundled Python
+        run: npm run setup:python-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated coverage tooling
+        run: python -m pip install --target tmp/coverage-tools -r requirements-coverage.txt
+      - name: Typecheck and build
+        run: npm run build
+      - name: TypeScript unit tests with coverage
+        run: npm run test:coverage:ts
+      - name: Python unit tests with coverage
+        run: npm run test:coverage:python
+      - name: Report line coverage
+        id: coverage
+        run: npm run coverage:report
+      - name: Python worker and conversation integration tests
+        run: npm run test:integration
+
+  publish-coverage:
+    name: Publish coverage badges
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v8
+        env:
+          COVERAGE_REPORT: ${{ needs.build-and-test.outputs.coverage-report }}
+        with:
+          script: |
+            const report = JSON.parse(process.env.COVERAGE_REPORT)
+            const repo = context.repo
+            const ref = 'heads/codex/coverage-badge'
+            const main = await github.rest.git.getRef({ ...repo, ref: 'heads/main' })
+            if (main.data.object.sha !== context.sha) {
+              core.info('A newer commit is on main; skip publishing stale coverage.')
+              return
+            }
+            let parent
+            try {
+              parent = (await github.rest.git.getRef({ ...repo, ref })).data.object.sha
+            } catch (error) {
+              if (error.status !== 404) throw error
+            }
+            const runUrl = `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`
+            const summary = `${report.summary}\nMeasured commit: ${context.sha}\n\n[CI run](${runUrl})\n`
+            const tree = await github.rest.git.createTree({ ...repo, tree: [
+              ...Object.entries(report.badges).map(([language, badge]) => ({
+                path: `${language}-coverage.json`, mode: '100644', type: 'blob', content: JSON.stringify(badge)
+              })),
+              { path: 'coverage.md', mode: '100644', type: 'blob', content: summary }
+            ] })
+            const commit = await github.rest.git.createCommit({ ...repo,
+              message: `Update coverage for ${context.sha.slice(0, 7)}`,
+              tree: tree.data.sha, parents: parent ? [parent] : [] })
+            if (parent) {
+              await github.rest.git.updateRef({ ...repo, ref, sha: commit.data.sha })
+            } else {
+              await github.rest.git.createRef({ ...repo, ref: `refs/${ref}`, sha: commit.data.sha })
+            }
