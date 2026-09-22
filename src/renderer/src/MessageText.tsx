@@ -2,6 +2,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import { remarkModelMath } from './remark-model-math'
 
 const questionBlockElements = ['blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'ul', 'ol', 'li', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'input']
 
@@ -10,7 +11,7 @@ export function MessageText({ text, inline = false }: { text: string; inline?: b
   return (
     <Container className={inline ? 'suggestion-text' : 'message-text'}>
       <Markdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkModelMath]}
         rehypePlugins={[[rehypeKatex, { trust: false, maxSize: 10 }]]}
         disallowedElements={inline ? questionBlockElements : undefined}
         unwrapDisallowed={inline}
