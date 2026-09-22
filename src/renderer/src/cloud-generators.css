@@ -53,6 +53,12 @@
 .cloud-model-choice.is-selected { border-color: var(--ink); background: var(--panel-soft); }
 .cloud-billing, .cloud-muted { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .cloud-billing { margin: 15px 0; }
+.cloud-storage-help { margin: -8px 0 15px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.cloud-storage-help p { margin: 0; }
+.cloud-storage-help details { margin-top: 7px; }
+.cloud-storage-help summary { width: fit-content; color: var(--ink); cursor: pointer; font-weight: 600; }
+.cloud-storage-help ol { margin: 7px 0 0; padding-left: 20px; }
+.cloud-storage-help li + li { margin-top: 3px; }
 .cloud-disclosure { display: flex; align-items: flex-start; gap: 9px; margin: 20px 0 16px; padding: 12px; background: var(--panel-soft); border-radius: 9px; color: var(--muted); }
 .cloud-disclosure svg { margin-top: 2px; flex: none; }
 .cloud-disclosure p { margin: 0; font-size: 12px; line-height: 1.5; }

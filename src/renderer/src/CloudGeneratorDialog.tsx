@@ -13,6 +13,28 @@ const providerLabels: Record<string, string> = { gemini: 'Google Gemini', openai
 const providerCopy: Record<string, string> = { gemini: 'Connect with a Google AI Studio key', openai: 'Connect with an OpenAI API key', groq: 'Hosted open models with a Groq key', mistral: 'Connect with a Mistral API key', custom: 'An OpenAI-compatible service' }
 const providerLogos: Record<string, string> = { gemini: geminiLogo, openai: openaiLogo, groq: groqLogo, mistral: mistralLogo, custom: customLogo }
 
+function secureStorageSteps(platform: string): string[] {
+  if (platform === 'darwin') {
+    return [
+      'Open Keychain Access and unlock your login keychain.',
+      'Allow TokenSmith to use the keychain if macOS asks.',
+      'Restart TokenSmith and open this connection again.'
+    ]
+  }
+  if (platform === 'win32') {
+    return [
+      'Sign in with your normal Windows account; no additional password manager is required.',
+      'Restart TokenSmith and open this connection again.',
+      'If storage remains unavailable on a managed device, ask your administrator whether Windows credential protection is disabled.'
+    ]
+  }
+  return [
+    'Install GNOME Keyring with libsecret support, or KWallet, using your system software manager.',
+    'Open and unlock the keyring or wallet, and configure it to unlock when you sign in.',
+    'Restart TokenSmith and open this connection again.'
+  ]
+}
+
 export function CloudGeneratorDialog({ model, localSearch, onClose, onConnected }: {
   model?: LocalModel; localSearch: boolean; onClose: () => void; onConnected: (model: LocalModel) => void
 }) {
@@ -145,7 +167,13 @@ export function CloudGeneratorDialog({ model, localSearch, onClose, onConnected 
           <label className="cloud-field">Save connection<select value={remember ? 'remember' : 'session'} disabled={!!busy} onChange={e => { setRemember(e.target.value === 'remember'); setError(null) }}>
             <option value="remember" disabled={!status?.secureStorageAvailable}>Remember securely on this device</option><option value="session">This session only</option>
           </select></label>
-          {!status?.secureStorageAvailable && status && <p className="cloud-muted">Secure storage is unavailable. You can connect for this session.</p>}
+          {!status?.secureStorageAvailable && status && <div className="cloud-storage-help">
+            <p>Secure storage is unavailable. You can connect for this session; the API key will be forgotten when TokenSmith closes.</p>
+            <details>
+              <summary>How to enable secure storage</summary>
+              <ol>{secureStorageSteps(window.tokensmith?.platform || '').map(step => <li key={step}>{step}</li>)}</ol>
+            </details>
+          </div>}
           <p className="cloud-billing">API usage is billed by your service. A chat subscription may not include API credits.</p>
         </> : <>
           {!manual && <>
