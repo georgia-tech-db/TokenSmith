@@ -1,0 +1,8 @@
+{
+  "name": "nomic-embed-text:latest",
+  "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "dimensions": 768,
+  "ollamaVersion": "0.31.1",
+  "linuxArchiveUrl": "https://github.com/ollama/ollama/releases/download/v0.31.1/ollama-linux-amd64.tar.zst",
+  "linuxArchiveSha256": "d297381efc136451f6fabb9dd644a67f70fe51c16815a0c4a95ff0e327a3afb4"
+}
