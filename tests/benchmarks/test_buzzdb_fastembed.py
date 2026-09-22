@@ -72,8 +72,8 @@ def require_fastembed():
         from fastembed import TextEmbedding
     except Exception as error:
         raise AssertionError(
-            "FastEmbed is required to build this benchmark cache. Install it with "
-            "`python -m pip install -r requirements-embedding-benchmark.txt`."
+            "FastEmbed is required for this benchmark. Run `npm run setup:embedding-benchmark` "
+            "or install requirements-embedding-benchmark.txt in your configured benchmark environment."
         ) from error
     return TextEmbedding
 

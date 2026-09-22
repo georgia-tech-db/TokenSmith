@@ -36,8 +36,8 @@ jobs:
         run: npm ci
       - name: Set up bundled Python
         run: npm run setup:python-runtime
-      - name: Install CPU benchmark embedder
-        run: app_runtime/python/bin/python -m pip install -r requirements-embedding-benchmark.txt
+      - name: Set up isolated CPU benchmark environment
+        run: npm run setup:embedding-benchmark
       - name: Cache embedder weights
         uses: actions/cache@v4
         with:

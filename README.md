@@ -71,14 +71,17 @@ Start the app locally:
 npm run dev
 ```
 
-Install the CPU benchmark embedder and run tests (use
-`app_runtime/python/python.exe` on Windows):
+Install the CPU benchmark embedder and run tests:
 
 ```sh
-app_runtime/python/bin/python -m pip install -r requirements-embedding-benchmark.txt
+npm run setup:embedding-benchmark
 npm run typecheck
 npm test
 ```
+
+Benchmark setup creates an isolated Python environment under
+`tmp/embedding-benchmark-venv`; it does not add test dependencies to the packaged
+app runtime or require a system Python installation.
 
 ## CI And Benchmarks
 

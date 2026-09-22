@@ -11,6 +11,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "setup:python-runtime": "node scripts/python-dev.mjs setup",
+    "setup:embedding-benchmark": "node scripts/python-dev.mjs setup-embedding-benchmark",
     "test:unit:ts": "node --test tests/unit/typescript/*.test.mjs",
     "test:unit:python": "node scripts/python-dev.mjs unit",
     "test:coverage:ts": "c8 node --test tests/unit/typescript/*.test.mjs",
