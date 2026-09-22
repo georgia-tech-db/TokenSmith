@@ -63,6 +63,9 @@ import {
   type OllamaSearchResult,
   type OllamaStatus
 } from '@shared/ollama'
+import { formatModelArtifactSize, localModelCatalog } from '@shared/model-catalog'
+import { recommendModel, type ModelRecommendation } from '@shared/model-recommendation'
+import { defaultDeviceTierPolicy } from '@shared/device-tier-policy'
 import {
   remoteProviderCatalog,
   type RemoteProviderCatalogItem,
@@ -77,6 +80,8 @@ import {
   normalizeStarterQuestionPrompt,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
+import { DeviceRecommendationPanel } from './components/DeviceRecommendationPanel'
+import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import {
@@ -2577,14 +2582,32 @@ function ChatScreen({
   const needsModelSetup = needsChatModelSetup || needsEmbeddingModelSetup
   const needsSetupCard = needsModelSetup || needsDocumentSetup
   const shouldShowSetupCard = needsSetupCard && !isSetupCardDismissed
+  const {
+    capabilities: setupDeviceCapabilities,
+    state: setupDeviceCapabilityState
+  } = useDeviceCapabilities(needsChatModelSetup)
+  const setupRecommendation = useMemo<ModelRecommendation | null>(
+    () =>
+      setupDeviceCapabilities
+        ? recommendModel(setupDeviceCapabilities, localModelCatalog, defaultDeviceTierPolicy)
+        : null,
+    [setupDeviceCapabilities]
+  )
+  const recommendsCloudChat = setupRecommendation?.kind === 'cloud'
+  const setupChatModelName = recommendsCloudChat
+    ? null
+    : setupRecommendation?.recommendedModelId ?? recommendedOllamaChatModel
+  const setupChatModelLabel = recommendsCloudChat
+    ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
+    : setupRecommendation?.recommendedModelName ?? 'Gemma 3 4B Q4'
   const canUseQuiz = Boolean(selectedModel) && selectedModel?.status === 'ready' && activeMaterials.length > 0
   const composerPlaceholder = activeQuizState
     ? 'Answer the quiz question...'
     : selectedModel
       ? 'Ask about your PDFs...'
       : needsDocumentSetup
-        ? 'Add your PDFs, then download Llama 3...'
-        : 'Download Llama 3 to ask questions...'
+        ? 'Add your PDFs, then choose a chat model...'
+        : 'Choose a recommended model to ask questions...'
 
   useEffect(() => {
     setEditingQuestionId(null)
@@ -2636,7 +2659,7 @@ function ChatScreen({
 
     return window.tokensmith.onOllamaPullProgress((progress) => {
       if (
-        !ollamaModelNameMatches(progress.model, recommendedOllamaChatModel) &&
+        !(setupChatModelName && ollamaModelNameMatches(progress.model, setupChatModelName)) &&
         !ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)
       ) {
         return
@@ -2644,14 +2667,14 @@ function ChatScreen({
 
       setOllamaPullProgress(progress)
       const isTerminalPullStatus = progress.status === 'complete' || progress.status === 'error' || progress.status === 'incomplete' || progress.status === 'removed'
-      if (ollamaModelNameMatches(progress.model, recommendedOllamaChatModel)) {
+      if (setupChatModelName && ollamaModelNameMatches(progress.model, setupChatModelName)) {
         setOllamaPullingModel(isTerminalPullStatus ? null : 'chat')
       }
       if (ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)) {
         setOllamaPullingModel(isTerminalPullStatus ? null : 'embedder')
       }
     })
-  }, [])
+  }, [setupChatModelName])
 
   useEffect(() => {
     if (!canSuggestStarterQuestions || !selectedModel || !window.tokensmith?.suggestChatQuestions) {
@@ -3012,14 +3035,14 @@ function ChatScreen({
   }
 
   async function handlePullOllamaChatModel() {
-    if (!window.tokensmith?.pullOllamaModel) {
+    if (!setupChatModelName || !window.tokensmith?.pullOllamaModel) {
       setOllamaSetupError('Ollama setup is not available in this build.')
       return
     }
 
     setOllamaPullingModel('chat')
     setOllamaPullProgress({
-      model: recommendedOllamaChatModel,
+      model: setupChatModelName,
       status: 'starting',
       percent: 0,
       message: 'Starting download'
@@ -3027,23 +3050,23 @@ function ChatScreen({
     setOllamaSetupError(null)
 
     try {
-      await window.tokensmith.pullOllamaModel(recommendedOllamaChatModel)
+      await window.tokensmith.pullOllamaModel(setupChatModelName)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
-      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))
+      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, setupChatModelName))
       if (!modelInfo) {
-        const message = 'Ollama finished the download, but TokenSmith could not verify Llama 3.'
+        const message = `Ollama finished the download, but TokenSmith could not verify ${setupChatModelLabel}.`
         setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
         setOllamaPullProgress((current) =>
-          current && ollamaModelNameMatches(current.model, recommendedOllamaChatModel)
+          current && ollamaModelNameMatches(current.model, setupChatModelName)
             ? { ...current, status: 'error', message, error: message }
-            : { model: recommendedOllamaChatModel, status: 'error', percent: 0, message, error: message }
+            : { model: setupChatModelName, status: 'error', percent: 0, message, error: message }
         )
         setOllamaSetupError(message)
         return
       }
-      onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl, modelInfo)
+      onInstallOllamaChatModel(setupChatModelName, status.baseUrl, modelInfo)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
@@ -3051,12 +3074,12 @@ function ChatScreen({
       if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaChatModel, current))
+        setOllamaPullProgress((current) => pausedOllamaProgress(setupChatModelName, current))
         return
       }
       setOllamaSetupPhase('error')
       setOllamaPullingModel(null)
-      setOllamaSetupError(readableErrorMessage(error, 'Could not download Llama 3 with Ollama.'))
+      setOllamaSetupError(readableErrorMessage(error, `Could not download ${setupChatModelLabel} with Ollama.`))
     }
   }
 
@@ -3110,11 +3133,18 @@ function ChatScreen({
   }
 
   function setupModelNameForRole(role: 'chat' | 'embedder') {
-    return role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+    const modelName = role === 'chat' ? setupChatModelName : recommendedOllamaEmbeddingModel
+    if (!modelName) {
+      throw new Error('A cloud recommendation does not have a local chat model.')
+    }
+    return modelName
   }
 
   function setupReadyModelForRole(role: 'chat' | 'embedder') {
     const expectedModel = setupModelNameForRole(role)
+    if (!expectedModel) {
+      return undefined
+    }
     const roleMatches = role === 'chat' ? modelCanGenerate : modelCanEmbed
     const recommendedModel = models.find(
       (model) =>
@@ -3168,7 +3198,7 @@ function ChatScreen({
         await window.tokensmith.deleteOllamaModel(modelName, ollamaStatus?.baseUrl)
       } catch (error) {
         setOllamaSetupPhase('error')
-        setOllamaSetupError(readableErrorMessage(error, `Could not delete ${role === 'chat' ? 'Llama 3' : 'Nomic'}.`))
+        setOllamaSetupError(readableErrorMessage(error, `Could not delete ${role === 'chat' ? setupChatModelLabel : 'Nomic'}.`))
         return
       }
     } else {
@@ -3192,7 +3222,10 @@ function ChatScreen({
       return null
     }
 
-    const expectedModel = role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+    const expectedModel = role === 'chat' ? setupChatModelName : recommendedOllamaEmbeddingModel
+    if (!expectedModel) {
+      return null
+    }
     return ollamaModelNameMatches(ollamaPullProgress.model, expectedModel) ? ollamaPullProgress : null
   }
 
@@ -3312,7 +3345,9 @@ function ChatScreen({
       return 'Opening Ollama...'
     }
 
-    return ollamaStatus?.installedApp ? 'Start Ollama to continue.' : 'Install Ollama to run local models.'
+    return ollamaStatus?.installedApp
+      ? 'Start Ollama to prepare PDFs and use local models.'
+      : 'Install Ollama to prepare PDFs and use local models.'
   }
 
   function renderOllamaInstallAction() {
@@ -3371,8 +3406,14 @@ function ChatScreen({
   }
 
   function downloadModelsSetupLabel() {
+    if (setupDeviceCapabilityState === 'checking') {
+      return 'Checking which model fits this device...'
+    }
+
     if (!ollamaStatus?.running) {
-      return 'Start Ollama, then download the models.'
+      return recommendsCloudChat
+        ? 'Start Ollama to set up PDF search, then connect the cloud chat model.'
+        : 'Start Ollama, then download the recommended models.'
     }
 
     if (ollamaPullingModel === 'embedder') {
@@ -3380,11 +3421,17 @@ function ChatScreen({
     }
 
     if (ollamaPullingModel === 'chat') {
-      return 'Downloading Llama 3 Chat Model...'
+      return `Downloading ${setupChatModelLabel}...`
     }
 
     if (readyEmbeddingModel && readyChatModel) {
       return 'Both models are ready.'
+    }
+
+    if (recommendsCloudChat) {
+      return readyEmbeddingModel
+        ? `PDF search is ready. Connect ${setupChatModelLabel} for chat.`
+        : `Download Nomic for PDF search, then connect ${setupChatModelLabel} for chat.`
     }
 
     if (readyEmbeddingModel) {
@@ -3392,10 +3439,10 @@ function ChatScreen({
     }
 
     if (readyChatModel) {
-      return 'Llama 3 Chat Model is ready.'
+      return `${setupChatModelLabel} is ready.`
     }
 
-    return 'Download the Nomic Embedder Model and Llama 3 Chat Model.'
+    return `Download Nomic and the recommended ${setupChatModelLabel}.`
   }
 
   function renderDownloadModelControl(role: 'embedder' | 'chat') {
@@ -3403,9 +3450,9 @@ function ChatScreen({
     const readyModel = setupReadyModelForRole(role)
     const isReady = Boolean(readyModel)
     const removableModel = setupRemovableModelForRole(role)
-    const shortLabel = isEmbedder ? 'Nomic Embedder Model' : 'Llama 3 Chat Model'
-    const downloadLabel = isEmbedder ? 'Download Nomic' : 'Download Llama 3'
-    const busyLabel = isEmbedder ? 'Downloading Nomic...' : 'Downloading Llama...'
+    const shortLabel = isEmbedder ? 'Nomic Embedder Model' : setupChatModelLabel
+    const downloadLabel = isEmbedder ? 'Download Nomic' : `Download ${setupChatModelLabel}`
+    const busyLabel = isEmbedder ? 'Downloading Nomic...' : `Downloading ${setupChatModelLabel}...`
     const isPulling = ollamaPullingModel === role
     const progress = ollamaPullProgressFor(role)
     const canResume = progress?.status === 'incomplete' || progress?.status === 'error'
@@ -3502,7 +3549,13 @@ function ChatScreen({
     return (
       <div className="chat-setup-action is-wide">
         {renderDownloadModelControl('embedder')}
-        {renderDownloadModelControl('chat')}
+        {recommendsCloudChat ? (
+          <button className="model-action-button" type="button" onClick={() => onConnectCloud()}>
+            <span>Connect {setupChatModelLabel}</span>
+          </button>
+        ) : (
+          renderDownloadModelControl('chat')
+        )}
         {ollamaSetupError && <small className="model-download-error">{ollamaSetupError}</small>}
       </div>
     )
@@ -3528,8 +3581,8 @@ function ChatScreen({
         <div className="chat-setup-steps">
           <div className="chat-setup-step">
             {renderSetupStepNumber(1, Boolean(ollamaStatus?.running))}
-            <div className="chat-setup-copy">
-              <strong>Install Ollama</strong>
+          <div className="chat-setup-copy">
+              <strong>Set up Ollama</strong>
               <span>{ollamaInstallSetupLabel()}</span>
             </div>
             {renderOllamaInstallAction()}
@@ -3553,7 +3606,15 @@ function ChatScreen({
             {renderDocumentSetupAction()}
           </div>
         </div>
-        {needsChatModelSetup && <div className="cloud-generator-entry">
+        {setupRecommendation && (
+          <div className="cloud-generator-entry">
+            <div>
+              <strong>Recommended for this device: {setupChatModelLabel}</strong>
+              <p>{recommendsCloudChat ? 'This device does not meet the local-model requirements.' : 'TokenSmith selected this local Gemma model from this device’s available memory and acceleration.'}</p>
+            </div>
+          </div>
+        )}
+        {needsChatModelSetup && !recommendsCloudChat && <div className="cloud-generator-entry">
           <div><strong>Prefer a cloud chat model?</strong><p>Connect your API key and keep PDF search on this device.</p></div>
           <button type="button" className="secondary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button>
         </div>}
@@ -5646,7 +5707,20 @@ function ModelsScreen({
   const [ollamaSearchResults, setOllamaSearchResults] = useState<OllamaSearchResult[]>([])
   const [ollamaSearchStatus, setOllamaSearchStatus] = useState<'idle' | 'searching' | 'error'>('idle')
   const [ollamaSearchError, setOllamaSearchError] = useState<string | null>(null)
+  const {
+    capabilities: deviceCapabilities,
+    state: deviceCapabilityState,
+    error: deviceCapabilityError,
+    refresh: refreshDeviceCapabilities
+  } = useDeviceCapabilities(mode === 'explore')
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
+  const deviceRecommendation = useMemo<ModelRecommendation | null>(
+    () =>
+      deviceCapabilities
+        ? recommendModel(deviceCapabilities, localModelCatalog, defaultDeviceTierPolicy)
+        : null,
+    [deviceCapabilities]
+  )
 
   useEffect(() => {
     if (models.length === 0) {
@@ -6352,6 +6426,7 @@ function ModelsScreen({
 
   function renderOllamaModelCard({
     description,
+    isRecommended = false,
     modelInfo,
     modelName,
     role,
@@ -6359,6 +6434,7 @@ function ModelsScreen({
     title
   }: {
     description?: string[]
+    isRecommended?: boolean
     modelInfo?: OllamaModelInfo
     modelName: string
     role: LocalModelRole
@@ -6379,12 +6455,12 @@ function ModelsScreen({
     const displayModel = withOllamaInfo(model, modelInfo)
     const isUninstalledDefaultModel = !existingModel && !isInstalledInOllama && !searchResult
     const bullets =
-      isUninstalledDefaultModel
+      description ??
+      (isUninstalledDefaultModel
         ? []
-        : description ??
-          (searchResult?.description ? [searchResult.description] : undefined) ??
+        : (searchResult?.description ? [searchResult.description] : undefined) ??
           displayModel.description ??
-          []
+          [])
     const roleClassName = modelCanEmbed(model) && !modelCanGenerate(model) ? 'is-embedder' : 'is-chat'
     const stats =
       searchResult && !existingModel && !isInstalledInOllama
@@ -6392,12 +6468,18 @@ function ModelsScreen({
         : modelStats(displayModel)
 
     return (
-      <section className="model-card" key={`${role}-${modelName}`}>
+      <section className={`model-card ${isRecommended ? 'is-device-recommended' : ''}`} key={`${role}-${modelName}`}>
         <div className="model-card-main">
           <div className="model-title-row">
             <div className="model-title-heading">
               <h2>{title ?? searchResult?.name ?? (isUninstalledDefaultModel ? modelName : displayModelName(displayModel))}</h2>
               <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(displayModel)}</span>
+              {isRecommended && (
+                <span className="model-recommendation-badge">
+                  <Sparkles size={13} aria-hidden="true" />
+                  Recommended for this device
+                </span>
+              )}
             </div>
             <p>{isUninstalledDefaultModel ? 'Not installed in Ollama' : displayModel.ollamaModelName ?? modelName}</p>
           </div>
@@ -6416,7 +6498,7 @@ function ModelsScreen({
   }
 
   function renderOllamaExplore() {
-    const recommendedCards = [
+    const modelCards = [
       {
         modelName: recommendedOllamaEmbeddingModel,
         role: 'embedder' as LocalModelRole,
@@ -6427,20 +6509,19 @@ function ModelsScreen({
           'Download this first if you only want to add PDFs'
         ]
       },
-      {
-        modelName: recommendedOllamaChatModel,
+      ...localModelCatalog.map((profile) => ({
+        modelName: profile.id,
         role: 'generator' as LocalModelRole,
-        title: 'Llama 3 Chat Model',
+        title: profile.displayName,
         description: [
-          'Local chat model served by Ollama',
-          'Answers after TokenSmith retrieves PDF sources',
-          'Download this when you want local chat'
+          profile.description,
+          `${profile.parameterLabel} parameters · ${profile.quantizationLabel} quantization · ${formatModelArtifactSize(profile.artifactSizeBytes)} download`
         ]
-      }
+      }))
     ]
-    const recommendedNames = new Set(recommendedCards.map((card) => card.modelName.toLowerCase()))
+    const policyModelNames = new Set(modelCards.map((card) => card.modelName.toLowerCase()))
     const otherInstalledModels = (ollamaStatus?.models ?? []).filter(
-      (model) => !recommendedNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
+      (model) => !policyModelNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
     )
     const customModelName = ollamaDraftName.trim()
     const hasSearchResults = ollamaSearchResults.length > 0
@@ -6450,6 +6531,14 @@ function ModelsScreen({
         <p className="model-explore-copy">
           Download or connect Ollama models for local chat and PDF search.
         </p>
+
+        <DeviceRecommendationPanel
+          capabilities={deviceCapabilities}
+          error={deviceCapabilityError}
+          recommendation={deviceRecommendation}
+          state={deviceCapabilityState}
+          onRefresh={refreshDeviceCapabilities}
+        />
 
         <div className="ollama-model-toolbar">
           <button className="model-action-button" type="button" onClick={refreshOllamaModels} disabled={ollamaStatusState === 'checking'}>
@@ -6519,9 +6608,13 @@ function ModelsScreen({
               )
             : (
                 <>
-                  {recommendedCards.map((card) =>
+                  {modelCards.map((card) =>
                     renderOllamaModelCard({
                       ...card,
+                      isRecommended:
+                        card.role === 'generator' &&
+                        deviceRecommendation?.kind === 'local' &&
+                        deviceRecommendation.recommendedModelId === card.modelName,
                       modelInfo: ollamaInfoForModel(card.modelName)
                     })
                   )}

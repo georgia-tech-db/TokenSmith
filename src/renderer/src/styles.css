@@ -2954,12 +2954,150 @@ button {
   line-height: 1.45;
 }
 
+.model-recommendation-panel {
+  margin: 0 0 22px;
+  padding: 18px 20px;
+  border: 1px solid #9fc8b0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff9f2 0%, #f8fcf9 100%);
+}
+
+.model-recommendation-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.model-recommendation-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-recommendation-actions > button {
+  flex: 0 0 180px;
+  width: 180px;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.model-recommendation-panel.is-cloud {
+  border-color: #b8c4dc;
+  background: linear-gradient(135deg, #f1f4fb 0%, #fafbfe 100%);
+}
+
+.model-recommendation-panel.is-loading,
+.model-recommendation-panel.is-unavailable {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  border-color: var(--line);
+  background: var(--panel-soft);
+}
+
+.model-recommendation-panel.is-unavailable {
+  color: var(--muted);
+}
+
+.model-recommendation-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--green-strong);
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(30 72 47 / 10%);
+}
+
+.model-recommendation-copy {
+  min-width: 0;
+}
+
+.model-recommendation-copy > span {
+  color: var(--green-strong);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.model-recommendation-copy h2 {
+  margin: 3px 0 4px;
+  font-size: 1.15rem;
+}
+
+.model-recommendation-copy p,
+.model-recommendation-panel p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.model-recommendation-copy small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.model-recommendation-warnings {
+  margin: 14px 0 0 58px;
+  padding-left: 18px;
+  color: #8a5b12;
+}
+
+.model-recommendation-warnings li + li {
+  margin-top: 4px;
+}
+
+.device-details {
+  margin: 14px 0 0 58px;
+  border-top: 1px solid rgb(65 128 87 / 16%);
+  padding-top: 12px;
+}
+
+.device-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.device-details dl {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.device-details dl > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.device-details dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.device-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .model-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 210px;
   gap: 18px;
   overflow: hidden;
   padding: 22px;
+}
+
+.model-card.is-device-recommended {
+  border-color: #79b18e;
+  box-shadow: 0 0 0 2px rgb(65 128 87 / 10%);
 }
 
 .model-card-main {
@@ -3002,6 +3140,20 @@ button {
   color: #6f4d13;
   border-color: #edd59a;
   background: #fff7dc;
+}
+
+.model-recommendation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--green-strong);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .model-title-row p {
@@ -3568,6 +3720,20 @@ button {
   .model-card,
   .download-panel {
     grid-template-columns: 1fr;
+  }
+
+  .model-recommendation-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .model-recommendation-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .model-recommendation-warnings,
+  .device-details {
+    margin-left: 0;
   }
 
   .model-action-box {
