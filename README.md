@@ -1,158 +1,53 @@
 <p align="center">
   <img src="src/renderer/src/assets/tokensmith-mark.png" alt="TokenSmith icon" width="120" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="src/renderer/src/assets/tokensmith-logo.png" alt="TokenSmith" width="120" />
 </p>
 
 # TokenSmith
+
+**Study with your own textbooks, notes, and papers.**
+
+Work through a difficult concept, ask for an example, or try a short quiz to see what you've understood. TokenSmith suggests questions to explore next, gives feedback on your quiz answers, and lets you return to the original passages as you study.
+
+Highlight something you want explained, follow an idea further, or revisit an earlier discussion when you're reviewing.
+
+Use a local model with Ollama or a cloud model with your own API key.
+
+**[Download](#download)** | **[Watch the demo](#demo)** | **[Get started](#get-started)**
+
+## Download
+
+[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.13](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.13)
+
+| Platform | Download v0.1.13 |
+| --- | --- |
+| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-mac-arm64.dmg) |
+| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-win-x64.zip) |
+| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/tokensmith_0.1.13_amd64.deb) |
+
+## Demo
+
+https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
+
+## Get Started
+
+1. Install and start [Ollama](https://ollama.com/download), then use TokenSmith's setup guide to download Nomic for searching your documents.
+2. Choose a local chat model, or select **Connect a cloud model** and use your own API key. Cloud answers still use the local document-search setup above.
+3. Add your course materials in **Library**. PDF, Markdown, and text files are supported; **Basic** is the default preparation mode.
+4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or choose **Quiz me** to practice.
+
+When you use a cloud model, chat messages and relevant document excerpts are sent to that provider, and API charges may apply. Optional AI document preparation also sends document text to the selected model if it is a cloud model.
+
+## Project Health
 
 [![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)
 [![Accuracy benchmark (retrieval)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml)
 [![Frontend TypeScript coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Ftypescript-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
 [![Backend Python coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Fpython-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
 
-TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
+The benchmark checks whether search retrieves the expected evidence, **not whether generated answers are correct**. Coverage badges report unit-test line coverage separately for TypeScript (including Electron and shared code) and Python.
 
-It runs locally on your machine, retrieves passages relevant to your question from your documents, and shows the **page sources** with each answer.
+See [testing and benchmarks](docs/testing.md) for what the checks measure and how to run them.
 
-<p align="center">
-<img width="1348" height="838" alt="tokensmith" src="https://github.com/user-attachments/assets/ca1ecc04-73ea-4190-b7ed-e58ebeb25a01" />
-</p>
+## Contributing
 
-## Student Workflow
-
-1. Install and start Ollama.
-2. Download the recommended local embedder and chat models.
-3. Add a folder containing your course PDFs.
-4. Ask questions in Chat or pick a suggested question.
-5. Use page source cards to explore where an answer came from within the document and **skim through the page**.
-6. Continue with your own questions or suggested follow-up questions to study deeper.
-
-## What TokenSmith Does
-
-- Indexes PDFs for local search using the embedder model.
-- Retrieves relevant passages before answering using a vector index.
-- Answers with page source cards for cross-checking with the documents.
-- Suggests follow-up questions.
-
-## Install
-
-Download the latest app from the GitHub Releases page: https://github.com/georgia-tech-db/TokenSmith/releases
-
-On first launch, TokenSmith will guide you through installing Ollama, downloading models, and adding PDFs.
-
-## Developer Setup
-
-Install dependencies:
-
-```sh
-npm install
-```
-
-Download the pinned, platform-specific Python runtime and install TokenSmith's
-Python dependencies inside it:
-
-```sh
-npm run setup:python-runtime
-```
-
-This creates `app_runtime/python` inside the repository. It does not require,
-modify, or install packages into your system Python. The download is selected
-for Linux x64, Windows x64, or macOS ARM64 and verified with SHA-256 before it
-is used.
-
-The runtime comes from Astral's
-[python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-`install_only_stripped` archives. TokenSmith pins the Python version, release,
-target platform, and checksum rather than copying the developer's Python
-installation.
-
-Start the app locally:
-
-```sh
-npm run dev
-```
-
-With Ollama running, install the benchmark model and run tests:
-
-```sh
-ollama pull nomic-embed-text:latest
-npm run typecheck
-npm test
-```
-
-The benchmark uses the bundled Python runtime and TokenSmith's production Ollama
-embedding function. The exact model digest and Ollama version are pinned in
-[embedding-model.json](tests/benchmarks/embedding-model.json); use that version
-of Ollama locally. A changed model tag fails validation instead of silently
-changing the benchmark.
-
-## CI And Benchmarks
-
-Every pull request, push to `main`, and merge-queue change runs:
-
-- **CI:** typechecking, production build, TypeScript/Python unit tests, and Python-worker/conversation integration tests.
-- **Accuracy benchmark (retrieval):** BuzzDBBook questions using the app's `nomic-embed-text:latest` (137M F16) through Ollama and its hybrid search, including source expansion and final source selection. Conversation-contract checks run alongside it and are reported separately.
-
-The benchmark badge is a pass/fail regression check, **not generated-answer accuracy**.
-Its Actions summary shows per-question evidence coverage and the measured pass rate.
-Each Details cell shows the question, an authored reference answer (not generated
-or automatically graded), and ranked retrieved-source excerpts. Conversation
-checks label their prior exchange and evidence as fixtures, not live retrieval.
-The conversation checks mock the rewrite model and search; they do not grade live
-follow-up understanding or generated answers. CI starts its own CPU-only Ollama
-service with no cloud keys or paid model calls. The CPU runtime, model weights,
-and book embeddings are cached, but queries are
-embedded afresh and the search index is rebuilt on every run. PR checks do not
-upload packaged apps or other build artifacts.
-
-Run just the benchmark after the developer setup above:
-
-```sh
-npm run test:benchmark
-```
-
-The first benchmark run embeds the book using the installed Nomic model.
-For repeat runs, set `TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH` to a cache produced by
-`npm run build:embedding-benchmark-cache -- <path>`. Stale caches fail validation.
-Changes to the model, parsed chunks, or embedding input preparation invalidate
-the cache; question or ranking changes alone can reuse the book vectors.
-Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally.
-
-After the first successful GitHub runs, configure branch protection to require
-`Build and tests` and `BuzzDB hybrid retrieval and conversation contracts` before
-merging. The README badges track `main`, while each PR has its own check results.
-
-The two coverage badges report **unit-test line coverage** separately for
-frontend/Electron TypeScript and backend Python. TypeScript includes all of
-`src/`: UI, Electron main/preload, and shared modules, including untested files
-but excluding declarations. Python covers `python_engine/`. CI shows language
-totals and per-file coverage. These are reporting metrics, not accuracy scores
-or minimum-coverage gates. Only a successful CI
-push on `main` publishes the badges and small report to `codex/coverage-badge`;
-PRs cannot overwrite it. No coverage artifacts or external-service secrets are needed.
-
-To run coverage locally without modifying the packaged Python runtime:
-
-```sh
-python3.12 -m pip install --target tmp/coverage-tools -r requirements-coverage.txt
-npm run coverage
-```
-
-## Packaging
-
-Packaging requires `npm run setup:python-runtime` first. Release workflows run
-that command automatically and include the private runtime in each application,
-so students do not need to install Python.
-
-Create a macOS DMG:
-
-```sh
-npm run package:mac
-```
-
-Create a Windows portable zip:
-
-```sh
-npm run package:win
-```
+[Report a problem](https://github.com/georgia-tech-db/TokenSmith/issues) or see the [development guide](docs/development.md) to run, build, and package the app.
