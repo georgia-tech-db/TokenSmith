@@ -37,6 +37,7 @@ if _NEEDS_STORE:
         from tokensmith_store import (
             append_material_chunks,
             begin_material_index,
+            bridge_chunk_ids,
             delete_material,
             dump_index,
             embedded_chunk_signatures,
@@ -60,6 +61,7 @@ if _NEEDS_STORE:
         from python_engine.tokensmith_store import (
             append_material_chunks,
             begin_material_index,
+            bridge_chunk_ids,
             delete_material,
             dump_index,
             embedded_chunk_signatures,
@@ -79,6 +81,11 @@ if _NEEDS_STORE:
             update_material_index_state,
             vector_search,
         )
+
+try:
+    from tokensmith_bridges import generate_bridges, generator_from_spec, splice_bridge_row
+except ImportError:  # pragma: no cover - allows direct package imports in tests
+    from python_engine.tokensmith_bridges import generate_bridges, generator_from_spec, splice_bridge_row
 
 try:
     from tokensmith_cleaning import (
@@ -1242,6 +1249,41 @@ def summarize_material(path: Path, material_id: str, documents: List[Dict[str, A
     }
 
 
+def bridge_chunk_rows(
+    payload: Dict[str, Any],
+    chunks: List[Dict[str, Any]],
+    embed_text: Any,
+    progress: Optional[Any] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Bridge chunks for a freshly embedded material (opt-in). Returns rows ready to store, and stats.
+    Shared by the basic and prepared indexing paths, which persist differently."""
+    gen_fn = generator_from_spec(payload.get("generatorModel"))
+    embedded = [chunk for chunk in chunks if chunk.get("embedding") is not None]
+    if gen_fn is None or not embedded:
+        return [], {"skipped": "no_ollama_generator" if gen_fn is None else "no_embedded_chunks"}
+    bridges, stats = generate_bridges(
+        [str(chunk.get("text") or "") for chunk in embedded],
+        [chunk["embedding"] for chunk in embedded],
+        embed_fn=lambda texts: [embed_text(text) for text in texts],
+        gen_fn=gen_fn,
+        section_headers=[chunk.get("sectionHeader") for chunk in embedded],
+        chunk_kinds=[chunk.get("tokensmithChunkKind") or chunk.get("chunkKind") for chunk in embedded],
+        unit_ids=[chunk.get("parentId") for chunk in embedded],
+        progress=progress,
+    )
+    rows = [
+        {
+            **bridge,
+            "documentId": embedded[bridge["sourceChunk"]].get("documentId"),
+            "path": embedded[bridge["sourceChunk"]].get("path"),
+            "documentTitle": embedded[bridge["sourceChunk"]].get("documentTitle"),
+            "embedding": embed_text(bridge["text"]),
+        }
+        for bridge in bridges
+    ]
+    return rows, stats
+
+
 def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
     if payload.get("preparation"):
         try:
@@ -1472,6 +1514,18 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if not index_started:
         ensure_material_index_started()
+
+    if payload.get("generateBridges"):
+        try:
+            rows, stats = bridge_chunk_rows(
+                payload, chunks, embed_text,
+                lambda message: emit_index_progress("indexing", 92, message, processed_files=len(files)),
+            )
+            append_material_chunks(user_data_path, material_id, rows, embedding_model=embedding_key)
+            chunks.extend(rows)  # so the material's chunk count includes them
+            log_event("bridge_generation", **stats)
+        except Exception as error:  # bridges are an enhancement; never fail the upload for them
+            log_event("bridge_generation_failed", error=str(error))
 
     material = summarize_material(path, material_id, documents, chunks)
     material["chunkSize"] = chunk_size
@@ -2118,6 +2172,9 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     vector_hits_by_rowid: Dict[int, Tuple[float, str]] = {}
     skipped_embedding_models: List[str] = []
+    # Bridges are held out of rank fusion so the book window is what it would be without them.
+    # The vector arm must over-fetch by their count, or they would eat book candidate slots.
+    bridge_ids = bridge_chunk_ids(user_data_path, active_ids)
 
     for embedding_key, grouped_active_ids in (
         active_ids_by_embedding_model.items() if search_mode in ("vector", "hybrid") else []
@@ -2143,7 +2200,8 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             continue
 
         for rowid, score in vector_search(
-            user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key
+            user_data_path, query_embedding, grouped_active_ids,
+            candidate_limit + len(bridge_ids), embedding_key,
         ):
             current = vector_hits_by_rowid.get(rowid)
             if current is None or score > current[0]:
@@ -2156,6 +2214,10 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms)
 
     vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
+    bridge_hits = sorted(((r, s) for r, s in vector_hits if r in bridge_ids), key=lambda hit: -hit[1])
+    vector_hits = sorted(
+        ((r, s) for r, s in vector_hits if r not in bridge_ids), key=lambda hit: -hit[1]
+    )[:candidate_limit]
     ranked_limit = candidate_limit if search_mode in ("keyword", "hybrid") else limit
     ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, ranked_limit)
 
@@ -2179,6 +2241,15 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
     rows = expand_source_units(user_data_path, rows, active_ids)
     rows = select_source_rows(rows, query_tokens, keyword_terms, limit)
+    if bridge_hits:
+        bridge_rows = fetch_sources(user_data_path, bridge_hits[:1], active_ids)
+        rows = splice_bridge_row(
+            rows,
+            bridge_rows[0] if bridge_rows else None,
+            bridge_hits[0][1],
+            vector_hits[0][1] if vector_hits else 0.0,
+            limit,
+        )
     for row in rows:
         row["retrieval_mode"] = search_mode
     source_query_tokens = sorted(set([*query_tokens, *keyword_terms]))
