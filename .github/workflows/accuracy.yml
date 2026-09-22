@@ -51,8 +51,9 @@ jobs:
         with:
           path: |
             tmp/ollama/bin
+            tmp/ollama/lib/ollama/llama-server
             tmp/ollama/lib/ollama/*.so*
-          key: ollama-cpu-${{ runner.os }}-${{ runner.arch }}-${{ steps.model.outputs.linuxArchiveSha256 }}
+          key: ollama-cpu-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.model.outputs.linuxArchiveSha256 }}
       - name: Install pinned Ollama runtime
         if: steps.runtime-cache.outputs.cache-hit != 'true'
         env:
@@ -71,6 +72,7 @@ jobs:
           key: ollama-model-${{ steps.model.outputs.digest }}
       - name: Start Ollama
         run: |
+          test -x tmp/ollama/lib/ollama/llama-server
           tmp/ollama/bin/ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/ollama.pid"
           for attempt in {1..60}; do
@@ -100,6 +102,12 @@ jobs:
         run: npm run build:embedding-benchmark-cache -- "$TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH"
       - name: Run benchmark with fresh query embeddings
         run: npm run test:benchmark
+      - name: Show Ollama log on failure
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/ollama.log" ]; then
+            cat "$RUNNER_TEMP/ollama.log"
+          fi
       - name: Stop Ollama
         if: always()
         run: |

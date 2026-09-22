@@ -103,6 +103,23 @@ class BenchmarkContractTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "keyword-only"):
                 instance.retrieve_sources("Another fresh question?", 8)
 
+    def test_retrieval_reports_embedding_failure_even_if_search_falls_back(self):
+        instance = benchmark.BuzzDBEmbeddingBenchmarkTests()
+        instance.user_data_path = "unused-test-path"
+        instance.measurements = {"fresh_query_embedding_seconds": 0.0}
+
+        def search(payload):
+            try:
+                benchmark.engine.ollama_embedding(payload["query"], benchmark.MODEL_SPEC)
+            except RuntimeError:
+                pass
+            return {"sources": [], "reason": None}
+
+        with patch.object(benchmark.engine, "search_library", side_effect=search), \
+                patch.object(benchmark.engine, "ollama_embedding", side_effect=RuntimeError("runner missing")):
+            with self.assertRaisesRegex(AssertionError, "Query embedding failed: runner missing"):
+                instance.retrieve_sources("A question?", 8)
+
 
 if __name__ == "__main__":
     unittest.main()

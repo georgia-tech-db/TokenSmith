@@ -159,12 +159,17 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
     def retrieve_sources(self, question, top_k):
         vector_hit_count = 0
         query_count = 0
+        embedding_errors = []
         original_embed = engine.ollama_embedding
 
         def embed_query(*args, **kwargs):
             nonlocal query_count
             start = time.perf_counter()
-            vector = original_embed(*args, **kwargs)
+            try:
+                vector = original_embed(*args, **kwargs)
+            except Exception as error:
+                embedding_errors.append(str(error))
+                raise
             self.measurements["fresh_query_embedding_seconds"] += time.perf_counter() - start
             query_count += 1
             return vector
@@ -183,6 +188,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
                 "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
                 "embeddingModels": [MODEL_SPEC],
             })
+        self.assertFalse(embedding_errors, "Query embedding failed: " + "; ".join(embedding_errors))
         self.assertEqual(query_count, 1, "Each retrieval must embed the current question afresh.")
         self.assertGreater(vector_hit_count, 0, "Hybrid benchmark must not silently fall back to keyword-only search.")
         self.assertIsNone(result.get("reason"), result.get("reason"))
