@@ -2565,7 +2565,10 @@ function ChatScreen({
   const selectedSourceMessage =
     sourceMessages.find((message) => message.id === expandedMessageId) ?? sourceMessages[sourceMessages.length - 1]
   const selectedSources = useMemo(() => {
-    const sources = isPending && settings.application.showSources ? pendingSources : selectedSourceMessage?.sources ?? []
+    if (!settings.application.showSources) {
+      return []
+    }
+    const sources = isPending ? pendingSources : selectedSourceMessage?.sources ?? []
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
@@ -4020,7 +4023,7 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
-        sources: settings.application.showSources ? reply.sources : [],
+        sources: reply.sources,
         explanationDepth: 'simple',
         responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
         followUpSuggestions: reply.followUpSuggestions ?? [],
@@ -4176,7 +4179,8 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
-        sources: settings.application.showSources ? reply.sources : [],
+        // Kept whatever the display setting is, so a retelling can reuse this evidence.
+        sources: reply.sources,
         conversationContextMode,
         explanationDepth: settings.application.explanationDepth,
         responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
@@ -4325,6 +4329,7 @@ function ChatScreen({
                     expanded={expandedMessageId === message.id}
                     key={message.id}
                     message={message}
+                    showSources={settings.application.showSources}
                     suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)}
                     onExplainSimpler={
                       canExplainSimpler(message, settings.application.suggestionMode)
@@ -4835,6 +4840,7 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
 function AssistantMessage({
   expanded,
   message,
+  showSources,
   suggestionsDisabled,
   onExplainSimpler,
   onSelectFollowUp,
@@ -4842,12 +4848,13 @@ function AssistantMessage({
 }: {
   expanded: boolean
   message: ChatMessage
+  showSources: boolean
   suggestionsDisabled: boolean
   onExplainSimpler?: () => void
   onSelectFollowUp: (suggestion: string) => void
   onToggleSources: () => void
 }) {
-  const sources = message.sources ?? []
+  const sources = showSources ? message.sources ?? [] : []
   const suggestions = message.followUpSuggestions ?? []
   const label = quizMessageLabel(message)
   const modeLabel = contextModeLabel(message.conversationContextMode)
