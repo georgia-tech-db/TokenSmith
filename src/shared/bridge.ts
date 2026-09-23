@@ -46,7 +46,14 @@ export interface TokenSmithBridge {
   resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
   suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
-  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>
+  searchLibrary: (
+    query: string,
+    materials: CourseMaterial[],
+    limit: number,
+    embeddingModels?: LocalModel[],
+    searchMode?: SearchMode,
+    typoCorrectionEnabled?: boolean
+  ) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
   getMarkdownForSource: (source: ChatSource) => Promise<MarkdownSourceDocument>
@@ -69,6 +76,7 @@ export interface TokenSmithBridge {
   preparationReport: (path: string, documentPath?: string) => Promise<PreparationReport>
   onMaterialIndexProgress: (callback: (progress: MaterialIndexProgress) => void) => () => void
   listMaterials: () => Promise<CourseMaterial[]>
+  buildVocabularies: () => Promise<number>
   setMaterialEnabled: (materialId: string, isActive: boolean) => Promise<void>
   removeMaterial: (materialId: string, materialPath?: string) => Promise<void>
   getOllamaStatus: () => Promise<OllamaStatus>

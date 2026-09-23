@@ -2376,6 +2376,33 @@ def has_chunks(user_data_path: str, material_ids: Optional[Sequence[str]] = None
     return row is not None
 
 
+def iter_chunk_texts(user_data_path: str, material_ids: Sequence[str]) -> List[str]:
+    """Return the stored chunk text for the given materials (used to build the
+    typo-correction vocabulary lazily for an already-indexed material)."""
+
+    init_db(user_data_path)
+
+    ids = [str(material_id) for material_id in material_ids if str(material_id).strip()]
+    if not ids:
+        return []
+
+    placeholders = ",".join("?" for _ in ids)
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT ch.chunk_text AS chunk_text
+            FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN folders f ON f.id = d.folder_id
+            JOIN collection_items ci ON ci.folder_id = f.id
+            WHERE CAST(ci.collection_id AS TEXT) IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+
+    return [str(row["chunk_text"] or "") for row in rows]
+
+
 def dump_index(user_data_path: str) -> Dict[str, Any]:
     init_db(user_data_path)
 

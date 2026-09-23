@@ -47,6 +47,7 @@ if _NEEDS_STORE:
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            iter_chunk_texts,
             keyword_search,
             keyword_terms_for_query,
             list_materials,
@@ -70,6 +71,7 @@ if _NEEDS_STORE:
             find_material_id_by_import_path,
             has_chunks,
             init_db,
+            iter_chunk_texts,
             keyword_search,
             keyword_terms_for_query,
             list_materials,
@@ -101,6 +103,25 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         resolve_cleaning_rule_ids,
         resolve_cleaning_profile,
         section_header_from_line,
+    )
+
+try:
+    from tokensmith_vocab import (
+        DEFAULT_TYPO_CUTOFF,
+        build_vocabulary,
+        correct_query,
+        delete_vocabulary,
+        load_vocabulary,
+        save_vocabulary,
+    )
+except ImportError:  # pragma: no cover - allows direct package imports in tests
+    from python_engine.tokensmith_vocab import (
+        DEFAULT_TYPO_CUTOFF,
+        build_vocabulary,
+        correct_query,
+        delete_vocabulary,
+        load_vocabulary,
+        save_vocabulary,
     )
 
 if _NEEDS_LLAMA:
@@ -222,6 +243,8 @@ VISIBLE_LOG_EVENTS = {
     "question_suggestion_runtime_context_budget",
     "library_search_request",
     "library_search_result",
+    "query_typo_correction",
+    "vocab_built",
 }
 
 class EngineError(Exception):
@@ -242,7 +265,23 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 INDEX_CHECKPOINT_BATCH_SIZE = max(1, env_int("TOKENSMITH_INDEX_CHECKPOINT_BATCH_SIZE", 50))
+
+# Builds a per-material vocabulary of high-frequency textbook words at index
+# time and uses it to repair likely typos in retrieval queries. Controlled by
+# the app's "Typo Correction" setting (sent per-request as payload.typoCorrectionEnabled);
+# TOKENSMITH_QUERY_TYPO_CORRECTION only sets the default when a request omits it.
+TYPO_CORRECTION_ENABLED = env_flag("TOKENSMITH_QUERY_TYPO_CORRECTION", False)
+VOCAB_MIN_COUNT = max(1, env_int("TOKENSMITH_VOCAB_MIN_COUNT", 4))
+VOCAB_FORCE_REBUILD = env_flag("TOKENSMITH_VOCAB_REBUILD", False)
+TYPO_CUTOFF = min(1.0, max(0.0, env_float("TOKENSMITH_TYPO_CUTOFF", DEFAULT_TYPO_CUTOFF)))
 
 
 def log_event(event: str, **details: Any) -> None:
@@ -1500,6 +1539,15 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         rebuild_index=True,
         deleted_embedding_models=deleted_embedding_models,
     )
+    if bool(payload.get("typoCorrectionEnabled", TYPO_CORRECTION_ENABLED)) and chunks:
+        try:
+            store_material_vocabulary(
+                user_data_path,
+                material_id,
+                (chunk.get("text") or "" for chunk in chunks),
+            )
+        except Exception as error:  # vocabulary is best-effort, never fail indexing
+            log_event("vocab_build_failed", materialId=material_id, error=str(error))
     emit_index_progress(
         "complete",
         100,
@@ -2077,6 +2125,59 @@ def select_source_rows(
     return selected
 
 
+def store_material_vocabulary(user_data_path: str, material_id: str, chunk_texts: Iterable[str]) -> Dict[str, int]:
+    """Build and persist the high-frequency word list for one material."""
+
+    vocab = build_vocabulary(chunk_texts, min_count=VOCAB_MIN_COUNT)
+    save_vocabulary(user_data_path, material_id, vocab, min_count=VOCAB_MIN_COUNT)
+    log_event("vocab_built", materialId=material_id, wordCount=len(vocab), minCount=VOCAB_MIN_COUNT)
+    return vocab
+
+
+def vocab_words_for_materials(user_data_path: str, material_ids: Sequence[str]) -> List[str]:
+    """Union of the stored vocabularies for the given materials, lazily building
+    any that are missing from previously indexed chunks."""
+
+    words: set = set()
+    for material_id in material_ids:
+        vocab = None if VOCAB_FORCE_REBUILD else load_vocabulary(user_data_path, material_id)
+        if vocab is None:
+            texts = iter_chunk_texts(user_data_path, [material_id])
+            if not texts:
+                continue
+            vocab = store_material_vocabulary(user_data_path, material_id, texts)
+        words.update(vocab.keys())
+    return sorted(words)
+
+
+def apply_query_typo_correction(user_data_path: str, query: str, material_ids: Sequence[str], enabled: bool) -> str:
+    """Return the query with likely typos repaired against the material vocabulary.
+
+    A no-op unless typo correction is enabled for this request. Never raises;
+    retrieval falls back to the original query on any failure.
+    """
+
+    if not enabled or not query.strip() or not material_ids:
+        return query
+    try:
+        vocab_words = vocab_words_for_materials(user_data_path, list(material_ids))
+        if not vocab_words:
+            return query
+        corrected, replacements = correct_query(query, vocab_words, cutoff=TYPO_CUTOFF)
+        if replacements:
+            log_event(
+                "query_typo_correction",
+                original=query,
+                corrected=corrected,
+                replacements=replacements,
+                vocabWords=len(vocab_words),
+            )
+        return corrected
+    except Exception as error:  # correction must never break retrieval
+        log_event("query_typo_correction_failed", error=str(error))
+        return query
+
+
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
@@ -2101,12 +2202,15 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             enabled=len(active_ids),
         )
 
-    query_tokens = sorted(set(tokenize(query)))
     if not active_ids:
         return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
 
     if not has_chunks(user_data_path, active_ids):
         return {"sources": [], "reason": "no_indexed_chunks"}
+
+    typo_correction_enabled = bool(payload.get("typoCorrectionEnabled", TYPO_CORRECTION_ENABLED))
+    query = apply_query_typo_correction(user_data_path, query, active_ids, typo_correction_enabled)
+    query_tokens = sorted(set(tokenize(query)))
 
     collection_embedding_models = embedding_models_by_collection_ids(user_data_path, active_ids)
     active_ids_by_embedding_model: Dict[str, List[str]] = {}
@@ -3000,19 +3104,44 @@ def list_indexed_materials(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"materials": list_materials(payload["userDataPath"])}
 
 
+def build_vocabularies(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Build any missing vocabularies up front, so enabling typo correction does
+    not leave the first search paying for the build."""
+
+    user_data_path = payload["userDataPath"]
+    init_db(user_data_path)
+
+    built = 0
+    for material in list_materials(user_data_path):
+        material_id = str(material.get("id") or "")
+        if not material_id or material.get("status") != "ready":
+            continue
+        if load_vocabulary(user_data_path, material_id) is not None:
+            continue
+        texts = iter_chunk_texts(user_data_path, [material_id])
+        if not texts:
+            continue
+        store_material_vocabulary(user_data_path, material_id, texts)
+        built += 1
+
+    return {"built": built}
+
+
 def set_material_enabled(payload: Dict[str, Any]) -> Dict[str, Any]:
     set_material_active(payload["userDataPath"], payload["materialId"], bool(payload["isActive"]))
     return {"ok": True}
 
 
 def remove_material(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "ok": delete_material(
-            payload["userDataPath"],
-            str(payload.get("materialId") or ""),
-            str(payload.get("path") or "") or None,
-        )
-    }
+    user_data_path = payload["userDataPath"]
+    material_id = str(payload.get("materialId") or "")
+    path = str(payload.get("path") or "") or None
+    if not material_id and path:
+        material_id = find_material_id_by_import_path(user_data_path, path) or ""
+    ok = delete_material(user_data_path, material_id, path)
+    if material_id:
+        delete_vocabulary(user_data_path, material_id)
+    return {"ok": ok}
 
 
 def resolve_source_document(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -3032,6 +3161,7 @@ COMMANDS = {
     "starter_sources": starter_sources,
     "chat": chat,
     "list_materials": list_indexed_materials,
+    "build_vocabularies": build_vocabularies,
     "set_material_enabled": set_material_enabled,
     "remove_material": remove_material,
     "resolve_source_document": resolve_source_document,
