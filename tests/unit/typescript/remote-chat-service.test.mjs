@@ -183,16 +183,15 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
     assert.equal(requestBody.max_tokens, 512)
     assert.equal(response.engineId, 'tokensmith')
     assert.equal(response.text, 'Gemini answer.')
-    assert.deepEqual(response.followUpSuggestions, [])
+    assert.equal(response.followUpSuggestions, undefined)
   })
 })
 
-test('runRemoteStudyEngine asks the selected remote model for follow-up suggestions when enabled', async () => {
+test('runRemoteStudyEngine never requests follow-up suggestions for cloud models even when enabled', async () => {
   const requestBodies = []
 
   await withMockFetch(async (_url, options) => {
-    const body = JSON.parse(String(options.body))
-    requestBodies.push(body)
+    requestBodies.push(JSON.parse(String(options.body)))
 
     return {
       ok: true,
@@ -200,10 +199,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
         choices: [
           {
             message: {
-              content:
-                requestBodies.length === 1
-                  ? 'Atomicity makes a transaction all-or-nothing, so rollback matters when part of a transaction fails.'
-                  : '1. How does durability differ from atomicity?\n2. Why does rollback matter for atomicity?\n3. Which ACID property covers isolation?'
+              content: 'Atomicity makes a transaction all-or-nothing.'
             }
           }
         ]
@@ -213,7 +209,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       applicationSettings: {
         suggestionMode: 'on',
-        followUpSuggestionCount: 2
+        followUpSuggestionCount: 4
       },
       modelSettings: {
         maxLength: 512,
@@ -223,177 +219,11 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
       }
     }))
 
-    assert.equal(requestBodies.length, 2)
-    assert.equal(requestBodies[1].messages.length, 1)
-    assert.match(requestBodies[1].messages.at(-1).content, /Current question:\nWhat is atomicity\?/)
-    assert.match(requestBodies[1].messages.at(-1).content, /Latest answer:\nAtomicity makes a transaction all-or-nothing/)
-    assert.match(requestBodies[1].messages.at(-1).content, /Generate 2 suggested follow-up questions\.\nSuggest follow-up questions\./)
-    assert.doesNotMatch(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
-    assert.deepEqual(response.followUpSuggestions, [
-      'How does durability differ from atomicity?',
-      'Why does rollback matter for atomicity?'
-    ])
-  })
-})
-
-test('runRemoteStudyEngine keeps a short model list without inventing extra questions', async () => {
-  const requestBodies = []
-
-  await withMockFetch(async (_url, options) => {
-    const body = JSON.parse(String(options.body))
-    requestBodies.push(body)
-
-    return {
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content:
-                requestBodies.length === 1
-                  ? 'No. 2Q uses FIFO and LRU queues to balance recency and frequency for scans.'
-                  : [
-                      'How does 2Q balance recency and frequency?'
-                    ].join('\n')
-            }
-          }
-        ]
-      })
-    }
-  }, async () => {
-    const response = await runRemoteStudyEngine(remoteStudyRequest({
-      prompt: "Isn't contention also a problem in 2Q?",
-      applicationSettings: {
-        suggestionMode: 'on',
-        followUpSuggestionCount: 4
-      },
-      modelSettings: {
-        maxLength: 512,
-        temperature: 0.2,
-        topP: 0.95
-      }
-    }))
-
-    assert.equal(requestBodies.length, 2)
-    assert.deepEqual(response.followUpSuggestions, [
-      'How does 2Q balance recency and frequency?'
-    ])
-  })
-})
-
-test('runRemoteStudyEngine accepts an empty suggestion list without replacing it or the answer', async () => {
-  let calls = 0
-  await withMockFetch(async () => ({
-    ok: true,
-    json: async () => ({ choices: [{ message: { content: ++calls === 1
-      ? 'Atomicity makes a transaction all-or-nothing.' : '[]' } }] })
-  }), async () => {
-    const response = await runRemoteStudyEngine(remoteStudyRequest({
-      applicationSettings: { suggestionMode: 'on', followUpSuggestionCount: 4 }
-    }))
-    assert.equal(calls, 2)
+    // Only the answer request is made; no second follow-up request.
+    assert.equal(requestBodies.length, 1)
     assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
-    assert.deepEqual(response.followUpSuggestions, [])
+    assert.equal(response.followUpSuggestions, undefined)
     assert.equal(response.followUpError, undefined)
-  })
-})
-
-test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', async () => {
-  const requestBodies = []
-
-  await withMockFetch(async (_url, options) => {
-    const body = JSON.parse(String(options.body))
-    requestBodies.push(body)
-
-    return {
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content:
-                requestBodies.length === 1
-                  ? 'The chapter covers physical storage media such as magnetic disks and flash storage, storage reliability, and how storage choices affect system design.'
-                  : 'What are the main categories of storage media?\nHow do magnetic disks and flash storage compare?\nWhy does storage reliability matter?\nHow do storage choices affect system design?'
-            }
-          }
-        ]
-      })
-    }
-  }, async () => {
-    const response = await runRemoteStudyEngine(remoteStudyRequest({
-      prompt: 'What are the key ideas in this chapter?',
-      retrievedSources: [
-        {
-          title: 'Chapter 12',
-          locator: 'Page 1',
-          excerpt: 'The chapter discusses physical storage media.'
-        }
-      ],
-      applicationSettings: {
-        suggestionMode: 'on',
-        followUpSuggestionCount: 4
-      },
-      modelSettings: {
-        maxLength: 512,
-        temperature: 0.2,
-        topP: 0.95
-      }
-    }))
-
-    assert.equal(requestBodies.length, 2)
-    const followUpPrompt = requestBodies[1].messages.at(-1).content
-    assert.match(followUpPrompt, /Suggest up to 4 short next questions an undergraduate student/i)
-    assert.match(followUpPrompt, /after the latest answer/i)
-    assert.match(followUpPrompt, /small example, an implementation detail, or a limitation/i)
-    assert.doesNotMatch(followUpPrompt, /very short factual/i)
-    assert.doesNotMatch(followUpPrompt, /cannot be found/i)
-    assert.doesNotMatch(followUpPrompt, /\{count\}/)
-    assert.deepEqual(response.followUpSuggestions, [
-      'What are the main categories of storage media?',
-      'How do magnetic disks and flash storage compare?',
-      'Why does storage reliability matter?',
-      'How do storage choices affect system design?'
-    ])
-  })
-})
-
-test('runRemoteStudyEngine surfaces follow-up generation failures without replacing the answer', async () => {
-  let requestCount = 0
-
-  await withMockFetch(async () => {
-    requestCount += 1
-    if (requestCount === 1) {
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: 'Atomicity makes a transaction all-or-nothing.'
-              }
-            }
-          ]
-        })
-      }
-    }
-
-    return {
-      ok: false,
-      status: 500,
-      text: async () => 'suggestion model failed'
-    }
-  }, async () => {
-    const response = await runRemoteStudyEngine(remoteStudyRequest({
-      applicationSettings: {
-        suggestionMode: 'on',
-        followUpSuggestionCount: 2
-      }
-    }))
-
-    assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
-    assert.deepEqual(response.followUpSuggestions, undefined)
-    assert.match(response.followUpError, /suggestion model failed/)
   })
 })
 

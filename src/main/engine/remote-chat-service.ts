@@ -13,17 +13,9 @@ import { remoteGeneratorFetch } from './remote-generator-network'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
-  followUpSuggestionMessages,
-  followUpSuggestionCount,
   modelAwareRuntimeSettings,
-  parseFollowUpSuggestions,
-  questionSuggestionCount,
-  questionSuggestionMessages,
-  suggestionMaxTokens,
-  shouldGenerateFollowUps,
   studyChatMessages,
-  type StudyChatMessage,
-  filterSuggestedQuestions
+  type StudyChatMessage
 } from './study-chat-format'
 
 interface OpenAiCompatibleModelList {
@@ -49,10 +41,6 @@ interface RemoteCompletionConfig {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '')
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
 }
 
 function isGeminiOpenAiBaseUrl(baseUrl: string): boolean {
@@ -242,43 +230,6 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
   return resolution
 }
 
-async function generateRemoteFollowUpSuggestions(
-  request: EngineChatRequest,
-  answer: string,
-  config: RemoteCompletionConfig
-): Promise<string[]> {
-  if (!shouldGenerateFollowUps(request)) {
-    return []
-  }
-
-  const count = followUpSuggestionCount(request)
-  if (count === 0) {
-    return []
-  }
-  const maxTokens = suggestionMaxTokens
-  const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
-
-  const text = await runRemoteChatCompletion(
-    config,
-    followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true }
-  )
-  const referenceQuestions = [
-    ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
-    request.prompt
-  ].filter((question) => question.trim().length > 0)
-  const suggestions = filterSuggestedQuestions(
-    parseFollowUpSuggestions(text, count * 2),
-    referenceQuestions,
-    count
-  )
-  writeTokenSmithLog('follow_up_suggestions', {
-    provider: 'remote', modelName: config.modelName, prompt: request.prompt,
-    rawResponse: text, suggestions, requestedCount: count
-  })
-  return suggestions
-}
-
 export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
@@ -294,21 +245,15 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
   }
   const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
-  let followUpSuggestions: string[] | undefined
-  let followUpError: string | undefined
-  try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
-  } catch (error) {
-    followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
-  }
 
+  // Cloud (remote) models do not generate follow-up suggestions.
   return {
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
-    followUpSuggestions,
-    followUpError
+    followUpSuggestions: undefined,
+    followUpError: undefined
   }
 }
 
@@ -317,33 +262,6 @@ export async function generateRemoteStudyQuestionSuggestions(
 ): Promise<EngineQuestionSuggestionResponse> {
   assertRemoteModel(request.model)
 
-  const count = questionSuggestionCount(request.applicationSettings)
-  if (count === 0) {
-    return { suggestions: [] }
-  }
-
-  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
-  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
-  const config = {
-    endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
-    modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
-    apiKey: request.model.apiKey,
-    settings
-  }
-  const maxTokens = suggestionMaxTokens
-  const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
-
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
-  const referenceQuestions = runtimeRequest.messages
-    .filter((message) => message.role === 'user')
-    .map((message) => message.text)
-  const suggestions = filterSuggestedQuestions(
-    parseFollowUpSuggestions(text, count * 2),
-    referenceQuestions,
-    count
-  )
-  writeTokenSmithLog('initial_question_suggestions', {
-    provider: 'remote', modelName: config.modelName, rawResponse: text, suggestions, requestedCount: count
-  })
-  return { suggestions }
+  // Cloud (remote) models do not generate suggested questions.
+  return { suggestions: [] }
 }
