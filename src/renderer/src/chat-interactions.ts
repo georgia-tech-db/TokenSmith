@@ -1,4 +1,4 @@
-import type { ChatMessage, SuggestionMode } from '@shared/app-state'
+import type { ApplicationSettings, ChatMessage, SuggestionMode } from '@shared/app-state'
 
 export function addQuoteToDraft(draft: string, selection: string): string {
   const text = selection.trim()
@@ -22,6 +22,13 @@ export function canExplainSimpler(message: ChatMessage, suggestionMode: Suggesti
     message.role === 'assistant' &&
     message.explanationDepth !== 'simple' &&
     (!message.kind || message.kind === 'chat')
+}
+
+// Settings for one retelling. The depth gate exists to stop a stale picker value from
+// quietly shaping answers, so an explicit click has to switch it on: the chip is offered
+// alongside the follow-ups, whether or not the student uses the depth picker at all.
+export function simplerExplanationSettings(settings: ApplicationSettings): ApplicationSettings {
+  return { ...settings, explanationDepthEnabled: true, explanationDepth: 'simple' }
 }
 
 // Editing keeps the question's identity but invalidates all answers after it.

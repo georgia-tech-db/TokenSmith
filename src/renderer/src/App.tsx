@@ -6,7 +6,7 @@ import { MessageText } from './MessageText'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
-import { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion } from './chat-interactions'
+import { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion, simplerExplanationSettings } from './chat-interactions'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -4010,7 +4010,7 @@ function ChatScreen({
         materials: activeMaterials,
         model: selectedModel,
         settings,
-        applicationSettings: { ...settings.application, explanationDepth: 'simple' },
+        applicationSettings: simplerExplanationSettings(settings.application),
         modelSettings: modelSettingsFor(settings, selectedModel.id),
         retrievedSources: answer.sources ?? []
       })
