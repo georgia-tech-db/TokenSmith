@@ -172,6 +172,8 @@ export interface ChatMessage {
   text: string
   sources?: ChatSource[]
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
+  // The depth this answer was written at, so the reader knows what produced it.
+  explanationDepth?: ExplanationDepth
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string

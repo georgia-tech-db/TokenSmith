@@ -1,10 +1,27 @@
-import type { ChatMessage } from '@shared/app-state'
+import type { ChatMessage, SuggestionMode } from '@shared/app-state'
 
 export function addQuoteToDraft(draft: string, selection: string): string {
   const text = selection.trim()
   if (!text) return draft
   const quote = text.split(/\r?\n/).map((line) => `> ${line}`).join('\n')
   return `${quote}\n\n${draft}`
+}
+
+// Re-explaining reuses the answer's own evidence, so it needs the question that produced it.
+export function questionForAnswer(messages: ChatMessage[], answerId: string): ChatMessage | undefined {
+  const answerIndex = messages.findIndex((message) => message.id === answerId)
+  if (answerIndex < 0) return undefined
+  return messages.slice(0, answerIndex).reverse().find((message) => message.role === 'user')
+}
+
+// "Explain simpler" reads as another suggested follow-up, so it lives and dies with that
+// setting. It is also pointless on an answer that is already simple, and re-simplifying a
+// quiz question would defeat the quiz.
+export function canExplainSimpler(message: ChatMessage, suggestionMode: SuggestionMode): boolean {
+  return suggestionMode !== 'off' &&
+    message.role === 'assistant' &&
+    message.explanationDepth !== 'simple' &&
+    (!message.kind || message.kind === 'chat')
 }
 
 // Editing keeps the question's identity but invalidates all answers after it.

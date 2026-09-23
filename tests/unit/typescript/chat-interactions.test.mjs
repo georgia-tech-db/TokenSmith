@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { addQuoteToDraft, replaceQuestion } = requireTranspiledTs('src/renderer/src/chat-interactions.ts')
+const { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion } =
+  requireTranspiledTs('src/renderer/src/chat-interactions.ts')
 const { prepareRewrittenStudyChat } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
 
 test('adding a selection keeps the existing draft and quotes every line', () => {
@@ -65,6 +66,31 @@ test('resending a quiz turn as a study question removes stale quiz metadata', ()
   ], 'quiz-answer', 'Explain my answer.'), [
     { id: 'quiz-answer', role: 'user', text: 'Explain my answer.' }
   ])
+})
+
+test('re-explaining an answer reuses the question that produced it, not a later one', () => {
+  assert.equal(questionForAnswer(history, 'a2').id, 'q2')
+  assert.equal(questionForAnswer(history, 'a1').id, 'q1')
+  assert.equal(questionForAnswer(history, 'missing'), undefined)
+  // An answer with no question before it cannot be re-explained.
+  assert.equal(questionForAnswer([{ id: 'a0', role: 'assistant', text: 'Orphan.' }], 'a0'), undefined)
+  assert.equal(history[0].text, 'What is a B+ tree?')
+})
+
+test('explain simpler is offered only where a simpler answer makes sense', () => {
+  const answer = { id: 'a1', role: 'assistant', text: 'An answer.' }
+  assert.equal(canExplainSimpler(answer, 'on'), true)
+  assert.equal(canExplainSimpler({ ...answer, explanationDepth: 'detailed' }, 'on'), true)
+
+  // It reads as a suggested follow-up, so it disappears with them.
+  assert.equal(canExplainSimpler(answer, 'off'), false)
+  // Nothing simpler to offer.
+  assert.equal(canExplainSimpler({ ...answer, explanationDepth: 'simple' }, 'on'), false)
+  // Simplifying a quiz question would defeat the quiz.
+  assert.equal(canExplainSimpler({ ...answer, kind: 'quizQuestion' }, 'on'), false)
+  assert.equal(canExplainSimpler({ ...answer, kind: 'chat' }, 'on'), true)
+  // Questions are not re-explained, answers are.
+  assert.equal(canExplainSimpler({ id: 'q1', role: 'user', text: 'A question.' }, 'on'), false)
 })
 
 test('resending an edited follow-up passes only the earlier exchange through the real chat pipeline', async () => {
