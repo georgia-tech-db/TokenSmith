@@ -1803,7 +1803,7 @@ export function App() {
         ...options,
         preparation,
         preparationModel,
-        embeddingGpuEnabled: options.embeddingGpuEnabled ?? settings.application.embeddingGpuEnabled,
+        embeddingGpuEnabled: options.embeddingGpuEnabled ?? appState.settings.application.embeddingGpuEnabled,
         title: options.title ?? indexingMaterial?.title,
         cleaningProfileId: options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId,
         cleaningRuleIds:
