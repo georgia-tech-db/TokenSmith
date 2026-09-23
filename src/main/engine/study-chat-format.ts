@@ -1,4 +1,4 @@
-import type { ChatSource, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
+import type { ChatSource, ExplanationDepth, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import {
@@ -34,6 +34,40 @@ function sourceContextInstructionText(): string {
   return sourceContextInstructions.join('\n')
 }
 
+// Shapes how far an answer unpacks an idea, never what it is allowed to claim: the
+// grounding rules above still apply. 'standard' is empty so the default answer stays
+// byte-identical to what it was before this setting existed.
+const explanationDepthInstructions: Record<ExplanationDepth, string> = {
+  simple: [
+    'Explanation depth: the student is meeting this idea for the first time.',
+    'Lead with the core idea in plain language, and define any technical term you cannot avoid the first time it appears.',
+    'Ground the idea in one concrete example or familiar comparison, preferring an example the study material already uses.',
+    'Stay on the single main idea: leave out edge cases, secondary conditions, and formal notation unless the question asks for them.',
+    'Simplify without distorting. Where a simplification would leave a false impression, add one short sentence naming the limit instead of making an inaccurate claim.',
+    'Brevity is not the goal; aim for an explanation the student could restate in their own words.'
+  ].join(' '),
+  standard: '',
+  detailed: [
+    'Explanation depth: the student already has a working understanding of this idea and wants to sharpen it.',
+    'Use the precise terminology the study material uses, and state the conditions, assumptions, and limits under which each claim holds.',
+    'Explain why the mechanism works and which trade-off or failure case it exists to address, not only what it does.',
+    'Where the material supports it, separate this concept from the adjacent one it is most often confused with and name the distinguishing property.',
+    'Depth must come from the evidence: do not pad the answer with length, restatement, speculation, or invented specifics.'
+  ].join(' ')
+}
+
+function explanationDepthInstruction(depth?: ExplanationDepth): string {
+  return (depth && explanationDepthInstructions[depth]) || ''
+}
+
+// The picker only reaches the prompt while the student has the setting switched on,
+// so a depth left over from an earlier session cannot quietly shape answers.
+function requestExplanationDepth(
+  applicationSettings?: EngineChatRequest['applicationSettings']
+): ExplanationDepth | undefined {
+  return applicationSettings?.explanationDepthEnabled ? applicationSettings.explanationDepth : undefined
+}
+
 export interface SourceContextBudget {
   modelContextTokens: number
   answerReserveTokens: number
@@ -54,6 +88,7 @@ interface SourceContextOptions {
   modelSettings?: Partial<ModelRuntimeSettings>
   includeBudget?: boolean
   includeInstructions?: boolean
+  explanationDepth?: ExplanationDepth
 }
 
 export function estimateTokens(text: string): number {
@@ -242,6 +277,7 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const fixedPromptTokens = estimateTokens([
     options?.modelSettings?.systemMessage,
     sourceContextInstructions.join('\n'),
+    explanationDepthInstruction(options?.explanationDepth),
     options?.referenceText,
     options?.prompt ? `Question: ${options.prompt}` : ''
   ].filter(Boolean).join('\n\n'))
@@ -337,7 +373,8 @@ export function sourceContextBudgetForRequest(request: EngineChatRequest | Engin
     prompt,
     ...('prompt' in request ? {
       evidenceQuery: request.retrievalQuery,
-      referenceText: chatReferenceText(request)
+      referenceText: chatReferenceText(request),
+      explanationDepth: requestExplanationDepth(request.applicationSettings)
     } : {}),
     model: request.model,
     modelSettings: 'prompt' in request ? request.modelSettings : { ...request.modelSettings, maxLength: suggestionMaxTokens },
@@ -441,7 +478,8 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
     model: request.model,
     modelSettings,
     includeBudget: true,
-    includeInstructions: false
+    includeInstructions: false,
+    explanationDepth: requestExplanationDepth(request.applicationSettings)
   })
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
@@ -449,7 +487,8 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   const messages: StudyChatMessage[] = []
   const systemMessage = [
     configuredSystemMessage,
-    context || referenceText ? sourceContextInstructionText() : ''
+    context || referenceText ? sourceContextInstructionText() : '',
+    explanationDepthInstruction(requestExplanationDepth(request.applicationSettings))
   ].filter(Boolean).join('\n\n')
 
   if (systemMessage) {

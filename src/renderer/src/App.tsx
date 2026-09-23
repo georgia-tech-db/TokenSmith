@@ -6,10 +6,11 @@ import { MessageText } from './MessageText'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
-import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
+import { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion, simplerExplanationSettings } from './chat-interactions'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
+import { ChatDepthPicker } from './ChatDepthPicker'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
 import './cloud-generators.css'
@@ -24,6 +25,7 @@ import type {
   ComputeDevice,
   Conversation,
   CourseMaterial,
+  ExplanationDepth,
   LocalModel,
   LocalModelRole,
   MaterialIndexProgress,
@@ -202,6 +204,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   defaultModelId: '',
   suggestionMode: 'on',
   searchMode: 'hybrid',
+  explanationDepthEnabled: false,
+  explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
   cpuThreads: 4
@@ -877,6 +881,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     defaultModelId,
     suggestionMode,
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
+    explanationDepthEnabled: settings?.explanationDepthEnabled ?? defaultApplicationSettings.explanationDepthEnabled,
+    explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
     cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
@@ -2410,6 +2416,9 @@ export function App() {
             onSelectModel={selectModel}
             onConnectCloud={openCloudSetup}
             onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
+            onExplanationDepthChange={(explanationDepth) =>
+              updateSettings({ application: { ...appState.settings.application, explanationDepth } })
+            }
             onToggleMaterialActive={toggleMaterialActive}
           />
         )}
@@ -2485,6 +2494,7 @@ function ChatScreen({
   onSelectModel,
   onConnectCloud,
   onManageModels,
+  onExplanationDepthChange,
   onToggleMaterialActive
 }: {
   activeConversationId: string
@@ -2503,6 +2513,7 @@ function ChatScreen({
   onSelectModel: (modelId: string) => void
   onConnectCloud: (model?: LocalModel) => void
   onManageModels: () => void
+  onExplanationDepthChange: (depth: ExplanationDepth) => void
   onToggleMaterialActive: (materialId: string) => void
   onChatStateChange: (
     updater: (current: Pick<AppStateSnapshot, 'activeConversationId' | 'conversations'>) => Pick<
@@ -2554,7 +2565,10 @@ function ChatScreen({
   const selectedSourceMessage =
     sourceMessages.find((message) => message.id === expandedMessageId) ?? sourceMessages[sourceMessages.length - 1]
   const selectedSources = useMemo(() => {
-    const sources = isPending && settings.application.showSources ? pendingSources : selectedSourceMessage?.sources ?? []
+    if (!settings.application.showSources) {
+      return []
+    }
+    const sources = isPending ? pendingSources : selectedSourceMessage?.sources ?? []
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
@@ -3948,6 +3962,95 @@ function ChatScreen({
     void handleStartQuiz()
   }
 
+  // Re-answers the question that produced `answerId` at the simple depth. The already
+  // retrieved sources are reused, so this skips question rewriting and search entirely,
+  // and the depth override lasts only for this request.
+  async function explainSimpler(answerId: string) {
+    if (pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || editingQuestionId) {
+      return
+    }
+
+    const messages = activeConversation.messages
+    const answerIndex = messages.findIndex((message) => message.id === answerId)
+    const answer = messages[answerIndex]
+    const question = questionForAnswer(messages, answerId)
+    if (!answer || !question || !window.tokensmith) {
+      return
+    }
+
+    const targetConversationId = activeConversation.id
+    const history = messages.slice(0, answerIndex + 1)
+    const responseStartedAt = performance.now()
+    const userMessage: ChatMessage = {
+      id: createId('user'),
+      role: 'user',
+      text: 'Explain that more simply.'
+    }
+
+    onChatStateChange((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) =>
+        conversation.id === targetConversationId
+          ? { ...conversation, messages: [...conversation.messages, userMessage] }
+          : conversation
+      )
+    }))
+    setExpandedMessageId(null)
+    setSourceTrayError(null)
+    setChatError(null)
+    setPendingConversationId(targetConversationId)
+    setPendingSources([])
+    const requestSequence = requestSequenceRef.current + 1
+    requestSequenceRef.current = requestSequence
+
+    try {
+      const reply = await window.tokensmith.sendChatMessage({
+        prompt: question.text,
+        messages: history,
+        materials: activeMaterials,
+        model: selectedModel,
+        settings,
+        applicationSettings: simplerExplanationSettings(settings.application),
+        modelSettings: modelSettingsFor(settings, selectedModel.id),
+        retrievedSources: answer.sources ?? []
+      })
+
+      if (requestSequenceRef.current !== requestSequence) {
+        return
+      }
+
+      const assistantMessage: ChatMessage = {
+        id: createId('assistant'),
+        role: 'assistant',
+        text: reply.text,
+        sources: reply.sources,
+        explanationDepth: 'simple',
+        responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
+        followUpSuggestions: reply.followUpSuggestions ?? [],
+        followUpError: reply.followUpError
+      }
+
+      onChatStateChange((current) => ({
+        ...current,
+        conversations: current.conversations.map((conversation) =>
+          conversation.id === targetConversationId
+            ? { ...conversation, messages: [...conversation.messages, assistantMessage] }
+            : conversation
+        )
+      }))
+    } catch (error) {
+      if (requestSequenceRef.current === requestSequence) {
+        setChatError(readableErrorMessage(error, 'Chat request failed.'))
+      }
+    } finally {
+      if (requestSequenceRef.current === requestSequence) {
+        setPendingConversationId(null)
+        setPendingStatusText(null)
+        setPendingSources([])
+      }
+    }
+  }
+
   async function submitPrompt(rawPrompt: string, editMessageId?: string) {
     const prompt = rawPrompt.trim()
     if (!prompt || pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
@@ -4076,8 +4179,10 @@ function ChatScreen({
         id: createId('assistant'),
         role: 'assistant',
         text: reply.text,
-        sources: settings.application.showSources ? reply.sources : [],
+        // Kept whatever the display setting is, so a retelling can reuse this evidence.
+        sources: reply.sources,
         conversationContextMode,
+        explanationDepth: settings.application.explanationDepth,
         responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
         followUpSuggestions: reply.followUpSuggestions ?? [],
         followUpError: reply.followUpError
@@ -4177,8 +4282,14 @@ function ChatScreen({
           >
             <PanelIcon />
           </button>
-          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
-            onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
+          <div className="chat-topbar-controls">
+            <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+              onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
+            {settings.application.explanationDepthEnabled && (
+              <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending}
+                onSelect={onExplanationDepthChange} />
+            )}
+          </div>
           <button
             className="library-pill"
             type="button"
@@ -4218,7 +4329,13 @@ function ChatScreen({
                     expanded={expandedMessageId === message.id}
                     key={message.id}
                     message={message}
+                    showSources={settings.application.showSources}
                     suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)}
+                    onExplainSimpler={
+                      canExplainSimpler(message, settings.application.suggestionMode)
+                        ? () => void explainSimpler(message.id)
+                        : undefined
+                    }
                     onSelectFollowUp={handleUseFollowUpSuggestion}
                     onToggleSources={() =>
                       setExpandedMessageId((current) => (current === message.id ? null : message.id))
@@ -4723,17 +4840,21 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
 function AssistantMessage({
   expanded,
   message,
+  showSources,
   suggestionsDisabled,
+  onExplainSimpler,
   onSelectFollowUp,
   onToggleSources
 }: {
   expanded: boolean
   message: ChatMessage
+  showSources: boolean
   suggestionsDisabled: boolean
+  onExplainSimpler?: () => void
   onSelectFollowUp: (suggestion: string) => void
   onToggleSources: () => void
 }) {
-  const sources = message.sources ?? []
+  const sources = showSources ? message.sources ?? [] : []
   const suggestions = message.followUpSuggestions ?? []
   const label = quizMessageLabel(message)
   const modeLabel = contextModeLabel(message.conversationContextMode)
@@ -4777,6 +4898,18 @@ function AssistantMessage({
           </section>
         )}
         {message.followUpError && <p className="follow-up-error">{message.followUpError}</p>}
+        {onExplainSimpler && (
+          <button
+            className="source-chip"
+            type="button"
+            disabled={suggestionsDisabled}
+            onClick={onExplainSimpler}
+            title="Answer the same question in plainer language"
+          >
+            <Sparkles size={16} aria-hidden="true" />
+            <span>Explain simpler</span>
+          </button>
+        )}
         {sources.length > 0 && (
           <>
             <button
@@ -6803,6 +6936,16 @@ function SettingsScreen({
                     { label: 'Keyword', value: 'keyword' },
                     { label: 'Hybrid', value: 'hybrid' }
                   ]}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Explanation Depth"
+                description="Show a depth picker in the chat bar so you can ask for a simpler or more in-depth explanation question by question."
+              >
+                <CheckboxField
+                  ariaLabel="Explanation depth"
+                  checked={settings.application.explanationDepthEnabled}
+                  onChange={(explanationDepthEnabled) => updateApplicationSettings({ explanationDepthEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="CPU Threads" description="The number of CPU threads used for inference.">
