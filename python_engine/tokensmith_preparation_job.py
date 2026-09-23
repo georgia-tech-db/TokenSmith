@@ -144,6 +144,15 @@ def index(payload: dict, engine: Any) -> dict:
         stored.extend(engine.indexed_chunks(material_id, title, document['id'], document['title'], file_path,
                                              chunks, embedding_key, cached_embed, on_embedding))
         count += len(chunks)
+    if payload.get('generateBridges'):
+        try:
+            rows, stats = engine.bridge_chunk_rows(
+                payload, stored, cached_embed,
+                lambda message: progress('embedding', 94, message, processedFiles=len(files)))
+            stored.extend(rows)
+            engine.log_event('bridge_generation', **stats)
+        except Exception as error:  # bridges are an enhancement; never fail the upload for them
+            engine.log_event('bridge_generation_failed', error=str(error))
     material = engine.summarize_material(path, material_id, documents, stored)
     material.update(title=title, fileCount=len(files), preparation=settings, preparationModelName=model.get('name'),
                     preparationIssueCount=len(failures) + sum(bool(d.get('warning')) for d in report_documents),

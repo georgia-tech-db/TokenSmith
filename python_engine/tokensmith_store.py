@@ -1555,10 +1555,37 @@ def _active_chunks_filter(active_material_ids: Sequence[str]) -> Tuple[str, List
               AND CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
               AND s.status = 'ready'
               AND s.is_active = 1
+              AND COALESCE(ch.chunk_kind, '') <> 'bridge'
         )
         """,
         [str(material_id) for material_id in active_material_ids],
     )
+
+
+def bridge_chunk_ids(user_data_path: str, active_material_ids: Sequence[str]) -> Set[int]:
+    """Bridge chunk ids in the active collections, so retrieval can hold them out of rank fusion.
+
+    Retrieval also needs the count up front: the vector arm has to over-fetch by this many, or
+    bridges would consume candidate slots and shrink the book's own candidate list.
+    """
+    if not active_material_ids:
+        return set()
+    placeholders = ",".join("?" for _ in active_material_ids)
+    with connect(user_data_path) as conn:
+        return {
+            int(row["id"])
+            for row in conn.execute(
+                f"""
+                SELECT ch.id AS id
+                FROM chunks ch
+                JOIN documents d ON d.id = ch.document_id
+                JOIN collection_items ci ON ci.folder_id = d.folder_id
+                WHERE ch.chunk_kind = 'bridge'
+                  AND CAST(ci.collection_id AS TEXT) IN ({placeholders})
+                """,
+                [str(material_id) for material_id in active_material_ids],
+            )
+        }
 
 
 def keyword_query_terms(query: str) -> List[str]:
