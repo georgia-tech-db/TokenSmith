@@ -14,13 +14,8 @@ import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrit
 import {
   answerWithOrderedSources,
   modelAwareRuntimeSettings,
-  parseFollowUpSuggestions,
-  questionSuggestionCount,
-  questionSuggestionMessages,
-  suggestionMaxTokens,
   studyChatMessages,
-  type StudyChatMessage,
-  filterSuggestedQuestions
+  type StudyChatMessage
 } from './study-chat-format'
 
 interface OpenAiCompatibleModelList {
@@ -267,33 +262,6 @@ export async function generateRemoteStudyQuestionSuggestions(
 ): Promise<EngineQuestionSuggestionResponse> {
   assertRemoteModel(request.model)
 
-  const count = questionSuggestionCount(request.applicationSettings)
-  if (count === 0) {
-    return { suggestions: [] }
-  }
-
-  const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
-  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
-  const config = {
-    endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
-    modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
-    apiKey: request.model.apiKey,
-    settings
-  }
-  const maxTokens = suggestionMaxTokens
-  const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
-
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
-  const referenceQuestions = runtimeRequest.messages
-    .filter((message) => message.role === 'user')
-    .map((message) => message.text)
-  const suggestions = filterSuggestedQuestions(
-    parseFollowUpSuggestions(text, count * 2),
-    referenceQuestions,
-    count
-  )
-  writeTokenSmithLog('initial_question_suggestions', {
-    provider: 'remote', modelName: config.modelName, rawResponse: text, suggestions, requestedCount: count
-  })
-  return { suggestions }
+  // Cloud (remote) models do not generate suggested questions.
+  return { suggestions: [] }
 }
