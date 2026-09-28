@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 2954/13803 | 21.4% |
+| Frontend / Electron (TypeScript / TSX) | 2959/13841 | 21.4% |
 | Backend (Python) | 2549/2908 | 87.7% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -20,21 +20,21 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `python_engine/tokensmith_preparation.py` | 148/166 | 89.2% |
 | `python_engine/tokensmith_store.py` | 836/929 | 90.0% |
 | `src/main/engine/cloud-generator-service.ts` | 211/211 | 100.0% |
-| `src/main/engine/engine-service.ts` | 0/171 | 0.0% |
+| `src/main/engine/engine-service.ts` | 0/175 | 0.0% |
 | `src/main/engine/ollama-library-search.ts` | 211/223 | 94.6% |
-| `src/main/engine/ollama-service.ts` | 384/1008 | 38.1% |
+| `src/main/engine/ollama-service.ts` | 386/1010 | 38.2% |
 | `src/main/engine/question-rewrite.ts` | 55/59 | 93.2% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
-| `src/main/engine/remote-chat-service.ts` | 297/349 | 85.1% |
+| `src/main/engine/remote-chat-service.ts` | 299/354 | 84.5% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
 | `src/main/engine/study-chat-format.ts` | 757/783 | 96.7% |
-| `src/main/engine/study-engine-core.ts` | 83/90 | 92.2% |
-| `src/main/index.ts` | 0/550 | 0.0% |
+| `src/main/engine/study-engine-core.ts` | 84/91 | 92.3% |
+| `src/main/index.ts` | 0/567 | 0.0% |
 | `src/main/models/local-model-service.ts` | 0/35 | 0.0% |
 | `src/main/python/python-engine-service.ts` | 196/803 | 24.4% |
-| `src/preload/index.ts` | 0/137 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/7220 | 0.0% |
+| `src/preload/index.ts` | 0/139 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/7226 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 15/15 | 100.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
 | `src/renderer/src/CloudGeneratorDialog.tsx` | 0/176 | 0.0% |
@@ -47,7 +47,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/QuestionEditor.tsx` | 0/54 | 0.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
 | `src/shared/app-state.ts` | 0/219 | 0.0% |
-| `src/shared/bridge.ts` | 0/89 | 0.0% |
+| `src/shared/bridge.ts` | 0/90 | 0.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
 | `src/shared/cloud-generators.ts` | 51/52 | 98.1% |
 | `src/shared/engine.ts` | 0/159 | 0.0% |
@@ -61,6 +61,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 97da3958ea3bd392a0d1ca191ef0814edc485e57
+Measured commit: accd81ab52fb019e8e437668aa0934bcf8f1cbb9
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/35774641255)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36383736863)
