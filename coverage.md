@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 2959/13841 | 21.4% |
+| Frontend / Electron (TypeScript / TSX) | 2959/13869 | 21.3% |
 | Backend (Python) | 2549/2908 | 87.7% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -37,7 +37,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/App.tsx` | 0/7226 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 15/15 | 100.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
-| `src/renderer/src/CloudGeneratorDialog.tsx` | 0/176 | 0.0% |
+| `src/renderer/src/CloudGeneratorDialog.tsx` | 0/204 | 0.0% |
 | `src/renderer/src/ConversationViewport.tsx` | 0/216 | 0.0% |
 | `src/renderer/src/LibraryWorkspace.tsx` | 0/200 | 0.0% |
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
@@ -61,6 +61,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: accd81ab52fb019e8e437668aa0934bcf8f1cbb9
+Measured commit: 22b8229c0ca5ef768f8500b4b39f03c21530b642
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36383736863)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36388003830)
