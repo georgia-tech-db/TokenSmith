@@ -24,6 +24,12 @@ import { AnswerExplanation } from './AnswerExplanation'
 import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import {
+  isLocalAnswerModel,
+  isOnlineAnswerModel,
+  normalizeAnswerModelDefaults,
+  normalizeConversationModelSelection
+} from '@shared/chat-model-selection'
 import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
@@ -33,6 +39,7 @@ import type {
   AppStateSnapshot,
   ChatMessage,
   ChatSelectedPassage,
+  ChatModelMode,
   ChatSource,
   Conversation,
   CourseMaterial,
@@ -215,6 +222,9 @@ const defaultApplicationSettings: ApplicationSettings = {
   theme: 'light',
   fontSize: 'normal',
   defaultModelId: '',
+  defaultLocalModelId: '',
+  defaultOnlineModelId: '',
+  defaultChatMode: 'local',
   suggestionMode: 'on',
   searchMode: 'hybrid',
   explanationDepthEnabled: false,
@@ -238,7 +248,10 @@ const starterConversations: Conversation[] = [
     id: 'starter-study-chat',
     title: 'New Study Chat',
     period: 'Today',
-    messages: []
+    messages: [],
+    chatModelMode: 'local',
+    localModelId: '',
+    onlineModelId: ''
   }
 ]
 
@@ -256,12 +269,15 @@ const defaultAppState: AppStateSnapshot = {
   updatedAt: new Date(0).toISOString()
 }
 
-function createFreshConversation(): Conversation {
+function createFreshConversation(settings: ApplicationSettings = defaultApplicationSettings): Conversation {
   return {
     id: createId('conversation'),
     title: 'New Study Chat',
     period: 'Today',
-    messages: []
+    messages: [],
+    chatModelMode: settings.defaultChatMode,
+    localModelId: settings.defaultLocalModelId,
+    onlineModelId: settings.defaultOnlineModelId
   }
 }
 
@@ -512,6 +528,14 @@ function modelCanEmbed(model: LocalModel) {
 
 function firstGeneratorModel(models: LocalModel[]) {
   return models.find(modelCanGenerate)
+}
+
+function localGeneratorModels(models: LocalModel[]) {
+  return models.filter(isLocalAnswerModel)
+}
+
+function onlineGeneratorModels(models: LocalModel[]) {
+  return models.filter(isOnlineAnswerModel)
 }
 
 function firstEmbeddingModel(models: LocalModel[]) {
@@ -812,19 +836,14 @@ function normalizeFollowUpSuggestionCount(value: unknown, suggestionMode: Sugges
 }
 
 function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, models: LocalModel[] = defaultModels): ApplicationSettings {
-  const generatorModels = models.filter(modelCanGenerate)
-  const firstAvailableModel = firstGeneratorModel(models)
-  const defaultModelId =
-    typeof settings?.defaultModelId === 'string' && generatorModels.some((model) => model.id === settings.defaultModelId)
-      ? settings.defaultModelId
-      : firstAvailableModel?.id ?? ''
+  const answerModelDefaults = normalizeAnswerModelDefaults(settings, models)
   const suggestionMode = normalizeSuggestionMode(settings?.suggestionMode)
 
   return {
     // Older "system" preferences used the gray palette; keep that fallback.
     theme: normalizeChoice(settings?.theme, ['light', 'sarah-and-duck'] as const, defaultApplicationSettings.theme),
     fontSize: normalizeFontSize(settings?.fontSize),
-    defaultModelId,
+    ...answerModelDefaults,
     suggestionMode,
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
     explanationDepthEnabled: settings?.explanationDepthEnabled ?? defaultApplicationSettings.explanationDepthEnabled,
@@ -911,8 +930,19 @@ function isFreshConversation(conversation: Conversation) {
   return conversation.messages.length === 0 && conversation.title === 'New Study Chat'
 }
 
-function startWithFreshConversation(conversations: Conversation[]) {
-  const savedConversations = conversations.length > 0 ? conversations : structuredClone(starterConversations)
+function normalizeConversationModels(
+  conversations: Conversation[],
+  settings: ApplicationSettings,
+  models: LocalModel[],
+  legacySelectedModelId = ''
+) {
+  return conversations.map((conversation) =>
+    normalizeConversationModelSelection(conversation, settings, models, legacySelectedModelId)
+  )
+}
+
+function startWithFreshConversation(conversations: Conversation[], settings: ApplicationSettings) {
+  const savedConversations = conversations.length > 0 ? conversations : [createFreshConversation(settings)]
   const existingFresh = savedConversations.find(isFreshConversation)
 
   if (existingFresh) {
@@ -925,7 +955,7 @@ function startWithFreshConversation(conversations: Conversation[]) {
     }
   }
 
-  const freshConversation = createFreshConversation()
+  const freshConversation = createFreshConversation(settings)
 
   return {
     activeConversationId: freshConversation.id,
@@ -939,15 +969,21 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
   }
 
   const shouldResetConversations = savedState.appVersion !== appVersion
-  const conversations = !shouldResetConversations && Array.isArray(savedState.conversations)
-    ? savedState.conversations
-    : structuredClone(starterConversations)
-  const freshChatState = startWithFreshConversation(conversations)
   const materials = normalizeMaterials(savedState.materials).map((material) =>
     material.status === 'indexing' && material.preparation
       ? { ...material, status: 'paused' as const, detail: 'Preparation paused. Resume to continue from saved progress.' }
       : material)
   const models = normalizeModels(savedState.models)
+  const settings = normalizeSettings(savedState.settings, models)
+  const conversations = normalizeConversationModels(
+    !shouldResetConversations && Array.isArray(savedState.conversations)
+      ? savedState.conversations
+      : [createFreshConversation(settings.application)],
+    settings.application,
+    models,
+    savedState.selectedModelId
+  )
+  const freshChatState = startWithFreshConversation(conversations, settings.application)
   const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model)))
   const selectedEmbeddingModelId = (savedState as Partial<AppStateSnapshot>).selectedEmbeddingModelId
   const selectedEmbeddingModelExists =
@@ -965,7 +1001,7 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     models,
     selectedModelId: selectedModelExists ? savedState.selectedModelId : firstGeneratorModel(models)?.id ?? '',
     selectedEmbeddingModelId: selectedEmbeddingModelExists ? selectedEmbeddingModelId : firstEmbeddingModel(models)?.id ?? '',
-    settings: normalizeSettings(savedState.settings, models),
+    settings,
     version: 1
   }
 }
@@ -1398,7 +1434,18 @@ export function App() {
   function connectedCloudGenerator(model: LocalModel) {
     updateAppState(current => {
       const models = mergeCloudGenerator(current.models, model)
-      return { ...current, models, selectedModelId: models[0].id }
+      const settings = normalizeSettings(current.settings, models)
+      return {
+        ...current,
+        models,
+        settings,
+        selectedModelId: models[0].id,
+        conversations: current.conversations.map((conversation) =>
+          conversation.id === current.activeConversationId
+            ? { ...conversation, chatModelMode: 'online', onlineModelId: models[0].id }
+            : conversation
+        )
+      }
     })
     setCloudSetup(null)
     setCloudNotice(`Connected · ${model.remoteModelName}`)
@@ -1587,16 +1634,25 @@ export function App() {
           const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
           const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
           const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, download))
+          const nextSelectedModelId = selectedModel && modelMatchesDownload(selectedModel, download)
+            ? firstGeneratorModel(remainingModels)?.id ?? ''
+            : current.selectedModelId
+          const nextSettings = normalizeSettings(current.settings, remainingModels)
 
           return {
             ...current,
             models: remainingModels,
-            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, download)
-              ? firstGeneratorModel(remainingModels)?.id ?? ''
-              : current.selectedModelId,
+            selectedModelId: nextSelectedModelId,
             selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, download)
               ? firstEmbeddingModel(remainingModels)?.id ?? ''
-              : current.selectedEmbeddingModelId
+              : current.selectedEmbeddingModelId,
+            settings: nextSettings,
+            conversations: normalizeConversationModels(
+              current.conversations,
+              nextSettings.application,
+              remainingModels,
+              nextSelectedModelId
+            )
           }
         }
 
@@ -1650,13 +1706,26 @@ export function App() {
       'activeConversationId' | 'conversations'
     >
   ) {
-    updateAppState((current) => ({
-      ...current,
-      ...updater({
+    updateAppState((current) => {
+      const nextChatState = updater({
         activeConversationId: current.activeConversationId,
         conversations: current.conversations
       })
-    }))
+      const activeConversation = nextChatState.conversations.find(
+        (conversation) => conversation.id === nextChatState.activeConversationId
+      )
+      const modelId = activeConversation?.chatModelMode === 'online'
+        ? activeConversation.onlineModelId
+        : activeConversation?.localModelId
+
+      return {
+        ...current,
+        ...nextChatState,
+        selectedModelId: modelId && current.models.some((model) => model.id === modelId)
+          ? modelId
+          : current.selectedModelId
+      }
+    })
   }
 
   function updateSettings(settings: Partial<TokenSmithSettings>) {
@@ -1665,15 +1734,9 @@ export function App() {
         ...current.settings,
         ...settings
       }, current.models)
-      const requestedDefaultModelId = settings.application?.defaultModelId
-      const selectedModelId =
-        requestedDefaultModelId && current.models.some((model) => model.id === requestedDefaultModelId && modelCanGenerate(model))
-          ? requestedDefaultModelId
-          : current.selectedModelId
 
       return {
         ...current,
-        selectedModelId,
         settings: nextSettings
       }
     })
@@ -1900,12 +1963,27 @@ export function App() {
         return !isSameModel(existingModel)
       })
 
+      const models = [model, ...existingModels]
+      const settings = normalizeSettings(current.settings, models)
+
       return {
         ...current,
         activeScreen: nextScreen ?? current.activeScreen,
-        models: [model, ...existingModels],
+        models,
+        settings,
         selectedModelId: shouldSelect && model.status === 'ready' && modelCanGenerate(model) ? model.id : current.selectedModelId,
-        selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
+        selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId,
+        conversations: shouldSelect && model.status === 'ready' && modelCanGenerate(model)
+          ? current.conversations.map((conversation) =>
+              conversation.id === current.activeConversationId
+                ? {
+                    ...conversation,
+                    chatModelMode: model.engine === 'remote' ? 'online' : 'local',
+                    ...(model.engine === 'remote' ? { onlineModelId: model.id } : { localModelId: model.id })
+                  }
+                : conversation
+            )
+          : current.conversations
       }
     })
   }
@@ -2054,13 +2132,25 @@ export function App() {
 
   function selectModel(modelId: string) {
     updateAppState((current) => {
-      if (!current.models.some((model) => model.id === modelId && modelCanGenerate(model))) {
+      const model = current.models.find((model) => model.id === modelId)
+      if (!model || (!isLocalAnswerModel(model) && !isCloudGenerator(model))) {
         return current
       }
 
+      const mode: ChatModelMode = model.engine === 'remote' ? 'online' : 'local'
+
       return {
         ...current,
-        selectedModelId: modelId
+        selectedModelId: modelId,
+        conversations: current.conversations.map((conversation) =>
+          conversation.id === current.activeConversationId
+            ? {
+                ...conversation,
+                chatModelMode: mode,
+                ...(mode === 'online' ? { onlineModelId: modelId } : { localModelId: modelId })
+              }
+            : conversation
+        )
       }
     })
   }
@@ -2085,13 +2175,22 @@ export function App() {
 
     updateAppState((current) => {
       const remainingModels = current.models.filter((item) => item.id !== model.id)
+      const nextSettings = normalizeSettings(current.settings, remainingModels)
+      const fallbackSelectedModelId = selectedModelWillBeRemoved ? firstGeneratorModel(remainingModels)?.id ?? '' : current.selectedModelId
       return {
         ...current,
         models: remainingModels,
-        selectedModelId: selectedModelWillBeRemoved ? firstGeneratorModel(remainingModels)?.id ?? '' : current.selectedModelId,
+        selectedModelId: fallbackSelectedModelId,
         selectedEmbeddingModelId: selectedEmbeddingModelWillBeRemoved
           ? firstEmbeddingModel(remainingModels)?.id ?? ''
-          : current.selectedEmbeddingModelId
+          : current.selectedEmbeddingModelId,
+        settings: nextSettings,
+        conversations: normalizeConversationModels(
+          current.conversations,
+          nextSettings.application,
+          remainingModels,
+          fallbackSelectedModelId
+        )
       }
     })
 
@@ -2305,9 +2404,15 @@ export function App() {
   }
 
   const activeScreen = appState.activeScreen
+  const activeConversation = appState.conversations.find((conversation) => conversation.id === appState.activeConversationId)
+  const activeConversationMode = activeConversation?.chatModelMode ?? appState.settings.application.defaultChatMode
+  const activeConversationModelId = activeConversationMode === 'online'
+    ? activeConversation?.onlineModelId ?? appState.settings.application.defaultOnlineModelId
+    : activeConversation?.localModelId ?? appState.settings.application.defaultLocalModelId
   const selectedModel =
-    appState.models.find((model) => model.id === appState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model))) ??
-    firstGeneratorModel(appState.models)
+    appState.models.find((model) => model.id === activeConversationModelId &&
+      (activeConversationMode === 'online' ? isCloudGenerator(model) : isLocalAnswerModel(model))) ??
+    (activeConversationMode === 'online' ? onlineGeneratorModels(appState.models)[0] : localGeneratorModels(appState.models)[0])
   const embeddingModels = appState.models.filter(modelCanEmbed)
   const activeTitle = useMemo(
     () => navItems.find((item) => item.id === activeScreen)?.label ?? 'Chat',
@@ -2562,6 +2667,9 @@ function ChatScreen({
     conversations.find((conversation) => conversation.id === activeConversationId) ??
     conversations[0] ??
     starterConversations[0]
+  const chatModelMode = activeConversation.chatModelMode ?? settings.application.defaultChatMode
+  const hasLocalModel = localGeneratorModels(models).length > 0
+  const hasOnlineModel = onlineGeneratorModels(models).length > 0
   const isPending = pendingConversationId === activeConversation.id
   const { text: draft, selectedPassage } = drafts[activeConversation.id] ?? { text: '' }
   function updateDraft(update: Partial<ChatDraft>) {
@@ -2771,12 +2879,7 @@ function ChatScreen({
     cancelForeground()
     requestSequenceRef.current += 1
 
-    const newConversation: Conversation = {
-      id: createId('conversation'),
-      title: 'New Study Chat',
-      period: 'Today',
-      messages: []
-    }
+    const newConversation = createFreshConversation(settings.application)
 
     onChatStateChange((current) => ({
       conversations: [newConversation, ...current.conversations],
@@ -2882,7 +2985,9 @@ function ChatScreen({
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
-      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [createFreshConversation()]
+      const nextConversations = remainingConversations.length > 0
+        ? remainingConversations
+        : [createFreshConversation(settings.application)]
       const nextActiveConversationId =
         current.activeConversationId === conversationId ? nextConversations[0].id : current.activeConversationId
 
@@ -2915,7 +3020,7 @@ function ChatScreen({
       return
     }
 
-    const freshConversation = createFreshConversation()
+    const freshConversation = createFreshConversation(settings.application)
     cancelForeground()
     requestSequenceRef.current += 1
 
@@ -4408,6 +4513,15 @@ function ChatScreen({
           </button>
           <div className="chat-topbar-controls">
             <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+              mode={chatModelMode} canUseLocal={hasLocalModel} canUseOnline={hasOnlineModel}
+              onModeChange={(mode) => {
+                const modelId = mode === 'online'
+                  ? activeConversation.onlineModelId || settings.application.defaultOnlineModelId
+                  : activeConversation.localModelId || settings.application.defaultLocalModelId
+                if (modelId) onSelectModel(modelId)
+                else if (mode === 'online') onConnectCloud()
+                else onManageModels()
+              }}
               onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
             {settings.application.explanationDepthEnabled && (
               <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending}
@@ -4477,7 +4591,9 @@ function ChatScreen({
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
             {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
-              <div className="chat-error-banner"><p>Enter an API key for {selectedModel.providerName || 'your online service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Enter API key</button></div>}
+              <div className="chat-error-banner"><p>Reconnect {selectedModel.providerName || 'your cloud service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Reconnect</button></div>}
+            {selectedModel && isLocalAnswerModel(selectedModel) && selectedModel.status !== 'ready' &&
+              <div className="chat-error-banner"><p>{displayModelName(selectedModel)} is currently unavailable.</p><button className="secondary-action" type="button" onClick={onManageModels}>Manage models</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
@@ -6838,7 +6954,13 @@ function SettingsScreen({
 }) {
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
   const generatorModels = useMemo(() => models.filter(modelCanGenerate), [models])
-  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId || generatorModels[0]?.id || '')
+  const localModels = useMemo(() => localGeneratorModels(models), [models])
+  const onlineModels = useMemo(() => onlineGeneratorModels(models), [models])
+  const [selectedModelId, setSelectedModelId] = useState(
+    settings.application.defaultChatMode === 'online'
+      ? settings.application.defaultOnlineModelId
+      : settings.application.defaultLocalModelId || generatorModels[0]?.id || ''
+  )
   const selectedModel =
     generatorModels.find((model) => model.id === selectedModelId) ?? firstGeneratorModel(generatorModels)
   const activeModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
@@ -6879,7 +7001,9 @@ function SettingsScreen({
     updateApplicationSettings(
       {
         ...defaultApplicationSettings,
-        defaultModelId: firstGeneratorModel(generatorModels)?.id ?? ''
+        defaultLocalModelId: localModels[0]?.id ?? '',
+        defaultOnlineModelId: onlineModels[0]?.id ?? '',
+        defaultChatMode: localModels.length > 0 ? 'local' : onlineModels.length > 0 ? 'online' : 'local'
       },
       { maxSources: defaultSettings.maxSources }
     )
@@ -6936,17 +7060,48 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="General">
-              <SettingsRow label="Default Model" description="The preferred model for new chats.">
+              <SettingsRow label="Default Local Model" description="The local answer model selected in new conversations.">
                 <SelectField
-                  ariaLabel="Default model"
-                  value={settings.application.defaultModelId}
-                  onChange={(defaultModelId) => updateApplicationSettings({ defaultModelId })}
-                  disabled={generatorModels.length === 0}
+                  ariaLabel="Default local model"
+                  value={settings.application.defaultLocalModelId}
+                  onChange={(defaultLocalModelId) => updateApplicationSettings({ defaultLocalModelId })}
+                  disabled={localModels.length === 0}
                   options={
-                    generatorModels.length > 0
-                      ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                      : [{ label: 'No chat model configured', value: '' }]
+                    localModels.length > 0
+                      ? localModels.map((model) => ({
+                          label: `${displayModelName(model)}${model.status === 'ready' ? '' : ' (currently unavailable)'}`,
+                          value: model.id
+                        }))
+                      : [{ label: 'No local model configured', value: '' }]
                   }
+                />
+              </SettingsRow>
+              <SettingsRow label="Default Online Model" description="The online answer model selected in new conversations.">
+                <SelectField
+                  ariaLabel="Default online model"
+                  value={settings.application.defaultOnlineModelId}
+                  onChange={(defaultOnlineModelId) => updateApplicationSettings({ defaultOnlineModelId })}
+                  disabled={onlineModels.length === 0}
+                  options={
+                    onlineModels.length > 0
+                      ? onlineModels.map((model) => ({
+                          label: `${displayModelName(model)}${model.status === 'ready' ? '' : ' (API key required)'}`,
+                          value: model.id
+                        }))
+                      : [{ label: 'No online model configured', value: '' }]
+                  }
+                />
+              </SettingsRow>
+              <SettingsRow label="New Conversation Mode" description="Where answers are generated when a new conversation opens.">
+                <SelectField
+                  ariaLabel="Default mode for new conversations"
+                  value={settings.application.defaultChatMode}
+                  onChange={(defaultChatMode) => updateApplicationSettings({ defaultChatMode: defaultChatMode as ChatModelMode })}
+                  disabled={localModels.length === 0 && onlineModels.length === 0}
+                  options={[
+                    ...(localModels.length > 0 ? [{ label: 'Local', value: 'local' }] : []),
+                    ...(onlineModels.length > 0 ? [{ label: 'Online', value: 'online' }] : [])
+                  ]}
                 />
               </SettingsRow>
               <SettingsRow
