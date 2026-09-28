@@ -174,6 +174,15 @@ export interface ChatMessage {
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
   // The depth this answer was written at, so the reader knows what produced it.
   explanationDepth?: ExplanationDepth
+  answerContext?: {
+    prompt: string
+    answerPrompt?: string
+    retrievalQuery?: string
+    conversationContextMode?: 'standalone' | 'contextual'
+    referenceExchange?: { question: string; answer: string }
+  }
+  simplerExplanation?: { text: string; sources: ChatSource[]; responseDurationMs: number }
+  explanationView?: 'original' | 'simple'
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string

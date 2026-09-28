@@ -561,3 +561,19 @@ test('filterSuggestedQuestions removes repeated current and recent questions', (
     ]
   )
 })
+
+
+test('simplification budgets the quoted answer and final task while bounding long reference text', () => {
+  const request = depthRequest('simple')
+  request.modelSettings = { contextLength: 8192, maxLength: 768 }
+  const before = sourceContextBudgetForRequest(request)
+  request.answerToSimplify = 'Long old answer. '.repeat(2000)
+  const budget = sourceContextBudgetForRequest(request)
+  const prompt = studyChatMessages(request).at(-1).content
+  assert.ok(budget.fixedPromptTokens > before.fixedPromptTokens)
+  assert.ok(budget.includedSourceCount > 0)
+  assert.ok(budget.estimatedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens <= budget.modelContextTokens)
+  assert.match(prompt, /\[truncated\]/)
+  assert.match(prompt, /Task: The student has already read the answer/)
+  assert.ok(prompt.length < request.answerToSimplify.length)
+})

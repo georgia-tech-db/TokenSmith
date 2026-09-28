@@ -6,11 +6,13 @@ import { MessageText } from './MessageText'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
-import { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion, simplerExplanationSettings } from './chat-interactions'
+import { addQuoteToDraft, canExplainSimpler, replaceQuestion, simplerExplanationRequest } from './chat-interactions'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
 import { ChatDepthPicker } from './ChatDepthPicker'
+import { AnswerExplanation } from './AnswerExplanation'
+import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
 import './cloud-generators.css'
@@ -2530,9 +2532,13 @@ function ChatScreen({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
+  const [pendingExplanationId, setPendingExplanationId] = useState<string | null>(null)
+  const [explanationError, setExplanationError] = useState<{ answerId: string; text: string } | null>(null)
+  const explanationInFlightRef = useRef(false)
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
+  const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
   const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
   const [markdownViewer, setMarkdownViewer] = useState<MarkdownViewerState | null>(null)
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
@@ -2567,12 +2573,12 @@ function ChatScreen({
     (message) => message.role === 'assistant' && (message.sources?.length ?? 0) > 0
   )
   const selectedSourceMessage =
-    sourceMessages.find((message) => message.id === expandedMessageId) ?? sourceMessages[sourceMessages.length - 1]
+    sourceMessages.find((message) => message.id === (focusedAnswerId ?? expandedMessageId)) ?? sourceMessages[sourceMessages.length - 1]
   const selectedSources = useMemo(() => {
     if (!settings.application.showSources) {
       return []
     }
-    const sources = isPending ? pendingSources : selectedSourceMessage?.sources ?? []
+    const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
@@ -2606,6 +2612,7 @@ function ChatScreen({
 
   useEffect(() => {
     setEditingQuestionId(null)
+    setFocusedAnswerId(null)
   }, [activeConversation.id])
 
   useLayoutEffect(() => {
@@ -2742,10 +2749,13 @@ function ChatScreen({
     }))
     setDraft('')
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
     setChatError(null)
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -2756,6 +2766,8 @@ function ChatScreen({
   function handleStopResponse() {
     requestSequenceRef.current += 1
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
   }
@@ -2843,6 +2855,8 @@ function ChatScreen({
 
     if (pendingConversationId === conversationId) {
       setPendingConversationId(null)
+      setPendingExplanationId(null)
+      explanationInFlightRef.current = false
       setPendingStatusText(null)
       setPendingSources([])
     }
@@ -2851,6 +2865,7 @@ function ChatScreen({
       setRenameDraft('')
     }
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -2872,9 +2887,12 @@ function ChatScreen({
 
     setDraft('')
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -3690,6 +3708,8 @@ function ChatScreen({
       )
     }))
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
     setChatError(null)
@@ -3725,6 +3745,7 @@ function ChatScreen({
 
     setDraft('')
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -3785,6 +3806,8 @@ function ChatScreen({
     } finally {
       if (requestSequenceRef.current === requestSequence) {
         setPendingConversationId(null)
+        setPendingExplanationId(null)
+        explanationInFlightRef.current = false
         setPendingStatusText(null)
         setPendingSources([])
       }
@@ -3823,6 +3846,7 @@ function ChatScreen({
 
     setDraft('')
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -3953,6 +3977,8 @@ function ChatScreen({
     } finally {
       if (requestSequenceRef.current === requestSequence) {
         setPendingConversationId(null)
+        setPendingExplanationId(null)
+        explanationInFlightRef.current = false
         setPendingStatusText(null)
         setPendingSources([])
       }
@@ -3968,89 +3994,53 @@ function ChatScreen({
     void handleStartQuiz()
   }
 
-  // Re-answers the question that produced `answerId` at the simple depth. The already
-  // retrieved sources are reused, so this skips question rewriting and search entirely,
-  // and the depth override lasts only for this request.
+  function selectExplanationView(answerId: string, view: 'original' | 'simple') {
+    onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
+      conversation.id === activeConversation.id ? { ...conversation, messages: conversation.messages.map(message =>
+        message.id === answerId ? { ...message, explanationView: view } : message
+      ) } : conversation
+    ) }))
+    setFocusedAnswerId(answerId)
+  }
+
   async function explainSimpler(answerId: string) {
-    if (pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || editingQuestionId) {
-      return
-    }
-
-    const messages = activeConversation.messages
-    const answerIndex = messages.findIndex((message) => message.id === answerId)
-    const answer = messages[answerIndex]
-    const question = questionForAnswer(messages, answerId)
-    if (!answer || !question || !window.tokensmith) {
-      return
-    }
-
+    if (pendingConversationId || explanationInFlightRef.current || !selectedModel || selectedModel.status !== 'ready' || editingQuestionId || activeQuizState || !window.tokensmith) return
+    const request = simplerExplanationRequest(activeConversation.messages, answerId, {
+      materials: activeMaterials, model: selectedModel, settings,
+      modelSettings: modelSettingsFor(settings, selectedModel.id)
+    })
+    if (!request) return
+    explanationInFlightRef.current = true
     const targetConversationId = activeConversation.id
-    const history = messages.slice(0, answerIndex + 1)
     const responseStartedAt = performance.now()
-    const userMessage: ChatMessage = {
-      id: createId('user'),
-      role: 'user',
-      text: 'Explain that more simply.'
-    }
-
-    onChatStateChange((current) => ({
-      ...current,
-      conversations: current.conversations.map((conversation) =>
-        conversation.id === targetConversationId
-          ? { ...conversation, messages: [...conversation.messages, userMessage] }
-          : conversation
-      )
-    }))
-    setExpandedMessageId(null)
-    setSourceTrayError(null)
-    setChatError(null)
+    const requestSequence = ++requestSequenceRef.current
     setPendingConversationId(targetConversationId)
-    setPendingSources([])
-    const requestSequence = requestSequenceRef.current + 1
-    requestSequenceRef.current = requestSequence
-
+    setPendingExplanationId(answerId)
+    setPendingSources(request.retrievedSources ?? [])
+    setFocusedAnswerId(answerId)
+    setExplanationError(null)
+    setChatError(null)
     try {
-      const reply = await window.tokensmith.sendChatMessage({
-        prompt: question.text,
-        messages: history,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: simplerExplanationSettings(settings.application),
-        modelSettings: modelSettingsFor(settings, selectedModel.id),
-        retrievedSources: answer.sources ?? []
-      })
-
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: reply.text,
-        sources: reply.sources,
-        explanationDepth: 'simple',
-        responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
-        followUpSuggestions: reply.followUpSuggestions ?? [],
-        followUpError: reply.followUpError
-      }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) =>
-          conversation.id === targetConversationId
-            ? { ...conversation, messages: [...conversation.messages, assistantMessage] }
-            : conversation
-        )
-      }))
+      const reply = await window.tokensmith.sendChatMessage(request)
+      if (requestSequenceRef.current !== requestSequence) return
+      if (!reply.text.trim()) throw new Error('The model returned an empty explanation. Please try again.')
+      onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
+        conversation.id === targetConversationId ? { ...conversation, messages: conversation.messages.map(message =>
+          message.id === answerId ? { ...message, explanationView: 'simple', simplerExplanation: {
+            text: reply.text, sources: reply.sources,
+            responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt))
+          } } : message
+        ) } : conversation
+      ) }))
     } catch (error) {
       if (requestSequenceRef.current === requestSequence) {
-        setChatError(readableErrorMessage(error, 'Chat request failed.'))
+        setExplanationError({ answerId, text: readableErrorMessage(error, 'Could not simplify this answer. Your original answer is still available.') })
       }
     } finally {
       if (requestSequenceRef.current === requestSequence) {
+        explanationInFlightRef.current = false
         setPendingConversationId(null)
+        setPendingExplanationId(null)
         setPendingStatusText(null)
         setPendingSources([])
       }
@@ -4097,6 +4087,7 @@ function ChatScreen({
     if (!editMessageId) setDraft('')
     setEditingQuestionId(null)
     setExpandedMessageId(null)
+    setFocusedAnswerId(null)
     setPdfViewer(null)
     setMarkdownViewer(null)
     setSourceTrayError(null)
@@ -4188,7 +4179,13 @@ function ChatScreen({
         // Kept whatever the display setting is, so a retelling can reuse this evidence.
         sources: reply.sources,
         conversationContextMode,
-        explanationDepth: settings.application.explanationDepth,
+        answerContext: {
+          prompt, answerPrompt: rewrittenRequest?.answerPrompt,
+          retrievalQuery: rewrittenRequest?.retrievalQuery,
+          conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
+          referenceExchange: rewrittenRequest?.referenceExchange
+        },
+        explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
         responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
         followUpSuggestions: reply.followUpSuggestions ?? [],
         followUpError: reply.followUpError
@@ -4216,6 +4213,8 @@ function ChatScreen({
     } finally {
       if (requestSequenceRef.current === requestSequence) {
         setPendingConversationId(null)
+        setPendingExplanationId(null)
+        explanationInFlightRef.current = false
         setPendingStatusText(null)
         setPendingSources([])
       }
@@ -4336,21 +4335,25 @@ function ChatScreen({
                     key={message.id}
                     message={message}
                     showSources={settings.application.showSources}
-                    suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)}
+                    suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId) || selectedModel?.status !== 'ready'}
                     onExplainSimpler={
-                      canExplainSimpler(message, settings.application.suggestionMode)
+                      !activeQuizState && canExplainSimpler(message)
                         ? () => void explainSimpler(message.id)
                         : undefined
                     }
+                    explanationPending={isPending && pendingExplanationId === message.id}
+                    explanationError={explanationError?.answerId === message.id ? explanationError.text : undefined}
+                    onSelectExplanationView={(view) => selectExplanationView(message.id, view)}
                     onSelectFollowUp={handleUseFollowUpSuggestion}
-                    onToggleSources={() =>
+                    onToggleSources={() => {
+                      setFocusedAnswerId(message.id)
                       setExpandedMessageId((current) => (current === message.id ? null : message.id))
-                    }
+                    }}
                   />
                 )
               )
             )}
-            {isPending && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
+            {isPending && !pendingExplanationId && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
             {chatError && <div className="chat-error-banner"><p>{chatError}</p>
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
@@ -4849,6 +4852,9 @@ function AssistantMessage({
   showSources,
   suggestionsDisabled,
   onExplainSimpler,
+  explanationPending,
+  explanationError,
+  onSelectExplanationView,
   onSelectFollowUp,
   onToggleSources
 }: {
@@ -4857,14 +4863,18 @@ function AssistantMessage({
   showSources: boolean
   suggestionsDisabled: boolean
   onExplainSimpler?: () => void
+  explanationPending: boolean
+  explanationError?: string
+  onSelectExplanationView: (view: 'original' | 'simple') => void
   onSelectFollowUp: (suggestion: string) => void
   onToggleSources: () => void
 }) {
-  const sources = showSources ? message.sources ?? [] : []
+  const displayed = answerForDisplay(message)
+  const sources = showSources ? displayed.sources ?? [] : []
   const suggestions = message.followUpSuggestions ?? []
   const label = quizMessageLabel(message)
   const modeLabel = contextModeLabel(message.conversationContextMode)
-  const durationLabel = responseDurationLabel(message.responseDurationMs)
+  const durationLabel = responseDurationLabel(displayed.responseDurationMs)
 
   return (
     <article className="message-row">
@@ -4880,7 +4890,8 @@ function AssistantMessage({
             {durationLabel && <span>{durationLabel}</span>}
           </div>
         )}
-        <div data-chat-selectable><MessageText text={message.text} /></div>
+        <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
+          disabled={suggestionsDisabled} onSimplify={onExplainSimpler} onSelectView={onSelectExplanationView} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4904,18 +4915,6 @@ function AssistantMessage({
           </section>
         )}
         {message.followUpError && <p className="follow-up-error">{message.followUpError}</p>}
-        {onExplainSimpler && (
-          <button
-            className="source-chip"
-            type="button"
-            disabled={suggestionsDisabled}
-            onClick={onExplainSimpler}
-            title="Answer the same question in plainer language"
-          >
-            <Sparkles size={16} aria-hidden="true" />
-            <span>Explain simpler</span>
-          </button>
-        )}
         {sources.length > 0 && (
           <>
             <button
