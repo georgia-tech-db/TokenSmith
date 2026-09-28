@@ -74,23 +74,23 @@ test('small machines receive an optional cloud recommendation', () => {
   }
 })
 
-test('12B is preferred when eligible, without promoting larger models', () => {
-  for (const ramGb of [24, 32, 48, 64, 128]) {
+test('26B is preferred for interactive study when eligible', () => {
+  for (const ramGb of [32, 48, 64, 128]) {
     const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
-    assert.equal(result.recommendedModelId, 'gemma4:12b')
+    assert.equal(result.recommendedModelId, 'gemma4:26b')
     assert.equal(result.tierAssessment.executionPath, 'unified-gpu')
   }
 })
 
-test('32 GiB defaults to 12B and offers E4B, not memory-heavy 26B', () => {
+test('32 GiB defaults to 26B and offers lower-memory alternatives', () => {
   const result = recommendationFor(device({ramGb: 32, accelerators: [unifiedAccelerator(32)]}))
-  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b'])
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b', 'gemma4:12b'])
 })
 
 test('48 GiB offers both alternatives without changing the default', () => {
   const result = recommendationFor(device({ramGb: 48, accelerators: [unifiedAccelerator(48)]}))
-  assert.equal(result.recommendedModelId, 'gemma4:12b')
-  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b', 'gemma4:26b'])
+  assert.equal(result.recommendedModelId, 'gemma4:26b')
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b', 'gemma4:12b'])
 })
 
 test('dedicated GPUs need both host memory and VRAM headroom', () => {
@@ -170,4 +170,22 @@ test('12B requires available VRAM as well as host RAM on dedicated GPUs', () => 
   const base = {ramGb: 24, accelerators: [dedicatedAccelerator(24, 12)]}
   assert.equal(recommendationFor(device(base)).recommendedModelId, 'gemma4:12b')
   assert.equal(recommendationFor(device({...base, accelerators: [dedicatedAccelerator(24, 10)]})).recommendedModelId, 'gemma4:e4b')
+})
+
+
+test('unified devices below 32 GiB retain 12B and 32 GiB discloses pressure', () => {
+  for (const ramGb of [24, 31.9]) {
+    const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
+    assert.equal(result.recommendedModelId, 'gemma4:12b')
+    assert.ok(result.alternatives.every(m => m.id !== 'gemma4:26b'))
+  }
+  const result = recommendationFor(device({ramGb: 32, accelerators: [unifiedAccelerator(32)]}))
+  assert.match(result.warnings.join(' '), /memory pressure increased/)
+})
+
+test('26B requires available VRAM and disk, otherwise falls back to 12B', () => {
+  const base = {ramGb: 32, accelerators: [dedicatedAccelerator(24, 24)]}
+  assert.equal(recommendationFor(device(base)).recommendedModelId, 'gemma4:26b')
+  assert.equal(recommendationFor(device({...base, accelerators: [dedicatedAccelerator(24, 23)]})).recommendedModelId, 'gemma4:12b')
+  assert.equal(recommendationFor(device({...base, diskGb: 24})).recommendedModelId, 'gemma4:12b')
 })

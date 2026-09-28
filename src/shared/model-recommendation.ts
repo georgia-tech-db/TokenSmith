@@ -1,4 +1,4 @@
-import type { DeviceCapabilities } from './device-capabilities'
+import { gibibytes, type DeviceCapabilities } from './device-capabilities'
 import { classifyDeviceTier, type DeviceTierAssessment } from './device-tier'
 import type { DeviceTierPolicy } from './device-tier-policy'
 import type { LocalModelProfile } from './model-catalog'
@@ -40,6 +40,12 @@ export function recommendModel(
     throw new Error(`No model is configured for device Tier ${tierAssessment.tier}.`)
   }
 
+  const warnings = [...tierAssessment.warnings]
+  if (model.id === 'gemma4:26b' && tierAssessment.executionPath === 'unified-gpu'
+    && device.memory.totalBytes < gibibytes(48)) {
+    warnings.push('26B completed our trial on a 32 GB Mac, but memory pressure increased. If other apps become sluggish, choose 12B or E4B.')
+  }
+
   return {
     recommendedModelId: model.id,
     recommendedModelName: model.displayName,
@@ -47,7 +53,7 @@ export function recommendModel(
     assumedContextTokens: policy.assumedContextTokens,
     tierAssessment,
     reasons: [model.description, ...tierAssessment.reasons],
-    warnings: tierAssessment.warnings,
+    warnings,
     alternatives: models.filter((candidate) => candidate.id !== model.id &&
       tierAssessment.evaluatedTiers.some((tier) => tier.eligible && tier.recommendedModelId === candidate.id))
   }

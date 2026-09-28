@@ -31,8 +31,9 @@ export interface DeviceTierPolicy {
   }
 }
 
-// Eligibility estimates include room for an 8K context, Nomic, and other apps.
-// Evaluate options in preference order: 12B for learning, E4B fallback, then 26B.
+// Eligibility estimates assume an 8K context and Nomic; 32 GiB unified devices
+// may page with 26B, as observed in the benchmark.
+// Evaluate options in preference order: 26B for interactive study, then 12B and E4B.
 // Tier numbers identify hardware requirements, not recommendation priority.
 export const defaultDeviceTierPolicy: DeviceTierPolicy = {
   assumedContextTokens: 8_192,
@@ -43,7 +44,14 @@ export const defaultDeviceTierPolicy: DeviceTierPolicy = {
   ],
   tiers: [
     {
-      tier: 2, name: 'Recommended for learning', recommendedModelId: 'gemma4:12b',
+      tier: 3, name: 'Interactive study', recommendedModelId: 'gemma4:26b',
+      minimumHostMemoryBytes: gibibytes(32),
+      minimumCpuMemoryBytes: null, minimumCpuParallelism: null,
+      minimumUnifiedMemoryBytes: gibibytes(32), minimumDedicatedVramBytes: gibibytes(24),
+      minimumFreeDiskBytes: gibibytes(25)
+    },
+    {
+      tier: 2, name: 'Lower-memory alternative', recommendedModelId: 'gemma4:12b',
       minimumHostMemoryBytes: gibibytes(24),
       minimumCpuMemoryBytes: null, minimumCpuParallelism: null,
       minimumUnifiedMemoryBytes: gibibytes(24), minimumDedicatedVramBytes: gibibytes(12),
@@ -55,13 +63,6 @@ export const defaultDeviceTierPolicy: DeviceTierPolicy = {
       minimumCpuMemoryBytes: gibibytes(24), minimumCpuParallelism: 8,
       minimumUnifiedMemoryBytes: gibibytes(16), minimumDedicatedVramBytes: gibibytes(10),
       minimumFreeDiskBytes: gibibytes(14)
-    },
-    {
-      tier: 3, name: 'More memory required', recommendedModelId: 'gemma4:26b',
-      minimumHostMemoryBytes: gibibytes(32),
-      minimumCpuMemoryBytes: null, minimumCpuParallelism: null,
-      minimumUnifiedMemoryBytes: gibibytes(48), minimumDedicatedVramBytes: gibibytes(24),
-      minimumFreeDiskBytes: gibibytes(25)
     }
   ],
   cloudModel: { id: 'gemini:gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Google)' }

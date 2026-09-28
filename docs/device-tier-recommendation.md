@@ -1,6 +1,6 @@
 # Model recommendations for course study
 
-Start with Gemma 4 12B when it meets the device policy, prioritizing the fewer material errors observed in our tutoring trial. Otherwise offer E4B as the lighter fallback. More RAM does not automatically select a larger model. Eligible alternatives appear separately in Models; existing installed models and user selections remain available. When no option qualifies, setup suggests cloud as an option, not a prohibition on manual local use. Connecting a cloud provider remains explicit.
+Start with Gemma 4 26B A4B when it meets the device policy, prioritizing its measured balance of answer coverage and wait time for interactive study. Otherwise offer 12B, then E4B, based on their requirements. This is a fixed preference among evaluated options, not a rule to pick the largest model available. Eligible alternatives appear separately in Models; existing installed models and user selections remain available. When no option qualifies, setup suggests cloud as an option, not a prohibition on manual local use. Connecting a cloud provider remains explicit.
 
 ## Evidence and limits
 
@@ -15,17 +15,17 @@ The September 27, 2026 BuzzDB experiment replayed 18 questions from six related 
 
 These are non-blind, single-sample manual results on previously known questions, not general accuracy estimates, learning outcomes, or speed predictions for another machine. Coverage does not cancel false explanations. Runs were sequential, not interleaved. The 26B package includes speculative decoding, so this is not an isolated architecture comparison.
 
-12B is the preferred model when eligible, despite its longer wait, because our product prioritizes learning and it had fewer observed errors. This is a product judgment from limited evidence, not proof of improved learning. E4B remains the faster alternative and fallback. 26B is a promising alternative with more memory demand: runtime logs recorded 16,147 MiB of main GPU weights plus 425 MiB of draft weights, before other allocations. System swap grew from about 8.4 to 15.1 GiB in that run; causation cannot be assigned entirely to the model. Ollama's approximately 1 GB residency report for this package was incomplete. Do not treat four active billion parameters as a four-billion-parameter memory footprint. 31B is not in the recommended catalog because the trial did not justify its latency; manual installation remains possible.
+26B is preferred when eligible because its measured answer stage was about three times faster than 12B, with similar coverage. It had more error-containing answers (5 versus 2); this choice is a product trade-off, not a claim of higher correctness or proven learning gains. 12B remains a lower-memory alternative with fewer observed errors, and E4B is the lighter fallback. 26B has more memory demand: runtime logs recorded 16,147 MiB of main GPU weights plus 425 MiB of draft weights, before other allocations. System swap grew from about 8.4 to 15.1 GiB in that run; causation cannot be assigned entirely to the model. Ollama's approximately 1 GB residency report for this package was incomplete. Do not treat four active billion parameters as a four-billion-parameter memory footprint. 31B is not in the recommended catalog because the trial did not justify its latency; manual installation remains possible.
 
 ## Conservative eligibility policy
 
 | Option | Host RAM | CPU-only | Unified RAM | Dedicated VRAM available and total | Free disk |
 | --- | --- | --- | --- | --- | --- |
 | E4B fallback | 16 GiB | 24 GiB, 8 threads | 16 GiB | 10 GiB | 14 GiB |
-| 12B preferred | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
-| 26B A4B optional | 32 GiB | Not recommended | 48 GiB | 24 GiB | 25 GiB |
+| 12B fallback | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
+| 26B A4B preferred | 32 GiB | Not recommended | 32 GiB | 24 GiB | 25 GiB |
 
-Thresholds are policy estimates, not measured minimum requirements. They allow for context, runtime overhead, Nomic retrieval, the app, and other desktop applications. Download size is not runtime memory. The 48 GiB threshold for 26B is deliberate headroom above the 32 GB machine where paging was observed, not validation on a 48 GiB device.
+Thresholds are policy estimates, not measured minimum requirements. They assume context, runtime overhead and Nomic retrieval, but cannot guarantee headroom for all other applications. Download size is not runtime memory. The 32 GiB unified threshold admits the benchmarked Mac despite observed paging; the panel explicitly warns about that pressure below 48 GiB. The 43.1-second median includes preflight and generation, excludes retrieval and rewriting, and is neither time to first token nor a latency guarantee. More memory offers headroom but has not been benchmarked here.
 
 Shared graphics memory is never added to host memory. Unknown GPU support cannot qualify as accelerated execution. Known busy VRAM disqualifies that GPU path; CPU fallback still needs its own thresholds. Unknown free VRAM is disclosed. OS/architecture checks and detector limitations remain separate from performance estimates. Total RAM is not an available-memory or pressure measurement, particularly on macOS; rechecking cannot guarantee freedom from swapping. Disk checks use the app's storage volume, which may differ from a customized Ollama model directory.
 
@@ -37,7 +37,7 @@ Fresh settings use an 8,192-token context and a 1,536-token answer cap, matching
 
 ## Next validation
 
-Benchmark fresh multi-turn questions and full retrieval on representative CPU, Apple Silicon, and dedicated-GPU machines, with normal student apps open. Measure time to first token, full-answer time, peak memory, swapping, and material errors. Do not promote larger models automatically until that evidence supports it.
+Benchmark fresh multi-turn questions and full retrieval on representative CPU, Apple Silicon, and dedicated-GPU machines, with normal student apps open. Measure time to first token, full-answer time, peak memory, swapping, and material errors. Revisit the 26B default if full-session latency or errors outweigh the observed answer-stage speed advantage.
 
 ## Catalog provenance
 
