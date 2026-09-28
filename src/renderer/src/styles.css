@@ -1170,6 +1170,15 @@ button {
   cursor: pointer;
 }
 
+.source-chip + .source-chip {
+  margin-left: 8px;
+}
+
+.source-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .source-chip[aria-expanded="true"] svg:last-child {
   transform: rotate(180deg);
 }

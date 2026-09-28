@@ -4,13 +4,19 @@ import type {
   ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
 } from './engine'
 
+export function answerForDisplay(message: ChatMessage) {
+  return message.explanationView === 'simple' && message.simplerExplanation
+    ? message.simplerExplanation
+    : message
+}
+
 export function lastChatExchange(messages: ChatMessage[]): ChatReferenceExchange | undefined {
   // Do not skip an unanswered student turn or replay an older, unrelated answer.
   const answer = messages.at(-1)
   if (answer?.role !== 'assistant') return undefined
   const question = messages.at(-2)
   if (question?.role !== 'user' || !question.text.trim() || !answer.text.trim()) return undefined
-  return { question: questionWithSelection(question.text, question.selectedPassage), answer: answer.text }
+  return { question: questionWithSelection(question.text, question.selectedPassage), answer: answerForDisplay(answer).text }
 }
 
 export function trimReferenceExchange(exchange: ChatReferenceExchange, maxChars: number): ChatReferenceExchange {

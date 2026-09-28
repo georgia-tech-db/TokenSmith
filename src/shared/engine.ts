@@ -43,6 +43,7 @@ export interface EngineChatRequest {
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
   referenceExchange?: ChatReferenceExchange
+  answerToSimplify?: string
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel
