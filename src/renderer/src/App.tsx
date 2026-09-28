@@ -169,6 +169,9 @@ const stateStorageKey = 'tokensmith-app-state-v1'
 const maxSourceTrayCards = 5
 const defaultCollectionChunkSize = 1000
 const pdfViewerRenderScale = 1.45
+// React Strict Mode immediately runs an effect setup/cleanup cycle in development.
+// This gives that cleanup time to cancel before a starter-question request is sent.
+const starterQuestionDebounceMs = 150
 
 const defaultMaterials: CourseMaterial[] = []
 
@@ -2548,6 +2551,7 @@ function ChatScreen({
   const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
+  const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   const activeConversation =
@@ -2675,39 +2679,41 @@ function ChatScreen({
       return
     }
 
+    const tokensmith = window.tokensmith
     let cancelled = false
+    const requestId = `${activeConversation.id}:${++starterQuestionRequestSequenceRef.current}`
     setStarterQuestionSuggestions([])
     setStarterQuestionStatus('loading')
     setStarterQuestionError(null)
 
-    void window.tokensmith
-      .suggestChatQuestions({
-        messages: activeConversation.messages,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: settings.application,
-        modelSettings: selectedModelSettings,
-        retrievedSources: []
-      })
-      .then((response) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions(response.suggestions)
-        setStarterQuestionStatus('idle')
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions([])
-        setStarterQuestionStatus('error')
-        setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
-      })
+    const startTimer = window.setTimeout(() => {
+      void tokensmith
+        .suggestChatQuestions(requestId, {
+          messages: activeConversation.messages,
+          materials: activeMaterials,
+          model: selectedModel,
+          settings,
+          applicationSettings: settings.application,
+          modelSettings: selectedModelSettings,
+          retrievedSources: []
+        })
+        .then((response) => {
+          if (cancelled) return
+          setStarterQuestionSuggestions(response.suggestions)
+          setStarterQuestionStatus('idle')
+        })
+        .catch((error) => {
+          if (cancelled) return
+          setStarterQuestionSuggestions([])
+          setStarterQuestionStatus('error')
+          setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
+        })
+    }, starterQuestionDebounceMs)
 
     return () => {
       cancelled = true
+      window.clearTimeout(startTimer)
+      void tokensmith.cancelChatQuestionSuggestions(requestId).catch(() => undefined)
     }
   }, [
     activeConversation.id,
@@ -4349,7 +4355,7 @@ function ChatScreen({
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
             {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
-              <div className="chat-error-banner"><p>Reconnect {selectedModel.providerName || 'your cloud service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Reconnect</button></div>}
+              <div className="chat-error-banner"><p>Enter an API key for {selectedModel.providerName || 'your online service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Enter API key</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
@@ -6277,10 +6283,10 @@ function ModelsScreen({
   function renderInstalledModelCard(model: LocalModel) {
     if (isCloudGenerator(model)) {
       return <section className="cloud-generator-entry" key={model.id}>
-        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
+        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Online'} · {model.status === 'ready' ? 'Ready' : 'API key required'}</p></div>
         <div className="model-header-actions">
           {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
-          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'Connection settings' : 'Reconnect'}</button>
+          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'API key settings' : 'Enter API key'}</button>
           <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
         </div>
       </section>

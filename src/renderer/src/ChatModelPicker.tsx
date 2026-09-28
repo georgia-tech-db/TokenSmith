@@ -49,9 +49,9 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
           return entries.length > 0 && <div key={group}>
             <p className="cloud-eyebrow">{group === 'cloud' ? 'Cloud' : 'On this device'}</p>
             {entries.map(model => <button type="button" className="chat-model-option" key={model.id}
-              aria-label={`${label(model)}${model.status !== 'ready' ? ', reconnect' : ''}`}
+              aria-label={`${label(model)}${model.status !== 'ready' ? ', API key required' : ''}`}
               onClick={() => { close(); model.status === 'ready' ? onSelect(model.id) : onConnect(model) }}>
-              <span><strong>{label(model)}</strong><small>{model.status !== 'ready' ? 'Reconnect required' : model.providerName || 'Ollama'}</small></span>
+              <span><strong>{label(model)}</strong><small>{model.status !== 'ready' ? 'API key required' : model.providerName || 'Ollama'}</small></span>
               {selectedModel?.id === model.id && <Check size={17} aria-label="Selected" />}
             </button>)}
           </div>

@@ -184,7 +184,7 @@ export async function listOpenAiCompatibleModels(
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
   messages: StudyChatMessage[],
-  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean } = {}
+  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean; signal?: AbortSignal } = {}
 ): Promise<string> {
   const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
@@ -193,7 +193,9 @@ async function runRemoteChatCompletion(
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
-    signal: AbortSignal.timeout(180_000),
+    signal: overrides.signal
+      ? AbortSignal.any([overrides.signal, AbortSignal.timeout(180_000)])
+      : AbortSignal.timeout(180_000),
     body: JSON.stringify({
       model: config.modelName,
       messages,
@@ -313,7 +315,8 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
 }
 
 export async function generateRemoteStudyQuestionSuggestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
   assertRemoteModel(request.model)
 
@@ -333,7 +336,9 @@ export async function generateRemoteStudyQuestionSuggestions(
   const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), {
+    maxTokens, temperature, requireComplete: true, signal
+  })
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
     .map((message) => message.text)
