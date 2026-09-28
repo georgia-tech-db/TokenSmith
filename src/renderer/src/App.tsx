@@ -213,7 +213,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  cpuThreads: 4
+  cpuThreads: 4,
+  embeddingGpuEnabled: false
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -890,7 +891,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
+    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64)),
+    embeddingGpuEnabled: settings?.embeddingGpuEnabled ?? defaultApplicationSettings.embeddingGpuEnabled
   }
 }
 
@@ -1812,6 +1814,7 @@ export function App() {
         ...options,
         preparation,
         preparationModel,
+        embeddingGpuEnabled: options.embeddingGpuEnabled ?? appState.settings.application.embeddingGpuEnabled,
         title: options.title ?? indexingMaterial?.title,
         cleaningProfileId: options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId,
         cleaningRuleIds:
@@ -6961,6 +6964,16 @@ function SettingsScreen({
                   step={1}
                   value={settings.application.cpuThreads}
                   onChange={(cpuThreads) => updateApplicationSettings({ cpuThreads })}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Embedding GPU Acceleration"
+                description="Offload the embedding model to the GPU while indexing your library. Leave off if indexing crashes or your device has no compatible GPU."
+              >
+                <CheckboxField
+                  ariaLabel="Embedding GPU acceleration"
+                  checked={settings.application.embeddingGpuEnabled}
+                  onChange={(embeddingGpuEnabled) => updateApplicationSettings({ embeddingGpuEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="Maximum Sources" description="Maximum retrieved sources to include in answers.">

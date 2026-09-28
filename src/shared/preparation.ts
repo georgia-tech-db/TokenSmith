@@ -15,6 +15,7 @@ export interface IndexMaterialOptions {
   cleaningRuleIds?: import('./cleaning').CleaningRuleId[]
   preparation?: PreparationSettings
   preparationModel?: LocalModel
+  embeddingGpuEnabled?: boolean
 }
 
 export interface PreparedChunk {

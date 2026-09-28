@@ -559,9 +559,17 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
     if (cancelled) throw new Error('Indexing was cancelled.')
     return new Promise<T>((resolve, reject) => {
       const python = getPythonExecutable()
+      const embeddingGpuEnabled = payload.embeddingGpuEnabled === true
       child = spawn(python, [getWorkerPath()], {
         detached: process.platform !== 'win32',
-        env: { ...process.env, ...appPythonEnv(python), TOKENSMITH_LOG_FILE: getLogFilePath(), PYTHONIOENCODING: 'utf-8' },
+        env: {
+          ...process.env,
+          ...appPythonEnv(python),
+          TOKENSMITH_LOG_FILE: getLogFilePath(),
+          PYTHONIOENCODING: 'utf-8',
+          // -1 offloads all embedding layers to the GPU; 0 keeps embedding on the CPU.
+          TOKENSMITH_EMBED_N_GPU_LAYERS: embeddingGpuEnabled ? '-1' : '0'
+        },
         stdio: 'pipe'
       })
       let buffer = ''
@@ -626,6 +634,7 @@ export async function indexMaterialWithPython(
       model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
+      embeddingGpuEnabled: options?.embeddingGpuEnabled === true,
       userDataPath: app.getPath('userData')
     },
     180_000,
