@@ -132,12 +132,12 @@ test('model content cannot run HTML, open local files, or load images', () => {
   assert.match(link, /href="https:\/\/example.com\/docs" target="_blank" rel="noopener noreferrer"/)
 })
 
-test('renders standard and bare parentheses/bracket equations', () => {
-  for (const expression of [String.raw`\(\frac{1}{2} \times 50 = 25\)`, '( 20 + 50 = 70 )', '( 50 + (0.235 * 50) = 61.75 )']) {
+test('renders explicit parentheses/bracket equations', () => {
+  for (const expression of [String.raw`\(\frac{1}{2} \times 50 = 25\)`]) {
     assert.match(render(expression), /class="katex"/)
     assert.doesNotMatch(render(expression), /katex-display|katex-error/)
   }
-  for (const expression of [String.raw`[ \text{Final Price} = $50 + (0.235 \times $50) ]`, String.raw`\[
+  for (const expression of [String.raw`\[ \text{Final Price} = $50 + (0.235 \times $50) \]`, String.raw`\[
 \frac{1}{2} + \text{Total}_{new} = 70
 \]`]) {
     assert.match(render(expression), /class="katex-display"/)
@@ -162,14 +162,14 @@ test('keeps new delimiters out of code, links, and reference definitions', () =>
 })
 
 test('new math works inside emphasis, lists, tables, and inline suggestions', () => {
-  const html = render(String.raw`**Result: (20 + 50 = 70)**
+  const html = render(String.raw`**Result: \(20 + 50 = 70\)**
 
 - First: \(x_1 + x_2\)
-  - Second: [ \frac{1}{2} ]
+  - Second: \[ \frac{1}{2} \]
 
 | Value |
 | --- |
-| (1 + 2) |`)
+| \(1 + 2\) |`)
   assert.equal((html.match(/class="katex"/g) || []).length, 4)
   assert.match(html, /<strong>Result:/)
   assert.match(html, /<table>/)
@@ -196,4 +196,19 @@ test('currency cannot hide code spans or alter their literal contents', () => {
   const html = render('Pay $50 then `(1 + 2)` and `$61.75`.')
   assert.match(html, /Pay \$50 then <code>\(1 \+ 2\)<\/code> and <code>\$61\.75<\/code>/)
   assert.doesNotMatch(html, /TOKSMATH|class="katex"/)
+})
+
+
+test('preserves digit-leading dollar equations', () => {
+  for (const expression of ['$2n$', '$3x$', '$2n + 1$', '$2^n$', '$20 + 50 = 70$']) {
+    const html = render(expression)
+    assert.match(html, /class="katex"/)
+    assert.doesNotMatch(html, /katex-error/)
+  }
+})
+
+test('does not infer math from ordinary parentheses and brackets', () => {
+  const html = render('(1 + 2) [3 + 4] (before tax) [estimated]')
+  assert.doesNotMatch(html, /class="katex"/)
+  assert.match(html, /\(1 \+ 2\) \[3 \+ 4\]/)
 })

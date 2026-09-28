@@ -2,11 +2,6 @@ import type { Root, RootContent, Text } from 'mdast'
 import type { InlineMath } from 'mdast-util-math'
 import type { Plugin } from 'unified'
 
-function looksLikeMath(value: string) {
-  return /\\[a-zA-Z]+\b/.test(value)
-    || (/^[\d\s.,+\-*/=<>^%()$]+$/.test(value) && /\d/.test(value) && /[+*/=<>^]|\d\s*-\s*\d/.test(value))
-}
-
 // Use the existing Markdown parser to identify regions that must stay literal.
 function literalRanges(tree: Root) {
   const ranges: Array<[number, number]> = []
@@ -55,9 +50,12 @@ export const remarkModelMath: Plugin<[], Root> = function () {
         let end = source.indexOf(fence, i + fence.length)
         while (end >= 0 && source[end - 1] === '\\') end = source.indexOf(fence, end + fence.length)
         const value = end < 0 ? '' : source.slice(i + fence.length, end)
-        const price = fence === '$' && /^\d/.test(source.slice(i + 1))
-          && (end < 0 || /^\d/.test(source.slice(end + 1))
-            || (!looksLikeMath(value) && !/^\d[\d,.]*$/.test(value)))
+        // A numeric prefix alone is not currency: $2n$, $2^n$, and
+        // $2n + 1$ are valid math. Only protect standalone amounts whose
+        // apparent closing dollar belongs to later prose or a literal region.
+        const amount = /^\d[\d,]*(?:\.\d+)?(?=$|\s|[)\],.!?:;](?:\s|$))/.test(source.slice(i + 1))
+        const price = fence === '$' && amount
+          && (end < 0 || /\s$/.test(value) || (/\d/.test(source[end + 1] ?? '') && /[)\]]\s*[[(]?$/.test(value)) || (range !== undefined && range[0] < end))
         if (price) {
           normalized += '\\$'
           i++
@@ -71,24 +69,14 @@ export const remarkModelMath: Plugin<[], Root> = function () {
       }
 
       const explicit = source[i] === '\\' && /[([]/.test(source[i + 1] ?? '')
-      const open = source[i + (explicit ? 1 : 0)]
-      if (open === '(' || open === '[') {
-        const start = i + (explicit ? 2 : 1)
+      const open = source[i + 1]
+      if (explicit) {
+        const start = i + 2
         const close = open === '(' ? ')' : ']'
-        let end = -1
-        if (explicit) {
-          end = source.indexOf('\\' + close, start)
-        } else {
-          let depth = 1
-          for (let j = start; j < source.length; j++) {
-            if (source[j] === '\\') { j++; continue }
-            if (source[j] === open) depth++
-            if (source[j] === close && --depth === 0) { end = j; break }
-          }
-        }
+        const end = source.indexOf('\\' + close, start)
         const value = source.slice(start, end)
         // Never turn an expression spanning a code span or link into math.
-        if (end >= 0 && (!range || end < range[0]) && (explicit || looksLikeMath(value))) {
+        if (end >= 0 && (!range || end < range[0])) {
           const token = `${prefix}${equations.size}END`
           const expression = value.replace(/(?<!\\)\$/g, '\\$')
           equations.set(token, {
@@ -101,7 +89,7 @@ export const remarkModelMath: Plugin<[], Root> = function () {
             }
           })
           normalized += token
-          i = end + (explicit ? 2 : 1)
+          i = end + 2
           continue
         }
         if (explicit && end < 0) {
