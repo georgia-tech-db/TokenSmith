@@ -10,6 +10,10 @@ const quizFocusAreas = [
   'edge cases, limitations, common mistakes, or consequences'
 ]
 
+const quizFeedbackGradePattern = /^(Good|Partial|Needs work)\b/i
+const quizFeedbackExpectedAnswerPattern = /Expected answer:/i
+const quizFeedbackLocatorPattern = /\b(page|section|chapter|excerpt|source|passage)\s+[\dIVXLC]/i
+
 function quizFocusArea(questionNumber: number): string {
   return quizFocusAreas[Math.max(0, questionNumber - 1) % quizFocusAreas.length]
 }
@@ -78,5 +82,26 @@ export function quizFeedbackPrompt({
     '',
     `Quiz question ${questionNumber} of ${totalQuestions}: ${question}`,
     `Student answer: ${answer}`
+  ].join('\n')
+}
+
+export function validateQuizFeedback(text: string) {
+  const trimmed = text.trim()
+  const issues: string[] = []
+
+  if (!quizFeedbackGradePattern.test(trimmed)) issues.push('missing_grade_prefix')
+  if (!quizFeedbackExpectedAnswerPattern.test(trimmed)) issues.push('missing_expected_answer')
+  if (quizFeedbackLocatorPattern.test(trimmed)) issues.push('locator_reference')
+
+  return { valid: issues.length === 0, issues }
+}
+
+export function quizFeedbackRetryPrompt(basePrompt: string, issues: string[]): string {
+  return [
+    basePrompt,
+    '',
+    'Your previous response did not follow the required format. Specifically:',
+    ...issues.map((issue) => `- ${issue}`),
+    'Respond again, following the required format exactly. Do not change the question or answer.'
   ].join('\n')
 }
