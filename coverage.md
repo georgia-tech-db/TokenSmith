@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 3198/14364 | 22.3% |
+| Frontend / Electron (TypeScript / TSX) | 3948/15590 | 25.3% |
 | Backend (Python) | 2549/2908 | 87.7% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -30,17 +30,27 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
 | `src/main/engine/study-chat-format.ts` | 815/841 | 96.9% |
 | `src/main/engine/study-engine-core.ts` | 84/91 | 92.3% |
-| `src/main/index.ts` | 0/567 | 0.0% |
+| `src/main/index.ts` | 0/574 | 0.0% |
 | `src/main/models/local-model-service.ts` | 0/35 | 0.0% |
 | `src/main/python/python-engine-service.ts` | 196/803 | 24.4% |
-| `src/preload/index.ts` | 0/139 | 0.0% |
+| `src/main/system/detect-device-capabilities.ts` | 26/73 | 35.6% |
+| `src/main/system/detectors/command.ts` | 2/23 | 8.7% |
+| `src/main/system/detectors/electron-gpu.ts` | 32/34 | 94.1% |
+| `src/main/system/detectors/linux-gpu-detector.ts` | 52/85 | 61.2% |
+| `src/main/system/detectors/macos-gpu-detector.ts` | 99/118 | 83.9% |
+| `src/main/system/detectors/nvidia-gpu.ts` | 37/46 | 80.4% |
+| `src/main/system/detectors/portable-detector.ts` | 19/50 | 38.0% |
+| `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
+| `src/preload/index.ts` | 0/143 | 0.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/46 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/7368 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/7461 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 61/61 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
 | `src/renderer/src/CloudGeneratorDialog.tsx` | 0/204 | 0.0% |
+| `src/renderer/src/components/DeviceRecommendationPanel.tsx` | 0/126 | 0.0% |
 | `src/renderer/src/ConversationViewport.tsx` | 0/216 | 0.0% |
+| `src/renderer/src/hooks/useDeviceCapabilities.ts` | 0/53 | 0.0% |
 | `src/renderer/src/LibraryWorkspace.tsx` | 0/200 | 0.0% |
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 87/87 | 100.0% |
@@ -50,12 +60,17 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/remark-model-math.ts` | 128/128 | 100.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
 | `src/shared/app-state.ts` | 0/233 | 0.0% |
-| `src/shared/bridge.ts` | 0/90 | 0.0% |
+| `src/shared/bridge.ts` | 0/92 | 0.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
 | `src/shared/cloud-generators.ts` | 51/52 | 98.1% |
+| `src/shared/device-capabilities.ts` | 50/50 | 100.0% |
+| `src/shared/device-tier-policy.ts` | 69/69 | 100.0% |
+| `src/shared/device-tier.ts` | 256/258 | 99.2% |
 | `src/shared/engine.ts` | 0/160 | 0.0% |
+| `src/shared/model-catalog.ts` | 33/38 | 86.8% |
 | `src/shared/model-defaults.ts` | 87/87 | 100.0% |
 | `src/shared/model-providers.ts` | 52/52 | 100.0% |
+| `src/shared/model-recommendation.ts` | 58/60 | 96.7% |
 | `src/shared/ollama.ts` | 66/66 | 100.0% |
 | `src/shared/preparation.ts` | 50/50 | 100.0% |
 | `src/shared/quiz.ts` | 80/82 | 97.6% |
@@ -64,6 +79,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: d7d684fa073580b5ef6a2e6b9617a70ff42eddf2
+Measured commit: 454d54cd0396ff692c529b9194074823a50bbed4
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36399576001)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36439122948)
