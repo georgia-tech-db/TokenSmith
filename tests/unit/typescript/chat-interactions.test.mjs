@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { addQuoteToDraft, replaceQuestion } = requireTranspiledTs('src/renderer/src/chat-interactions.ts')
+const { addQuoteToDraft, canExplainSimpler, questionForAnswer, replaceQuestion, simplerExplanationSettings, simplerExplanationRequest } =
+  requireTranspiledTs('src/renderer/src/chat-interactions.ts')
+const { studyChatMessages } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 const { prepareRewrittenStudyChat } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
 
 test('adding a selection keeps the existing draft and quotes every line', () => {
@@ -65,6 +67,113 @@ test('resending a quiz turn as a study question removes stale quiz metadata', ()
   ], 'quiz-answer', 'Explain my answer.'), [
     { id: 'quiz-answer', role: 'user', text: 'Explain my answer.' }
   ])
+})
+
+test('re-explaining an answer reuses the question that produced it, not a later one', () => {
+  assert.equal(questionForAnswer(history, 'a2').id, 'q2')
+  assert.equal(questionForAnswer(history, 'a1').id, 'q1')
+  assert.equal(questionForAnswer(history, 'missing'), undefined)
+  // An answer with no question before it cannot be re-explained.
+  assert.equal(questionForAnswer([{ id: 'a0', role: 'assistant', text: 'Orphan.' }], 'a0'), undefined)
+  assert.equal(history[0].text, 'What is a B+ tree?')
+})
+
+const evidence = [{ title: 'BuzzDB', locator: '2Q replacement', excerpt: 'If FIFO is empty, skip the FIFO branch and choose a victim from the protected LRU list.' }]
+const whyHistory = [
+  { id: 'q1', role: 'user', text: 'Assume the cache has three pages and FIFO is empty. Which list supplies the victim?' },
+  { id: 'a1', role: 'assistant', text: 'The protected LRU list.', sources: evidence, conversationContextMode: 'standalone' },
+  { id: 'q2', role: 'user', text: 'Why?' },
+  { id: 'a2', role: 'assistant', text: 'The FIFO branch is skipped because the queue is empty.', sources: evidence, conversationContextMode: 'contextual',
+    answerContext: { prompt: 'Why?', retrievalQuery: 'Why does empty FIFO select a victim from protected LRU in a three-page cache?', conversationContextMode: 'contextual',
+      referenceExchange: { question: 'Assume the cache has three pages and FIFO is empty. Which list supplies the victim?', answer: 'The protected LRU list.' } } },
+  { id: 'q3', role: 'user', text: 'Now explain B+ trees.' },
+  { id: 'a3', role: 'assistant', text: 'B+ trees are balanced search trees.', sources: [{ ...evidence[0], excerpt: 'B+ tree leaves are linked.' }] }
+]
+const simpleContext = {
+  model: { id: 'test', name: 'test', engine: 'ollama', source: 'ollama', ollamaModelName: 'test', status: 'ready', contextLength: 8192 },
+  settings: { application: { suggestionMode: 'on', followUpSuggestionCount: 4, showSources: false, explanationDepthEnabled: false, explanationDepth: 'standard' } },
+  materials: [], modelSettings: { contextLength: 8192, maxLength: 768 }
+}
+
+test('manual simplification needs saved evidence, but does not depend on automatic suggestions', () => {
+  const answer = whyHistory[1]
+  assert.equal(canExplainSimpler(answer), true)
+  assert.equal(canExplainSimpler({ ...answer, sources: [] }), false)
+  assert.equal(canExplainSimpler({ ...answer, text: ' ' }), false)
+  assert.equal(canExplainSimpler({ ...answer, explanationDepth: 'simple' }), false)
+  for (const kind of ['quizQuestion', 'quizAnswer', 'quizFeedback']) assert.equal(canExplainSimpler({ ...answer, kind }), false)
+  assert.equal(canExplainSimpler({ ...answer, conversationContextMode: 'clarify' }), false)
+  assert.equal(canExplainSimpler({ ...answer, role: 'user' }), false)
+  const request = simplerExplanationRequest(whyHistory, 'a2', {
+    ...simpleContext, settings: { application: { ...simpleContext.settings.application, suggestionMode: 'off' } }
+  })
+  assert.ok(request)
+  assert.equal(request.applicationSettings.explanationDepth, 'simple')
+  assert.equal(request.applicationSettings.suggestionMode, 'off')
+  assert.equal(request.applicationSettings.followUpSuggestionCount, 0)
+  assert.equal(simpleContext.settings.application.explanationDepth, 'standard')
+})
+
+test('simplifying an older Why answer preserves assumptions, evidence and target answer, excluding later topics', () => {
+  const request = simplerExplanationRequest(whyHistory, 'a2', simpleContext)
+  assert.deepEqual(request.referenceExchange, whyHistory[3].answerContext.referenceExchange)
+  assert.equal(request.retrievalQuery, whyHistory[3].answerContext.retrievalQuery)
+  assert.deepEqual(request.retrievedSources, evidence)
+  assert.equal(request.answerToSimplify, whyHistory[3].text)
+  assert.equal(request.prompt, 'Why?')
+  const prompt = studyChatMessages(request).map(message => message.content).join('\n')
+  assert.match(prompt, /three pages and FIFO is empty/)
+  assert.match(prompt, /FIFO branch is skipped because the queue is empty/)
+  assert.match(prompt, /not factual evidence/)
+  assert.match(prompt, /Check claims against the study excerpts; correct mistakes/)
+  assert.match(prompt, /Keep the conditions, assumptions, exceptions/)
+  assert.doesNotMatch(prompt, /B\+ trees/)
+})
+
+test('legacy contextual answers recover their preceding exchange without consulting later turns', () => {
+  const history = structuredClone(whyHistory)
+  delete history[3].answerContext
+  const request = simplerExplanationRequest(history, 'a2', simpleContext)
+  assert.equal(request.referenceExchange.question, whyHistory[0].text)
+  assert.equal(request.referenceExchange.answer, whyHistory[1].text)
+  const standalone = simplerExplanationRequest(history, 'a3', {
+    ...simpleContext, settings: { ...simpleContext.settings, application: simplerExplanationSettings(simpleContext.settings.application) }
+  })
+  assert.equal(standalone.prompt, 'Now explain B+ trees.')
+})
+
+test('cached explanations survive serialization and never need another generation request', () => {
+  const history = structuredClone(whyHistory)
+  history[3].simplerExplanation = { text: 'FIFO has no page to remove, so use LRU.', sources: evidence, responseDurationMs: 500 }
+  history[3].explanationView = 'simple'
+  const restored = JSON.parse(JSON.stringify(history))
+  assert.equal(simplerExplanationRequest(restored, 'a2', simpleContext), undefined)
+  const { answerForDisplay, lastChatExchange } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
+  assert.equal(answerForDisplay(restored[3]).text, history[3].simplerExplanation.text)
+  assert.equal(lastChatExchange(restored.slice(0, 4)).answer, history[3].simplerExplanation.text)
+  restored[3].explanationView = 'original'
+  assert.equal(answerForDisplay(restored[3]).text, whyHistory[3].text)
+  assert.equal(lastChatExchange(restored.slice(0, 4)).answer, whyHistory[3].text)
+  assert.equal(simplerExplanationRequest(restored, 'missing', simpleContext), undefined)
+})
+
+test('a simplification makes one provider call even with automatic suggestions enabled globally', async () => {
+  const { runRemoteStudyEngine } = requireTranspiledTs('src/main/engine/remote-chat-service.ts')
+  const request = simplerExplanationRequest(whyHistory, 'a2', simpleContext)
+  request.model = { ...request.model, engine: 'remote', remoteModelName: 'test', baseUrl: 'https://example.test/v1', apiKey: 'test-key' }
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) })
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'FIFO is empty, so choose from LRU.' } }] }) }
+  }
+  try {
+    const reply = await runRemoteStudyEngine(request)
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].body.messages.at(-1).content, /three pages and FIFO is empty/)
+    assert.deepEqual(reply.followUpSuggestions, [])
+    assert.ok(reply.sources.length)
+  } finally { globalThis.fetch = originalFetch }
 })
 
 test('resending an edited follow-up passes only the earlier exchange through the real chat pipeline', async () => {

@@ -58,6 +58,11 @@ const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
 const appIconFileName = 'tokensmith-icon.png'
 let cloudGenerators: CloudGeneratorService
+const questionSuggestionRequests = new Map<string, AbortController>()
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
 
 function withCloudStatus(state: AppStateSnapshot): AppStateSnapshot {
   return { ...state, models: state.models.map(model => {
@@ -466,9 +471,21 @@ app.whenReady().then(async () => {
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
   ipcMain.handle('engine:resolve-question', (_event, request: EngineQuestionRewriteRequest) => resolveChatQuestion(request))
-  ipcMain.handle('engine:suggest-questions', (_event, request: EngineQuestionSuggestionRequest) =>
-    suggestChatQuestions(request)
-  )
+  ipcMain.handle('engine:suggest-questions', async (_event, requestId: string, request: EngineQuestionSuggestionRequest) => {
+    const controller = new AbortController()
+    questionSuggestionRequests.set(requestId, controller)
+    try {
+      return await suggestChatQuestions(request, controller.signal)
+    } catch (error) {
+      if (isAbortError(error)) return { suggestions: [] }
+      throw error
+    } finally {
+      questionSuggestionRequests.delete(requestId)
+    }
+  })
+  ipcMain.handle('engine:cancel-suggest-questions', (_event, requestId: string) => {
+    questionSuggestionRequests.get(requestId)?.abort()
+  })
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>

@@ -178,6 +178,62 @@ test('studyChatMessages budgets and clips source context around matched terms', 
   assert.doesNotMatch(prompt, /LRU evicts cold pages after/)
 })
 
+function depthRequest(explanationDepth, explanationDepthEnabled = true) {
+  return {
+    prompt: 'What is a transaction?',
+    messages: [],
+    materials: [],
+    model: ollamaChatModel,
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'off',
+      followUpSuggestionCount: 0,
+      explanationDepthEnabled,
+      ...(explanationDepth ? { explanationDepth } : {})
+    },
+    modelSettings: {},
+    retrievedSources: [databaseSource]
+  }
+}
+
+test('standard explanation depth keeps the default prompt unchanged', () => {
+  const unset = studyChatMessages(depthRequest())
+  const standard = studyChatMessages(depthRequest('standard'))
+
+  assert.deepEqual(standard, unset)
+  assert.doesNotMatch(standard[0].content, /Explanation depth/)
+})
+
+test('a depth left selected does not shape answers while the setting is off', () => {
+  const off = studyChatMessages(depthRequest('detailed', false))
+
+  assert.doesNotMatch(off[0].content, /Explanation depth/)
+  assert.deepEqual(off, studyChatMessages(depthRequest('standard')))
+})
+
+test('explanation depth shapes the system prompt without touching the evidence block', () => {
+  const simple = studyChatMessages(depthRequest('simple'))
+  const detailed = studyChatMessages(depthRequest('detailed'))
+
+  assert.match(simple[0].content, /meeting this idea for the first time/)
+  assert.match(simple[0].content, /define any technical term/)
+  assert.match(detailed[0].content, /wants to sharpen it/)
+  assert.match(detailed[0].content, /conditions, assumptions, and limits/)
+
+  // Depth belongs to the instructions, never to the retrieved material the model cites.
+  assert.doesNotMatch(simple.at(-1).content, /Explanation depth/)
+  assert.doesNotMatch(detailed.at(-1).content, /Explanation depth/)
+  assert.equal(simple.at(-1).content, studyChatMessages(depthRequest()).at(-1).content)
+})
+
+test('source context budget accounts for the explanation depth instruction', () => {
+  const standard = sourceContextBudgetForRequest(depthRequest('standard'))
+  const simple = sourceContextBudgetForRequest(depthRequest('simple'))
+
+  assert.ok(simple.fixedPromptTokens > standard.fixedPromptTokens)
+  assert.ok(simple.sourceBudgetTokens < standard.sourceBudgetTokens)
+})
+
 test('studyChatMessages sends standalone source context without raw prior conversation', () => {
   const chatMessages = studyChatMessages({
     prompt: 'What exactly is a B+ tree and how is it different from a binary search tree?',
@@ -504,4 +560,20 @@ test('filterSuggestedQuestions removes repeated current and recent questions', (
       'What trade-off does 2Q make compared with LRU?'
     ]
   )
+})
+
+
+test('simplification budgets the quoted answer and final task while bounding long reference text', () => {
+  const request = depthRequest('simple')
+  request.modelSettings = { contextLength: 8192, maxLength: 768 }
+  const before = sourceContextBudgetForRequest(request)
+  request.answerToSimplify = 'Long old answer. '.repeat(2000)
+  const budget = sourceContextBudgetForRequest(request)
+  const prompt = studyChatMessages(request).at(-1).content
+  assert.ok(budget.fixedPromptTokens > before.fixedPromptTokens)
+  assert.ok(budget.includedSourceCount > 0)
+  assert.ok(budget.estimatedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens <= budget.modelContextTokens)
+  assert.match(prompt, /\[truncated\]/)
+  assert.match(prompt, /Task: The student has already read the answer/)
+  assert.ok(prompt.length < request.answerToSimplify.length)
 })
