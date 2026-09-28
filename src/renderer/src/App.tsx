@@ -3539,7 +3539,7 @@ function ChatScreen({
             <button
               className="model-action-button"
               type="button"
-              disabled={!ollamaStatus?.running || otherModelIsPulling}
+              disabled={!ollamaStatus?.running || otherModelIsPulling || (!isEmbedder && setupDeviceCapabilityState === 'checking')}
               onClick={handleDownload}
             >
               <span>{progress?.status === 'incomplete' ? 'Resume' : downloadLabel}</span>
@@ -3558,7 +3558,7 @@ function ChatScreen({
       <button
         className="model-action-button"
         type="button"
-        disabled={!ollamaStatus?.running || otherModelIsPulling}
+        disabled={!ollamaStatus?.running || otherModelIsPulling || (!isEmbedder && setupDeviceCapabilityState === 'checking')}
         onClick={handleDownload}
       >
         <span>{downloadLabel}</span>
@@ -3648,7 +3648,7 @@ function ChatScreen({
           <div className="cloud-generator-entry">
             <div>
               <strong>Recommended for this device: {setupChatModelLabel}</strong>
-              <p>{recommendsCloudChat ? 'A cloud model is an option when local memory is limited. You can also choose a local model in Models.' : 'A starting point for everyday study, with room for course search and other apps. Larger models are optional in Models.'}</p>
+              <p>{recommendsCloudChat ? 'A cloud model is an option when local memory is limited. You can also choose a local model in Models.' : setupRecommendation.reasons[0]}</p>
             </div>
           </div>
         )}

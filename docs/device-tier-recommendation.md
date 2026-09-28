@@ -1,6 +1,6 @@
 # Model recommendations for course study
 
-Start with Gemma 4 E4B when it meets the device policy. More RAM does not automatically select a larger model. Eligible alternatives appear separately in Models; existing installed models and user selections remain available. When no option qualifies, setup suggests cloud as an option, not a prohibition on manual local use. Connecting a cloud provider remains explicit.
+Start with Gemma 4 12B when it meets the device policy, prioritizing the fewer material errors observed in our tutoring trial. Otherwise offer E4B as the lighter fallback. More RAM does not automatically select a larger model. Eligible alternatives appear separately in Models; existing installed models and user selections remain available. When no option qualifies, setup suggests cloud as an option, not a prohibition on manual local use. Connecting a cloud provider remains explicit.
 
 ## Evidence and limits
 
@@ -15,19 +15,21 @@ The September 27, 2026 BuzzDB experiment replayed 18 questions from six related 
 
 These are non-blind, single-sample manual results on previously known questions, not general accuracy estimates, learning outcomes, or speed predictions for another machine. Coverage does not cancel false explanations. Runs were sequential, not interleaved. The 26B package includes speculative decoding, so this is not an isolated architecture comparison.
 
-12B is a slower alternative with fewer observed errors. 26B is a promising alternative with more memory demand: runtime logs recorded 16,147 MiB of main GPU weights plus 425 MiB of draft weights, before other allocations. System swap grew from about 8.4 to 15.1 GiB in that run; causation cannot be assigned entirely to the model. Ollama's approximately 1 GB residency report for this package was incomplete. Do not treat four active billion parameters as a four-billion-parameter memory footprint. 31B is not in the recommended catalog because the trial did not justify its latency; manual installation remains possible.
+12B is the preferred model when eligible, despite its longer wait, because our product prioritizes learning and it had fewer observed errors. This is a product judgment from limited evidence, not proof of improved learning. E4B remains the faster alternative and fallback. 26B is a promising alternative with more memory demand: runtime logs recorded 16,147 MiB of main GPU weights plus 425 MiB of draft weights, before other allocations. System swap grew from about 8.4 to 15.1 GiB in that run; causation cannot be assigned entirely to the model. Ollama's approximately 1 GB residency report for this package was incomplete. Do not treat four active billion parameters as a four-billion-parameter memory footprint. 31B is not in the recommended catalog because the trial did not justify its latency; manual installation remains possible.
 
 ## Conservative eligibility policy
 
 | Option | Host RAM | CPU-only | Unified RAM | Dedicated VRAM available and total | Free disk |
 | --- | --- | --- | --- | --- | --- |
-| E4B starting point | 16 GiB | 24 GiB, 8 threads | 16 GiB | 10 GiB | 14 GiB |
-| 12B optional | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
+| E4B fallback | 16 GiB | 24 GiB, 8 threads | 16 GiB | 10 GiB | 14 GiB |
+| 12B preferred | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
 | 26B A4B optional | 32 GiB | Not recommended | 48 GiB | 24 GiB | 25 GiB |
 
 Thresholds are policy estimates, not measured minimum requirements. They allow for context, runtime overhead, Nomic retrieval, the app, and other desktop applications. Download size is not runtime memory. The 48 GiB threshold for 26B is deliberate headroom above the 32 GB machine where paging was observed, not validation on a 48 GiB device.
 
 Shared graphics memory is never added to host memory. Unknown GPU support cannot qualify as accelerated execution. Known busy VRAM disqualifies that GPU path; CPU fallback still needs its own thresholds. Unknown free VRAM is disclosed. OS/architecture checks and detector limitations remain separate from performance estimates. Total RAM is not an available-memory or pressure measurement, particularly on macOS; rechecking cannot guarantee freedom from swapping. Disk checks use the app's storage volume, which may differ from a customized Ollama model directory.
+
+First-run download buttons use the detected recommendation alongside Nomic. Chat downloads wait for device detection. If detection fails, the generic Ollama fallback remains E4B; no existing model is replaced. The first-run recommendation text explains the selected model’s speed/quality trade-off.
 
 ## Runtime and existing users
 

@@ -225,9 +225,8 @@ export function classifyDeviceTier(
     }
   })
 
-  const preferredEligible = [...evaluatedTiers]
-    .sort((left, right) => left.tier - right.tier)
-    .find((evaluation) => evaluation.eligible)
+  // Policy order expresses the learning/latency preference independently of size.
+  const preferredEligible = evaluatedTiers.find((evaluation) => evaluation.eligible)
 
   if (!preferredEligible) {
     return {

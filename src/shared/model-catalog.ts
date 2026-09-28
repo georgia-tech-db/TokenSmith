@@ -19,13 +19,13 @@ export function formatModelArtifactSize(bytes: number): string {
 export const localModelCatalog: LocalModelProfile[] = [
   {
     id: 'gemma4:e4b', displayName: 'Gemma 4 E4B',
-    description: 'Start here for everyday study questions. Faster in our local trial; explanations can still contain errors.',
+    description: 'Lighter, faster option. In our small trial, E4B answered faster than 12B but made more errors.',
     parameterLabel: 'E4B', quantizationLabel: 'Q4_K_M',
     artifactSizeBytes: 9_600_000_000, maximumContextTokens: 131_072
   },
   {
     id: 'gemma4:12b', displayName: 'Gemma 4 12B',
-    description: 'Optional: fewer errors in our small trial, but answers took about two minutes on the test Mac.',
+    description: 'Recommended when memory allows: fewer errors in our small trial, but answers took about two minutes on the test Mac.',
     parameterLabel: '12B', quantizationLabel: 'Q4_K_M',
     artifactSizeBytes: 7_600_000_000, maximumContextTokens: 262_144
   },

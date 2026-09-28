@@ -32,7 +32,8 @@ export interface DeviceTierPolicy {
 }
 
 // Eligibility estimates include room for an 8K context, Nomic, and other apps.
-// Tier numbers identify options, not an automatic quality ranking.
+// Evaluate options in preference order: 12B for learning, E4B fallback, then 26B.
+// Tier numbers identify hardware requirements, not recommendation priority.
 export const defaultDeviceTierPolicy: DeviceTierPolicy = {
   assumedContextTokens: 8_192,
   localInferenceTargets: [
@@ -42,17 +43,17 @@ export const defaultDeviceTierPolicy: DeviceTierPolicy = {
   ],
   tiers: [
     {
-      tier: 1, name: 'Everyday study', recommendedModelId: 'gemma4:e4b',
-      minimumHostMemoryBytes: gibibytes(16),
-      minimumCpuMemoryBytes: gibibytes(24), minimumCpuParallelism: 8,
-      minimumUnifiedMemoryBytes: gibibytes(16), minimumDedicatedVramBytes: gibibytes(10),
-      minimumFreeDiskBytes: gibibytes(14)
-    },
-    {
-      tier: 2, name: 'Slower alternative', recommendedModelId: 'gemma4:12b',
+      tier: 2, name: 'Recommended for learning', recommendedModelId: 'gemma4:12b',
       minimumHostMemoryBytes: gibibytes(24),
       minimumCpuMemoryBytes: null, minimumCpuParallelism: null,
       minimumUnifiedMemoryBytes: gibibytes(24), minimumDedicatedVramBytes: gibibytes(12),
+      minimumFreeDiskBytes: gibibytes(14)
+    },
+    {
+      tier: 1, name: 'Lighter fallback', recommendedModelId: 'gemma4:e4b',
+      minimumHostMemoryBytes: gibibytes(16),
+      minimumCpuMemoryBytes: gibibytes(24), minimumCpuParallelism: 8,
+      minimumUnifiedMemoryBytes: gibibytes(16), minimumDedicatedVramBytes: gibibytes(10),
       minimumFreeDiskBytes: gibibytes(14)
     },
     {

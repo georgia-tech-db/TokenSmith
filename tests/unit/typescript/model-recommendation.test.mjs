@@ -74,23 +74,23 @@ test('small machines receive an optional cloud recommendation', () => {
   }
 })
 
-test('E4B remains the starting model as memory increases', () => {
-  for (const ramGb of [16, 24, 32, 48, 64, 128]) {
+test('12B is preferred when eligible, without promoting larger models', () => {
+  for (const ramGb of [24, 32, 48, 64, 128]) {
     const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
-    assert.equal(result.recommendedModelId, 'gemma4:e4b')
+    assert.equal(result.recommendedModelId, 'gemma4:12b')
     assert.equal(result.tierAssessment.executionPath, 'unified-gpu')
   }
 })
 
-test('32 GiB exposes 12B but keeps memory-heavy 26B out of eligible alternatives', () => {
+test('32 GiB defaults to 12B and offers E4B, not memory-heavy 26B', () => {
   const result = recommendationFor(device({ramGb: 32, accelerators: [unifiedAccelerator(32)]}))
-  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:12b'])
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b'])
 })
 
 test('48 GiB offers both alternatives without changing the default', () => {
   const result = recommendationFor(device({ramGb: 48, accelerators: [unifiedAccelerator(48)]}))
-  assert.equal(result.recommendedModelId, 'gemma4:e4b')
-  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:12b', 'gemma4:26b'])
+  assert.equal(result.recommendedModelId, 'gemma4:12b')
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:e4b', 'gemma4:26b'])
 })
 
 test('dedicated GPUs need both host memory and VRAM headroom', () => {
@@ -155,4 +155,19 @@ test('catalog, fallback, and context agree with the measured setup', () => {
   assert.equal(localModelCatalog.some(m => /31b|gemma3/.test(m.id)), false)
   assert.equal(defaultDeviceTierPolicy.assumedContextTokens, 8192)
   assert.ok(defaultDeviceTierPolicy.tiers.every(t => localModelCatalog.some(m => m.id === t.recommendedModelId)))
+})
+
+
+test('first-run recommendation falls back to E4B below the 12B memory threshold', () => {
+  for (const ramGb of [16, 23.9]) {
+    const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
+    assert.equal(result.recommendedModelId, 'gemma4:e4b')
+    assert.deepEqual(result.alternatives, [])
+  }
+})
+
+test('12B requires available VRAM as well as host RAM on dedicated GPUs', () => {
+  const base = {ramGb: 24, accelerators: [dedicatedAccelerator(24, 12)]}
+  assert.equal(recommendationFor(device(base)).recommendedModelId, 'gemma4:12b')
+  assert.equal(recommendationFor(device({...base, accelerators: [dedicatedAccelerator(24, 10)]})).recommendedModelId, 'gemma4:e4b')
 })
