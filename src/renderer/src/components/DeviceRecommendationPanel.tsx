@@ -71,7 +71,7 @@ export function DeviceRecommendationPanel({
   const isCloud = recommendation.kind === 'cloud'
   const detail = isCloud
     ? `Suggested model: ${recommendation.recommendedModelName}`
-    : `Expected execution: ${executionPathLabels[assessment.executionPath]}`
+    : `Detected acceleration: ${executionPathLabels[assessment.executionPath]}`
 
   return (
     <section
@@ -83,7 +83,7 @@ export function DeviceRecommendationPanel({
           <Sparkles size={22} />
         </div>
         <div className="model-recommendation-copy">
-          <span>Device Tier {assessment.tier} · {assessment.name}</span>
+          <span>{isCloud ? 'Cloud option' : 'Suggested starting point'}</span>
           <h2>{isCloud ? 'Cloud model recommended' : recommendation.recommendedModelName}</h2>
           <p>{recommendation.reasons[0]}</p>
           <small>{detail}</small>
@@ -101,6 +101,12 @@ export function DeviceRecommendationPanel({
         </ul>
       )}
 
+      {recommendation.alternatives.length > 0 && <details className="device-details">
+        <summary>Other local options</summary>
+        {recommendation.alternatives.map((model) => <p key={model.id}><strong>{model.displayName}</strong>: {model.description}</p>)}
+        <p>Choose these from the model cards below. More memory does not automatically mean faster or more accurate answers.</p>
+      </details>}
+      <p>Estimates assume an 8K context and Nomic retrieval. Check your model settings if you have customized them.</p>
       <details className="device-details">
         <summary>Detected device details</summary>
         <dl>

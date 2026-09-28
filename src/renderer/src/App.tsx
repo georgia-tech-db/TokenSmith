@@ -195,8 +195,8 @@ const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   chatTemplate: '',
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
   starterQuestionPrompt: defaultStarterQuestionPrompt,
-  contextLength: 2048,
-  maxLength: 4096,
+  contextLength: 8192,
+  maxLength: 1536,
   promptBatchSize: 128,
   temperature: 0.7,
   topP: 0.4,
@@ -2623,7 +2623,7 @@ function ChatScreen({
     : setupRecommendation?.recommendedModelId ?? recommendedOllamaChatModel
   const setupChatModelLabel = recommendsCloudChat
     ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
-    : setupRecommendation?.recommendedModelName ?? 'Gemma 3 4B Q4'
+    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
   const canUseQuiz = Boolean(selectedModel) && selectedModel?.status === 'ready' && activeMaterials.length > 0
   const composerPlaceholder = activeQuizState
     ? 'Answer the quiz question...'
@@ -3648,7 +3648,7 @@ function ChatScreen({
           <div className="cloud-generator-entry">
             <div>
               <strong>Recommended for this device: {setupChatModelLabel}</strong>
-              <p>{recommendsCloudChat ? 'This device does not meet the local-model requirements.' : 'TokenSmith selected this local Gemma model from this device’s available memory and acceleration.'}</p>
+              <p>{recommendsCloudChat ? 'A cloud model is an option when local memory is limited. You can also choose a local model in Models.' : 'A starting point for everyday study, with room for course search and other apps. Larger models are optional in Models.'}</p>
             </div>
           </div>
         )}

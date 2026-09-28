@@ -1,81 +1,42 @@
-# Device-tier model recommendation
+# Model recommendations for course study
 
-TokenSmith classifies a device into the highest local tier that passes the policy. Tier 0 recommends one cloud model when no local tier passes.
+Start with Gemma 4 E4B when it meets the device policy. More RAM does not automatically select a larger model. Eligible alternatives appear separately in Models; existing installed models and user selections remain available. When no option qualifies, setup suggests cloud as an option, not a prohibition on manual local use. Connecting a cloud provider remains explicit.
 
-## Scope
+## Evidence and limits
 
-- Recommendation only; the policy does not change model runtime settings.
-- The cloud tier names a hosted model but does not set up, authenticate, or test its provider.
-- Five exact local Ollama configurations and one cloud configuration.
-- Gemma 3 4B Q4 is the lightweight local entry point; devices that cannot run it safely receive the cloud recommendation.
-- Memory estimates assume TokenSmith's existing 2,048-token context.
-- macOS Sonoma or newer, Windows 10 22H2 or newer, and Linux are evaluated.
-- Intel macOS is evaluated through Ollama's CPU path. Apple Silicon may use unified GPU memory.
-- Windows ARM may use the CPU path. Accelerators count only when runtime support is verified.
+The September 27, 2026 BuzzDB experiment replayed 18 questions from six related families on a 32 GB M1 Max, using frozen Nomic passages and original E4B conversation history. Q4_K_M packages, 8,192-token context, 1,536-token answer allowance, thinking off, and matching API sampling settings were used. Each final generation had a one-token preflight. No new retrieval or rewriting was timed.
 
-## Flow
+| Package | Coverage /72 | Answers with material errors /18 | Median preflight + answer |
+| --- | --- | --- | --- |
+| Gemma 4 E4B | 55 | 9 | 34.2 s |
+| Gemma 4 12B | 67.5 | 2 | 126.8 s |
+| Gemma 4 26B A4B | 66.5 | 5 | 43.1 s |
+| Gemma 4 31B | 67 | 4 | 233.4 s |
 
-1. Platform-specific detectors produce one `DeviceCapabilities` value.
-2. The tier classifier evaluates Tier 1 through Tier 5.
-3. The highest eligible tier is selected.
-4. The recommendation mapper selects that tier's model.
-5. If no local tier is eligible, Tier 0 selects the cloud model.
+These are non-blind, single-sample manual results on previously known questions, not general accuracy estimates, learning outcomes, or speed predictions for another machine. Coverage does not cancel false explanations. Runs were sequential, not interleaved. The 26B package includes speculative decoding, so this is not an isolated architecture comparison.
 
-## Tier policy
+12B is a slower alternative with fewer observed errors. 26B is a promising alternative with more memory demand: runtime logs recorded 16,147 MiB of main GPU weights plus 425 MiB of draft weights, before other allocations. System swap grew from about 8.4 to 15.1 GiB in that run; causation cannot be assigned entirely to the model. Ollama's approximately 1 GB residency report for this package was incomplete. Do not treat four active billion parameters as a four-billion-parameter memory footprint. 31B is not in the recommended catalog because the trial did not justify its latency; manual installation remains possible.
 
-| Tier | Local model | CPU requirement | Unified memory | Dedicated VRAM | Free disk |
+## Conservative eligibility policy
+
+| Option | Host RAM | CPU-only | Unified RAM | Dedicated VRAM available and total | Free disk |
 | --- | --- | --- | --- | --- | --- |
-| 1 Light | Gemma 3 4B Q4_K_M | 16 GiB, 8 threads | 8 GiB | 4 GiB | 5 GiB |
-| 2 Standard | Gemma 3 4B Q8_0 | 24 GiB, 12 threads | 16 GiB | 8 GiB | 8 GiB |
-| 3 Enhanced | Gemma 3 12B Q4_K_M | Not recommended | 20 GiB | 10 GiB | 10 GiB |
-| 4 High Precision | Gemma 3 12B Q8_0 | Not recommended | 32 GiB | 16 GiB | 16 GiB |
-| 5 Workstation | Gemma 3 27B Q8_0 | Not recommended | 48 GiB | 32 GiB | 35 GiB |
-| 0 Cloud | Gemini 2.5 Flash through Google AI Studio | No local requirement | No local requirement | No local requirement | No model download |
+| E4B starting point | 16 GiB | 24 GiB, 8 threads | 16 GiB | 10 GiB | 14 GiB |
+| 12B optional | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
+| 26B A4B optional | 32 GiB | Not recommended | 48 GiB | 24 GiB | 25 GiB |
 
-A dedicated-GPU path must also meet the tier's host-memory minimum. Shared graphics memory is not added to system memory.
+Thresholds are policy estimates, not measured minimum requirements. They allow for context, runtime overhead, Nomic retrieval, the app, and other desktop applications. Download size is not runtime memory. The 48 GiB threshold for 26B is deliberate headroom above the 32 GB machine where paging was observed, not validation on a 48 GiB device.
 
-## Evidence categories
+Shared graphics memory is never added to host memory. Unknown GPU support cannot qualify as accelerated execution. Known busy VRAM disqualifies that GPU path; CPU fallback still needs its own thresholds. Unknown free VRAM is disclosed. OS/architecture checks and detector limitations remain separate from performance estimates. Total RAM is not an available-memory or pressure measurement, particularly on macOS; rechecking cannot guarantee freedom from swapping. Disk checks use the app's storage volume, which may differ from a customized Ollama model directory.
 
-### Hard checks
+## Runtime and existing users
 
-- The OS and architecture are supported by the local Ollama runtime.
-- The model download fits in available storage.
-- A GPU path is used only when its runtime support is verified.
-- Shared memory is counted once.
+Fresh settings use an 8,192-token context and a 1,536-token answer cap, matching the recommendation assumptions. Saved settings and per-model overrides are preserved. The panel tells existing users to check customized settings. This change does not add generation preflights, change thinking behavior, or reproduce the benchmark runner inside the app. Recommendations themselves make no model calls.
 
-### Conservative policy heuristics
+## Next validation
 
-- Total RAM, unified-memory, and VRAM thresholds.
-- CPU thread minimums.
-- Selecting the highest tier that fits.
-- Disabling CPU-only recommendations for Tiers 3 through 5.
-- Treating Gemma 3 4B Q4 as the local entry model for TokenSmith's study workflow.
+Benchmark fresh multi-turn questions and full retrieval on representative CPU, Apple Silicon, and dedicated-GPU machines, with normal student apps open. Measure time to first token, full-answer time, peak memory, swapping, and material errors. Do not promote larger models automatically until that evidence supports it.
 
-### Benchmark validation required
+## Catalog provenance
 
-- Peak RAM and VRAM while loading and generating.
-- Time to first token and output tokens per second.
-- Thermal throttling during sustained use.
-- Performance on each supported OS and architecture.
-- Whether partial GPU offload should affect tier placement.
-
-## Benchmark protocol
-
-Keep the existing model settings unchanged. For each tier and representative device, record:
-
-1. successful model load;
-2. peak host memory;
-3. peak accelerator memory;
-4. time to first token;
-5. output tokens per second;
-6. completion success for a fixed TokenSmith study prompt;
-7. sustained performance after repeated prompts.
-
-The benchmark results should tune the heuristic thresholds without changing the tier-classification architecture.
-
-## Model metadata sources
-
-- Ollama Gemma 3 tags: <https://ollama.com/library/gemma3/tags>
-- Ollama macOS requirements: <https://github.com/ollama/ollama/blob/main/docs/macos.mdx>
-- Ollama Windows requirements: <https://github.com/ollama/ollama/blob/main/docs/windows.mdx>
-- Gemini model catalog: <https://ai.google.dev/gemini-api/docs/models>
+Ollama's [Gemma 4 tags](https://ollama.com/library/gemma4/tags), checked September 28, 2026, list the catalog aliases as Q4_K_M artifacts. Approximate downloads: E4B 9.6 GB, 12B 7.6 GB, 26B 19 GB. Aliases can change; revalidate the package before updating benchmark claims. Retained experiment artifacts live under `tmp/deep-course-eval/mid-gemma/` and `tmp/deep-course-eval/larger-gemma/` in the benchmark workspace; they are not shipped with the app.

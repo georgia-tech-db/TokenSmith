@@ -11,6 +11,7 @@ export interface ModelRecommendation {
   tierAssessment: DeviceTierAssessment
   reasons: string[]
   warnings: string[]
+  alternatives: LocalModelProfile[]
 }
 
 export function recommendModel(
@@ -28,7 +29,8 @@ export function recommendModel(
       assumedContextTokens: policy.assumedContextTokens,
       tierAssessment,
       reasons: tierAssessment.reasons,
-      warnings: tierAssessment.warnings
+      warnings: tierAssessment.warnings,
+      alternatives: []
     }
   }
 
@@ -44,7 +46,9 @@ export function recommendModel(
     kind: 'local',
     assumedContextTokens: policy.assumedContextTokens,
     tierAssessment,
-    reasons: tierAssessment.reasons,
-    warnings: tierAssessment.warnings
+    reasons: [model.description, ...tierAssessment.reasons],
+    warnings: tierAssessment.warnings,
+    alternatives: models.filter((candidate) => candidate.id !== model.id &&
+      tierAssessment.evaluatedTiers.some((tier) => tier.eligible && tier.recommendedModelId === candidate.id))
   }
 }

@@ -96,7 +96,8 @@ function eligiblePath(
     (accelerator) =>
       accelerator.memoryTopology === 'dedicated' &&
       accelerator.totalMemoryBytes !== null &&
-      accelerator.totalMemoryBytes >= tier.minimumDedicatedVramBytes
+      accelerator.totalMemoryBytes >= tier.minimumDedicatedVramBytes &&
+      (accelerator.availableMemoryBytes === null || accelerator.availableMemoryBytes >= tier.minimumDedicatedVramBytes)
   )
   if (dedicatedGpu) {
     return { kind: 'dedicated-gpu', accelerator: dedicatedGpu }
@@ -191,18 +192,14 @@ function reasonsFor(
 
 function warningsFor(
   device: DeviceCapabilities,
-  tier: DeviceTierDefinition,
   path: EligiblePath
 ): string[] {
-  const warnings = [...device.detectionWarnings]
+  const warnings = [...device.detectionWarnings,
+    'Memory fit is an estimate, not a speed guarantee. It allows room for Nomic, an 8K context, and other apps.']
+  if (path.kind === 'cpu') warnings.push('CPU-only answers may be slow; this configuration has not been benchmarked.')
 
-  if (
-    path.kind === 'dedicated-gpu' &&
-    path.accelerator?.availableMemoryBytes !== null &&
-    path.accelerator?.availableMemoryBytes !== undefined &&
-    path.accelerator.availableMemoryBytes < tier.minimumDedicatedVramBytes
-  ) {
-    warnings.push('GPU memory is currently busy. Close other GPU-heavy applications before loading this model.')
+  if (path.kind === 'dedicated-gpu' && path.accelerator?.availableMemoryBytes == null) {
+    warnings.push('Available GPU memory could not be measured. Close other GPU-heavy apps before trying this model.')
   }
 
   return [...new Set(warnings)]
@@ -228,24 +225,24 @@ export function classifyDeviceTier(
     }
   })
 
-  const highestEligible = [...evaluatedTiers]
-    .sort((left, right) => right.tier - left.tier)
+  const preferredEligible = [...evaluatedTiers]
+    .sort((left, right) => left.tier - right.tier)
     .find((evaluation) => evaluation.eligible)
 
-  if (!highestEligible) {
+  if (!preferredEligible) {
     return {
       tier: 0,
       name: 'Cloud',
       executionPath: 'cloud',
       reasons: [
-        runtime.reason ?? 'This device does not meet the requirements for our local models.'
+        runtime.reason ?? 'No local option meets our conservative memory and storage estimates. You can still choose a model manually.'
       ],
       warnings: [...device.detectionWarnings],
       evaluatedTiers
     }
   }
 
-  const tier = policy.tiers.find((candidate) => candidate.tier === highestEligible.tier)
+  const tier = policy.tiers.find((candidate) => candidate.tier === preferredEligible.tier)
   const path = tier ? eligiblePath(device, tier) : null
   if (!tier || !path) {
     throw new Error('The selected device tier is missing from the policy.')
@@ -256,7 +253,7 @@ export function classifyDeviceTier(
     name: tier.name,
     executionPath: path.kind,
     reasons: reasonsFor(device, tier, path),
-    warnings: warningsFor(device, tier, path),
+    warnings: warningsFor(device, path),
     evaluatedTiers
   }
 }

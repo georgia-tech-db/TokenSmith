@@ -65,249 +65,94 @@ function recommendationFor(testDevice) {
   return recommendModel(testDevice, localModelCatalog, defaultDeviceTierPolicy)
 }
 
-test('assigns Tier 0 and cloud when no local tier fits', () => {
-  const recommendation = recommendationFor(device({ ramGb: 4 }))
 
-  assert.equal(recommendation.kind, 'cloud')
-  assert.equal(recommendation.recommendedModelId, 'gemini:gemini-2.5-flash')
-  assert.equal(recommendation.recommendedModelName, 'Gemini 2.5 Flash (Google)')
-  assert.equal(recommendation.tierAssessment.tier, 0)
-  assert.deepEqual(recommendation.warnings, [])
+test('small machines receive an optional cloud recommendation', () => {
+  for (const ramGb of [4, 8]) {
+    const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
+    assert.equal(result.kind, 'cloud')
+    assert.deepEqual(result.alternatives, [])
+  }
 })
 
-test('sends an 8 GiB Intel Mac to cloud instead of recommending a 4B model', () => {
-  const recommendation = recommendationFor(device({
-    ramGb: 8,
-    cpuThreads: 8,
-    platform: 'macos',
-    platformRelease: '24.6.0',
-    architecture: 'x64'
-  }))
-
-  assert.equal(recommendation.kind, 'cloud')
-  assert.equal(recommendation.tierAssessment.tier, 0)
+test('E4B remains the starting model as memory increases', () => {
+  for (const ramGb of [16, 24, 32, 48, 64, 128]) {
+    const result = recommendationFor(device({ramGb, accelerators: [unifiedAccelerator(ramGb)]}))
+    assert.equal(result.recommendedModelId, 'gemma4:e4b')
+    assert.equal(result.tierAssessment.executionPath, 'unified-gpu')
+  }
 })
 
-test('assigns Tier 1 to an 8 GiB Apple Silicon device', () => {
-  const recommendation = recommendationFor(device({
-    ramGb: 8,
-    platform: 'macos',
-    platformRelease: '24.6.0',
-    architecture: 'arm64',
-    accelerators: [unifiedAccelerator(8)]
-  }))
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:4b-it-q4_K_M')
-  assert.equal(recommendation.tierAssessment.tier, 1)
-  assert.equal(recommendation.tierAssessment.executionPath, 'unified-gpu')
+test('32 GiB exposes 12B but keeps memory-heavy 26B out of eligible alternatives', () => {
+  const result = recommendationFor(device({ramGb: 32, accelerators: [unifiedAccelerator(32)]}))
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:12b'])
 })
 
-test('assigns Tier 1 to a 16 GiB CPU device with eight threads', () => {
-  const recommendation = recommendationFor(device({ ramGb: 16, cpuThreads: 8 }))
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:4b-it-q4_K_M')
-  assert.equal(recommendation.tierAssessment.tier, 1)
-  assert.equal(recommendation.tierAssessment.executionPath, 'cpu')
+test('48 GiB offers both alternatives without changing the default', () => {
+  const result = recommendationFor(device({ramGb: 48, accelerators: [unifiedAccelerator(48)]}))
+  assert.equal(result.recommendedModelId, 'gemma4:e4b')
+  assert.deepEqual(result.alternatives.map(m => m.id), ['gemma4:12b', 'gemma4:26b'])
 })
 
-test('sends a 16 GiB seven-thread CPU device to cloud', () => {
-  const recommendation = recommendationFor(device({ ramGb: 16, cpuThreads: 7 }))
-
-  assert.equal(recommendation.tierAssessment.tier, 0)
-  assert.equal(
-    recommendation.tierAssessment.evaluatedTiers[0].rejectionReasons.some((reason) =>
-      reason.includes('8 available threads')
-    ),
-    true
-  )
+test('dedicated GPUs need both host memory and VRAM headroom', () => {
+  assert.equal(recommendationFor(device({ramGb: 8, accelerators: [dedicatedAccelerator(48)]})).kind, 'cloud')
+  const result = recommendationFor(device({ramGb: 32, accelerators: [dedicatedAccelerator(24)]}))
+  assert.equal(result.tierAssessment.executionPath, 'dedicated-gpu')
+  assert.equal(result.alternatives.length, 2)
 })
 
-test('assigns Tier 2 to a 24 GiB CPU device with twelve threads', () => {
-  const recommendation = recommendationFor(device({ ramGb: 24, cpuThreads: 12 }))
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:4b-it-q8_0')
-  assert.equal(recommendation.tierAssessment.tier, 2)
+test('busy GPUs do not qualify using total VRAM alone', () => {
+  const result = recommendationFor(device({ramGb: 16, accelerators: [dedicatedAccelerator(24, 4)]}))
+  assert.equal(result.kind, 'cloud')
 })
 
-test('caps CPU-only devices at Tier 2', () => {
-  const recommendation = recommendationFor(device({ ramGb: 128, cpuThreads: 32 }))
-
-  assert.equal(recommendation.tierAssessment.tier, 2)
+test('unknown free VRAM permits a tentative recommendation', () => {
+  const gpu = dedicatedAccelerator(12)
+  gpu.availableMemoryBytes = null
+  const result = recommendationFor(device({ramGb: 16, accelerators: [gpu]}))
+  assert.equal(result.kind, 'local')
+  assert.ok(result.warnings.some(w => /estimate/.test(w)))
 })
 
-test('assigns Tier 3 to a 20 GiB unified-memory device', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 20, accelerators: [unifiedAccelerator(20)] })
-  )
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:12b-it-q4_K_M')
-  assert.equal(recommendation.tierAssessment.tier, 3)
+test('CPU fallback needs 24 GiB and eight threads, and discloses unmeasured latency', () => {
+  assert.equal(recommendationFor(device({ramGb: 16})).kind, 'cloud')
+  assert.equal(recommendationFor(device({ramGb: 24, cpuThreads: 7})).kind, 'cloud')
+  const result = recommendationFor(device({ramGb: 128, cpuThreads: 32}))
+  assert.equal(result.recommendedModelId, 'gemma4:e4b')
+  assert.deepEqual(result.alternatives, [])
+  assert.match(result.warnings.join(' '), /CPU-only answers may be slow/)
 })
 
-test('assigns Tier 4 to a 32 GiB unified-memory device', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 32, accelerators: [unifiedAccelerator(32)] })
-  )
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:12b-it-q8_0')
-  assert.equal(recommendation.tierAssessment.tier, 4)
-  assert.equal(recommendation.tierAssessment.executionPath, 'unified-gpu')
+test('unverified and shared GPUs cannot qualify as dedicated memory', () => {
+  for (const gpu of [dedicatedAccelerator(48, 48, 'unverified'), {...dedicatedAccelerator(48), memoryTopology: 'shared'}]) {
+    assert.equal(recommendationFor(device({ramGb: 16, accelerators: [gpu]})).kind, 'cloud')
+  }
 })
 
-test('assigns Tier 5 to a 64 GiB unified-memory device', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 64, accelerators: [unifiedAccelerator(64)] })
-  )
-
-  assert.equal(recommendation.recommendedModelId, 'gemma3:27b-it-q8_0')
-  assert.equal(recommendation.tierAssessment.tier, 5)
+test('disk includes headroom for Nomic and working files', () => {
+  const base = {ramGb: 64, accelerators: [unifiedAccelerator(64)]}
+  assert.equal(recommendationFor(device({...base, diskGb: 13})).kind, 'cloud')
+  assert.equal(recommendationFor(device({...base, diskGb: 14})).alternatives.length, 1)
+  assert.equal(recommendationFor(device({...base, diskGb: 25})).alternatives.length, 2)
 })
 
-test('uses supported dedicated VRAM for Tier 2', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 16, accelerators: [dedicatedAccelerator(8)] })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 2)
-  assert.equal(recommendation.tierAssessment.executionPath, 'dedicated-gpu')
+test('unsupported platforms cannot qualify even with ample memory', () => {
+  for (const extra of [{platform: 'unknown'}, {platform: 'macos', platformRelease: '22.6.0', architecture: 'arm64'}, {platform: 'windows', platformRelease: '10.0.18000'}]) {
+    assert.equal(recommendationFor(device({ramGb: 64, accelerators: [unifiedAccelerator(64)], ...extra})).kind, 'cloud')
+  }
 })
 
-test('requires both Tier 5 host memory and dedicated VRAM', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 16, accelerators: [dedicatedAccelerator(48)] })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 4)
+test('Windows ARM and Intel Macs can use the conservative CPU fallback', () => {
+  for (const extra of [{platform: 'windows', platformRelease: '10.0.26100', architecture: 'arm64'}, {platform: 'macos', platformRelease: '24.6.0', architecture: 'x64'}]) {
+    const result = recommendationFor(device({ramGb: 32, ...extra}))
+    assert.equal(result.tierAssessment.executionPath, 'cpu')
+  }
 })
 
-test('falls back to the highest tier with enough storage', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 16, diskGb: 5, accelerators: [unifiedAccelerator(16)] })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 1)
-})
-
-test('does not use an unverified GPU for tier selection', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 24, accelerators: [dedicatedAccelerator(48, 48, 'unverified')] })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 1)
-  assert.equal(recommendation.tierAssessment.executionPath, 'cpu')
-})
-
-test('does not count shared graphics memory as separate model memory', () => {
-  const recommendation = recommendationFor(
-    device({
-      ramGb: 24,
-      accelerators: [{
-        name: 'Shared GPU',
-        backend: 'unknown',
-        memoryTopology: 'shared',
-        totalMemoryBytes: gibibytes(16),
-        availableMemoryBytes: null,
-        runtimeSupport: 'supported',
-        source: 'test'
-      }]
-    })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 1)
-  assert.equal(recommendation.tierAssessment.executionPath, 'cpu')
-})
-
-test('assigns Tier 0 to unsupported operating systems', () => {
-  const recommendation = recommendationFor(
-    device({ ramGb: 64, platform: 'unknown', architecture: 'x64' })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 0)
-  assert.equal(
-    recommendation.tierAssessment.evaluatedTiers.every((tier) =>
-      tier.rejectionReasons.some((reason) => reason.includes('not supported'))
-    ),
-    true
-  )
-})
-
-test('assigns Tier 0 to macOS versions below the Ollama minimum', () => {
-  const recommendation = recommendationFor(
-    device({
-      ramGb: 64,
-      platform: 'macos',
-      platformRelease: '22.6.0',
-      architecture: 'arm64',
-      accelerators: [unifiedAccelerator(64)]
-    })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 0)
-  assert.match(recommendation.reasons[0], /below the local Ollama requirement/i)
-})
-
-test('allows Windows ARM to qualify through the CPU path', () => {
-  const recommendation = recommendationFor(
-    device({
-      ramGb: 64,
-      platform: 'windows',
-      platformRelease: '10.0.26100',
-      architecture: 'arm64'
-    })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 1)
-  assert.equal(recommendation.tierAssessment.executionPath, 'cpu')
-})
-
-test('assigns Tier 0 below the Tier 1 memory boundary', () => {
-  const recommendation = recommendationFor(device({ ramGb: 15.9, cpuThreads: 8 }))
-
-  assert.equal(recommendation.tierAssessment.tier, 0)
-})
-
-test('keeps a device below the Tier 2 memory boundary in Tier 1', () => {
-  const recommendation = recommendationFor(device({ ramGb: 23.9, cpuThreads: 12 }))
-
-  assert.equal(recommendation.tierAssessment.tier, 1)
-})
-
-test('assigns Tier 0 below the minimum Windows build', () => {
-  const recommendation = recommendationFor(
-    device({
-      ramGb: 64,
-      platform: 'windows',
-      platformRelease: '10.0.19044',
-      architecture: 'x64'
-    })
-  )
-
-  assert.equal(recommendation.tierAssessment.tier, 0)
-})
-
-test('does not expose a confidence field', () => {
-  const recommendation = recommendationFor(device({ ramGb: 8 }))
-
-  assert.equal('confidence' in recommendation, false)
-  assert.equal('confidence' in recommendation.tierAssessment, false)
-})
-
-test('keeps exactly five Gemma local tiers with a 4B entry model', () => {
-  const modelIds = new Set(localModelCatalog.map((model) => model.id))
-
-  assert.equal(localModelCatalog.length, 5)
-  assert.equal(defaultDeviceTierPolicy.tiers.length, 5)
-  assert.equal(localModelCatalog.every((model) => model.id.startsWith('gemma3:')), true)
-  assert.equal(localModelCatalog.some((model) => model.parameterLabel === '1B'), false)
-  assert.equal(localModelCatalog.every((model) => Number.parseInt(model.parameterLabel, 10) >= 4), true)
-  assert.equal(
-    defaultDeviceTierPolicy.tiers.every((tier) => modelIds.has(tier.recommendedModelId)),
-    true
-  )
-})
-
-test('records the fixed recommendation context without changing runtime settings', () => {
-  const recommendation = recommendationFor(device({ ramGb: 8 }))
-
-  assert.equal(recommendation.assumedContextTokens, 2048)
+test('catalog, fallback, and context agree with the measured setup', () => {
+  const {recommendedOllamaChatModel} = requireTranspiledTs('src/shared/ollama.ts')
+  assert.equal(recommendedOllamaChatModel, 'gemma4:e4b')
+  assert.equal(localModelCatalog.length, 3)
+  assert.equal(localModelCatalog.some(m => /31b|gemma3/.test(m.id)), false)
+  assert.equal(defaultDeviceTierPolicy.assumedContextTokens, 8192)
+  assert.ok(defaultDeviceTierPolicy.tiers.every(t => localModelCatalog.some(m => m.id === t.recommendedModelId)))
 })
