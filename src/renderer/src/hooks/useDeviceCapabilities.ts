@@ -7,7 +7,6 @@ export function useDeviceCapabilities(active: boolean) {
   const [capabilities, setCapabilities] = useState<DeviceCapabilities | null>(null)
   const [state, setState] = useState<DeviceCapabilityState>('checking')
   const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
 
   useEffect(() => {
     if (!active) {
@@ -42,12 +41,11 @@ export function useDeviceCapabilities(active: boolean) {
     return () => {
       cancelled = true
     }
-  }, [active, revision])
+  }, [active])
 
   return {
     capabilities,
     state,
-    error,
-    refresh: () => setRevision((current) => current + 1)
+    error
   }
 }

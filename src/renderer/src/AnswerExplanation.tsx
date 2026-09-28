@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { BookOpen, LoaderCircle } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 import type { ChatMessage } from '@shared/app-state'
 import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { MessageText } from './MessageText'
@@ -30,16 +30,11 @@ export function AnswerExplanation({ message, pending, error, disabled, onSimplif
       <button ref={simpleButton} type="button" aria-pressed={simple} onClick={() => onSelectView('simple')}>Simpler explanation</button>
     </div>}
     <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={answerForDisplay(message).text} /></div>
-    {simple && <p className="answer-learning-cue">Check your understanding: explain the idea in your own words before moving on.</p>}
-    {pending ? <div className="answer-simplifying" role="status">
-      <LoaderCircle className="spin" size={16} aria-hidden="true" />
-      <span>Writing a simpler explanation… <small>You can keep reading the original.</small></span>
-    </div> : !message.simplerExplanation && onSimplify && <div className="answer-simplify-action">
+    {pending ? null : !message.simplerExplanation && onSimplify && <div className="answer-simplify-action">
       <button ref={retryButton} type="button" disabled={disabled} onClick={onSimplify}>
         <BookOpen size={16} aria-hidden="true" />
         <span>{error ? 'Try again' : 'Explain more simply'}</span>
       </button>
-      <span className="answer-simplify-hint">Keep the original for comparison</span>
     </div>}
     {error && !pending && <p className="answer-simplify-error" role="alert">{error}</p>}
   </div>

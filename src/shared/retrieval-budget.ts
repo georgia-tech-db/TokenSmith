@@ -14,7 +14,8 @@ export function modelAwareRetrievalLimit(
   const configured = clampNumber(settings?.contextLength, 2048, 512, 32768)
   const discovered = clampNumber(model?.contextLength, 0, 0, 32768)
   const contextTokens = discovered > 0 ? Math.min(discovered, Math.max(configured, 8192)) : configured
-  const answerReserve = clampNumber(settings?.maxLength, 768, 256, 1024)
+  const isGemma4E4B = model?.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(model.ollamaModelName ?? '')
+  const answerReserve = clampNumber(settings?.maxLength, 768, 256, isGemma4E4B ? 8192 : 1024)
   const baseLimit = clampNumber(configuredLimit, 4, 1, 8)
   const budgetLimit = Math.floor(Math.max(0, contextTokens - answerReserve - 512) / 800)
   return Math.max(baseLimit, Math.min(8, budgetLimit))

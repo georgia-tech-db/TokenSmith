@@ -1,4 +1,5 @@
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineInfo,
@@ -18,7 +19,7 @@ export interface PythonEngineHealth {
 export interface StudyEngineDependencies {
   getPythonEngineHealth: () => Promise<PythonEngineHealth>
   generateOllamaStudyQuestionSuggestions: (request: EngineQuestionSuggestionRequest, signal?: AbortSignal) => Promise<EngineQuestionSuggestionResponse>
-  runOllamaStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
+  runOllamaStudyEngine: (request: EngineChatRequest, options?: EngineRunOptions) => Promise<EngineChatResponse>
 }
 
 export async function listStudyEngines(dependencies: StudyEngineDependencies): Promise<EngineInfo[]> {
@@ -67,10 +68,11 @@ export async function generateStudyQuestionSuggestions(
 
 export async function sendStudyChatMessage(
   request: EngineChatRequest,
-  dependencies: StudyEngineDependencies
+  dependencies: StudyEngineDependencies,
+  options: EngineRunOptions = {}
 ): Promise<EngineChatResponse> {
   if (request.model.engine === 'ollama') {
-    const response = await dependencies.runOllamaStudyEngine(request)
+    const response = await dependencies.runOllamaStudyEngine(request, options)
     return {
       ...response,
       engineId: 'tokensmith',
@@ -84,8 +86,8 @@ export async function sendStudyChatMessage(
     return await runRemoteStudyEngine({
       ...request,
       model: remoteModel
-    })
+    }, options)
   }
 
-  throw new Error('Local GGUF chat models are not supported in this app version. Use Ollama for local chat or add a remote chat model from Models.')
+  throw new Error('Choose an Ollama or remote chat model.')
 }

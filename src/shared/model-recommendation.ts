@@ -52,7 +52,7 @@ export function recommendModel(
     kind: 'local',
     assumedContextTokens: policy.assumedContextTokens,
     tierAssessment,
-    reasons: [model.description, ...tierAssessment.reasons],
+    reasons: tierAssessment.reasons,
     warnings,
     alternatives: models.filter((candidate) => candidate.id !== model.id &&
       tierAssessment.evaluatedTiers.some((tier) => tier.eligible && tier.recommendedModelId === candidate.id))

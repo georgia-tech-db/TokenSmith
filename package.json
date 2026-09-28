@@ -1,6 +1,6 @@
 {
   "name": "tokensmith-electron",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Student-focused desktop app for local, source-backed study chat.",
   "main": "./out/main/index.js",
   "private": true,
@@ -19,7 +19,7 @@
     "test:embedding-benchmark": "node scripts/python-dev.mjs embedding-benchmark",
     "build:embedding-benchmark-cache": "node scripts/python-dev.mjs build-embedding-benchmark-cache",
     "test:integration": "node scripts/python-dev.mjs integration",
-    "test:integration:gguf": "node scripts/python-dev.mjs integration:gguf",
+    "test:integration:ollama": "node tests/integration/ollama-embedding-device.test.mjs",
     "test": "npm run test:unit:ts && npm run test:unit:python && npm run test:benchmark && npm run test:integration",
     "coverage": "npm run test:coverage:ts && npm run test:coverage:python && npm run coverage:report",
     "coverage:report": "node scripts/coverage-report.mjs",

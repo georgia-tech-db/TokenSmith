@@ -17,10 +17,18 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('engine:resolve-question', request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['resolveChatQuestion']>>
     >,
-  sendChatMessage: (request) =>
-    ipcRenderer.invoke('engine:chat', request) as Promise<
-      Awaited<ReturnType<TokenSmithBridge['sendChatMessage']>>
-    >,
+  sendChatMessage: async (request, onAnswer) => {
+    const listener = (_event: IpcRendererEvent, requestId: string, answer: Parameters<NonNullable<typeof onAnswer>>[0], hasFollowUps: boolean) => {
+      if (requestId === request.requestId) onAnswer?.(answer, hasFollowUps)
+    }
+    if (onAnswer && request.requestId) ipcRenderer.on('engine:answer-ready', listener)
+    try {
+      return await ipcRenderer.invoke('engine:chat', request)
+    } finally {
+      ipcRenderer.off('engine:answer-ready', listener)
+    }
+  },
+  cancelChatRequest: requestId => ipcRenderer.invoke('engine:cancel-chat', requestId),
   suggestChatQuestions: (requestId, request) =>
     ipcRenderer.invoke('engine:suggest-questions', requestId, request) as Promise<
       Awaited<ReturnType<TokenSmithBridge['suggestChatQuestions']>>
@@ -31,8 +39,8 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
       Awaited<ReturnType<TokenSmithBridge['starterSources']>>
     >,
-  searchLibrary: (query, materials, limit, embeddingModels, searchMode) =>
-    ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels, searchMode) as Promise<
+  searchLibrary: (query, materials, limit, embeddingModels, searchMode, options) =>
+    ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels, searchMode, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>
     >,
   getPdfForSource: (source) =>

@@ -98,7 +98,7 @@ class BenchmarkContractTests(unittest.TestCase):
                 patch.object(benchmark.engine, "ollama_embedding", return_value=[1, 2, 3]) as embed_query, \
                 patch.object(benchmark.store, "vector_search", return_value=[(1, 0.9)]) as vector_search:
             instance.retrieve_sources("A fresh question?", 8)
-            embed_query.assert_called_once_with("A fresh question?", benchmark.MODEL_SPEC)
+            embed_query.assert_called_once_with("A fresh question?", benchmark.MODEL_SPEC, True)
             vector_search.return_value = []
             with self.assertRaisesRegex(AssertionError, "keyword-only"):
                 instance.retrieve_sources("Another fresh question?", 8)

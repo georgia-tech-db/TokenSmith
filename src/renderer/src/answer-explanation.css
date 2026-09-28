@@ -39,8 +39,7 @@
 }
 .answer-simplify-action button:hover { background: var(--surface-muted, #f1f2f1); }
 .answer-simplify-action button:disabled { opacity: 0.5; cursor: default; }
-.answer-simplify-hint, .answer-learning-cue, .answer-simplifying { color: var(--content-muted, #4f5359); font-size: 0.82rem; line-height: 1.5; }
-.answer-learning-cue { margin: 14px 0 4px; padding-left: 12px; border-left: 2px solid var(--line); }
+.answer-simplifying { color: var(--content-muted, #4f5359); font-size: 0.82rem; line-height: 1.5; }
 .answer-simplifying { display: flex; align-items: center; gap: 9px; margin: 14px 0; }
 .answer-simplifying svg { flex: none; }
 .answer-simplifying small { display: block; font-size: inherit; }

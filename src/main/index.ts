@@ -18,9 +18,6 @@ import {
   setMaterialEnabledWithPython,
   starterSourcesWithPython
 } from './python/python-engine-service'
-import {
-  removeLocalModelFile
-} from './models/local-model-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
 import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
 import { remoteGeneratorFetch, setRemoteGeneratorTransport } from './engine/remote-generator-network'
@@ -43,6 +40,8 @@ import {
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
 import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
+import type { EmbeddingOptions } from '../shared/embedding-settings'
+import { removeRetiredModelState } from '../shared/retired-model-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
@@ -59,6 +58,7 @@ const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
 const appIconFileName = 'tokensmith-icon.png'
 let cloudGenerators: CloudGeneratorService
+const chatRequests = new Map<string, AbortController>()
 const questionSuggestionRequests = new Map<string, AbortController>()
 
 function isAbortError(error: unknown): boolean {
@@ -105,7 +105,7 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
     const state = JSON.parse(stateJson) as AppStateSnapshot
     rememberRemoteModelApiKeys(state.models)
 
-    const safeState = sanitizeAppStateSecrets(state)
+    const safeState = sanitizeAppStateSecrets(removeRetiredModelState(state))
     const safeStateJson = JSON.stringify(safeState, null, 2)
     if (safeStateJson !== stateJson) {
       await writeFile(getStatePath(), safeStateJson, 'utf8')
@@ -124,7 +124,7 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
 async function saveAppState(state: AppStateSnapshot): Promise<AppStateSnapshot> {
   const statePath = getStatePath()
   rememberRemoteModelApiKeys(state.models)
-  const safeState = sanitizeAppStateSecrets(state)
+  const safeState = sanitizeAppStateSecrets(removeRetiredModelState(state))
 
   await mkdir(dirname(statePath), { recursive: true })
   await writeFile(statePath, JSON.stringify(safeState, null, 2), 'utf8')
@@ -476,8 +476,33 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloud:connect-generator', (_event, input: CloudGeneratorInput) => cloudResult(() => cloudGenerators.connect(input)))
   ipcMain.handle('cloud:cancel', (_event, requestId: string) => cloudGenerators.cancel(requestId))
   ipcMain.handle('engine:list', () => listEngines())
-  ipcMain.handle('engine:chat', (_event, request: EngineChatRequest) => sendChatMessage(request))
-  ipcMain.handle('engine:resolve-question', (_event, request: EngineQuestionRewriteRequest) => resolveChatQuestion(request))
+  ipcMain.handle('engine:chat', async (event, request: EngineChatRequest) => {
+    const key = `${event.sender.id}:${request.requestId}`
+    const controller = new AbortController()
+    if (request.requestId) chatRequests.set(key, controller)
+    try {
+      return await sendChatMessage(request, {
+        signal: controller.signal,
+        onAnswer: (answer, hasFollowUps) => {
+          if (request.requestId && !controller.signal.aborted && !event.sender.isDestroyed()) {
+            event.sender.send('engine:answer-ready', request.requestId, answer, hasFollowUps)
+          }
+        }
+      })
+    } finally {
+      if (chatRequests.get(key) === controller) chatRequests.delete(key)
+    }
+  })
+  ipcMain.handle('engine:resolve-question', async (event, request: EngineQuestionRewriteRequest) => {
+    const key = `${event.sender.id}:${request.requestId}`
+    const controller = new AbortController()
+    if (request.requestId) chatRequests.set(key, controller)
+    try { return await resolveChatQuestion(request, controller.signal) }
+    finally { if (chatRequests.get(key) === controller) chatRequests.delete(key) }
+  })
+  ipcMain.handle('engine:cancel-chat', (event, requestId: string) => {
+    chatRequests.get(`${event.sender.id}:${requestId}`)?.abort()
+  })
   ipcMain.handle('engine:suggest-questions', async (_event, requestId: string, request: EngineQuestionSuggestionRequest) => {
     const controller = new AbortController()
     questionSuggestionRequests.set(requestId, controller)
@@ -498,8 +523,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
     starterSourcesWithPython(materials, limit)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) =>
-    searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode)
+  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: EmbeddingOptions) =>
+    searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options)
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))
   ipcMain.handle('library:get-pdf-thumbnail-for-source', (_event, source: ChatSource) =>
@@ -555,7 +580,6 @@ app.whenReady().then(async () => {
     if (model.engine === 'ollama' || model.source === 'ollama') {
       return deleteOllamaModel(model.ollamaModelName ?? model.name, model.ollamaBaseUrl)
     }
-    return removeLocalModelFile(model)
   })
 
   createMainWindow()

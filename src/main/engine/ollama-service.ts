@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineQuestionSuggestionRequest,
@@ -36,6 +37,8 @@ import {
   shouldGenerateFollowUps,
   sourceContextBudgetForRequest,
   studyChatMessages,
+  prepareStudyChatMessages,
+  usesGemma4E4BBudget,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
@@ -67,8 +70,11 @@ interface OllamaShowResponse {
 
 interface OllamaChatResponse {
   done_reason?: string
+  prompt_eval_count?: number
+  eval_count?: number
   message?: {
     content?: string
+    thinking?: string
   }
 }
 
@@ -825,14 +831,24 @@ function ollamaOptions(settings?: ModelRuntimeSettings): Record<string, number> 
   }
 }
 
-async function runOllamaChatCompletion(
+interface OllamaCompletionOverrides {
+  maxTokens?: number
+  temperature?: number
+  format?: Record<string, unknown>
+  thinking?: boolean
+  signal?: AbortSignal
+}
+
+async function requestOllamaChatCompletion(
   baseUrl: string,
   modelName: string,
   messages: StudyChatMessage[],
   settings?: ModelRuntimeSettings,
-  overrides: { maxTokens?: number; temperature?: number; format?: Record<string, unknown>; signal?: AbortSignal } = {}
-): Promise<string> {
-  const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
+  overrides: OllamaCompletionOverrides = {}
+): Promise<OllamaChatResponse> {
+  // Keep cancellation and timeout active until the response body is consumed.
+  const timeout = AbortSignal.timeout(overrides.thinking ? 300_000 : 180_000)
+  const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -848,18 +864,35 @@ async function runOllamaChatCompletion(
       },
       ...(overrides.format ? { format: overrides.format } : {}),
       stream: false,
-      think: false
+      think: overrides.thinking ?? false
     }),
-    signal: overrides.signal
-  }, 180_000)
+    signal: overrides.signal ? AbortSignal.any([overrides.signal, timeout]) : timeout
+  })
 
   if (!response.ok) {
     throw new Error(`Ollama chat failed with HTTP ${response.status}${await responseErrorDetail(response)}.`)
   }
 
-  const payload = (await response.json()) as OllamaChatResponse
-  if (overrides.format && payload.done_reason === 'length') {
-    throw new Error('The structured model response exceeded its output limit.')
+  return (await response.json()) as OllamaChatResponse
+}
+
+async function runOllamaChatCompletion(
+  baseUrl: string,
+  modelName: string,
+  messages: StudyChatMessage[],
+  settings?: ModelRuntimeSettings,
+  overrides: OllamaCompletionOverrides = {}
+): Promise<string> {
+  const payload = await requestOllamaChatCompletion(baseUrl, modelName, messages, settings, overrides)
+  writeTokenSmithLog('ollama_completion_usage', {
+    modelName, thinking: overrides.thinking ?? false, doneReason: payload.done_reason,
+    promptTokens: payload.prompt_eval_count, generatedTokens: payload.eval_count,
+    hasFinalAnswer: Boolean(payload.message?.content?.trim())
+  })
+  if (payload.done_reason === 'length') {
+    throw new Error(overrides.format
+      ? 'The structured model response exceeded its output limit.'
+      : 'The answer reached its length limit before finishing. Increase Max Length and ensure Context Length has room for the sources and response.')
   }
   const text = payload.message?.content ?? ''
   if (!text.trim()) {
@@ -869,7 +902,34 @@ async function runOllamaChatCompletion(
   return text.trim()
 }
 
-export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+async function verifiedGemmaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
+  let candidate = request
+  for (;;) {
+    signal?.throwIfAborted()
+    const prepared = prepareStudyChatMessages(candidate)
+    // Ollama has no public tokenizer endpoint. A one-token probe measures the
+    // actual rendered prompt, including chat-template and thinking markers.
+    // Its generated token is discarded; it is never reused as answer/history.
+    const measured = await requestOllamaChatCompletion(baseUrl, modelName, prepared.messages, candidate.modelSettings, {
+      maxTokens: 1, temperature: 0, thinking: candidate.modelSettings?.thinking === true, signal
+    })
+    const promptTokens = measured.prompt_eval_count
+    if (!Number.isInteger(promptTokens) || Number(promptTokens) <= 0) {
+      throw new Error('Ollama did not return a prompt token count, so answer space could not be verified.')
+    }
+    const fits = Number(promptTokens) + prepared.budget.answerReserveTokens + prepared.budget.safetyMarginTokens <= prepared.budget.modelContextTokens
+    writeTokenSmithLog('ollama_prompt_preflight', {
+      modelName, promptTokens, fits, budget: prepared.budget, sourceCount: prepared.sources.length
+    })
+    if (fits) return { ...prepared, request: { ...candidate, retrievedSources: prepared.sources } }
+    if (prepared.sources.length <= 1) {
+      throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
+    }
+    candidate = { ...candidate, retrievedSources: prepared.sources.slice(0, -1) }
+  }
+}
+
+export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertOllamaModel(request.model)
   if (!request.selectedPassage && !lastChatExchange(request.messages)) {
     return { mode: 'standalone', query: request.prompt, clarification: '' }
@@ -881,7 +941,7 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   )
   const messages = questionRewriteMessages(runtime)
   const text = await runOllamaChatCompletion(baseUrl, request.model.ollamaModelName, messages, runtime.modelSettings, {
-    maxTokens: 512, temperature: 0, format: questionRewriteSchema
+    maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
   })
   try {
     const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
@@ -904,7 +964,8 @@ async function generateOllamaFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
   baseUrl: string,
-  modelName: string
+  modelName: string,
+  signal?: AbortSignal
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
     return []
@@ -923,7 +984,7 @@ async function generateOllamaFollowUpSuggestions(
     modelName,
     followUpSuggestionMessages(request, answer),
     request.modelSettings,
-    { maxTokens, temperature, format: questionSuggestionSchema(count) }
+    { maxTokens, temperature, format: questionSuggestionSchema(count), signal }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -941,21 +1002,35 @@ async function generateOllamaFollowUpSuggestions(
   return suggestions
 }
 
-export async function runOllamaStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function runOllamaStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   assertOllamaModel(request.model)
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
-  const runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  let messages: StudyChatMessage[]
+  if (usesGemma4E4BBudget(runtimeRequest.model)) {
+    const verified = await verifiedGemmaChat(runtimeRequest, baseUrl, modelName, options.signal)
+    runtimeRequest = verified.request
+    messages = verified.messages
+  } else {
+    messages = studyChatMessages(runtimeRequest)
+  }
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
-  const text = await runOllamaChatCompletion(baseUrl, modelName, studyChatMessages(runtimeRequest), runtimeSettings)
+  const text = await runOllamaChatCompletion(baseUrl, modelName, messages, runtimeSettings, {
+    maxTokens: runtimeSettings?.maxLength ?? sourceContextBudgetForRequest(runtimeRequest).answerReserveTokens,
+    thinking: runtimeSettings?.thinking === true, signal: options.signal
+  })
   const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
+  options.signal?.throwIfAborted()
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, baseUrl, modelName)
+    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, baseUrl, modelName, options.signal)
   } catch (error) {
+    options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'Ollama could not generate suggestions.')}`
   }
 

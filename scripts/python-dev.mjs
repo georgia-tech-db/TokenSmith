@@ -418,24 +418,12 @@ function requireRuntimePython() {
   return python
 }
 
-function runIntegration({ requireGguf = false } = {}) {
+function runIntegration() {
   requireRuntimePython()
-  const args = requireGguf ? ['--require-gguf'] : []
-
-  const tests = requireGguf
-    ? [
-        'tests/integration/buzzdb-context-routing.test.mjs',
-        'tests/integration/python-engine-pdf.test.mjs',
-        'tests/integration/gerard-larcher-chat.test.mjs',
-        'tests/integration/annita-demetriou-chat.test.mjs'
-      ]
-    : [
-        'tests/integration/buzzdb-context-routing.test.mjs',
-        'tests/integration/python-engine-pdf.test.mjs'
-      ]
+  const tests = ['tests/integration/buzzdb-context-routing.test.mjs', 'tests/integration/python-engine-pdf.test.mjs']
 
   for (const test of tests) {
-    const status = runNode(test, args)
+    const status = runNode(test, [])
     if (status !== 0) {
       process.exit(status)
     }
@@ -487,9 +475,7 @@ if (task === 'setup' || task === 'setup-runtime') {
   process.exit(runPython(python.executable, ['-m', 'coverage', 'json', '-o', '.coverage-reports/python.json'], env))
 } else if (task === 'integration') {
   runIntegration()
-} else if (task === 'integration:gguf') {
-  runIntegration({ requireGguf: true })
 } else {
-  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration|integration:gguf>')
+  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration>')
   process.exit(1)
 }

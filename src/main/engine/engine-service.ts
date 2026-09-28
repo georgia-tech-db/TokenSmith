@@ -4,6 +4,7 @@ import {
   writeTokenSmithLog
 } from '../python/python-engine-service'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineInfo,
@@ -44,14 +45,14 @@ export async function listEngines(): Promise<EngineInfo[]> {
   })
 }
 
-export async function sendChatMessage(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function sendChatMessage(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   writeTokenSmithLog('chat_request_context', chatRequestLogDetails(request))
 
   const response = await sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  })
+  }, options)
 
   writeTokenSmithLog('chat_response_context', {
     modelName: response.modelName,
@@ -63,10 +64,10 @@ export async function sendChatMessage(request: EngineChatRequest): Promise<Engin
   return response
 }
 
-export async function resolveChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
-  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request)
+export async function resolveChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
+  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request, signal)
   if (request.model.engine === 'remote') {
-    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) })
+    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) }, signal)
   }
   throw new Error('Question rewriting requires an Ollama or remote chat model.')
 }

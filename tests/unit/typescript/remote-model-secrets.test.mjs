@@ -34,10 +34,10 @@ test('sanitizeRemoteModelSecrets removes remote provider API keys before storage
 test('remote API key helpers ignore blank keys and non-remote models', () => {
   const localModel = {
     id: 'local-model',
-    name: 'Legacy Local Model',
-    engine: 'python',
+    name: 'Local Model',
+    engine: 'ollama',
     status: 'ready',
-    path: '/models/local.gguf',
+    ollamaModelName: 'test-model',
     apiKey: 'local-key',
     addedAt: new Date(0).toISOString()
   }
@@ -71,9 +71,9 @@ test('sanitizeAppStateSecrets redacts remote keys without touching local models'
   const localModel = {
     id: 'local-model',
     name: 'Llama 3 8B Instruct',
-    engine: 'python',
+    engine: 'ollama',
     status: 'ready',
-    path: '/models/llama.gguf',
+    ollamaModelName: 'llama3',
     addedAt: new Date(0).toISOString()
   }
   const sanitized = sanitizeAppStateSecrets({
@@ -91,5 +91,5 @@ test('sanitizeAppStateSecrets redacts remote keys without touching local models'
   })
 
   assert.equal(sanitized.models[0].apiKey, undefined)
-  assert.equal(sanitized.models[1].path, localModel.path)
+  assert.equal(sanitized.models[1].ollamaModelName, localModel.ollamaModelName)
 })

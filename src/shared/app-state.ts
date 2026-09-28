@@ -63,13 +63,12 @@ export interface CourseMaterial {
 export interface LocalModel {
   id: string
   name: string
-  engine: 'python' | 'ollama' | 'remote'
+  engine: 'ollama' | 'remote'
   role?: LocalModelRole
   status: 'ready' | 'needsRuntime' | 'missing' | 'downloading' | 'incomplete' | 'downloadError'
   source?: 'bundled' | 'local' | 'downloaded' | 'ollama' | 'remote'
   filename?: string
   path?: string
-  embeddingPath?: string
   ollamaModelName?: string
   ollamaBaseUrl?: string
   providerId?: 'groq' | 'openai' | 'gemini' | 'mistral' | 'custom'
@@ -92,11 +91,10 @@ export interface LocalModel {
 }
 
 export type AppTheme = 'light' | 'sarah-and-duck'
-export type AppFontSize = 'small' | 'medium' | 'large'
+export type AppFontSize = 'extra-small' | 'small' | 'normal' | 'large' | 'extra-large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
 export type ExplanationDepth = 'simple' | 'standard' | 'detailed'
-export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
 
 export interface ApplicationSettings {
   theme: AppTheme
@@ -108,25 +106,21 @@ export interface ApplicationSettings {
   explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
-  cpuThreads: number
+  embeddingGpuEnabled: boolean
 }
 
 export interface ModelRuntimeSettings {
   systemMessage: string
-  chatTemplate: string
   suggestedFollowUpPrompt: string
   starterQuestionPrompt?: string
   contextLength: number
   maxLength: number
-  promptBatchSize: number
+  thinking?: boolean
   temperature: number
   topP: number
   topK: number
   minP: number
-  repeatPenaltyTokens: number
   repeatPenalty: number
-  gpuLayers: number
-  device: ComputeDevice
 }
 
 export type MessageRole = 'user' | 'assistant'

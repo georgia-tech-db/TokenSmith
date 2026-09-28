@@ -53,18 +53,10 @@ def index(payload: dict, engine: Any) -> dict:
         engine.send_progress(payload.get('_requestId'), {'materialId': payload.get('materialId') or material_id,
                              'phase': phase, 'percent': percent, 'totalFiles': len(files), 'message': message, **extra})
 
-    def local_complete(messages: list[dict], schema: dict) -> str:
-        if not model.get('path'):
-            raise ValueError('The local preparation model file is unavailable.')
-        llm = engine.load_llama(model['path'], {'contextLength': model.get('contextLength') or 8192})
-        result = llm.create_chat_completion(messages=messages, temperature=0, max_tokens=3000,
-                                            response_format={'type': 'json_object', 'schema': schema})
-        return result['choices'][0]['message']['content']
-
     progress('parsing', 1, 'Reading documents')
-    complete = completion_client(model, local_complete) if settings['mode'] == 'ai' else None
+    complete = completion_client(model) if settings['mode'] == 'ai' else None
     # Cache keys contain model identity and policy, never credentials.
-    identity = {key: model.get(key) for key in ('engine', 'id', 'path', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
+    identity = {key: model.get(key) for key in ('engine', 'id', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
     model_cache = directory / 'boundaries' / digest(identity)
     documents, prepared, report_documents = [], [], []
     for file_index, file_path in enumerate(files):
@@ -122,7 +114,7 @@ def index(payload: dict, engine: Any) -> dict:
 
     embedding_model = payload.get('model') or {}
     progress('embedding', 50, 'Preparing search model', processedFiles=len(files))
-    embedding_key, embed, reason = engine.resolve_embedding_provider_from_spec(embedding_model)
+    embedding_key, embed, reason = engine.resolve_embedding_provider_from_spec(embedding_model, payload.get('embeddingGpuEnabled') is not False)
     if reason or embed is None:
         raise ValueError('The embedding model is unavailable: ' + str(reason or 'Choose an embedder.'))
     total = sum(len(chunks) for _, _, chunks in prepared)

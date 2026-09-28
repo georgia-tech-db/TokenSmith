@@ -85,3 +85,23 @@ export function rehypeSourceLines({ range }: { range?: SourceLineRange }) {
     visit(tree)
   }
 }
+
+// Derive the outline from parsed headings, so fences, comments and literal '#'
+// text cannot create false entries. Index-based IDs also handle duplicate titles.
+export function rehypeSourceHeadings() {
+  return (tree: Root) => {
+    let index = 0
+    const text = (node: Nodes): string => node.type === 'text' ? node.value
+      : node.type === 'element' && node.tagName === 'img' ? String(node.properties.alt ?? '')
+      : 'children' in node ? node.children.map(text).join('') : ''
+    const visit = (node: Nodes) => {
+      if (node.type === 'element' && /^h[1-6]$/.test(node.tagName)) {
+        node.properties = { ...node.properties, id: `source-heading-${++index}`, tabIndex: -1,
+          dataSourceHeadingLabel: text(node).replace(/\s+/g, ' ').trim() || 'Untitled section',
+          dataSourceHeadingDepth: Number(node.tagName[1]) }
+      }
+      if ('children' in node) node.children.forEach(visit)
+    }
+    visit(tree)
+  }
+}

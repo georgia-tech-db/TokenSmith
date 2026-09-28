@@ -96,6 +96,16 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / estimatedCharsPerToken)
 }
 
+// This profile is deliberately limited to the locally evaluated model. It is a
+// conservative packing estimate, not a tokenizer; Ollama verifies the final prompt.
+export function usesGemma4E4BBudget(model?: LocalModel): boolean {
+  return model?.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(model.ollamaModelName ?? '')
+}
+
+function sourceCharsPerToken(model?: LocalModel): number {
+  return usesGemma4E4BBudget(model) ? 2.5 : estimatedCharsPerToken
+}
+
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numericValue = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(numericValue)) {
@@ -132,8 +142,9 @@ export function modelAwareRuntimeSettings(
   }
 }
 
-function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>): number {
-  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maxAnswerReserveTokens)
+function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>, model?: LocalModel): number {
+  const maximum = usesGemma4E4BBudget(model) ? 8192 : maxAnswerReserveTokens
+  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maximum)
 }
 
 function safetyMarginTokens(modelContextTokens: number): number {
@@ -273,15 +284,17 @@ function sourcePrefix(source: ChatSource): string {
 
 function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const modelContextTokens = effectiveContextLength(options?.model, options?.modelSettings)
-  const answerReserve = answerReserveTokens(options?.modelSettings)
+  const answerReserve = answerReserveTokens(options?.modelSettings, options?.model)
   const safetyMargin = safetyMarginTokens(modelContextTokens)
-  const fixedPromptTokens = estimateTokens([
+  const fixedPromptText = [
     options?.modelSettings?.systemMessage,
     sourceContextInstructions.join('\n'),
     explanationDepthInstruction(options?.explanationDepth),
     options?.referenceText,
     options?.prompt ? `Question: ${options.prompt}` : ''
-  ].filter(Boolean).join('\n\n'))
+  ].filter(Boolean).join('\n\n')
+  const fixedPromptTokens = Math.ceil(fixedPromptText.length / sourceCharsPerToken(options?.model)) +
+    (usesGemma4E4BBudget(options?.model) ? 32 : 0)
 
   return {
     modelContextTokens,
@@ -299,10 +312,11 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
 export function packSourceContext(
   sources: ChatSource[],
   options: SourceContextOptions = {}
-): { context: string; budget: SourceContextBudget } {
+): { context: string; budget: SourceContextBudget; sources: ChatSource[] } {
   const budget = emptyBudget(options)
+  const includedSources: ChatSource[] = []
   if (sources.length === 0) {
-    return { context: '', budget }
+    return { context: '', budget, sources: includedSources }
   }
 
   const terms = queryTerms(options.evidenceQuery ?? options.prompt ?? '')
@@ -316,24 +330,35 @@ export function packSourceContext(
     if (!options.includeBudget) {
       const unbudgetedText = sourceText(source)
       blocks.push(`${prefix}${unbudgetedText.text}${suffix}`)
+      includedSources.push(source)
       continue
     }
 
     const remainingTokens = budget.sourceBudgetTokens - usedSourceTokens
-    const prefixTokens = estimateTokens(prefix + suffix)
+    const charsPerToken = sourceCharsPerToken(options.model)
+    const countTokens = (text: string) => Math.ceil(text.length / charsPerToken)
+    const prefixTokens = countTokens(prefix + suffix)
     const textBudgetTokens = remainingTokens - prefixTokens - 4
     if (textBudgetTokens < minSourceTextTokens) {
       break
     }
 
-    const clipped = sourceText(source, textBudgetTokens, terms)
+    // Keep code and evidence units intact for the evaluated Gemma profile.
+    // A smaller later unit may still fit, so do not stop at an oversized unit.
+    if (usesGemma4E4BBudget(options.model) && countTokens(sourceText(source).text) > textBudgetTokens) {
+      continue
+    }
+    const clipped = usesGemma4E4BBudget(options.model)
+      ? sourceText(source)
+      : sourceText(source, textBudgetTokens, terms)
     const block = `${prefix}${clipped.text}${suffix}`
-    const blockTokens = estimateTokens(block)
+    const blockTokens = countTokens(block)
     if (blockTokens > remainingTokens) {
       break
     }
 
     blocks.push(block)
+    includedSources.push(source)
     usedSourceTokens += blockTokens
     if (clipped.truncated) {
       truncatedSourceCount += 1
@@ -349,7 +374,7 @@ export function packSourceContext(
   }
 
   if (blocks.length === 0) {
-    return { context: '', budget: finalBudget }
+    return { context: '', budget: finalBudget, sources: includedSources }
   }
 
   return {
@@ -358,7 +383,8 @@ export function packSourceContext(
       '### Context:',
       ...blocks
     ].join('\n'),
-    budget: finalBudget
+    budget: finalBudget,
+    sources: includedSources
   }
 }
 
@@ -373,18 +399,12 @@ function answerPromptForRequest(request: EngineChatRequest): string {
 }
 
 export function sourceContextBudgetForRequest(request: EngineChatRequest | EngineQuestionSuggestionRequest): SourceContextBudget {
-  const prompt = 'prompt' in request
-    ? answerPromptForRequest(request)
-    : formatFollowUpInstruction(suggestionPromptFor(request.modelSettings, 'starter'), questionSuggestionCount(request.applicationSettings))
+  if ('prompt' in request) return prepareStudyChatMessages(request).budget
+  const prompt = formatFollowUpInstruction(suggestionPromptFor(request.modelSettings, 'starter'), questionSuggestionCount(request.applicationSettings))
   return packSourceContext(request.retrievedSources ?? [], {
     prompt,
-    ...('prompt' in request ? {
-      evidenceQuery: request.retrievalQuery,
-      referenceText: chatReferenceText(request),
-      explanationDepth: requestExplanationDepth(request.applicationSettings)
-    } : {}),
     model: request.model,
-    modelSettings: 'prompt' in request ? request.modelSettings : { ...request.modelSettings, maxLength: suggestionMaxTokens },
+    modelSettings: { ...request.modelSettings, maxLength: suggestionMaxTokens },
     includeBudget: true
   }).budget
 }
@@ -486,14 +506,16 @@ function chatReferenceText(request: EngineChatRequest): string {
   return blocks.join('\n\n')
 }
 
-export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[] {
+export function prepareStudyChatMessages(request: EngineChatRequest): {
+  messages: StudyChatMessage[]; budget: SourceContextBudget; sources: ChatSource[]
+} {
   const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
     | Partial<ModelRuntimeSettings>
     | undefined
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = answerPromptForRequest(request)
   const referenceText = chatReferenceText(request)
-  const { context, budget } = packSourceContext(request.retrievedSources ?? [], {
+  const { context, budget, sources } = packSourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
     evidenceQuery: request.retrievalQuery,
     referenceText,
@@ -505,6 +527,14 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   })
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
+  }
+  if (usesGemma4E4BBudget(request.model)) {
+    if (budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
+      throw new Error('The question and conversation leave too little room for an answer. Increase Context Length or reduce Max Length.')
+    }
+    if (request.retrievedSources?.length && !sources.length) {
+      throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
+    }
   }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
@@ -521,7 +551,11 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
   }
 
   messages.push({ role: 'user', content: userContent })
-  return messages
+  return { messages, budget, sources }
+}
+
+export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[] {
+  return prepareStudyChatMessages(request).messages
 }
 
 export function shouldGenerateFollowUps(request: EngineChatRequest): boolean {

@@ -1,3 +1,10 @@
+import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
+import { sourceEntryKey, sourceNavigationList } from './source-navigation'
+import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
+import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-source-preview'
+import { GenerationStatus } from './GenerationStatus'
+import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
+import type { GenerationKind } from '@shared/generation-estimate'
 import { LibraryWorkspace } from './LibraryWorkspace'
 import { defaultPreparation, type IndexMaterialOptions } from '../../shared/preparation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -6,6 +13,7 @@ import { MessageText } from './MessageText'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
+import { normalizeEmbeddingGpuEnabled } from '@shared/embedding-settings'
 import { canExplainSimpler, replaceQuestion, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
 import { SelectedPassagePreview } from './SelectedPassagePreview'
 import './chat-interactions.css'
@@ -26,7 +34,6 @@ import type {
   ChatMessage,
   ChatSelectedPassage,
   ChatSource,
-  ComputeDevice,
   Conversation,
   CourseMaterial,
   ExplanationDepth,
@@ -72,6 +79,7 @@ import {
 import { formatModelArtifactSize, localModelCatalog } from '@shared/model-catalog'
 import { recommendModel, type ModelRecommendation } from '@shared/model-recommendation'
 import { defaultDeviceTierPolicy } from '@shared/device-tier-policy'
+import { fontSizeOptions, normalizeFontSize } from '@shared/typography'
 import {
   remoteProviderCatalog,
   type RemoteProviderCatalogItem,
@@ -119,7 +127,6 @@ import {
   SendHorizonal,
   Settings,
   Sparkles,
-  Square,
   Trash2,
   X
 } from 'lucide-react'
@@ -138,7 +145,6 @@ interface NavItem {
 }
 
 type PdfViewerState = PdfSourceDocument & { searchTerm?: string }
-type MarkdownViewerState = MarkdownSourceDocument
 type SourceThumbnailState = Record<string, PdfSourceThumbnail>
 type PdfRenderedTextItem = {
   index: number
@@ -194,25 +200,20 @@ const remoteProviderLogoSources: Record<RemoteProviderId, string> = {
 
 const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   systemMessage: '',
-  chatTemplate: '',
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
   starterQuestionPrompt: defaultStarterQuestionPrompt,
   contextLength: 8192,
   maxLength: 1536,
-  promptBatchSize: 128,
   temperature: 0.7,
   topP: 0.4,
   topK: 40,
   minP: 0,
-  repeatPenaltyTokens: 64,
   repeatPenalty: 1.18,
-  gpuLayers: -1,
-  device: 'applicationDefault'
 }
 
 const defaultApplicationSettings: ApplicationSettings = {
   theme: 'light',
-  fontSize: 'small',
+  fontSize: 'normal',
   defaultModelId: '',
   suggestionMode: 'on',
   searchMode: 'hybrid',
@@ -220,7 +221,7 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  cpuThreads: 4
+  embeddingGpuEnabled: true
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -390,29 +391,6 @@ function normalizeModelFilename(filename?: string) {
   return filename?.toLowerCase()
 }
 
-function modelQuantFromFilename(filename?: string) {
-  const match = filename?.match(/(?:^|[-_. ])(q\d(?:[-_][a-z0-9]+)*|f16|fp16|bf16|int8|int4)(?:\.gguf)?$/i)
-  return match ? match[1] : 'GGUF'
-}
-
-function modelTypeFromFilename(filename?: string) {
-  const lowerFilename = filename?.toLowerCase() ?? ''
-
-  if (lowerFilename.includes('llama-3') || lowerFilename.includes('llama3')) {
-    return 'LLaMA3'
-  }
-
-  if (lowerFilename.includes('qwen')) {
-    return 'qwen2'
-  }
-
-  if (lowerFilename.includes('deepseek')) {
-    return 'deepseek'
-  }
-
-  return 'GGUF'
-}
-
 function normalizeCollectionPath(path: string) {
   return path.trim().replace(/^file:\/\//, '')
 }
@@ -523,19 +501,11 @@ function modelRole(model: LocalModel): LocalModelRole {
 }
 
 function modelCanGenerate(model: LocalModel) {
-  if (model.engine === 'python') {
-    return false
-  }
-
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'generator' || role === 'both')
 }
 
 function modelCanEmbed(model: LocalModel) {
-  if (model.engine === 'python') {
-    return false
-  }
-
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
 }
@@ -753,7 +723,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         return false
       }
 
-      return model.engine === 'python' || model.engine === 'ollama' || model.engine === 'remote'
+      return model.engine === 'ollama' || model.engine === 'remote'
     })
     .map((model, index) => {
       if (model.engine === 'ollama') {
@@ -778,7 +748,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         }
       }
 
-      if (model.engine === 'remote') {
+      {
         const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudGenerator(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
         return {
@@ -795,7 +765,6 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           connectionId: model.connectionId,
           cloudCredentialStatus: model.cloudCredentialStatus,
           remoteModelName: model.remoteModelName,
-          embeddingPath: model.embeddingPath,
           contextLength: normalizeOptionalContextLength(model.contextLength),
           type: model.type ?? 'OpenAI-compatible',
           description: model.description,
@@ -803,41 +772,6 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         }
       }
 
-      const filename = model.filename ?? pathLeaf(model.path)
-      const modelId = model.id ?? createId('model')
-      const savedStatus: LocalModel['status'] = model.status === 'downloading'
-        ? 'incomplete'
-        : model.status ?? (model.path ? 'ready' : 'missing')
-      const download = model.download && filename
-        ? {
-            ...model.download,
-            filename,
-            modelId,
-            status: model.download.status === 'downloading' ? 'incomplete' as const : model.download.status
-          }
-        : undefined
-
-      return {
-        id: modelId,
-        name: model.name,
-        engine: 'python' as const,
-        role: model.role ?? 'generator',
-        status: savedStatus,
-        source: model.source,
-        filename,
-        path: model.path,
-        embeddingPath: model.embeddingPath,
-        url: model.url,
-        sizeBytes: model.sizeBytes,
-        ramRequiredGb: model.ramRequiredGb,
-        contextLength: normalizeOptionalContextLength(model.contextLength),
-        parameters: model.parameters,
-        quant: model.quant,
-        type: model.type,
-        description: model.description,
-        download,
-        addedAt: model.addedAt ?? new Date(index).toISOString()
-      }
     })
 }
 
@@ -889,7 +823,7 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
   return {
     // Older "system" preferences used the gray palette; keep that fallback.
     theme: normalizeChoice(settings?.theme, ['light', 'sarah-and-duck'] as const, defaultApplicationSettings.theme),
-    fontSize: normalizeChoice(settings?.fontSize, ['small', 'medium', 'large'] as const, defaultApplicationSettings.fontSize),
+    fontSize: normalizeFontSize(settings?.fontSize),
     defaultModelId,
     suggestionMode,
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
@@ -897,20 +831,16 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
+    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
   }
 }
 
 function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>): ModelRuntimeSettings {
-  const chatTemplate = typeof settings?.chatTemplate === 'string'
-    ? settings.chatTemplate
-    : defaultModelRuntimeSettings.chatTemplate
   const suggestedFollowUpPrompt = normalizeSuggestedFollowUpPrompt(settings?.suggestedFollowUpPrompt)
   const starterQuestionPrompt = normalizeStarterQuestionPrompt(settings?.starterQuestionPrompt)
 
   return {
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
-    chatTemplate,
     suggestedFollowUpPrompt,
     starterQuestionPrompt,
     contextLength: Math.round(clampNumber(
@@ -925,7 +855,7 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
       64,
       8192
     )),
-    promptBatchSize: Math.round(clampNumber(settings?.promptBatchSize, defaultModelRuntimeSettings.promptBatchSize, 1, 4096)),
+    thinking: settings?.thinking === true,
     temperature: clampNumber(
       settings?.temperature,
       defaultModelRuntimeSettings.temperature,
@@ -940,21 +870,12 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
     ),
     topK: Math.round(clampNumber(settings?.topK, defaultModelRuntimeSettings.topK, 0, 1000)),
     minP: clampNumber(settings?.minP, defaultModelRuntimeSettings.minP, 0, 1),
-    repeatPenaltyTokens: Math.round(
-      clampNumber(settings?.repeatPenaltyTokens, defaultModelRuntimeSettings.repeatPenaltyTokens, 0, 4096)
-    ),
     repeatPenalty: clampNumber(
       settings?.repeatPenalty,
       defaultModelRuntimeSettings.repeatPenalty,
       1,
       3
     ),
-    gpuLayers: Math.round(clampNumber(settings?.gpuLayers, defaultModelRuntimeSettings.gpuLayers, -1, 999)),
-    device: normalizeChoice(
-      settings?.device,
-      ['applicationDefault', 'cpu', 'gpu'] as const,
-      defaultModelRuntimeSettings.device
-    )
   }
 }
 
@@ -1275,7 +1196,7 @@ function compactModelToken(label?: string) {
 }
 
 function isOpaqueEmbeddingModelKey(label?: string) {
-  return Boolean(label?.startsWith('llama-cpp:') || label?.startsWith('remote-openai:'))
+  return Boolean(label?.startsWith('remote-openai:'))
 }
 
 function materialEmbedderName(material: CourseMaterial) {
@@ -1375,6 +1296,27 @@ function searchTermForSource(source: ChatSource) {
   return sentence.slice(0, 120).trim()
 }
 
+async function readSourceDocument(source: ChatSource): Promise<AnswerSourceDocument> {
+  if (isMarkdownSource(source) && window.tokensmith?.getMarkdownForSource) {
+    const document = await window.tokensmith.getMarkdownForSource(source)
+    return { kind: 'markdown', document: { ...document, title: cleanMaterialTitle(document.title) || document.title } }
+  }
+  if (isPdfSource(source) && window.tokensmith?.getPdfForSource) {
+    return { kind: 'pdf', document: { ...await window.tokensmith.getPdfForSource(source), searchTerm: searchTermForSource(source) } }
+  }
+  throw new Error('This source cannot be opened in the reader.')
+}
+
+function SourceDocumentReader({ state, navigation, onClose }: {
+  state: SourceReaderState; navigation?: SourceNavigationProps; onClose: () => void
+}) {
+  const key = sourceEntryKey(state.sources[state.index])
+  const viewer = state.document.kind === 'pdf'
+    ? <PdfSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
+    : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
+  return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
+}
+
 function sourceDocumentTitle(source: ChatSource) {
   const rawTitle = source.documentTitle || source.title
   return cleanMaterialTitle(rawTitle) || 'Source'
@@ -1421,6 +1363,7 @@ function modelMatchesDownload(model: LocalModel, progress: ModelDownloadProgress
 }
 
 export function App() {
+  const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
   const [appVersion, setAppVersion] = useState<string>('dev')
   const [engines, setEngines] = useState<EngineInfo[]>([
@@ -1464,6 +1407,10 @@ export function App() {
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = appState.settings.application.theme
   }, [appState.settings.application.theme])
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.fontSize = appState.settings.application.fontSize
+  }, [appState.settings.application.fontSize])
 
   useEffect(() => {
     const bridge = window.tokensmith
@@ -1819,6 +1766,7 @@ export function App() {
         ...options,
         preparation,
         preparationModel,
+        embeddingGpuEnabled: appState.settings.application.embeddingGpuEnabled,
         title: options.title ?? indexingMaterial?.title,
         cleaningProfileId: options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId,
         cleaningRuleIds:
@@ -2367,7 +2315,7 @@ export function App() {
   )
 
   return (
-    <main className={`desktop-app font-size-${appState.settings.application.fontSize}`}>
+    <main className="desktop-app">
       <aside className="rail" aria-label="Primary navigation">
         <nav className="rail-nav">
           {navItems.map((item) => {
@@ -2403,8 +2351,10 @@ export function App() {
 
       <section className="workspace" aria-label={`${activeTitle} screen`}>
         {!hasLoadedState && <LoadingScreen />}
-        {hasLoadedState && activeScreen === 'chat' && (
+        {hasLoadedState && (
           <ChatScreen
+            progress={generation.api}
+            isActive={activeScreen === 'chat'}
             activeConversationId={appState.activeConversationId}
             conversations={appState.conversations}
             materials={appState.materials}
@@ -2465,9 +2415,12 @@ export function App() {
           />
         )}
         {hasLoadedState && activeScreen === 'settings' && (
-          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} />
+          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} isIndexing={appState.materials.some(material => material.status === 'indexing')} />
         )}
       </section>
+      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => ({
+        ...current, activeScreen: 'chat', activeConversationId: current.conversations.some(c => c.id === conversationId) ? conversationId : current.activeConversationId
+      }))} />
       {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
         localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
         onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
@@ -2489,6 +2442,8 @@ function LoadingScreen() {
 }
 
 function ChatScreen({
+  progress,
+  isActive,
   activeConversationId,
   conversations,
   embeddingModels,
@@ -2509,6 +2464,8 @@ function ChatScreen({
   onExplanationDepthChange,
   onToggleMaterialActive
 }: {
+  progress: GenerationProgressApi
+  isActive: boolean
   activeConversationId: string
   conversations: Conversation[]
   embeddingModels: LocalModel[]
@@ -2538,7 +2495,36 @@ function ChatScreen({
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
-  const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
+  const [isPreparingFollowUps, setIsPreparingFollowUps] = useState(false)
+  const foregroundRequestRef = useRef<string | null>(null)
+  const stopStarterRef = useRef<(() => void) | null>(null)
+  function setPendingStatusText(text: string | null) {
+    if (foregroundRequestRef.current) progress.stage(foregroundRequestRef.current,
+      text ? text.replace(/\s*\.\.\.$/, '').replace(/^./, c => c.toUpperCase()) : 'Writing answer')
+  }
+  function cancelForeground() {
+    const id = foregroundRequestRef.current
+    if (id) {
+      sourcePreview.finish(id)
+      progress.cancel(id)
+      void window.tokensmith?.cancelChatRequest?.(id).catch(() => {})
+      foregroundRequestRef.current = null
+    }
+    setIsPreparingFollowUps(false)
+  }
+  function beginForeground(kind: GenerationKind, label: string, inputChars = 0) {
+    cancelForeground()
+    stopStarterRef.current?.()
+    const id = createId('generation')
+    foregroundRequestRef.current = id
+    reader.close()
+    if (kind === 'answer' || kind === 'simplify') sourcePreview.begin(id)
+    if (selectedModel) progress.begin({ id, kind, label, conversationId: activeConversation.id, model: selectedModel,
+      settings: selectedModelSettings, inputChars, contextual: activeConversation.messages.length > 0,
+      depth: settings.application.explanationDepth, count: settings.application.followUpSuggestionCount,
+      onStop: handleStopResponse })
+    return id
+  }
   const [pendingExplanationId, setPendingExplanationId] = useState<string | null>(null)
   const [explanationError, setExplanationError] = useState<{ answerId: string; text: string } | null>(null)
   const explanationInFlightRef = useRef(false)
@@ -2546,8 +2532,13 @@ function ChatScreen({
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
-  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
-  const [markdownViewer, setMarkdownViewer] = useState<MarkdownViewerState | null>(null)
+  const reader = useSourceReader(readSourceDocument)
+  const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
+  const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  useLayoutEffect(() => {
+    sourcePreview.dismiss()
+    reader.close()
+  }, [isActive, activeConversationId, sourcePreview, reader.close])
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -2599,8 +2590,9 @@ function ChatScreen({
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
   const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
   const canSuggestStarterQuestions =
+    isActive &&
     activeConversation.messages.length === 0 &&
-    !isPending &&
+    !pendingConversationId &&
     Boolean(selectedModel) &&
     selectedModel?.status === 'ready' &&
     activeMaterials.length > 0 &&
@@ -2618,7 +2610,7 @@ function ChatScreen({
   const {
     capabilities: setupDeviceCapabilities,
     state: setupDeviceCapabilityState
-  } = useDeviceCapabilities(needsChatModelSetup)
+  } = useDeviceCapabilities(isActive && needsChatModelSetup)
   const setupRecommendation = useMemo<ModelRecommendation | null>(
     () =>
       setupDeviceCapabilities
@@ -2648,14 +2640,15 @@ function ChatScreen({
   }, [activeConversation.id])
 
   useLayoutEffect(() => {
+    if (!isActive) return
     const input = composerInputRef.current
     if (!input) return
     input.style.height = 'auto'
     input.style.height = `${Math.min(input.scrollHeight, 180)}px`
-  }, [draft])
+  }, [draft, isActive])
 
   useEffect(() => {
-    if ((!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
+    if (!isActive || (!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
       return
     }
 
@@ -2684,7 +2677,7 @@ function ChatScreen({
     return () => {
       cancelled = true
     }
-  }, [needsModelSetup, needsDocumentSetup])
+  }, [isActive, needsModelSetup, needsDocumentSetup])
 
   useEffect(() => {
     if (!window.tokensmith?.onOllamaPullProgress) {
@@ -2725,7 +2718,17 @@ function ChatScreen({
     setStarterQuestionStatus('loading')
     setStarterQuestionError(null)
 
+    const stop = () => {
+      cancelled = true
+      window.clearTimeout(startTimer)
+      progress.cancel(requestId)
+      void tokensmith.cancelChatQuestionSuggestions(requestId).catch(() => {})
+      setStarterQuestionStatus('idle')
+      if (stopStarterRef.current === stop) stopStarterRef.current = null
+    }
     const startTimer = window.setTimeout(() => {
+      progress.begin({ id: requestId, kind: 'starter', label: 'Preparing questions', conversationId: activeConversation.id,
+        model: selectedModel, settings: selectedModelSettings, count: settings.application.followUpSuggestionCount, onStop: stop })
       void tokensmith
         .suggestChatQuestions(requestId, {
           messages: activeConversation.messages,
@@ -2738,22 +2741,21 @@ function ChatScreen({
         })
         .then((response) => {
           if (cancelled) return
+          progress.finish(requestId, 'Questions ready', response.suggestions.length > 0)
           setStarterQuestionSuggestions(response.suggestions)
           setStarterQuestionStatus('idle')
         })
         .catch((error) => {
           if (cancelled) return
+          progress.cancel(requestId)
           setStarterQuestionSuggestions([])
           setStarterQuestionStatus('error')
           setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
         })
     }, starterQuestionDebounceMs)
 
-    return () => {
-      cancelled = true
-      window.clearTimeout(startTimer)
-      void tokensmith.cancelChatQuestionSuggestions(requestId).catch(() => undefined)
-    }
+    stopStarterRef.current = stop
+    return stop
   }, [
     activeConversation.id,
     activeConversation.messages.length,
@@ -2766,6 +2768,7 @@ function ChatScreen({
   ])
 
   function handleNewChat() {
+    cancelForeground()
     requestSequenceRef.current += 1
 
     const newConversation: Conversation = {
@@ -2787,14 +2790,14 @@ function ChatScreen({
     setChatError(null)
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setRenamingConversationId(null)
     setRenameDraft('')
   }
 
   function handleStopResponse() {
+    cancelForeground()
     requestSequenceRef.current += 1
     setPendingConversationId(null)
     setPendingExplanationId(null)
@@ -2806,8 +2809,7 @@ function ChatScreen({
   function handleSelectConversation(conversationId: string) {
     setRenamingConversationId(null)
     setRenameDraft('')
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setPendingSources([])
     setChatError(null)
@@ -2870,6 +2872,7 @@ function ChatScreen({
       return
     }
 
+    if (pendingConversationId === conversationId) cancelForeground()
     requestSequenceRef.current += pendingConversationId === conversationId ? 1 : 0
     setDrafts((current) => {
       const next = { ...current }
@@ -2902,8 +2905,7 @@ function ChatScreen({
     }
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
   }
@@ -2914,6 +2916,7 @@ function ChatScreen({
     }
 
     const freshConversation = createFreshConversation()
+    cancelForeground()
     requestSequenceRef.current += 1
 
     onChatStateChange(() => ({
@@ -2929,8 +2932,7 @@ function ChatScreen({
     setPendingSources([])
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
     setRenamingConversationId(null)
@@ -3661,7 +3663,6 @@ function ChatScreen({
           <div className="cloud-generator-entry">
             <div>
               <strong>Recommended for this device: {setupChatModelLabel}</strong>
-              <p>{recommendsCloudChat ? 'A cloud model is an option when local memory is limited. You can also choose a local model in Models.' : setupRecommendation.reasons[0]}</p>
             </div>
           </div>
         )}
@@ -3684,9 +3685,7 @@ function ChatScreen({
           <Sparkles size={18} aria-hidden="true" />
           <span>Suggested questions</span>
         </div>
-        {starterQuestionStatus === 'loading' ? (
-          <p className="starter-question-status">Preparing suggestions...</p>
-        ) : starterQuestionStatus === 'error' ? (
+        {starterQuestionStatus === 'loading' ? null : starterQuestionStatus === 'error' ? (
           <p className="starter-question-status is-error">{starterQuestionError}</p>
         ) : (
           <div className="follow-up-list">
@@ -3707,32 +3706,29 @@ function ChatScreen({
     )
   }
 
-  async function handleOpenSource(source: ChatSource) {
+  function previewFirstSource(requestId: string, sources: ChatSource[]) {
+    const source = sources[0]
+    if (!settings.application.showSources || !source || !canOpenSource(source)) return
+    void sourcePreview.open(requestId, async () => ({
+      document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
+    }))
+  }
+
+  function handleOpenSource(source: ChatSource) {
+    sourcePreview.dismiss()
     setSourceTrayError(null)
+    const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
+    void reader.open(source, sources)
+  }
 
-    try {
-      if (isMarkdownSource(source)) {
-        if (!window.tokensmith?.getMarkdownForSource) {
-          setSourceTrayError('The Markdown viewer is not available in this build.')
-          return
-        }
-        const markdown = await window.tokensmith.getMarkdownForSource(source)
-        setPdfViewer(null)
-        setMarkdownViewer(markdown)
-        return
-      }
-
-      if (!window.tokensmith?.getPdfForSource) {
-        setSourceTrayError('The PDF viewer is not available in this build.')
-        return
-      }
-
-      const pdf = await window.tokensmith.getPdfForSource(source)
-      setMarkdownViewer(null)
-      setPdfViewer({ ...pdf, searchTerm: searchTermForSource(source) })
-    } catch (error) {
-      setSourceTrayError(error instanceof Error ? error.message : 'Could not open the source.')
-    }
+  function moveAutomaticSource(direction: number) {
+    if (!automaticSource) return
+    const source = automaticSource.sources[automaticSource.index + direction]
+    if (!source) return
+    // Choosing another source makes this a manual reading session. Keep the
+    // existing page visible while loading, and leave it open when the answer arrives.
+    sourcePreview.dismiss()
+    void reader.open(source, automaticSource.sources, { inline: true, initial: automaticSource })
   }
 
   async function generateQuizQuestion(
@@ -3745,8 +3741,10 @@ function ChatScreen({
       throw new Error('TokenSmith quiz mode is not available in this build.')
     }
 
+    const requestId = foregroundRequestRef.current
     const previousQuestions = quizQuestionTexts(messages)
     const sourcePool = await window.tokensmith.starterSources(activeMaterials, quizSourcePoolSize)
+    if (!requestId || foregroundRequestRef.current !== requestId) throw new Error('Quiz stopped.')
     const sources = selectQuizSources(sourcePool, usedSourceKeys)
     if (sources.length === 0) {
       throw new Error('No indexed PDF text was available for a quiz.')
@@ -3754,6 +3752,7 @@ function ChatScreen({
 
     setPendingSources(settings.application.showSources ? sources : [])
     const reply = await window.tokensmith.sendChatMessage({
+      requestId,
       prompt: quizQuestionPrompt({ questionNumber, previousQuestions, totalQuestions }),
       messages,
       materials: activeMaterials,
@@ -3773,6 +3772,7 @@ function ChatScreen({
   }
 
   function handleEndQuiz() {
+    cancelForeground()
     requestSequenceRef.current += 1
     const targetConversationId = activeConversation.id
     onChatStateChange((current) => ({
@@ -3820,11 +3820,11 @@ function ChatScreen({
     clearDraft()
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
+    const progressId = beginForeground('quiz', 'Preparing quiz')
     setPendingStatusText('preparing quiz ...')
     setPendingSources([])
     const requestSequence = requestSequenceRef.current + 1
@@ -3871,7 +3871,9 @@ function ChatScreen({
             : conversation
         )
       }))
+      progress.finish(progressId, 'Quiz ready')
     } catch (error) {
+      progress.cancel(progressId)
       if (requestSequenceRef.current !== requestSequence) {
         return
       }
@@ -3879,6 +3881,7 @@ function ChatScreen({
       setChatError(readableErrorMessage(error, 'Could not start a source-backed quiz.'))
     } finally {
       if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
         setPendingConversationId(null)
         setPendingExplanationId(null)
         explanationInFlightRef.current = false
@@ -3921,11 +3924,11 @@ function ChatScreen({
     clearDraft()
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
+    const progressId = beginForeground('quiz', 'Checking your answer', answer.length)
     setPendingStatusText('checking your answer ...')
     setPendingSources([])
     const requestSequence = requestSequenceRef.current + 1
@@ -3945,6 +3948,7 @@ function ChatScreen({
 
       setPendingSources(settings.application.showSources ? retrievedSources : [])
       const reply = await window.tokensmith?.sendChatMessage({
+        requestId: progressId,
         prompt: quizFeedbackPrompt({
           answer,
           question: quizState.currentQuestion,
@@ -4042,7 +4046,9 @@ function ChatScreen({
             : conversation
         )
       }))
+      progress.finish(progressId, nextQuestionMessage ? 'Quiz ready' : 'Feedback ready', Boolean(nextQuestionMessage) || nextQuestionNumber > quizState.totalQuestions)
     } catch (error) {
+      progress.cancel(progressId)
       if (requestSequenceRef.current !== requestSequence) {
         return
       }
@@ -4050,6 +4056,7 @@ function ChatScreen({
       setChatError(readableErrorMessage(error, 'Could not grade the quiz answer.'))
     } finally {
       if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
         setPendingConversationId(null)
         setPendingExplanationId(null)
         explanationInFlightRef.current = false
@@ -4087,6 +4094,7 @@ function ChatScreen({
     explanationInFlightRef.current = true
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
+    const progressId = beginForeground('simplify', 'Simplifying answer', request.answerToSimplify?.length ?? 0)
     const requestSequence = ++requestSequenceRef.current
     setPendingConversationId(targetConversationId)
     setPendingExplanationId(answerId)
@@ -4094,8 +4102,9 @@ function ChatScreen({
     setFocusedAnswerId(answerId)
     setExplanationError(null)
     setChatError(null)
+    previewFirstSource(progressId, request.retrievedSources ?? [])
     try {
-      const reply = await window.tokensmith.sendChatMessage(request)
+      const reply = await window.tokensmith.sendChatMessage({ ...request, requestId: progressId })
       if (requestSequenceRef.current !== requestSequence) return
       if (!reply.text.trim()) throw new Error('The model returned an empty explanation. Please try again.')
       onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
@@ -4106,12 +4115,16 @@ function ChatScreen({
           } } : message
         ) } : conversation
       ) }))
+      progress.finish(progressId, 'Explanation ready')
     } catch (error) {
+      progress.cancel(progressId)
       if (requestSequenceRef.current === requestSequence) {
         setExplanationError({ answerId, text: readableErrorMessage(error, 'Could not simplify this answer. Your original answer is still available.') })
       }
     } finally {
+      sourcePreview.finish(progressId)
       if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
         explanationInFlightRef.current = false
         setPendingConversationId(null)
         setPendingExplanationId(null)
@@ -4123,10 +4136,11 @@ function ChatScreen({
 
   async function submitPrompt(rawPrompt: string, editMessageId?: string, passage?: ChatSelectedPassage) {
     const prompt = rawPrompt.trim()
-    if (!prompt || pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
+    if (!prompt || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
     }
 
+    if (isPreparingFollowUps) handleStopResponse()
     if (activeQuizState && !editMessageId) {
       await submitQuizAnswer(prompt, activeQuizState)
       return
@@ -4137,6 +4151,7 @@ function ChatScreen({
     const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
+    const progressId = beginForeground('answer', 'Preparing answer', prompt.length + history.reduce((n, m) => n + m.text.length, 0))
     const userMessage: ChatMessage = {
       id: editMessageId ?? createId('user'),
       role: 'user',
@@ -4163,8 +4178,7 @@ function ChatScreen({
     setEditingQuestionId(null)
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
@@ -4185,6 +4199,7 @@ function ChatScreen({
         const searchStartedAt = performance.now()
         setPendingStatusText('understanding question ...')
         const prepared = await prepareRewrittenStudyChat({
+          requestId: progressId,
           prompt,
           selectedPassage: passage,
           messages: history,
@@ -4196,9 +4211,10 @@ function ChatScreen({
         }, {
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
+            if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode)
+              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled })
           }
         })
         conversationContextMode = prepared.resolution.mode
@@ -4216,6 +4232,8 @@ function ChatScreen({
         }
 
         setPendingSources(settings.application.showSources ? retrievedSources : [])
+        previewFirstSource(progressId, retrievedSources ?? [])
+        progress.stage(progressId, 'Preparing answer', { inputChars: prompt.length + (retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), contextual: conversationContextMode === 'contextual' })
         const searchDisplayMs = performance.now() - searchStartedAt
         if (searchDisplayMs < 450) {
           await new Promise((resolve) => window.setTimeout(resolve, 450 - searchDisplayMs))
@@ -4232,7 +4250,49 @@ function ChatScreen({
         throw new Error('TokenSmith engine bridge is not available.')
       }
 
-      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage(rewrittenRequest ?? {
+      progress.stage(progressId, 'Writing answer')
+      const assistantId = createId('assistant')
+      let answerDurationMs: number | undefined
+      function publishAnswer(reply: EngineChatResponse) {
+        if (requestSequenceRef.current !== requestSequence) return
+        sourcePreview.finish(progressId)
+        const assistantMessage: ChatMessage = {
+          id: assistantId,
+          role: 'assistant',
+          text: reply.text,
+          // Kept whatever the display setting is, so a retelling can reuse this evidence.
+          sources: reply.sources,
+          conversationContextMode,
+          answerContext: {
+            selectedPassage: passage,
+            prompt, answerPrompt: rewrittenRequest?.answerPrompt,
+            retrievalQuery: rewrittenRequest?.retrievalQuery,
+            conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
+            referenceExchange: rewrittenRequest?.referenceExchange
+          },
+          explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
+          responseDurationMs: answerDurationMs,
+          followUpSuggestions: reply.followUpSuggestions ?? [],
+          followUpError: reply.followUpError
+        }
+
+        onChatStateChange((current) => ({
+          ...current,
+          conversations: current.conversations.map((conversation) => {
+            if (conversation.id !== targetConversationId) {
+              return conversation
+            }
+
+            return {
+              ...conversation,
+              messages: conversation.messages.some(m => m.id === assistantId)
+                ? conversation.messages.map(m => m.id === assistantId ? assistantMessage : m)
+                : [...conversation.messages, assistantMessage]
+            }
+          })
+        }))
+      }
+      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...(rewrittenRequest ?? {
         prompt,
         selectedPassage: passage,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
@@ -4243,53 +4303,34 @@ function ChatScreen({
         applicationSettings: settings.application,
         modelSettings: activeModelSettings,
         retrievedSources
+      }), requestId: progressId }, (answer, hasFollowUps) => {
+        if (requestSequenceRef.current !== requestSequence) return
+        answerDurationMs = Math.max(0, Math.round(performance.now() - responseStartedAt))
+        publishAnswer(answer)
+        if (hasFollowUps) {
+          setIsPreparingFollowUps(true)
+          progress.next(progressId, 'Preparing follow-ups', { kind: 'follow-ups', inputChars: answer.text.length, contextual: false })
+        } else {
+          progress.finish(progressId, 'Answer ready')
+        }
       })
 
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: reply.text,
-        // Kept whatever the display setting is, so a retelling can reuse this evidence.
-        sources: reply.sources,
-        conversationContextMode,
-        answerContext: {
-          selectedPassage: passage,
-          prompt, answerPrompt: rewrittenRequest?.answerPrompt,
-          retrievalQuery: rewrittenRequest?.retrievalQuery,
-          conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
-          referenceExchange: rewrittenRequest?.referenceExchange
-        },
-        explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
-        responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
-        followUpSuggestions: reply.followUpSuggestions ?? [],
-        followUpError: reply.followUpError
-      }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) => {
-          if (conversation.id !== targetConversationId) {
-            return conversation
-          }
-
-          return {
-            ...conversation,
-            messages: [...conversation.messages, assistantMessage]
-          }
-        })
-      }))
+      if (requestSequenceRef.current !== requestSequence) return
+      answerDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
+      publishAnswer(reply)
+      progress.finish(progressId, 'Answer ready', !clarificationReply && !reply.followUpError)
     } catch (error) {
+      progress.cancel(progressId)
       if (requestSequenceRef.current !== requestSequence) {
         return
       }
 
       setChatError(readableErrorMessage(error, 'Chat request failed.'))
     } finally {
+      sourcePreview.finish(progressId)
       if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
+        setIsPreparingFollowUps(false)
         setPendingConversationId(null)
         setPendingExplanationId(null)
         explanationInFlightRef.current = false
@@ -4305,7 +4346,7 @@ function ChatScreen({
   }
 
   return (
-    <div className={`view-frame chat-frame ${isSidebarOpen ? '' : 'is-sidebar-collapsed'}`}>
+    <div hidden={!isActive} className={`view-frame chat-frame ${isSidebarOpen ? '' : 'is-sidebar-collapsed'}`}>
       {isSidebarOpen && (
         <aside className="chat-sidebar" aria-label="Conversation list">
           <button className="new-chat-button" type="button" onClick={handleNewChat}>
@@ -4386,7 +4427,7 @@ function ChatScreen({
         </header>
 
         <div className="chat-body">
-          <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending}
+          <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending} isActive={isActive}
             onQuote={handleQuoteSelection} canQuote={!activeQuizState && !editingQuestionId && !pendingConversationId && Boolean(selectedModel)}>
             {activeConversation.messages.length === 0 && !isPending ? (
               <>
@@ -4432,7 +4473,6 @@ function ChatScreen({
                 )
               )
             )}
-            {isPending && !pendingExplanationId && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
             {chatError && <div className="chat-error-banner"><p>{chatError}</p>
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
@@ -4441,24 +4481,8 @@ function ChatScreen({
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
-            {selectedModel && (isPending || (!isCloudGenerator(selectedModel) && selectedModel.status !== 'ready')) && (
-              <button
-                className={`reload-chip ${isPending ? 'is-stop' : ''}`}
-                type="button"
-                onClick={isPending ? handleStopResponse : undefined}
-              >
-                {isPending ? (
-                  <>
-                    <Square size={14} aria-hidden="true" />
-                    <span>Stop response</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={15} aria-hidden="true" />
-                    <span>Load - {selectedModelLabel}</span>
-                  </>
-                )}
-              </button>
+            {selectedModel && !isPending && !isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' && (
+              <span className="reload-chip"><RefreshCw size={15} aria-hidden="true" />Load - {selectedModelLabel}</span>
             )}
             <div className="composer">
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
@@ -4477,7 +4501,7 @@ function ChatScreen({
               <textarea
                 aria-label="Message"
                 rows={1}
-                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
+                disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
                 ref={composerInputRef}
                 onChange={(event) => updateDraft({ text: event.target.value })}
                 onKeyDown={(event) => {
@@ -4491,7 +4515,7 @@ function ChatScreen({
               />
               <button
                 className="send-button"
-                disabled={!draft.trim() || Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel || selectedModel.status !== 'ready'}
+                disabled={!draft.trim() || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}
                 type="submit"
                 aria-label="Send message"
                 title="Send message"
@@ -4526,7 +4550,7 @@ function ChatScreen({
           <Plus size={17} aria-hidden="true" />
           <span>Add Materials</span>
         </button>
-        <SourceTray sources={selectedSources} error={sourceTrayError} onOpenSource={handleOpenSource} />
+        <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />
       </aside>
       {isLogCardOpen && (
         <TokenSmithLogCard
@@ -4538,8 +4562,10 @@ function ChatScreen({
           onRefresh={refreshLogFile}
         />
       )}
-      {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
-      {markdownViewer && <MarkdownSourceViewer viewer={{ ...markdownViewer, title: cleanMaterialTitle(markdownViewer.title) || markdownViewer.title }} onClose={() => setMarkdownViewer(null)} />}
+      {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={sourcePreview.dismiss}
+        navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
+          onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
+      {isActive && reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
     </div>
   )
 }
@@ -5139,7 +5165,7 @@ function SourceTray({
   )
 }
 
-function PdfSourceViewer({ viewer, onClose }: { viewer: PdfViewerState; onClose: () => void }) {
+function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [currentPage, setCurrentPage] = useState(viewer.page ?? 1)
   const [renderedPage, setRenderedPage] = useState<PdfRenderedPage | null>(null)
@@ -5298,14 +5324,15 @@ function PdfSourceViewer({ viewer, onClose }: { viewer: PdfViewerState; onClose:
   }, [pdfDocument])
 
   return (
-    <div className="pdf-viewer-backdrop" role="dialog" aria-modal="true" aria-label="Source PDF viewer">
+    <div className="pdf-viewer-backdrop" role="dialog" aria-modal={!automatic} aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
       <section className="pdf-viewer-panel">
         <header className="pdf-viewer-header">
           <div>
             <strong>{cleanMaterialTitle(viewer.title) || viewer.title}</strong>
             <span>Page {currentPage}{pdfDocument ? ` of ${pdfDocument.numPages}` : ''}</span>
           </div>
-          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" onClick={onClose}>
+          <SourceNavigation navigation={navigation} />
+          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" autoFocus={automatic} onClick={onClose}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
@@ -5539,27 +5566,6 @@ function clampPage(page: number, pageCount: number) {
   return Math.max(1, Math.min(page, pageCount))
 }
 
-function ThinkingMessage({ modelName, statusText }: { modelName: string; statusText?: string | null }) {
-  return (
-    <article className="message-row thinking-row" aria-live="polite">
-      <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
-      <div>
-        <h3>
-          TokenSmith <span>{modelName}</span>
-          {statusText && <span className="thinking-inline-status">{statusText}</span>}
-        </h3>
-        {!statusText && (
-          <div className="thinking-bubble">
-            <span />
-            <span />
-            <span />
-          </div>
-        )}
-      </div>
-    </article>
-  )
-}
-
 function createIndexingCollection(
   title: string,
   collectionPath: string,
@@ -5601,26 +5607,11 @@ function createIndexingCollection(
 }
 
 function LibraryScreen(props: Omit<React.ComponentProps<typeof LibraryWorkspace>, 'onOpenSource'>) {
-  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
-  const [markdownViewer, setMarkdownViewer] = useState<MarkdownSourceDocument | null>(null)
-  const [sourceError, setSourceError] = useState('')
-  async function openSource(source: ChatSource) {
-    try {
-      setSourceError('')
-      if (isMarkdownSource(source)) {
-        const document = await window.tokensmith?.getMarkdownForSource(source)
-        if (document) setMarkdownViewer(document)
-      } else {
-        const document = await window.tokensmith?.getPdfForSource(source)
-        if (document) setPdfViewer({ ...document, searchTerm: searchTermForSource(source) })
-      }
-    } catch (error) { setSourceError(readableErrorMessage(error, 'Could not open the original document.')) }
-  }
+  const reader = useSourceReader(readSourceDocument)
   return <>
-    <LibraryWorkspace {...props} onOpenSource={openSource} />
-    {sourceError && <p className="inline-error" role="alert">{sourceError}</p>}
-    {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
-    {markdownViewer && <MarkdownSourceViewer viewer={markdownViewer} onClose={() => setMarkdownViewer(null)} />}
+    <LibraryWorkspace {...props} onOpenSource={(source, sources) => { void reader.open(source, sources) }} />
+    {reader.error && !reader.state && <p className="inline-error" role="alert">{reader.error}</p>}
+    {reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
   </>
 }
 
@@ -5872,8 +5863,7 @@ function ModelsScreen({
   const {
     capabilities: deviceCapabilities,
     state: deviceCapabilityState,
-    error: deviceCapabilityError,
-    refresh: refreshDeviceCapabilities
+    error: deviceCapabilityError
   } = useDeviceCapabilities(mode === 'explore')
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
   const deviceRecommendation = useMemo<ModelRecommendation | null>(
@@ -6157,25 +6147,7 @@ function ModelsScreen({
       ]
     }
 
-    if (modelCanEmbed(model) && !modelCanGenerate(model)) {
-      return [
-        { label: 'Role', value: 'Embedder Model' },
-        { label: 'File size', value: formatBytes(model.sizeBytes) },
-        { label: 'Quant', value: model.quant ?? modelQuantFromFilename(modelFilename(model)) },
-        { label: 'Type', value: model.type ?? modelTypeFromFilename(modelFilename(model)) }
-      ]
-    }
-
-    const filename = modelFilename(model)
-
-    return [
-      { label: 'Role', value: modelCanEmbed(model) ? 'Chat + Embedder Model' : 'Chat Model' },
-      { label: 'File size', value: formatBytes(model.sizeBytes) },
-      { label: 'RAM required', value: model.ramRequiredGb ? `${model.ramRequiredGb} GB` : 'Unknown' },
-      { label: 'Parameters', value: model.parameters ?? 'Unknown' },
-      { label: 'Quant', value: model.quant ?? modelQuantFromFilename(filename) },
-      { label: 'Type', value: model.type ?? modelTypeFromFilename(filename) }
-    ]
+    return []
   }
 
   function ollamaSearchStats(result: OllamaSearchResult, role: LocalModelRole) {
@@ -6394,8 +6366,7 @@ function ModelsScreen({
     const isEmbedderOnly = modelCanEmbed(displayModel) && !modelCanGenerate(displayModel)
     const bullets =
       displayModel.description ??
-      (displayModel.engine === 'ollama'
-        ? isEmbedderOnly
+      (isEmbedderOnly
           ? [
               'Local embedding model served by Ollama',
               'Prepares PDFs for search',
@@ -6407,20 +6378,7 @@ function ModelsScreen({
               'Used for answers after TokenSmith retrieves enabled source excerpts',
               'Works with PDFs prepared by TokenSmith',
               'Removing this model deletes it from Ollama'
-            ]
-        : isEmbedderOnly
-        ? [
-            'Local GGUF embedding model',
-            'Prepares PDFs for search',
-            'Used to embed questions before source retrieval',
-            'PDFs record the embedder used during preparation'
-          ]
-        : [
-            'Local GGUF chat model',
-            'Runs through the TokenSmith Python runtime',
-            'Used for answers after document retrieval',
-            'Works with PDFs prepared by TokenSmith'
-          ])
+            ])
 
     return (
       <section className="model-card" key={model.id}>
@@ -6676,7 +6634,6 @@ function ModelsScreen({
         role: 'generator' as LocalModelRole,
         title: profile.displayName,
         description: [
-          profile.description,
           `${profile.parameterLabel} parameters · ${profile.quantizationLabel} quantization · ${formatModelArtifactSize(profile.artifactSizeBytes)} download`
         ]
       }))
@@ -6699,7 +6656,6 @@ function ModelsScreen({
           error={deviceCapabilityError}
           recommendation={deviceRecommendation}
           state={deviceCapabilityState}
-          onRefresh={refreshDeviceCapabilities}
         />
 
         <div className="ollama-model-toolbar">
@@ -6872,11 +6828,13 @@ function ModelsScreen({
 function SettingsScreen({
   models,
   onSettingsChange,
-  settings
+  settings,
+  isIndexing
 }: {
   models: LocalModel[]
   onSettingsChange: (settings: Partial<TokenSmithSettings>) => void
   settings: TokenSmithSettings
+  isIndexing: boolean
 }) {
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
   const generatorModels = useMemo(() => models.filter(modelCanGenerate), [models])
@@ -6961,6 +6919,16 @@ function SettingsScreen({
             <SettingsPageHeader title="Application Settings" />
 
             <SettingsGroup title="Appearance">
+              <SettingsRow label="Font size" description="Adjust text throughout the app. Changes apply immediately.">
+                <SelectField
+                  ariaLabel="Font size"
+                  value={settings.application.fontSize}
+                  onChange={(fontSize) =>
+                    updateApplicationSettings({ fontSize: fontSize as ApplicationSettings['fontSize'] })
+                  }
+                  options={fontSizeOptions}
+                />
+              </SettingsRow>
               <ThemePicker
                 value={settings.application.theme}
                 onChange={(theme) => updateApplicationSettings({ theme })}
@@ -6968,20 +6936,6 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="General">
-              <SettingsRow label="Font Size" description="The size of text in the application.">
-                <SelectField
-                  ariaLabel="Font size"
-                  value={settings.application.fontSize}
-                  onChange={(fontSize) =>
-                    updateApplicationSettings({ fontSize: fontSize as ApplicationSettings['fontSize'] })
-                  }
-                  options={[
-                    { label: 'Small', value: 'small' },
-                    { label: 'Medium', value: 'medium' },
-                    { label: 'Large', value: 'large' }
-                  ]}
-                />
-              </SettingsRow>
               <SettingsRow label="Default Model" description="The preferred model for new chats.">
                 <SelectField
                   ariaLabel="Default model"
@@ -7070,14 +7024,12 @@ function SettingsScreen({
                   onChange={(explanationDepthEnabled) => updateApplicationSettings({ explanationDepthEnabled })}
                 />
               </SettingsRow>
-              <SettingsRow label="CPU Threads" description="The number of CPU threads used for inference.">
-                <NumberField
-                  ariaLabel="CPU threads"
-                  min={1}
-                  max={64}
-                  step={1}
-                  value={settings.application.cpuThreads}
-                  onChange={(cpuThreads) => updateApplicationSettings({ cpuThreads })}
+              <SettingsRow label="GPU Acceleration for Document Search" description={isIndexing ? 'Available after document preparation finishes.' : 'Use available GPU acceleration for Ollama embeddings. Turn off to use the CPU for indexing and search. Chat models are unchanged.'}>
+                <CheckboxField
+                  ariaLabel="GPU acceleration for document search"
+                  checked={settings.application.embeddingGpuEnabled}
+                  disabled={isIndexing}
+                  onChange={(embeddingGpuEnabled) => updateApplicationSettings({ embeddingGpuEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="Maximum Sources" description="Maximum retrieved sources to include in answers.">
@@ -7147,15 +7099,6 @@ function SettingsScreen({
                       onChange={(systemMessage) => updateModelSettings({ systemMessage })}
                     />
                   </SettingsRow>
-                  <SettingsRow label="Chat Template" description="This Jinja template turns the chat into input for the model." wide>
-                    <TextAreaField
-                      ariaLabel="Chat template"
-                      mono
-                      minRows={7}
-                      value={activeModelSettings.chatTemplate}
-                      onChange={(chatTemplate) => updateModelSettings({ chatTemplate })}
-                    />
-                  </SettingsRow>
                   <SettingsRow label="Initial Question Prompt" description="" wide>
                     <TextAreaField
                       ariaLabel="Initial question prompt"
@@ -7177,18 +7120,15 @@ function SettingsScreen({
                 </SettingsGroup>
 
                 <SettingsGroup title="Generation">
-                  <SettingsRow label="Device" description="The compute device used for text generation.">
-                    <SelectField
-                      ariaLabel="Device"
-                      value={activeModelSettings.device}
-                      onChange={(device) => updateModelSettings({ device: device as ComputeDevice })}
-                      options={[
-                        { label: 'Application default', value: 'applicationDefault' },
-                        { label: 'CPU', value: 'cpu' },
-                        { label: 'GPU', value: 'gpu' }
-                      ]}
-                    />
-                  </SettingsRow>
+                  {selectedModel.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(selectedModel.ollamaModelName ?? '') && (
+                    <SettingsRow label="Thinking" description="Give Gemma extra time to reason before answering. Thinking shares the response allowance; use a larger Max Length for complex questions.">
+                      <CheckboxField
+                        ariaLabel="Thinking"
+                        checked={activeModelSettings.thinking === true}
+                        onChange={(thinking) => updateModelSettings({ thinking })}
+                      />
+                    </SettingsRow>
+                  )}
                   <div className="settings-two-column">
                     <SettingsRow label="Context Length" description="Number of input and output tokens the model sees.">
                       <NumberField
@@ -7200,7 +7140,7 @@ function SettingsScreen({
                         onChange={(contextLength) => updateModelSettings({ contextLength })}
                       />
                     </SettingsRow>
-                    <SettingsRow label="Max Length" description="Maximum response length, in tokens.">
+                    <SettingsRow label="Max Length" description="Maximum generated tokens, including thinking when enabled.">
                       <NumberField
                         ariaLabel="Max length"
                         min={64}
@@ -7208,16 +7148,6 @@ function SettingsScreen({
                         step={64}
                         value={activeModelSettings.maxLength}
                         onChange={(maxLength) => updateModelSettings({ maxLength })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="Prompt Batch Size" description="The batch size used for prompt processing.">
-                      <NumberField
-                        ariaLabel="Prompt batch size"
-                        min={1}
-                        max={4096}
-                        step={1}
-                        value={activeModelSettings.promptBatchSize}
-                        onChange={(promptBatchSize) => updateModelSettings({ promptBatchSize })}
                       />
                     </SettingsRow>
                     <SettingsRow label="Temperature" description="Randomness of model output. Higher means more variation.">
@@ -7258,26 +7188,6 @@ function SettingsScreen({
                         step={0.01}
                         value={activeModelSettings.minP}
                         onChange={(minP) => updateModelSettings({ minP })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="Repeat Penalty Tokens" description="Number of previous tokens used for penalty.">
-                      <NumberField
-                        ariaLabel="Repeat penalty tokens"
-                        min={0}
-                        max={4096}
-                        step={1}
-                        value={activeModelSettings.repeatPenaltyTokens}
-                        onChange={(repeatPenaltyTokens) => updateModelSettings({ repeatPenaltyTokens })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="GPU Layers" description="Number of model layers to load into VRAM. Use -1 for all.">
-                      <NumberField
-                        ariaLabel="GPU layers"
-                        min={-1}
-                        max={999}
-                        step={1}
-                        value={activeModelSettings.gpuLayers}
-                        onChange={(gpuLayers) => updateModelSettings({ gpuLayers })}
                       />
                     </SettingsRow>
                     <SettingsRow label="Repeat Penalty" description="Repetition penalty factor. Set to 1 to disable.">
@@ -7434,16 +7344,19 @@ function NumberField({
 function CheckboxField({
   ariaLabel,
   checked,
+  disabled,
   onChange
 }: {
   ariaLabel: string
   checked: boolean
+  disabled?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
     <input
       aria-label={ariaLabel}
       checked={checked}
+      disabled={disabled}
       className="settings-checkbox"
       onChange={(event) => onChange(event.currentTarget.checked)}
       type="checkbox"

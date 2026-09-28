@@ -33,12 +33,13 @@ function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
   }
 }
 
-export function ConversationViewport({ messages, pending, children, onQuote, canQuote }: {
+export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true }: {
   messages: ChatMessage[]
   pending: boolean
   children: ReactNode
   onQuote: (passage: ChatSelectedPassage) => void
   canQuote: boolean
+  isActive?: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const navigatorRef = useRef<HTMLElement>(null)
@@ -52,6 +53,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   const questions = useMemo(() => messages.filter((message) => message.role === 'user'), [messages])
 
   function updateScrollPosition() {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     const bottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 48
@@ -68,6 +70,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   }
 
   useLayoutEffect(() => {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     questionElements.current = new Map(Array.from(viewport.querySelectorAll<HTMLElement>('[data-question-id]'))
@@ -77,9 +80,10 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     if (atBottomRef.current || newQuestion) viewport.scrollTop = viewport.scrollHeight
     previousLastId.current = last?.id
     updateScrollPosition()
-  }, [messages, pending])
+  }, [messages, pending, isActive])
 
   useEffect(() => {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     const observer = new ResizeObserver(() => {
@@ -89,9 +93,10 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     observer.observe(viewport)
     if (viewport.firstElementChild) observer.observe(viewport.firstElementChild)
     return () => observer.disconnect()
-  }, [questions])
+  }, [questions, isActive])
 
   useEffect(() => {
+    if (!isActive) return
     const navigator = navigatorRef.current
     const marker = navigator?.querySelector<HTMLElement>('[aria-current]')
     if (!navigator || !marker) return
@@ -99,9 +104,14 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     if (marker.offsetTop + marker.offsetHeight > navigator.scrollTop + navigator.clientHeight) {
       navigator.scrollTop = marker.offsetTop + marker.offsetHeight - navigator.clientHeight
     }
-  }, [activeId])
+  }, [activeId, isActive])
 
   useEffect(() => {
+    if (!isActive) {
+      setSelection(null)
+      setPreview(null)
+      return
+    }
     const viewport = viewportRef.current
     if (!viewport) return
     let frame = 0
@@ -143,7 +153,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
       viewport.removeEventListener('scroll', dismiss)
       window.removeEventListener('resize', dismiss)
     }
-  }, [])
+  }, [isActive])
 
   return (
     <div className="conversation-viewport">
@@ -185,7 +195,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           ))}
         </nav>
       )}
-      {preview && questions[preview.index] && createPortal(
+      {isActive && preview && questions[preview.index] && createPortal(
         <div className="question-marker-preview" aria-hidden="true" style={{
           top: Math.max(8, Math.min(preview.top, window.innerHeight - 150)),
           left: Math.max(8, Math.min(preview.left, window.innerWidth - Math.min(300, window.innerWidth - 70) - 8))
@@ -202,7 +212,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           <ArrowDown size={18} aria-hidden="true" />
         </button>
       )}
-      {selection && canQuote && createPortal(
+      {isActive && selection && canQuote && createPortal(
         <button className="selection-chat-action" type="button" style={{ top: selection.top, left: selection.left }}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {

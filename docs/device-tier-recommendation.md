@@ -25,15 +25,15 @@ These are non-blind, single-sample manual results on previously known questions,
 | 12B fallback | 24 GiB | Not recommended | 24 GiB | 12 GiB | 14 GiB |
 | 26B A4B preferred | 32 GiB | Not recommended | 32 GiB | 24 GiB | 25 GiB |
 
-Thresholds are policy estimates, not measured minimum requirements. They assume context, runtime overhead and Nomic retrieval, but cannot guarantee headroom for all other applications. Download size is not runtime memory. The 32 GiB unified threshold admits the benchmarked Mac despite observed paging; the panel explicitly warns about that pressure below 48 GiB. The 43.1-second median includes preflight and generation, excludes retrieval and rewriting, and is neither time to first token nor a latency guarantee. More memory offers headroom but has not been benchmarked here.
+Thresholds are policy estimates, not measured minimum requirements. They assume context, runtime overhead and Nomic retrieval, but cannot guarantee headroom for all other applications. Download size is not runtime memory. The 32 GiB unified threshold admits the benchmarked Mac despite observed paging; the policy records that pressure below 48 GiB for diagnostics. The 43.1-second median includes preflight and generation, excludes retrieval and rewriting, and is neither time to first token nor a latency guarantee. More memory offers headroom but has not been benchmarked here.
 
 Shared graphics memory is never added to host memory. Unknown GPU support cannot qualify as accelerated execution. Known busy VRAM disqualifies that GPU path; CPU fallback still needs its own thresholds. Unknown free VRAM is disclosed. OS/architecture checks and detector limitations remain separate from performance estimates. Total RAM is not an available-memory or pressure measurement, particularly on macOS; rechecking cannot guarantee freedom from swapping. Disk checks use the app's storage volume, which may differ from a customized Ollama model directory.
 
-First-run download buttons use the detected recommendation alongside Nomic. Chat downloads wait for device detection. If detection fails, the generic Ollama fallback remains E4B; no existing model is replaced. The first-run recommendation text explains the selected model’s speed/quality trade-off.
+First-run download buttons use the detected recommendation alongside Nomic. Chat downloads wait for device detection. If detection fails, the generic Ollama fallback remains E4B; no existing model is replaced. The interface shows the recommended model, alternative names, and collapsible device details. Benchmark discussion and policy caveats stay in this document.
 
 ## Runtime and existing users
 
-Fresh settings use an 8,192-token context and a 1,536-token answer cap, matching the recommendation assumptions. Saved settings and per-model overrides are preserved. The panel tells existing users to check customized settings. This change does not add generation preflights, change thinking behavior, or reproduce the benchmark runner inside the app. Recommendations themselves make no model calls.
+Fresh settings use an 8,192-token context and a 1,536-token answer cap, matching the recommendation assumptions. Saved settings and per-model overrides are preserved. This change does not add generation preflights, change thinking behavior, or reproduce the benchmark runner inside the app. Recommendations themselves make no model calls.
 
 ## Next validation
 

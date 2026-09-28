@@ -1,4 +1,5 @@
 import type { IndexMaterialOptions, PreparationReport } from './preparation'
+import type { EmbeddingOptions } from './embedding-settings'
 import type {
   AppStateSnapshot,
   ChatSource,
@@ -44,12 +45,13 @@ export interface TokenSmithBridge {
   loadAppState: () => Promise<AppStateSnapshot | null>
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>
-  sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
+  sendChatMessage: (request: EngineChatRequest, onAnswer?: (answer: EngineChatResponse, hasFollowUps: boolean) => void) => Promise<EngineChatResponse>
+  cancelChatRequest: (requestId: string) => Promise<void>
   resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
   suggestChatQuestions: (requestId: string, request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
   cancelChatQuestionSuggestions: (requestId: string) => Promise<void>
   starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
-  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>
+  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: EmbeddingOptions) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
   getMarkdownForSource: (source: ChatSource) => Promise<MarkdownSourceDocument>

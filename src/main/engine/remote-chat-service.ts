@@ -1,6 +1,7 @@
 import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineQuestionSuggestionRequest,
@@ -224,7 +225,7 @@ async function runRemoteChatCompletion(
   return text.trim()
 }
 
-export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
   if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
   const started = performance.now()
@@ -234,7 +235,7 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
   const text = await runRemoteChatCompletion({
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName, apiKey: request.model.apiKey, settings
-  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true })
+  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
   const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
   writeTokenSmithLog('chat_question_rewrite', {
     modelName, prompt: request.prompt, modelMessages: messages,
@@ -247,7 +248,8 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
 async function generateRemoteFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
-  config: RemoteCompletionConfig
+  config: RemoteCompletionConfig,
+  signal?: AbortSignal
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
     return []
@@ -263,7 +265,7 @@ async function generateRemoteFollowUpSuggestions(
   const text = await runRemoteChatCompletion(
     config,
     followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true }
+    { maxTokens, temperature, requireComplete: true, signal }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -281,7 +283,7 @@ async function generateRemoteFollowUpSuggestions(
   return suggestions
 }
 
-export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function runRemoteStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
@@ -294,13 +296,16 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     apiKey: request.model.apiKey,
     settings
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
+  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest), { signal: options.signal })
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  options.signal?.throwIfAborted()
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config, options.signal)
   } catch (error) {
+    options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
   }
 

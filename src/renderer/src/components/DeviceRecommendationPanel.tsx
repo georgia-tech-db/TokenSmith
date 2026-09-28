@@ -12,15 +12,7 @@ interface DeviceRecommendationPanelProps {
   error: string | null
   recommendation: ModelRecommendation | null
   state: DeviceCapabilityState
-  onRefresh: () => void
 }
-
-const executionPathLabels = {
-  cloud: 'Cloud',
-  cpu: 'CPU',
-  'dedicated-gpu': 'Dedicated GPU',
-  'unified-gpu': 'Unified GPU'
-} as const
 
 function gibibytes(bytes: number | null): string {
   return bytes === null ? 'Unavailable' : `${bytesToRoundedGibibytes(bytes)} GiB`
@@ -41,8 +33,7 @@ export function DeviceRecommendationPanel({
   capabilities,
   error,
   recommendation,
-  state,
-  onRefresh
+  state
 }: DeviceRecommendationPanelProps) {
   if (state === 'checking') {
     return (
@@ -50,7 +41,6 @@ export function DeviceRecommendationPanel({
         <Loader2 size={20} aria-hidden="true" className="spin" />
         <div>
           <strong>Checking this device</strong>
-          <p>Inspecting memory, processor capacity, and available acceleration.</p>
         </div>
       </section>
     )
@@ -67,11 +57,7 @@ export function DeviceRecommendationPanel({
     )
   }
 
-  const assessment = recommendation.tierAssessment
   const isCloud = recommendation.kind === 'cloud'
-  const detail = isCloud
-    ? `Suggested model: ${recommendation.recommendedModelName}`
-    : `Detected acceleration: ${executionPathLabels[assessment.executionPath]}`
 
   return (
     <section
@@ -83,30 +69,15 @@ export function DeviceRecommendationPanel({
           <Sparkles size={22} />
         </div>
         <div className="model-recommendation-copy">
-          <span>{isCloud ? 'Cloud option' : 'Suggested starting point'}</span>
-          <h2>{isCloud ? 'Cloud model recommended' : recommendation.recommendedModelName}</h2>
-          <p>{recommendation.reasons[0]}</p>
-          <small>{detail}</small>
-        </div>
-        <div className="model-recommendation-actions">
-          <button className="secondary-action" type="button" onClick={onRefresh}>
-            <span>Recheck device</span>
-          </button>
+          <span>{isCloud ? 'Cloud option' : 'Recommended model'}</span>
+          <h2>{recommendation.recommendedModelName}</h2>
         </div>
       </div>
 
-      {recommendation.warnings.length > 0 && (
-        <ul className="model-recommendation-warnings">
-          {recommendation.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-        </ul>
-      )}
-
       {recommendation.alternatives.length > 0 && <details className="device-details">
         <summary>Other local options</summary>
-        {recommendation.alternatives.map((model) => <p key={model.id}><strong>{model.displayName}</strong>: {model.description}</p>)}
-        <p>Choose these from the model cards below. More memory does not automatically mean faster or more accurate answers.</p>
+        {recommendation.alternatives.map((model) => <p key={model.id}>{model.displayName}</p>)}
       </details>}
-      <p>Estimates assume an 8K context and Nomic retrieval. Check your model settings if you have customized them.</p>
       <details className="device-details">
         <summary>Detected device details</summary>
         <dl>
