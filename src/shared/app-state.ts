@@ -95,6 +95,7 @@ export type AppTheme = 'light' | 'sarah-and-duck'
 export type AppFontSize = 'small' | 'medium' | 'large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
+export type ExplanationDepth = 'simple' | 'standard' | 'detailed'
 export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
 
 export interface ApplicationSettings {
@@ -103,6 +104,8 @@ export interface ApplicationSettings {
   defaultModelId: string
   suggestionMode: SuggestionMode
   searchMode: SearchMode
+  explanationDepthEnabled: boolean
+  explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
   cpuThreads: number
@@ -169,6 +172,17 @@ export interface ChatMessage {
   text: string
   sources?: ChatSource[]
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
+  // The depth this answer was written at, so the reader knows what produced it.
+  explanationDepth?: ExplanationDepth
+  answerContext?: {
+    prompt: string
+    answerPrompt?: string
+    retrievalQuery?: string
+    conversationContextMode?: 'standalone' | 'contextual'
+    referenceExchange?: { question: string; answer: string }
+  }
+  simplerExplanation?: { text: string; sources: ChatSource[]; responseDurationMs: number }
+  explanationView?: 'original' | 'simple'
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string

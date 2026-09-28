@@ -17,7 +17,7 @@ export interface PythonEngineHealth {
 
 export interface StudyEngineDependencies {
   getPythonEngineHealth: () => Promise<PythonEngineHealth>
-  generateOllamaStudyQuestionSuggestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
+  generateOllamaStudyQuestionSuggestions: (request: EngineQuestionSuggestionRequest, signal?: AbortSignal) => Promise<EngineQuestionSuggestionResponse>
   runOllamaStudyEngine: (request: EngineChatRequest) => Promise<EngineChatResponse>
 }
 
@@ -46,10 +46,11 @@ export async function listStudyEngines(dependencies: StudyEngineDependencies): P
 
 export async function generateStudyQuestionSuggestions(
   request: EngineQuestionSuggestionRequest,
-  dependencies: StudyEngineDependencies
+  dependencies: StudyEngineDependencies,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
   if (request.model.engine === 'ollama') {
-    return dependencies.generateOllamaStudyQuestionSuggestions(request)
+    return dependencies.generateOllamaStudyQuestionSuggestions(request, signal)
   }
 
   if (request.model.engine === 'remote') {
@@ -58,7 +59,7 @@ export async function generateStudyQuestionSuggestions(
     return generateRemoteStudyQuestionSuggestions({
       ...request,
       model: remoteModel
-    })
+    }, signal)
   }
 
   throw new Error('Question suggestions require an Ollama or remote chat model.')
