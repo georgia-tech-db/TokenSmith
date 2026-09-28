@@ -1,4 +1,7 @@
+.chat-topbar-controls { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .chat-model-control { position: relative; min-width: 0; max-width: min(420px, 55vw); }
+.chat-depth-control { flex: none; }
+.chat-depth-control .chat-model-menu { width: min(260px, 80vw); }
 .chat-model-trigger { display: flex; align-items: center; gap: 9px; max-width: 100%; padding: 9px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; cursor: pointer; font-weight: 600; }
 .chat-model-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-model-trigger > svg { flex: none; color: var(--muted); }
