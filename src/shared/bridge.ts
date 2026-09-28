@@ -25,6 +25,7 @@ import type {
   TokenSmithLogFile
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { DeviceCapabilities } from './device-capabilities'
 import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult } from './cloud-generators'
 import type {
   OllamaDeleteResult,
@@ -38,6 +39,7 @@ import type {
 export interface TokenSmithBridge {
   platform: string
   getAppVersion: () => Promise<string>
+  getDeviceCapabilities: () => Promise<DeviceCapabilities>
   getLogFile: () => Promise<TokenSmithLogFile>
   loadAppState: () => Promise<AppStateSnapshot | null>
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>

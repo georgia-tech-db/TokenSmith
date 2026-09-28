@@ -1,5 +1,5 @@
 export const defaultOllamaBaseUrl = 'http://127.0.0.1:11434'
-export const recommendedOllamaChatModel = 'llama3'
+export const recommendedOllamaChatModel = 'gemma4:e4b'
 export const recommendedOllamaEmbeddingModel = 'nomic-embed-text'
 
 export interface OllamaModelInfo {
