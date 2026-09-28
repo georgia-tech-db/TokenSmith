@@ -1,0 +1,116 @@
+name: Accuracy benchmark (retrieval)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: BuzzDB hybrid retrieval and conversation contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OLLAMA_HOST: '127.0.0.1:11434'
+      OLLAMA_MODELS: ${{ github.workspace }}/tmp/ollama-models
+      CUDA_VISIBLE_DEVICES: '-1'
+      TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH: ${{ github.workspace }}/tmp/buzzdb-nomic-cache.npz
+      TOKENSMITH_BENCHMARK_REPORT_PATH: tmp/benchmark-results.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Set up bundled Python
+        run: npm run setup:python-runtime
+      - name: Read pinned Ollama model
+        id: model
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs'
+          const model = JSON.parse(readFileSync('tests/benchmarks/embedding-model.json', 'utf8'))
+          appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(model).map(([key, value]) => `${key}=${value}\n`).join(''))
+          JS
+      - name: Cache Ollama CPU runtime
+        id: runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp/ollama/bin
+            tmp/ollama/lib/ollama/llama-server
+            tmp/ollama/lib/ollama/*.so*
+          key: ollama-cpu-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.model.outputs.linuxArchiveSha256 }}
+      - name: Install pinned Ollama runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        env:
+          ARCHIVE_URL: ${{ steps.model.outputs.linuxArchiveUrl }}
+          ARCHIVE_SHA256: ${{ steps.model.outputs.linuxArchiveSha256 }}
+        run: |
+          curl --fail --location --retry 3 "$ARCHIVE_URL" -o "$RUNNER_TEMP/ollama.tar.zst"
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/ollama.tar.zst" | sha256sum --check
+          mkdir -p tmp/ollama
+          tar --zstd -xf "$RUNNER_TEMP/ollama.tar.zst" -C tmp/ollama
+      - name: Cache exact Nomic model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: tmp/ollama-models
+          key: ollama-model-${{ steps.model.outputs.digest }}
+      - name: Start Ollama
+        run: |
+          test -x tmp/ollama/lib/ollama/llama-server
+          tmp/ollama/bin/ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/ollama.pid"
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:11434/api/version; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/ollama.log"
+          exit 1
+      - name: Download Nomic on cache miss
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        env:
+          MODEL_NAME: ${{ steps.model.outputs.name }}
+        run: tmp/ollama/bin/ollama pull "$MODEL_NAME"
+      - name: Verify model digest and runtime version
+        run: app_runtime/python/bin/python -c 'from tests.benchmarks.test_buzzdb_embeddings import verify_ollama; verify_ollama()'
+      - name: Calculate book cache identity
+        id: book-key
+        run: echo "key=$(app_runtime/python/bin/python tests/benchmarks/build_buzzdb_embedding_cache.py --cache-key)" >> "$GITHUB_OUTPUT"
+      - name: Cache book embeddings
+        id: book-cache
+        uses: actions/cache@v4
+        with:
+          path: tmp/buzzdb-nomic-cache.npz
+          key: buzzdb-nomic-${{ steps.book-key.outputs.key }}
+      - name: Embed book on cache miss
+        if: steps.book-cache.outputs.cache-hit != 'true'
+        run: npm run build:embedding-benchmark-cache -- "$TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH"
+      - name: Run benchmark with fresh query embeddings
+        run: npm run test:benchmark
+      - name: Show Ollama log on failure
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/ollama.log" ]; then
+            cat "$RUNNER_TEMP/ollama.log"
+          fi
+      - name: Stop Ollama
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ollama.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/ollama.pid")" || true
+          fi

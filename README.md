@@ -1,94 +1,52 @@
 <p align="center">
   <img src="src/renderer/src/assets/tokensmith-mark.png" alt="TokenSmith icon" width="120" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="src/renderer/src/assets/tokensmith-logo.png" alt="TokenSmith" width="120" />
 </p>
 
 # TokenSmith
 
-TokenSmith is a desktop app for students to ask questions on your course documents (PDFs). 
+**TokenSmith helps students learn from their course materials using local language models running on their laptop.**
 
-It runs locally on your machine, retrieves passages relevant to your question from your documents, and shows the **page sources** with each answer.
+- Add your textbooks, lecture notes, and papers.
+- Work through difficult concepts with explanations and examples.
+- Explore suggested questions.
+- Test your understanding with short quizzes and feedback.
 
-<p align="center">
-<img width="1348" height="838" alt="tokensmith" src="https://github.com/user-attachments/assets/ca1ecc04-73ea-4190-b7ed-e58ebeb25a01" />
-</p>
+Local models run through Ollama. You can also connect a cloud model with an API key.
 
-## Student Workflow
+**[Download](#download)** | **[Watch the demo](#demo)** | **[Get started](#get-started)**
 
-1. Install and start Ollama.
-2. Download the recommended local embedder and chat models.
-3. Add a folder containing your course PDFs.
-4. Ask questions in Chat or pick a suggested question.
-5. Use page source cards to explore where an answer came from within the document and **skim through the page**.
-6. Continue with your own questions or suggested follow-up questions to study deeper.
+## Download
 
-## What TokenSmith Does
+[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.13](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.13)
 
-- Indexes PDFs for local search using the embedder model.
-- Retrieves relevant passages before answering using a vector index.
-- Answers with page source cards for cross-checking with the documents.
-- Suggests follow-up questions.
+| Platform | Download v0.1.13 |
+| --- | --- |
+| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-mac-arm64.dmg) |
+| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-win-x64.zip) |
+| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/TokenSmith-0.1.13-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.13/tokensmith_0.1.13_amd64.deb) |
 
-## Install
+## Demo
 
-Download the latest app from the GitHub Releases page: https://github.com/georgia-tech-db/TokenSmith/releases
+https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 
-On first launch, TokenSmith will guide you through installing Ollama, downloading models, and adding PDFs.
+## Get Started
 
-## Developer Setup
+1. Install and start [Ollama](https://ollama.com/download), then use TokenSmith's setup guide to download a local embedding model for searching your documents.
+2. Choose a local chat model, or select **Connect a cloud chat model** and use your own API key.
+3. Add your course materials in **Library**. PDF, Markdown, and text files are supported.
+4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or choose **Quiz me** to practice.
 
-Install dependencies:
+## Project Health
 
-```sh
-npm install
-```
+[![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)
+[![Accuracy benchmark (retrieval)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/accuracy.yml)
+[![Frontend TypeScript coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Ftypescript-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
+[![Backend Python coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgeorgia-tech-db%2FTokenSmith%2Fcodex%2Fcoverage-badge%2Fpython-coverage.json)](https://github.com/georgia-tech-db/TokenSmith/blob/codex/coverage-badge/coverage.md)
 
-Download the pinned, platform-specific Python runtime and install TokenSmith's
-Python dependencies inside it:
+The benchmark checks whether search retrieves the expected evidence.
 
-```sh
-npm run setup:python-runtime
-```
+See [testing and benchmarks](docs/testing.md) for what the checks measure and how to run them.
 
-This creates `app_runtime/python` inside the repository. It does not require,
-modify, or install packages into your system Python. The download is selected
-for Linux x64, Windows x64, or macOS ARM64 and verified with SHA-256 before it
-is used.
+## Contributing
 
-The runtime comes from Astral's
-[python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-`install_only_stripped` archives. TokenSmith pins the Python version, release,
-target platform, and checksum rather than copying the developer's Python
-installation.
-
-Start the app locally:
-
-```sh
-npm run dev
-```
-
-Run tests:
-
-```sh
-npm run typecheck
-npm test
-```
-
-## Packaging
-
-Packaging requires `npm run setup:python-runtime` first. Release workflows run
-that command automatically and include the private runtime in each application,
-so students do not need to install Python.
-
-Create a macOS DMG:
-
-```sh
-npm run package:mac
-```
-
-Create a Windows portable zip:
-
-```sh
-npm run package:win
-```
+[Report a problem](https://github.com/georgia-tech-db/TokenSmith/issues) or see the [development guide](docs/development.md) to run, build, and package the app.
