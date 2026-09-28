@@ -44,7 +44,8 @@ export interface TokenSmithBridge {
   listEngines: () => Promise<EngineInfo[]>
   sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
   resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
-  suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
+  suggestChatQuestions: (requestId: string, request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
+  cancelChatQuestionSuggestions: (requestId: string) => Promise<void>
   starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>

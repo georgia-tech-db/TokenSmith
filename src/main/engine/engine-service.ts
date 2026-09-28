@@ -19,13 +19,16 @@ import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runO
 import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionRequest> {
   if (request.messages.length > 0 || (request.retrievedSources?.length ?? 0) > 0) {
     return request
   }
 
+  signal?.throwIfAborted()
   const starterSources = await starterSourcesWithPython(request.materials, 4)
+  signal?.throwIfAborted()
   if (starterSources.length === 0) {
     throw new Error('No indexed PDF text was available for starter questions.')
   }
@@ -69,15 +72,16 @@ export async function resolveChatQuestion(request: EngineQuestionRewriteRequest)
 }
 
 export async function suggestChatQuestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
-  const suggestionRequest = await withStarterSources(request)
+  const suggestionRequest = await withStarterSources(request, signal)
   writeTokenSmithLog('question_suggestion_request_context', questionSuggestionLogDetails(suggestionRequest))
   return generateStudyQuestionSuggestions(suggestionRequest, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  })
+  }, signal)
 }
 
 function logSource(source: ChatSource): Record<string, unknown> {
