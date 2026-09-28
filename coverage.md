@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 3069/14235 | 21.6% |
+| Frontend / Electron (TypeScript / TSX) | 3198/14364 | 22.3% |
 | Backend (Python) | 2549/2908 | 87.7% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -45,8 +45,9 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 87/87 | 100.0% |
 | `src/renderer/src/MarkdownSourceViewer.tsx` | 75/105 | 71.4% |
-| `src/renderer/src/MessageText.tsx` | 34/35 | 97.1% |
+| `src/renderer/src/MessageText.tsx` | 35/36 | 97.2% |
 | `src/renderer/src/QuestionEditor.tsx` | 0/54 | 0.0% |
+| `src/renderer/src/remark-model-math.ts` | 128/128 | 100.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
 | `src/shared/app-state.ts` | 0/233 | 0.0% |
 | `src/shared/bridge.ts` | 0/90 | 0.0% |
@@ -63,6 +64,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 6a03969d70602c9eafb54f16799f4ecbfb684679
+Measured commit: d7d684fa073580b5ef6a2e6b9617a70ff42eddf2
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36390660282)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/36399576001)
