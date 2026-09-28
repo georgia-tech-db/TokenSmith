@@ -29,9 +29,9 @@ function secureStorageSteps(platform: string): string[] {
     ]
   }
   return [
-    'Install GNOME Keyring with libsecret support, or KWallet, using your system software manager.',
-    'Open and unlock the keyring or wallet, and configure it to unlock when you sign in.',
-    'Restart TokenSmith and open this connection again.'
+    'Open and unlock your existing GNOME Keyring or KWallet, if available.',
+    'If neither is installed, use your system software manager to install GNOME Keyring with libsecret support, or KWallet, then open and unlock it.',
+    'Configure the keyring or wallet to unlock when you sign in, then restart TokenSmith and open this connection again.'
   ]
 }
 
