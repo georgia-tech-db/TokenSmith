@@ -39,7 +39,7 @@ import {
   modelWithRememberedRemoteApiKey,
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
-import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
+import type { AppStateSnapshot, ChatSource, CourseMaterial, LibrarySearchOptions, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
 import type { EmbeddingOptions } from '../shared/embedding-settings'
 import { removeRetiredModelState } from '../shared/retired-model-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
@@ -523,7 +523,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
     starterSourcesWithPython(materials, limit)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: EmbeddingOptions) =>
+  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) =>
     searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options)
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))

@@ -26,7 +26,9 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 try:
     from tokensmith_store import (
         append_material_chunks,
+        backfill_collection_vocabularies,
         begin_material_index,
+        collection_vocabulary_words,
         delete_material,
         dump_index,
         embedded_chunk_signatures,
@@ -38,6 +40,7 @@ try:
         has_chunks,
         init_db,
         keyword_search,
+        save_collection_vocabulary,
         keyword_terms_for_query,
         list_materials,
         set_material_active,
@@ -49,7 +52,9 @@ try:
 except ImportError:  # pragma: no cover - allows direct package imports in tests
     from python_engine.tokensmith_store import (
         append_material_chunks,
+        backfill_collection_vocabularies,
         begin_material_index,
+        collection_vocabulary_words,
         delete_material,
         dump_index,
         embedded_chunk_signatures,
@@ -61,6 +66,7 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         has_chunks,
         init_db,
         keyword_search,
+        save_collection_vocabulary,
         keyword_terms_for_query,
         list_materials,
         set_material_active,
@@ -69,6 +75,11 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         update_material_index_state,
         vector_search,
     )
+
+try:
+    from tokensmith_vocab import DEFAULT_TYPO_CUTOFF, build_vocabulary, correct_query
+except ImportError:  # pragma: no cover - allows direct package imports in tests
+    from python_engine.tokensmith_vocab import DEFAULT_TYPO_CUTOFF, build_vocabulary, correct_query
 
 try:
     from tokensmith_cleaning import (
@@ -163,6 +174,9 @@ STOP_WORDS = {
 
 
 VISIBLE_LOG_EVENTS = {
+    "query_typo_correction",
+    "vocab_built",
+    "vocab_backfilled",
     "follow_up_suggestions",
     "chat_request_context",
     "chat_response_context",
@@ -181,6 +195,21 @@ try:
     INDEX_CHECKPOINT_BATCH_SIZE = max(1, int(os.environ.get("TOKENSMITH_INDEX_CHECKPOINT_BATCH_SIZE", 50)))
 except ValueError:
     INDEX_CHECKPOINT_BATCH_SIZE = 50
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+try:
+    VOCAB_MIN_COUNT = max(1, int(os.environ.get("TOKENSMITH_VOCAB_MIN_COUNT", 4)))
+except ValueError:
+    VOCAB_MIN_COUNT = 4
+# Developer knob for tuning the cutoff against a real collection.
+TYPO_CUTOFF = min(1.0, max(0.0, env_float("TOKENSMITH_TYPO_CUTOFF", DEFAULT_TYPO_CUTOFF)))
 
 
 def log_event(event: str, **details: Any) -> None:
@@ -1268,6 +1297,7 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         rebuild_index=True,
         deleted_embedding_models=deleted_embedding_models,
     )
+    store_collection_vocabulary(user_data_path, material_id, chunks)
     emit_index_progress(
         "complete",
         100,
@@ -1675,6 +1705,64 @@ def select_source_rows(
     return selected
 
 
+def store_collection_vocabulary(
+    user_data_path: str,
+    material_id: str,
+    chunks: Sequence[Dict[str, Any]],
+) -> None:
+    """Record the collection's high-frequency words as part of indexing.
+
+    Always written, whatever the reader's typo-correction setting: the vocabulary
+    belongs to the collection, so whoever indexes it produces it once for everyone
+    the collection is later shared with.
+    """
+
+    if not chunks:
+        return
+    try:
+        vocabulary = build_vocabulary(
+            (str(chunk.get("text") or "") for chunk in chunks),
+            min_count=VOCAB_MIN_COUNT,
+        )
+        save_collection_vocabulary(user_data_path, material_id, vocabulary)
+        log_event("vocab_built", materialId=material_id, wordCount=len(vocabulary), minCount=VOCAB_MIN_COUNT)
+    except Exception as error:  # a missing vocabulary must never fail indexing
+        log_event("vocab_build_failed", materialId=material_id, error=str(error))
+
+
+def apply_query_typo_correction(
+    user_data_path: str,
+    query: str,
+    material_ids: Sequence[str],
+    enabled: bool,
+) -> str:
+    """Return the query with likely typos repaired against the collection vocabulary.
+
+    A no-op unless typo correction is enabled for this request. Never raises;
+    retrieval falls back to the original query on any failure.
+    """
+
+    if not enabled or not query.strip() or not material_ids:
+        return query
+    try:
+        vocabulary = collection_vocabulary_words(user_data_path, list(material_ids))
+        if not vocabulary:
+            return query
+        corrected, replacements = correct_query(query, vocabulary, cutoff=TYPO_CUTOFF)
+        if replacements:
+            log_event(
+                "query_typo_correction",
+                original=query,
+                corrected=corrected,
+                replacements=replacements,
+                vocabWords=len(vocabulary),
+            )
+        return corrected
+    except Exception as error:  # correction must never break retrieval
+        log_event("query_typo_correction_failed", error=str(error))
+        return query
+
+
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
@@ -1699,12 +1787,16 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             enabled=len(active_ids),
         )
 
-    query_tokens = sorted(set(tokenize(query)))
     if not active_ids:
         return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
 
     if not has_chunks(user_data_path, active_ids):
         return {"sources": [], "reason": "no_indexed_chunks"}
+
+    query = apply_query_typo_correction(
+        user_data_path, query, active_ids, bool(payload.get("typoCorrectionEnabled"))
+    )
+    query_tokens = sorted(set(tokenize(query)))
 
     collection_embedding_models = embedding_models_by_collection_ids(user_data_path, active_ids)
     active_ids_by_embedding_model: Dict[str, List[str]] = {}
@@ -1838,7 +1930,21 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"sources": sources, "reason": None if sources else "no_indexed_chunks"}
 
 
-def health(_payload: Dict[str, Any]) -> Dict[str, Any]:
+def health(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Collections indexed before vocabularies were stored get one here rather than
+    # on a later query, so no search pays for a one-time upgrade.
+    user_data_path = payload.get("userDataPath")
+    if user_data_path:
+        try:
+            built = backfill_collection_vocabularies(
+                str(user_data_path),
+                lambda texts: build_vocabulary(texts, min_count=VOCAB_MIN_COUNT),
+            )
+            if built:
+                log_event("vocab_backfilled", collections=built)
+        except Exception as error:
+            log_event("vocab_backfill_failed", error=str(error))
+
     return {
         "ok": True,
         "engine": "python",

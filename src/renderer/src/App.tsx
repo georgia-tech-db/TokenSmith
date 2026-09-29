@@ -221,7 +221,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  embeddingGpuEnabled: true
+  embeddingGpuEnabled: true,
+  typoCorrectionEnabled: false
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -831,7 +832,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
+    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled),
+    typoCorrectionEnabled: settings?.typoCorrectionEnabled ?? defaultApplicationSettings.typoCorrectionEnabled
   }
 }
 
@@ -4214,7 +4216,9 @@ function ChatScreen({
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled })
+              searchEmbeddingModels, settings.application.searchMode,
+              { embeddingGpuEnabled: settings.application.embeddingGpuEnabled,
+                typoCorrectionEnabled: settings.application.typoCorrectionEnabled })
           }
         })
         conversationContextMode = prepared.resolution.mode
@@ -7022,6 +7026,13 @@ function SettingsScreen({
                   ariaLabel="Explanation depth"
                   checked={settings.application.explanationDepthEnabled}
                   onChange={(explanationDepthEnabled) => updateApplicationSettings({ explanationDepthEnabled })}
+                />
+              </SettingsRow>
+              <SettingsRow label="Typo Correction" description="Correct likely misspellings in a question against the words used in your documents before searching.">
+                <CheckboxField
+                  ariaLabel="Typo correction"
+                  checked={settings.application.typoCorrectionEnabled}
+                  onChange={(typoCorrectionEnabled) => updateApplicationSettings({ typoCorrectionEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="GPU Acceleration for Document Search" description={isIndexing ? 'Available after document preparation finishes.' : 'Use available GPU acceleration for Ollama embeddings. Turn off to use the CPU for indexing and search. Chat models are unchanged.'}>

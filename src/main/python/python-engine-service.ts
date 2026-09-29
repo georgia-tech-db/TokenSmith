@@ -7,7 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
+import type { ChatSource, CourseMaterial, LibrarySearchOptions, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 
@@ -594,7 +594,7 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
 }
 
 export async function getPythonEngineHealth(): Promise<HealthResult> {
-  return requestPython<HealthResult>('health', {}, 30_000)
+  return requestPython<HealthResult>('health', { userDataPath: app.getPath('userData') }, 30_000)
 }
 
 function sendIndexProgress(progress: MaterialIndexProgress): void {
@@ -689,7 +689,7 @@ export async function searchLibraryWithPython(
   limit: number,
   embeddingModels?: LocalModel[],
   searchMode?: SearchMode,
-  options?: EmbeddingOptions
+  options?: LibrarySearchOptions
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
@@ -724,6 +724,7 @@ export async function searchLibraryWithPython(
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
       embeddingGpuEnabled,
+      typoCorrectionEnabled: options?.typoCorrectionEnabled === true,
       userDataPath: app.getPath('userData')
     },
     30_000

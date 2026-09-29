@@ -10,7 +10,7 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -447,6 +447,16 @@ def create_fts_schema(conn: sqlite3.Connection) -> None:
             INSERT INTO chunks_fts(rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
             VALUES (new.id, new.id, new.document_id, new.chunk_text, new.file, new.title, new.author, new.subject, new.keywords);
         END;
+
+        -- High-frequency words per collection, used to repair typos in queries.
+        -- Stored here rather than in a sidecar file so it is built once with the
+        -- collection and travels with it to anyone the collection is shared with.
+        CREATE TABLE IF NOT EXISTS collection_vocabulary (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            word TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY(collection_id, word)
+        );
 
         CREATE TABLE IF NOT EXISTS chunk_terms (
             chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
@@ -2374,6 +2384,106 @@ def has_chunks(user_data_path: str, material_ids: Optional[Sequence[str]] = None
             ).fetchone()
 
     return row is not None
+
+
+def chunk_texts_for_collection(conn: sqlite3.Connection, collection_id: str) -> List[str]:
+    rows = conn.execute(
+        """
+        SELECT ch.chunk_text AS chunk_text
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        WHERE CAST(ci.collection_id AS TEXT) = ?
+        """,
+        (str(collection_id),),
+    ).fetchall()
+    return [str(row["chunk_text"] or "") for row in rows]
+
+
+def replace_collection_vocabulary(
+    conn: sqlite3.Connection,
+    collection_id: str,
+    vocabulary: Dict[str, int],
+) -> None:
+    conn.execute("DELETE FROM collection_vocabulary WHERE CAST(collection_id AS TEXT) = ?", (str(collection_id),))
+    if not vocabulary:
+        return
+    conn.executemany(
+        "INSERT OR REPLACE INTO collection_vocabulary(collection_id, word, count) VALUES (?, ?, ?)",
+        [(str(collection_id), word, int(count)) for word, count in vocabulary.items()],
+    )
+
+
+def save_collection_vocabulary(user_data_path: str, collection_id: str, vocabulary: Dict[str, int]) -> None:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        replace_collection_vocabulary(conn, collection_id, vocabulary)
+
+
+def collection_vocabulary_words(user_data_path: str, material_ids: Sequence[str]) -> List[str]:
+    """Union of the stored vocabularies for the given collections."""
+
+    init_db(user_data_path)
+
+    ids = [str(material_id) for material_id in material_ids if str(material_id).strip()]
+    if not ids:
+        return []
+
+    placeholders = ",".join("?" for _ in ids)
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT word
+            FROM collection_vocabulary
+            WHERE CAST(collection_id AS TEXT) IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+
+    return sorted(str(row["word"]) for row in rows)
+
+
+VOCABULARY_BACKFILL_KEY = "collection_vocabulary_backfilled"
+
+
+def backfill_collection_vocabularies(
+    user_data_path: str,
+    build_vocabulary: Callable[[List[str]], Dict[str, int]],
+) -> int:
+    """Record vocabularies for collections indexed before they were stored.
+
+    Runs once, away from the search path, so upgrading does not leave the first
+    query paying for work that indexing now does up front.
+    """
+
+    init_db(user_data_path)
+    if get_schema_value(user_data_path, VOCABULARY_BACKFILL_KEY):
+        return 0
+
+    built = 0
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT CAST(ci.collection_id AS TEXT) AS collection_id
+            FROM collection_items ci
+            JOIN documents d ON d.folder_id = ci.folder_id
+            JOIN chunks ch ON ch.document_id = d.id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM collection_vocabulary cv WHERE cv.collection_id = ci.collection_id
+            )
+            """
+        ).fetchall()
+        for row in rows:
+            collection_id = str(row["collection_id"])
+            texts = chunk_texts_for_collection(conn, collection_id)
+            if not texts:
+                continue
+            replace_collection_vocabulary(conn, collection_id, build_vocabulary(texts))
+            built += 1
+        set_schema_value(conn, VOCABULARY_BACKFILL_KEY, str(now_ms()))
+
+    return built
 
 
 def dump_index(user_data_path: str) -> Dict[str, Any]:
