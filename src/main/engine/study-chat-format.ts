@@ -794,7 +794,8 @@ function isRepeatedQuestion(suggestion: string, referenceQuestions: string[]): b
 }
 
 // Backticked names, snake_case, camelCase and Class::member. The follow-up prompt asks the model
-// not to introduce names the student has not met; the filter enforces it against the given text.
+// not to introduce names the student has not met; the filter drops a suggestion whose identifier
+// does not occur, in any form, in the question or the answer.
 const codeIdentifierPattern = /`([^`]+)`|\b([A-Za-z]+_[A-Za-z_]+)\b|\b([a-z]+[A-Z][A-Za-z]+)\b|\b([A-Za-z]+::[A-Za-z]+)\b/g
 
 function codeIdentifiers(text: string): Set<string> {
@@ -818,13 +819,13 @@ export function filterSuggestedQuestions(
     return filtered
   }
 
-  const knownIdentifiers = knownText === undefined ? undefined : codeIdentifiers(knownText)
+  const knownLower = knownText?.toLowerCase()
   for (const suggestion of suggestions) {
     const key = normalizeSuggestionKey(suggestion)
     if (!key || seen.has(key) || !isUsefulSuggestion(suggestion) || isRepeatedQuestion(suggestion, [...referenceQuestions, ...filtered])) {
       continue
     }
-    if (knownIdentifiers && [...codeIdentifiers(suggestion)].some((identifier) => !knownIdentifiers.has(identifier))) {
+    if (knownLower !== undefined && [...codeIdentifiers(suggestion)].some((identifier) => !knownLower.includes(identifier))) {
       continue
     }
     seen.add(key)

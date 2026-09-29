@@ -964,18 +964,19 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   }
 }
 
-// Follow-ups are a side task, so they run on the smallest installed local chat model rather than
-// the answer model, and never on a cloud model. Falls back to the answer model when it is the only
-// local one, and to nothing when no local model is installed.
+// A local answer model writes its own follow-ups: it is already loaded and its prompt is cached, and
+// a second model would evict it on smaller machines (measured: Gemma 4 E4B reloads for 7 to 9 s after
+// a 3B follow-up call on 16 GB). A cloud answer gets follow-ups from the smallest installed local
+// chat model, never from the cloud; with no local model installed it gets none.
 async function followUpModel(request: EngineChatRequest, baseUrl: string): Promise<LocalModel | undefined> {
+  if (request.model.engine === 'ollama') {
+    return request.model
+  }
   const smallest = (await listOllamaModels(baseUrl).catch(() => []))
     .filter((model) => !/embed/i.test(model.name) && typeof model.size === 'number')
     .sort((left, right) => (left.size ?? 0) - (right.size ?? 0))[0]
   if (!smallest) {
-    return request.model.engine === 'ollama' ? request.model : undefined
-  }
-  if (request.model.engine === 'ollama' && ollamaModelMatches(smallest, request.model.ollamaModelName ?? '')) {
-    return request.model
+    return undefined
   }
 
   return {

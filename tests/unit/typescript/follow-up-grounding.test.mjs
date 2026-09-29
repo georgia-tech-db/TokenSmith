@@ -22,21 +22,23 @@ test('the filter drops near-duplicates of kept suggestions and code names the st
       'What does pageMap.erase() do during eviction?',       // identifier the student has not seen
       'When does LRU perform poorly?',
       'What happens on a buffer miss?',
-      'How is the lruList ordered?'                          // named in the answer, so allowed
+      'How is the lruList ordered?',                         // named in the answer, so allowed
+      'Why is `evict` called before loading a page?'         // the answer says "evict method" in plain words
     ],
     ['Why does it use LRU instead of FIFO?'],
-    4,
-    'Why does it use LRU instead of FIFO?\nLRU keeps recently used pages because of temporal locality. The lruList holds pages in recency order.'
+    5,
+    'Why does it use LRU instead of FIFO?\nLRU keeps recently used pages because of temporal locality. The lruList holds pages in recency order; the evict method removes the last one.'
   )
   assert.deepEqual(kept, [
     'How does temporal locality justify LRU?',
     'When does LRU perform poorly?',
     'What happens on a buffer miss?',
-    'How is the lruList ordered?'
+    'How is the lruList ordered?',
+    'Why is `evict` called before loading a page?'
   ])
 })
 
-test('follow-ups run on the smallest installed local chat model, skipping embedding models', async () => {
+test('a local answer model writes its own follow-ups even when a smaller model is installed', async () => {
   const original = globalThis.fetch
   const chatModels = []
   try {
@@ -62,7 +64,7 @@ test('follow-ups run on the smallest installed local chat model, skipping embedd
       applicationSettings: { suggestionMode: 'on', followUpSuggestionCount: 4 },
       retrievedSources: [{ title: 'Buffer manager', excerpt: 'The evict method removes the least recently used page.' }]
     })
-    assert.deepEqual(chatModels, ['llama3', 'llama3.2:3b'])
+    assert.deepEqual(chatModels, ['llama3', 'llama3'])
     assert.deepEqual(result.followUpSuggestions, ['Why is the least recently used page chosen?'])
   } finally { globalThis.fetch = original }
 })
