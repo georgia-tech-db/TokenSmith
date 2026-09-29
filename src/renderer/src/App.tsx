@@ -29,7 +29,7 @@ import { ChatDepthPicker } from './ChatDepthPicker'
 import { AnswerExplanation } from './AnswerExplanation'
 import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
-import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import { attachCloudProviderConnection, disconnectCloudConnectionModels, isCloudConnectionModel, isCloudGenerator, mergeCloudConnectionModel } from '@shared/cloud-generators'
 import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
@@ -87,11 +87,6 @@ import { recommendModel, type ModelRecommendation } from '@shared/model-recommen
 import { defaultDeviceTierPolicy } from '@shared/device-tier-policy'
 import { fontSizeOptions, normalizeFontSize } from '@shared/typography'
 import {
-  remoteProviderCatalog,
-  type RemoteProviderCatalogItem,
-  type RemoteProviderId
-} from '@shared/model-providers'
-import {
   defaultFollowUpSuggestionCount,
   defaultStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
@@ -129,11 +124,6 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import providerCustomLogo from './assets/provider-custom.svg'
-import providerGeminiLogo from './assets/provider-gemini.svg'
-import providerGroqLogo from './assets/provider-groq.svg'
-import providerMistralLogo from './assets/provider-mistral.svg'
-import providerOpenAiLogo from './assets/provider-openai.svg'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -188,14 +178,6 @@ const pdfViewerRenderScale = 1.45
 const starterQuestionDebounceMs = 150
 
 const defaultMaterials: CourseMaterial[] = []
-
-const remoteProviderLogoSources: Record<RemoteProviderId, string> = {
-  groq: providerGroqLogo,
-  openai: providerOpenAiLogo,
-  gemini: providerGeminiLogo,
-  mistral: providerMistralLogo,
-  custom: providerCustomLogo
-}
 
 const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   systemMessage: '',
@@ -749,7 +731,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
       }
 
       {
-        const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudGenerator(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
+        const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudConnectionModel(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
         return {
           id: model.id ?? createId('model'),
@@ -1318,11 +1300,28 @@ export function App() {
 
   function connectedCloudGenerator(model: LocalModel) {
     updateAppState(current => {
-      const models = mergeCloudGenerator(current.models, model)
-      return { ...current, models, selectedModelId: models[0].id }
+      const migrated = attachCloudProviderConnection(current.models, model)
+      const models = mergeCloudConnectionModel(migrated, model)
+      const connectedModel = models.find(candidate =>
+        candidate.connectionId === model.connectionId &&
+        candidate.remoteModelName === model.remoteModelName &&
+        candidate.role === model.role
+      )
+      const modelId = connectedModel?.id ?? model.id
+      return model.role === 'embedder'
+        ? { ...current, models, selectedEmbeddingModelId: modelId }
+        : { ...current, models, selectedModelId: modelId }
     })
     setCloudSetup(null)
     setCloudNotice(`Connected · ${model.remoteModelName}`)
+  }
+
+  function forgotCloudConnections(connectionIds: string[]) {
+    updateAppState(current => ({
+      ...current,
+      models: disconnectCloudConnectionModels(current.models, connectionIds)
+    }))
+    setCloudNotice('API key removed · reconnect a model to continue')
   }
 
   useLayoutEffect(() => {
@@ -2295,7 +2294,8 @@ export function App() {
       }))} />
       {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
         localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
-        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
+        configuredModels={appState.models}
+        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} onForgotten={forgotCloudConnections} />}
       {cloudNotice && <div className="cloud-connected-notice" role="status">{cloudNotice}</div>}
     </main>
   )
@@ -5315,35 +5315,8 @@ function ModelsScreen({
   selectedModelId: string
   onConnectCloud: (model?: LocalModel) => void
 }) {
-  type RemoteProviderDraft = {
-    apiKey: string
-    baseUrl: string
-    role: LocalModelRole
-    modelName: string
-    models: string[]
-    isLoading: boolean
-    error?: string
-  }
-
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
   const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
-  const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
-    remoteProviderCatalog.reduce(
-      (drafts, provider) => {
-        drafts[provider.id] = {
-          apiKey: '',
-          baseUrl: provider.baseUrl ?? '',
-          role: 'embedder',
-          modelName: '',
-          models: [],
-          isLoading: false
-        }
-
-        return drafts
-      },
-      {} as Record<RemoteProviderId, RemoteProviderDraft>
-    )
-  )
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaStatusState, setOllamaStatusState] = useState<'idle' | 'checking' | 'error'>('idle')
   const [ollamaError, setOllamaError] = useState<string | null>(null)
@@ -5522,90 +5495,6 @@ function ModelsScreen({
       setOllamaSearchStatus('error')
       setOllamaSearchError(error instanceof Error ? error.message : 'Ollama model search failed.')
     }
-  }
-
-  function updateRemoteDraft(providerId: RemoteProviderId, draft: Partial<(typeof remoteDrafts)[RemoteProviderId]>) {
-    setRemoteDrafts((current) => ({
-      ...current,
-      [providerId]: {
-        ...current[providerId],
-        ...draft
-      }
-    }))
-  }
-
-  async function loadRemoteProviderModels(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const baseUrl = draft.baseUrl.trim()
-    const apiKey = draft.apiKey.trim()
-
-    if (!window.tokensmith || !apiKey || !baseUrl) {
-      return
-    }
-
-    updateRemoteDraft(provider.id, { isLoading: true, error: undefined })
-
-    try {
-      const visibleModels = await window.tokensmith.listRemoteProviderModels(apiKey, baseUrl, draft.role)
-
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: visibleModels,
-        modelName: draft.modelName || visibleModels[0] || '',
-        error:
-          visibleModels.length === 0
-            ? `No compatible ${draft.role === 'embedder' ? 'embedding' : 'chat'} models were returned by this provider.`
-            : undefined
-      })
-    } catch (error) {
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: [],
-        error: error instanceof Error ? error.message : 'Could not load provider models.'
-      })
-    }
-  }
-
-  function installRemoteProviderModel(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const apiKey = draft.apiKey.trim()
-    const baseUrl = draft.baseUrl.trim()
-    const remoteModelName = draft.modelName.trim()
-
-    if (!apiKey || !baseUrl || !remoteModelName) {
-      updateRemoteDraft(provider.id, { error: 'API key, base URL, and model name are required.' })
-      return
-    }
-
-    const isEmbedder = draft.role === 'embedder'
-    const model: LocalModel = {
-      id: createId('model'),
-      name: provider.isCustom ? remoteModelName : `${provider.name} ${remoteModelName}`,
-      engine: 'remote',
-      role: draft.role,
-      status: 'ready',
-      source: 'remote',
-      providerId: provider.id,
-      providerName: provider.name,
-      baseUrl,
-      apiKey,
-      remoteModelName,
-      type: isEmbedder ? 'OpenAI-compatible embeddings' : 'OpenAI-compatible chat',
-      description: [
-        `${provider.name} remote ${isEmbedder ? 'embedding' : 'chat'} model`,
-        isEmbedder
-          ? 'Uses an OpenAI-compatible embeddings endpoint'
-          : 'Uses an OpenAI-compatible chat completions endpoint',
-        isEmbedder
-          ? 'Builds collection vectors and embeds questions for retrieval'
-          : 'Uses TokenSmith retrieval before sending source-backed prompts',
-        'API key is kept for this app session and redacted from saved state'
-      ],
-      addedAt: new Date().toISOString()
-    }
-
-    onAddModel(model)
-    setMode('installed')
   }
 
   function modelStats(model: LocalModel) {
@@ -5842,12 +5731,14 @@ function ModelsScreen({
   }
 
   function renderInstalledModelCard(model: LocalModel) {
-    if (isCloudGenerator(model)) {
+    if (isCloudConnectionModel(model)) {
+      const isEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
+      const selected = isEmbedder ? model.id === selectedEmbeddingModelId : model.id === selectedModelId
       return <section className="cloud-generator-entry" key={model.id}>
-        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Online'} · {model.status === 'ready' ? 'Ready' : 'API key required'}</p></div>
+        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {isEmbedder ? 'Embedding model' : 'Chat model'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
         <div className="model-header-actions">
-          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
-          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'API key settings' : 'Enter API key'}</button>
+          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={selected} onClick={() => isEmbedder ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}>{selected ? 'Selected' : isEmbedder ? 'Use for PDF search' : 'Use in chat'}</button>}
+          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'Connection settings' : 'Reconnect'}</button>
           <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
         </div>
       </section>
@@ -5896,109 +5787,7 @@ function ModelsScreen({
     )
   }
 
-  const installedModels = models.filter((model) => isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
-
-  function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const canInstall = Boolean(draft.apiKey.trim() && draft.baseUrl.trim() && draft.modelName.trim())
-    const modelListId = `remote-models-${provider.id}`
-
-    return (
-      <section className="remote-provider-card" key={provider.id}>
-        <div className="remote-provider-main">
-          <div className="remote-provider-heading">
-            <img className="remote-provider-logo" src={remoteProviderLogoSources[provider.id]} alt={`${provider.name} logo`} />
-            <h2>{provider.name}</h2>
-          </div>
-          <p>{provider.description}</p>
-          {provider.apiKeyUrl && (
-            <a href={provider.apiKeyUrl} rel="noreferrer" target="_blank">
-              Get your API key
-            </a>
-          )}
-        </div>
-
-        <div className="remote-provider-form">
-          <label>
-            <span>API Key</span>
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder="enter API key"
-              value={draft.apiKey}
-              onChange={(event) => updateRemoteDraft(provider.id, { apiKey: event.target.value, error: undefined })}
-            />
-          </label>
-
-          {provider.isCustom && (
-            <label>
-              <span>Base URL</span>
-              <input
-                type="url"
-                placeholder="https://host.example/v1"
-                value={draft.baseUrl}
-                onChange={(event) => updateRemoteDraft(provider.id, { baseUrl: event.target.value, error: undefined })}
-              />
-            </label>
-          )}
-
-          <label>
-            <span>Model Type</span>
-            <select
-              value={draft.role}
-              onChange={(event) => {
-                const role = event.target.value as LocalModelRole
-                updateRemoteDraft(provider.id, { role, modelName: '', models: [], error: undefined })
-              }}
-            >
-              <option value="embedder">Embedder Model</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Model Name</span>
-            <input
-              list={provider.isCustom ? undefined : modelListId}
-              placeholder={provider.isCustom ? 'enter model name' : 'load models or enter model name'}
-              value={draft.modelName}
-              onChange={(event) => updateRemoteDraft(provider.id, { modelName: event.target.value, error: undefined })}
-            />
-            {!provider.isCustom && (
-              <datalist id={modelListId}>
-                {draft.models.map((modelName) => (
-                  <option key={modelName} value={modelName} />
-                ))}
-              </datalist>
-            )}
-          </label>
-
-          {!provider.isCustom && (
-            <button
-              className="model-action-button"
-              type="button"
-              disabled={!draft.apiKey.trim() || draft.isLoading}
-              onClick={() => loadRemoteProviderModels(provider)}
-            >
-              <RefreshCw size={16} aria-hidden="true" />
-              <span>{draft.isLoading ? 'Loading...' : 'Load Models'}</span>
-            </button>
-          )}
-
-          <button
-            className="model-action-button is-download"
-            type="button"
-            disabled={!canInstall}
-            onClick={() => installRemoteProviderModel(provider)}
-          >
-            <Plus size={16} aria-hidden="true" />
-            <span>Install</span>
-          </button>
-
-          {draft.error && <small className="model-download-error">{draft.error}</small>}
-        </div>
-      </section>
-    )
-  }
+  const installedModels = models.filter((model) => isCloudConnectionModel(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
 
   function renderOllamaModelAction(model: LocalModel, isInstalledInOllama: boolean) {
     const isEmbedderOnly = modelCanEmbed(model) && !modelCanGenerate(model)
@@ -6273,12 +6062,9 @@ function ModelsScreen({
         {exploreTab === 'remote' && (
           <>
             <p className="model-explore-copy">
-              Connect a cloud service for chat answers. Your PDF search model is managed separately.
+              Connect a provider once, then add any compatible chat or embedding model with that same API key.
             </p>
-            <div className="cloud-generator-entry"><div><h2>Cloud chat models</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button></div>
-            <details className="cloud-generator-advanced"><summary>Advanced: remote embedding models</summary><div className="remote-provider-grid">
-              {remoteProviderCatalog.map((provider) => renderRemoteProviderCard(provider))}
-            </div></details>
+            <div className="cloud-generator-entry"><div><h2>Online providers</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a provider</button></div>
           </>
         )}
 

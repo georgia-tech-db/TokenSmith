@@ -20,7 +20,6 @@ import {
   setMaterialEnabledWithPython,
   starterSourcesWithPython
 } from './python/python-engine-service'
-import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
 import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
 import { remoteGeneratorFetch, setRemoteGeneratorTransport } from './engine/remote-generator-network'
 import type { CloudConnectionInput, CloudGeneratorInput } from '../shared/cloud-generators'
@@ -476,6 +475,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloud:connections', () => cloudGenerators.status())
   ipcMain.handle('cloud:discover', (_event, input: CloudConnectionInput) => cloudResult(() => cloudGenerators.discover(input)))
   ipcMain.handle('cloud:connect-generator', (_event, input: CloudGeneratorInput) => cloudResult(() => cloudGenerators.connect(input)))
+  ipcMain.handle('cloud:forget', (_event, connectionId: string) => cloudResult(() => cloudGenerators.forget(connectionId)))
   ipcMain.handle('cloud:cancel', (_event, requestId: string) => cloudGenerators.cancel(requestId))
   ipcMain.handle('engine:list', () => listEngines())
   ipcMain.handle('engine:chat', async (event, request: EngineChatRequest) => {
@@ -579,9 +579,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('ollama:pull-model', (_event, modelName: string, baseUrl?: string) => pullOllamaModel(modelName, baseUrl))
   ipcMain.handle('ollama:cancel-pull', (_event, modelName: string, baseUrl?: string) => cancelOllamaPullModel(modelName, baseUrl))
   ipcMain.handle('ollama:delete-model', (_event, modelName: string, baseUrl?: string) => deleteOllamaModel(modelName, baseUrl))
-  ipcMain.handle('models:list-remote-provider-models', (_event, apiKey: string, baseUrl: string, role?: LocalModelRole) =>
-    listOpenAiCompatibleModels(apiKey, baseUrl, role)
-  )
   ipcMain.handle('models:remove-model', (_event, model: LocalModel) => {
     if (model.engine === 'ollama' || model.source === 'ollama') {
       return deleteOllamaModel(model.ollamaModelName ?? model.name, model.ollamaBaseUrl)
