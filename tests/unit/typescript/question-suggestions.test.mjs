@@ -40,13 +40,19 @@ test('follow-ups use the actual new answer and do not drop complete questions so
   const question = 'When does the complexity difference between a range scan and a full scan become practically noticeable when dealing with millions of records?'
   try {
     let calls = 0
-    globalThis.fetch = async (_url, options) => {
+    globalThis.fetch = async (url, options) => {
+      // The model list is read to pick the follow-up model; only the answer model is installed here.
+      if (/\/api\/tags$/.test(url)) return { ok: true, json: async () => ({ models: [{ name: 'test-model', size: 1 }] }) }
       const body = JSON.parse(options.body)
       if (++calls === 2) {
+        assert.equal(body.model, 'test-model')
         assert.equal(body.format.type, 'array')
+        assert.equal(body.format.maxItems, 4)
         assert.equal(body.options.num_predict, 384)
         assert.match(body.messages.at(-1).content, /Latest answer:\nRange queries return records within an interval/)
         assert.match(body.messages.at(-1).content, /after the latest answer/)
+        assert.match(body.messages.at(-2).content, /Ordered indexes support range queries/)
+        assert.match(body.messages[0].content, /supplied study material/)
         assert.doesNotMatch(body.messages.at(-1).content, /short opening questions/)
       }
       return { ok: true, json: async () => ({ done_reason: 'stop', message: {

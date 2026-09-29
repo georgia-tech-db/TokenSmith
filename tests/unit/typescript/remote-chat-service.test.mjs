@@ -50,6 +50,20 @@ function remoteStudyRequest(overrides = {}) {
   }
 }
 
+// Follow-ups for a remote answer run on the smallest installed local model. This answers Ollama's
+// model list and context-length lookups, and hands the follow-up chat call to the test's fetch,
+// translating its OpenAI-shaped reply into Ollama's shape so each test keeps one script.
+function withLocalFollowUps(fetchImplementation) {
+  return async (url, options) => {
+    if (/\/api\/tags$/.test(url)) return { ok: true, json: async () => ({ models: [{ name: 'llama3.2:3b', size: 2_000_000_000 }] }) }
+    if (/\/api\/show$/.test(url)) return { ok: false, status: 404, text: async () => '' }
+    const response = await fetchImplementation(url, options)
+    if (!/\/api\/chat$/.test(url) || !response.ok) return response
+    const payload = await response.json()
+    return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: payload.choices[0].message.content } }) }
+  }
+}
+
 async function withMockFetch(fetchImplementation, callback) {
   const originalFetch = globalThis.fetch
   globalThis.fetch = fetchImplementation
@@ -187,10 +201,10 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
   })
 })
 
-test('runRemoteStudyEngine asks the selected remote model for follow-up suggestions when enabled', async () => {
+test('runRemoteStudyEngine asks the smallest local model for follow-up suggestions when enabled', async () => {
   const requestBodies = []
 
-  await withMockFetch(async (_url, options) => {
+  await withMockFetch(withLocalFollowUps(async (_url, options) => {
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -209,7 +223,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
         ]
       })
     }
-  }, async () => {
+  }), async () => {
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       applicationSettings: {
         suggestionMode: 'on',
@@ -224,11 +238,13 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
     }))
 
     assert.equal(requestBodies.length, 2)
-    assert.equal(requestBodies[1].messages.length, 1)
+    assert.equal(requestBodies[1].model, 'llama3.2:3b')
+    assert.equal(requestBodies[1].messages.length, 3)
+    assert.equal(requestBodies[1].messages[0].role, 'system')
+    assert.match(requestBodies[1].messages[1].content, /Transactions preserve atomicity and durability/)
     assert.match(requestBodies[1].messages.at(-1).content, /Current question:\nWhat is atomicity\?/)
     assert.match(requestBodies[1].messages.at(-1).content, /Latest answer:\nAtomicity makes a transaction all-or-nothing/)
     assert.match(requestBodies[1].messages.at(-1).content, /Generate 2 suggested follow-up questions\.\nSuggest follow-up questions\./)
-    assert.doesNotMatch(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
     assert.deepEqual(response.followUpSuggestions, [
       'How does durability differ from atomicity?',
       'Why does rollback matter for atomicity?'
@@ -239,7 +255,7 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
 test('runRemoteStudyEngine keeps a short model list without inventing extra questions', async () => {
   const requestBodies = []
 
-  await withMockFetch(async (_url, options) => {
+  await withMockFetch(withLocalFollowUps(async (_url, options) => {
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -260,7 +276,7 @@ test('runRemoteStudyEngine keeps a short model list without inventing extra ques
         ]
       })
     }
-  }, async () => {
+  }), async () => {
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       prompt: "Isn't contention also a problem in 2Q?",
       applicationSettings: {
@@ -283,11 +299,11 @@ test('runRemoteStudyEngine keeps a short model list without inventing extra ques
 
 test('runRemoteStudyEngine accepts an empty suggestion list without replacing it or the answer', async () => {
   let calls = 0
-  await withMockFetch(async () => ({
+  await withMockFetch(withLocalFollowUps(async () => ({
     ok: true,
     json: async () => ({ choices: [{ message: { content: ++calls === 1
       ? 'Atomicity makes a transaction all-or-nothing.' : '[]' } }] })
-  }), async () => {
+  })), async () => {
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       applicationSettings: { suggestionMode: 'on', followUpSuggestionCount: 4 }
     }))
@@ -301,7 +317,7 @@ test('runRemoteStudyEngine accepts an empty suggestion list without replacing it
 test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', async () => {
   const requestBodies = []
 
-  await withMockFetch(async (_url, options) => {
+  await withMockFetch(withLocalFollowUps(async (_url, options) => {
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -320,7 +336,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
         ]
       })
     }
-  }, async () => {
+  }), async () => {
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       prompt: 'What are the key ideas in this chapter?',
       retrievedSources: [
@@ -344,6 +360,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
     assert.equal(requestBodies.length, 2)
     const followUpPrompt = requestBodies[1].messages.at(-1).content
     assert.match(followUpPrompt, /Suggest up to 4 short next questions an undergraduate student/i)
+    assert.match(followUpPrompt, /appear in the study material excerpts/i)
     assert.match(followUpPrompt, /after the latest answer/i)
     assert.match(followUpPrompt, /small example, an implementation detail, or a limitation/i)
     assert.doesNotMatch(followUpPrompt, /very short factual/i)
@@ -361,7 +378,7 @@ test('runRemoteStudyEngine uses the study-oriented default follow-up prompt', as
 test('runRemoteStudyEngine surfaces follow-up generation failures without replacing the answer', async () => {
   let requestCount = 0
 
-  await withMockFetch(async () => {
+  await withMockFetch(withLocalFollowUps(async () => {
     requestCount += 1
     if (requestCount === 1) {
       return {
@@ -383,7 +400,7 @@ test('runRemoteStudyEngine surfaces follow-up generation failures without replac
       status: 500,
       text: async () => 'suggestion model failed'
     }
-  }, async () => {
+  }), async () => {
     const response = await runRemoteStudyEngine(remoteStudyRequest({
       applicationSettings: {
         suggestionMode: 'on',

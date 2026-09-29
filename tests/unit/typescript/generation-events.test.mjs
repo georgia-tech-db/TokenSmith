@@ -9,13 +9,19 @@ const request = engine => ({ prompt:'Explain atomicity', messages:[], materials:
     : { name:'Test', engine, remoteModelName:'test', baseUrl:'https://example.test/v1', apiKey:'test' },
   modelSettings:{contextLength:8192,maxLength:512}, applicationSettings:{suggestionMode:'on',followUpSuggestionCount:2} })
 const deferred = () => { let resolve; const promise = new Promise(r => resolve=r); return {promise,resolve} }
+// Follow-ups run on the smallest installed local model, so the engine reads Ollama's model list
+// (and the model's context length) first. Those lookups are not inference calls.
+const lookup = url => /\/api\/tags$/.test(url) ? {ok:true,json:async()=>({models:[{name:'test:12b',size:1}]})}
+  : /\/api\/show$/.test(url) ? {ok:false,status:404,text:async()=>''} : undefined
 for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRemoteStudyEngine]]) {
   test(`${engine}: delivers the answer before suggestions finish, without adding inference calls`, async () => {
     const saved = globalThis.fetch
     const followUps = deferred(), started = deferred()
     const payload = text => engine === 'ollama' ? {message:{content:text}} : {choices:[{message:{content:text}}]}
     let calls = 0, observed, done = false
-    globalThis.fetch = async () => {
+    globalThis.fetch = async (url) => {
+      const found = lookup(url)
+      if (found) return found
       calls++
       if (calls === 1) return {ok:true,json:async()=>payload('An atomic transaction happens entirely or not at all.')}
       started.resolve()
@@ -28,7 +34,7 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
       assert.match(observed.answer.text, /atomic transaction/)
       assert.deepEqual(observed.answer.sources, sources)
       assert.equal(observed.hasFollowUps, true)
-      followUps.resolve({ok:true,json:async()=>payload(JSON.stringify({questions:['What happens during a rollback?','How does durability differ?']}))})
+      followUps.resolve({ok:true,json:async()=>({message:{content:JSON.stringify(['What happens during a rollback?','How does durability differ?'])}})})
       const result = await pending
       assert.equal(result.text, observed.answer.text)
       assert.equal(calls, 2)
@@ -38,7 +44,9 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
     const saved = globalThis.fetch
     const controller = new AbortController(), started = deferred()
     let calls = 0, observed
-    globalThis.fetch = async (_url, options) => {
+    globalThis.fetch = async (url, options) => {
+      const found = lookup(url)
+      if (found) return found
       calls++
       if (calls === 1) return {ok:true,json:async()=> engine === 'ollama' ? {message:{content:'The answer is ready.'}} : {choices:[{message:{content:'The answer is ready.'}}]}}
       return {ok:true,json:()=>new Promise((_resolve,reject)=>{

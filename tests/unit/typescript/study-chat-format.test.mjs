@@ -417,7 +417,7 @@ test('questionSuggestionMessages uses follow-up wording once a chat has history'
   assert.doesNotMatch(prompt, /What part of this usually confuses people/)
 })
 
-test('followUpSuggestionMessages uses only the current question and latest answer', () => {
+test('followUpSuggestionMessages pairs the current question and latest answer with the retrieved excerpts', () => {
   const messages = followUpSuggestionMessages({
     prompt: "Isn't contention also a problem in 2Q?",
     answerPrompt: 'Previous question: Why does an operating system use LRU?\nCurrent question: Is contention also a problem?',
@@ -446,12 +446,14 @@ test('followUpSuggestionMessages uses only the current question and latest answe
     conversationContextMode: 'contextual'
   }, 'No. The answer explains 2Q using FIFO and LRU lists.')
 
-  assert.equal(messages.length, 2)
+  assert.equal(messages.length, 3)
   assert.deepEqual(messages[0], { role: 'system', content: 'Stay grounded.' })
-  assert.match(messages[1].content, /Current question:\nIsn't contention also a problem in 2Q\?/)
-  assert.match(messages[1].content, /Latest answer:\nNo\. The answer explains 2Q using FIFO and LRU lists\./)
-  assert.doesNotMatch(messages[1].content, /Previous question/)
-  assert.doesNotMatch(messages[1].content, /MRU and scans/)
+  assert.match(messages[1].content, /MRU and scans are discussed elsewhere/)
+  assert.match(messages[2].content, /Current question:\nIsn't contention also a problem in 2Q\?/)
+  assert.match(messages[2].content, /Latest answer:\nNo\. The answer explains 2Q using FIFO and LRU lists\./)
+  assert.match(messages[2].content, /Suggest up to 4 short next questions/)
+  assert.doesNotMatch(messages[2].content, /Previous question/)
+  assert.doesNotMatch(messages[2].content, /MRU and scans/)
 })
 
 test('migrates every known default but keeps the initial and custom follow-up prompts independent', () => {

@@ -12,9 +12,9 @@ import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
+import { generateOllamaFollowUpSuggestions } from './ollama-service'
 import {
   answerWithOrderedSources,
-  followUpSuggestionMessages,
   followUpSuggestionCount,
   modelAwareRuntimeSettings,
   parseFollowUpSuggestions,
@@ -245,44 +245,6 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
   return resolution
 }
 
-async function generateRemoteFollowUpSuggestions(
-  request: EngineChatRequest,
-  answer: string,
-  config: RemoteCompletionConfig,
-  signal?: AbortSignal
-): Promise<string[]> {
-  if (!shouldGenerateFollowUps(request)) {
-    return []
-  }
-
-  const count = followUpSuggestionCount(request)
-  if (count === 0) {
-    return []
-  }
-  const maxTokens = suggestionMaxTokens
-  const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
-
-  const text = await runRemoteChatCompletion(
-    config,
-    followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true, signal }
-  )
-  const referenceQuestions = [
-    ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
-    request.prompt
-  ].filter((question) => question.trim().length > 0)
-  const suggestions = filterSuggestedQuestions(
-    parseFollowUpSuggestions(text, count * 2),
-    referenceQuestions,
-    count
-  )
-  writeTokenSmithLog('follow_up_suggestions', {
-    provider: 'remote', modelName: config.modelName, prompt: request.prompt,
-    rawResponse: text, suggestions, requestedCount: count
-  })
-  return suggestions
-}
-
 export async function runRemoteStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
@@ -303,10 +265,10 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config, options.signal)
+    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, options.signal)
   } catch (error) {
     options.signal?.throwIfAborted()
-    followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
+    followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'Ollama could not generate suggestions.')}`
   }
 
   return {
