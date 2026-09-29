@@ -356,22 +356,26 @@ export function ollamaModelMatches(installedModel: OllamaModelInfo, requestedMod
     })
 }
 
+async function listOllamaModels(baseUrl: string): Promise<OllamaModelInfo[]> {
+  const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/tags`, {
+    headers: { Accept: 'application/json' }
+  }, 2_500)
+
+  if (!response.ok) {
+    throw new Error(`Ollama returned HTTP ${response.status}${await responseErrorDetail(response)}.`)
+  }
+
+  const payload = (await response.json()) as OllamaTagsResponse
+  return (payload.models ?? [])
+    .map(normalizeModelInfo)
+    .filter((model): model is OllamaModelInfo => Boolean(model))
+}
+
 export async function getOllamaStatus(baseUrl = defaultOllamaBaseUrl): Promise<OllamaStatus> {
   const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl)
 
   try {
-    const response = await fetchWithTimeout(`${ollamaApiBaseUrl(normalizedBaseUrl)}/tags`, {
-      headers: { Accept: 'application/json' }
-    }, 2_500)
-
-    if (!response.ok) {
-      throw new Error(`Ollama returned HTTP ${response.status}${await responseErrorDetail(response)}.`)
-    }
-
-    const payload = (await response.json()) as OllamaTagsResponse
-    const models = (payload.models ?? [])
-      .map(normalizeModelInfo)
-      .filter((model): model is OllamaModelInfo => Boolean(model))
+    const models = await listOllamaModels(normalizedBaseUrl)
     const hasRecommendedChatModel = models.some((model) => ollamaModelMatches(model, recommendedOllamaChatModel))
     const hasRecommendedEmbeddingModel = models.some((model) => ollamaModelMatches(model, recommendedOllamaEmbeddingModel))
 
@@ -401,8 +405,8 @@ export async function getOllamaStatus(baseUrl = defaultOllamaBaseUrl): Promise<O
 }
 
 async function fetchOllamaModelContextLength(baseUrl: string, modelName: string): Promise<number | undefined> {
-  const status = await getOllamaStatus(baseUrl)
-  const taggedModel = status.models.find((model) => ollamaModelMatches(model, modelName))
+  const models = await listOllamaModels(baseUrl).catch(() => [])
+  const taggedModel = models.find((model) => ollamaModelMatches(model, modelName))
   const taggedContextLength = taggedModel?.details?.contextLength
   if (taggedContextLength) {
     return taggedContextLength
@@ -960,11 +964,34 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   }
 }
 
-async function generateOllamaFollowUpSuggestions(
+// Follow-ups are a side task, so they run on the smallest installed local chat model rather than
+// the answer model, and never on a cloud model. Falls back to the answer model when it is the only
+// local one, and to nothing when no local model is installed.
+async function followUpModel(request: EngineChatRequest, baseUrl: string): Promise<LocalModel | undefined> {
+  const smallest = (await listOllamaModels(baseUrl).catch(() => []))
+    .filter((model) => !/embed/i.test(model.name) && typeof model.size === 'number')
+    .sort((left, right) => (left.size ?? 0) - (right.size ?? 0))[0]
+  if (!smallest) {
+    return request.model.engine === 'ollama' ? request.model : undefined
+  }
+  if (request.model.engine === 'ollama' && ollamaModelMatches(smallest, request.model.ollamaModelName ?? '')) {
+    return request.model
+  }
+
+  return {
+    id: `ollama:${smallest.name}`,
+    name: `Ollama ${smallest.name}`,
+    engine: 'ollama',
+    status: 'ready',
+    ollamaModelName: smallest.name,
+    ollamaBaseUrl: baseUrl,
+    addedAt: new Date().toISOString()
+  }
+}
+
+export async function generateOllamaFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
-  baseUrl: string,
-  modelName: string,
   signal?: AbortSignal
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
@@ -976,14 +1003,26 @@ async function generateOllamaFollowUpSuggestions(
     return []
   }
 
+  const baseUrl = (request.model.engine === 'ollama' && request.model.ollamaBaseUrl) || defaultOllamaBaseUrl
+  const model = await followUpModel(request, baseUrl)
+  if (!model) {
+    writeTokenSmithLog('follow_up_suggestions', {
+      provider: 'ollama', prompt: request.prompt, suggestions: [], requestedCount: count,
+      skipped: 'No local Ollama model is installed, and follow-ups do not use cloud models.'
+    })
+    return []
+  }
+  signal?.throwIfAborted()
+  const modelName = model.ollamaModelName ?? ''
+  const suggestionRequest = await requestWithOllamaRuntimeContext({ ...request, model }, baseUrl, modelName)
   const maxTokens = suggestionMaxTokens
-  const temperature = Math.min(Math.max(request.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
+  const temperature = Math.min(Math.max(suggestionRequest.modelSettings?.temperature ?? 0.2, 0.2), 0.8)
 
   const text = await runOllamaChatCompletion(
     baseUrl,
     modelName,
-    followUpSuggestionMessages(request, answer),
-    request.modelSettings,
+    followUpSuggestionMessages(suggestionRequest, answer),
+    suggestionRequest.modelSettings,
     { maxTokens, temperature, format: questionSuggestionSchema(count), signal }
   )
   const referenceQuestions = [
@@ -993,7 +1032,8 @@ async function generateOllamaFollowUpSuggestions(
   const suggestions = filterSuggestedQuestions(
     parseFollowUpSuggestions(text, count * 2),
     referenceQuestions,
-    count
+    count,
+    `${request.prompt}\n${answer}`
   )
   writeTokenSmithLog('follow_up_suggestions', {
     provider: 'ollama', modelName, prompt: request.prompt,
@@ -1028,7 +1068,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, baseUrl, modelName, options.signal)
+    followUpSuggestions = await generateOllamaFollowUpSuggestions(runtimeRequest, answer.text, options.signal)
   } catch (error) {
     options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'Ollama could not generate suggestions.')}`

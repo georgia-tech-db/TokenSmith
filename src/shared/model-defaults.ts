@@ -51,10 +51,22 @@ export const defaultStarterQuestionPrompt = [
   'Return fewer questions if there are fewer distinct topics. Return only a JSON array of question strings, without answers or explanations.'
 ].join('\n')
 
-export const defaultSuggestedFollowUpPrompt = [
+const answerAnchoredFollowUpPrompt = [
   'Suggest up to {count} short next questions an undergraduate student might ask after the latest answer.',
   'Choose a specific idea, mechanism, or claim in that answer that deserves further explanation. Do not repeat something already answered or already asked.',
   'Use subjects the answer has already introduced. Do not introduce new technical names or theories the student has not encountered in the answer.',
+  'Ask about a reason, a small example, an implementation detail, or a limitation when it naturally follows from the answer. Do not invent new premises or unrelated topics.',
+  'Prefer questions that can be explained from the mechanisms already discussed, not judgments requiring missing measurements or undocumented behavior.',
+  'Use conversational language and one idea per question, ideally 6-12 words. Name the subject briefly, including in requests for examples or code.',
+  'Ask from the student to the tutor, not as a quiz. Avoid generic requests for more detail and references to sources or sections.',
+  'Return fewer questions when useful ideas run out. Return only a JSON array of question strings, without answers or explanations.'
+].join('\n')
+
+export const defaultSuggestedFollowUpPrompt = [
+  'Suggest up to {count} short next questions an undergraduate student might ask after the latest answer.',
+  'Choose a specific idea, mechanism, or claim in that answer that deserves further explanation. Do not repeat something already answered or already asked.',
+  'Only ask about ideas, mechanisms, or claims that appear in the study material excerpts. Do not introduce any technical name, policy, algorithm, or scenario that the excerpts do not mention, even if the answer mentioned it.',
+  'If the question or the answer assumes something the excerpts do not state, do not build on that assumption; ask about what the excerpts actually say instead.',
   'Ask about a reason, a small example, an implementation detail, or a limitation when it naturally follows from the answer. Do not invent new premises or unrelated topics.',
   'Prefer questions that can be explained from the mechanisms already discussed, not judgments requiring missing measurements or undocumented behavior.',
   'Use conversational language and one idea per question, ideally 6-12 words. Name the subject briefly, including in requests for examples or code.',
@@ -66,6 +78,7 @@ export const defaultSuggestedFollowUpPrompt = [
 export const legacySuggestionPrompts = [
   legacySuggestedFollowUpPrompt,
   previousSuggestedFollowUpPrompt,
+  answerAnchoredFollowUpPrompt,
   previousStarterQuestionPrompt,
   [
     'Suggest {count} natural next questions a curious undergraduate student might ask after this answer.',
