@@ -43,6 +43,9 @@ import {
   filterSuggestedQuestions
 } from './study-chat-format'
 import { writeTokenSmithLog } from '../python/python-engine-service'
+import { executeIsolatedJavascript } from './javascript-executor'
+import { runJavascriptInterpret, type JavascriptInterpretTrace } from './javascript-interpret'
+import { javascriptRouteForQuestion } from './javascript-routing'
 
 interface OllamaTagsResponse {
   models?: Array<{
@@ -837,6 +840,7 @@ interface OllamaCompletionOverrides {
   format?: Record<string, unknown>
   thinking?: boolean
   signal?: AbortSignal
+  allowEmpty?: boolean
 }
 
 async function requestOllamaChatCompletion(
@@ -895,7 +899,15 @@ async function runOllamaChatCompletion(
       : 'The answer reached its length limit before finishing. Increase Max Length and ensure Context Length has room for the sources and response.')
   }
   const text = payload.message?.content ?? ''
-  if (!text.trim()) {
+  if (!text.trim() && overrides.allowEmpty) {
+    writeTokenSmithLog('javascript_interpret_empty_response', {
+      modelName,
+      doneReason: payload.done_reason,
+      evalCount: payload.eval_count,
+      promptEvalCount: payload.prompt_eval_count
+    })
+  }
+  if (!text.trim() && !overrides.allowEmpty) {
     throw new Error('Ollama returned an empty response.')
   }
 
@@ -1002,7 +1014,14 @@ async function generateOllamaFollowUpSuggestions(
   return suggestions
 }
 
-export async function runOllamaStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
+export interface OllamaStudyEngineOptions extends EngineRunOptions {
+  onJavascriptInterpretTrace?: (trace: JavascriptInterpretTrace) => void
+}
+
+export async function runOllamaStudyEngine(
+  request: EngineChatRequest,
+  options: OllamaStudyEngineOptions = {}
+): Promise<EngineChatResponse> {
   assertOllamaModel(request.model)
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
@@ -1018,6 +1037,49 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   }
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
+  const javascriptRoute = request.javascriptInterpret
+    ? javascriptRouteForQuestion(request.prompt, (runtimeRequest.retrievedSources ?? []).length > 0)
+    : 'direct'
+  if (request.javascriptInterpret) {
+    writeTokenSmithLog('javascript_interpret_route', {
+      modelName, prompt: request.prompt, route: javascriptRoute
+    })
+  }
+  if (request.javascriptInterpret && javascriptRoute !== 'direct') {
+    const text = await runJavascriptInterpret(
+      messages,
+      request.prompt,
+      (conversation, format, maxTokens) => runOllamaChatCompletion(baseUrl, modelName, conversation, runtimeSettings,
+        { maxTokens, temperature: 0, signal: options.signal, ...(format ? { format } : { allowEmpty: true }) }),
+      executeIsolatedJavascript,
+      (trace) => {
+        options.onJavascriptInterpretTrace?.(trace)
+        writeTokenSmithLog('javascript_interpret', {
+          modelName, prompt: request.prompt, modelMessages: messages,
+          attempts: trace.attempts, retryCount: trace.retryCount,
+          inferenceCount: trace.inferenceCount, inferenceLatenciesMs: trace.inferenceLatenciesMs,
+          latencyMs: trace.latencyMs, directAnswer: trace.directAnswer,
+          rejectedFinalAnswer: trace.rejectedFinalAnswer,
+          unsupportedFinalNumbers: trace.unsupportedFinalNumbers,
+          emptyFinalAnswer: trace.emptyFinalAnswer,
+          finalMissingRequestedList: trace.finalMissingRequestedList,
+          finalMissingComputedList: trace.finalMissingComputedList,
+          finalOutputMismatch: trace.finalOutputMismatch,
+          verifiedSeriesOperation: trace.verifiedSeriesOperation,
+          verifiedSeriesFallback: trace.verifiedSeriesFallback,
+          verifiedCalculationOperation: trace.verifiedCalculationOperation,
+          verifiedCalculationFallback: trace.verifiedCalculationFallback
+        })
+      },
+      (runtimeRequest.retrievedSources ?? []).map((source) => source.excerpt),
+      javascriptRoute === 'tool' ? 'tool' : 'choice'
+    )
+    const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
+    options.signal?.throwIfAborted()
+    const response = { engineId: 'tokensmith' as const, modelName: request.model.name, text: answer.text, sources: answer.sources }
+    options.onAnswer?.(response, false)
+    return response
+  }
   const text = await runOllamaChatCompletion(baseUrl, modelName, messages, runtimeSettings, {
     maxTokens: runtimeSettings?.maxLength ?? sourceContextBudgetForRequest(runtimeRequest).answerReserveTokens,
     thinking: runtimeSettings?.thinking === true, signal: options.signal

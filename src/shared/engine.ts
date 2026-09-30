@@ -41,6 +41,7 @@ export interface EngineChatRequest {
   requestId?: string
   prompt: string
   selectedPassage?: ChatSelectedPassage
+  javascriptInterpret?: boolean
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode

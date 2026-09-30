@@ -221,7 +221,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  embeddingGpuEnabled: true
+  embeddingGpuEnabled: true,
+  javascriptInterpretEnabled: false
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -831,7 +832,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, m
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
+    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled),
+    javascriptInterpretEnabled: settings?.javascriptInterpretEnabled === true
   }
 }
 
@@ -4303,7 +4305,8 @@ function ChatScreen({
         applicationSettings: settings.application,
         modelSettings: activeModelSettings,
         retrievedSources
-      }), requestId: progressId }, (answer, hasFollowUps) => {
+      }), javascriptInterpret: selectedModel.engine === 'ollama' && settings.application.javascriptInterpretEnabled,
+      requestId: progressId }, (answer, hasFollowUps) => {
         if (requestSequenceRef.current !== requestSequence) return
         answerDurationMs = Math.max(0, Math.round(performance.now() - responseStartedAt))
         publishAnswer(answer)
@@ -6997,6 +7000,16 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="Advanced">
+              <SettingsRow
+                label="JavaScript Reasoning"
+                description="Allow Ollama chat models to use isolated JavaScript when a calculation needs it. Lookup and simple questions answer directly."
+              >
+                <CheckboxField
+                  ariaLabel="JavaScript reasoning"
+                  checked={settings.application.javascriptInterpretEnabled}
+                  onChange={(javascriptInterpretEnabled) => updateApplicationSettings({ javascriptInterpretEnabled })}
+                />
+              </SettingsRow>
               <SettingsRow
                 label="Search Mode"
                 description="How library sources are retrieved: meaning (vector) matches on topic, keyword (BM25) matches on exact words, and hybrid blends both."
