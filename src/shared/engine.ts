@@ -45,6 +45,8 @@ export interface EngineChatRequest {
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
   referenceExchange?: ChatReferenceExchange
+  // Student-pinned running example; independent of conversationContextMode.
+  pinnedRunningExample?: string
   answerToSimplify?: string
   messages: ChatMessage[]
   materials: CourseMaterial[]

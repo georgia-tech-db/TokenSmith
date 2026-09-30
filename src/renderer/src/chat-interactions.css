@@ -256,3 +256,16 @@
 @media (prefers-reduced-motion: reduce) {
   .question-marker-tick { transition: none; }
 }
+
+.pin-running-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  color: var(--content-muted, #4f5359);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+.pin-running-example input { accent-color: var(--ink, currentColor); cursor: pointer; }
+.pin-running-example input:disabled { cursor: default; }
+.composer-pin { justify-self: start; width: min(980px, 100%); margin: 0; }

@@ -14,7 +14,7 @@ import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
 import { normalizeEmbeddingGpuEnabled } from '@shared/embedding-settings'
-import { canExplainSimpler, replaceQuestion, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
+import { canExplainSimpler, messagesForModel, pinAfterHistoryChange, replaceQuestion, resolveRunningExample, saveRunningExample, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
 import { SelectedPassagePreview } from './SelectedPassagePreview'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
@@ -2557,6 +2557,7 @@ function ChatScreen({
   const requestSequenceRef = useRef(0)
   const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const [pinNextMessage, setPinNextMessage] = useState(false)
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ??
@@ -4148,7 +4149,12 @@ function ChatScreen({
 
     const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt, passage) : undefined
     if (editMessageId && !editedMessages) return
-    const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
+    const fullHistory = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
+    // Resolved from this conversation only; editing the saved example drops it.
+    const runningExample = pinAfterHistoryChange(activeConversation.runningExample, fullHistory, editMessageId)
+    const pinnedRunningExample = passage ? undefined : resolveRunningExample(fullHistory, runningExample)
+    // Saved examples never reach the question rewriter or previous-exchange logic.
+    const history = messagesForModel(fullHistory)
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
     const progressId = beginForeground('answer', 'Preparing answer', prompt.length + history.reduce((n, m) => n + m.text.length, 0))
@@ -4168,9 +4174,10 @@ function ChatScreen({
 
         return {
           ...conversation,
-          title: history.length === 0 ? getConversationTitle(prompt) : conversation.title,
+          title: fullHistory.length === 0 ? getConversationTitle(prompt) : conversation.title,
           messages: editedMessages ?? [...conversation.messages, userMessage],
-          quizState: editMessageId ? undefined : conversation.quizState
+          quizState: editMessageId ? undefined : conversation.quizState,
+          runningExample
         }
       })
     }))
@@ -4292,7 +4299,7 @@ function ChatScreen({
           })
         }))
       }
-      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...(rewrittenRequest ?? {
+      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ pinnedRunningExample, ...(rewrittenRequest ?? {
         prompt,
         selectedPassage: passage,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
@@ -4342,7 +4349,32 @@ function ChatScreen({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (pinNextMessage && !selectedPassage && !activeQuizState) {
+      saveRunningExampleDraft(draft)
+      return
+    }
     await submitPrompt(draft, undefined, selectedPassage)
+  }
+
+  // "Pin as running example": store the text as-is and confirm; no retrieval, no model call.
+  function saveRunningExampleDraft(rawText: string) {
+    const text = rawText.trim()
+    if (!text || (pendingConversationId && !isPreparingFollowUps) || editingQuestionId) return
+    if (isPreparingFollowUps) handleStopResponse()
+    const saved = saveRunningExample(text, { user: createId('user'), assistant: createId('assistant') })
+    const targetConversationId = activeConversation.id
+    onChatStateChange((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) => conversation.id !== targetConversationId ? conversation : {
+        ...conversation,
+        title: conversation.messages.length === 0 ? getConversationTitle(text) : conversation.title,
+        messages: [...conversation.messages, ...saved.messages],
+        runningExample: saved.pin
+      })
+    }))
+    clearDraft()
+    setPinNextMessage(false)
+    setChatError(null)
   }
 
   return (
@@ -4484,6 +4516,13 @@ function ChatScreen({
             {selectedModel && !isPending && !isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' && (
               <span className="reload-chip"><RefreshCw size={15} aria-hidden="true" />Load - {selectedModelLabel}</span>
             )}
+            <label className={`pin-running-example composer-pin ${pinNextMessage ? 'is-active' : ''}`}
+              title="Save this message as a running example to reuse in later answers. It is stored, not answered.">
+              <input type="checkbox" checked={pinNextMessage && !selectedPassage && !activeQuizState}
+                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || Boolean(selectedPassage) || Boolean(activeQuizState)}
+                onChange={(event) => setPinNextMessage(event.target.checked)} />
+              <span>Pin as running example</span>
+            </label>
             <div className="composer">
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
@@ -4510,7 +4549,7 @@ function ChatScreen({
                     event.currentTarget.form?.requestSubmit()
                   }
                 }}
-                placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder}
+                placeholder={pinNextMessage ? 'Paste the example to remember...' : selectedPassage ? 'Ask about this...' : composerPlaceholder}
                 value={draft}
               />
               <button
@@ -4881,6 +4920,9 @@ function quizMessageLabel(message: ChatMessage): string | undefined {
   const totalQuestions = message.quiz?.totalQuestions
   const countLabel = questionNumber && totalQuestions ? `${questionNumber} of ${totalQuestions}` : undefined
 
+  if (message.kind === 'runningExample') return 'Running example'
+  if (message.kind === 'runningExampleSaved') return 'Saved'
+
   if (message.kind === 'quizQuestion') {
     return countLabel ? `Quiz question ${countLabel}` : 'Quiz question'
   }
@@ -4945,9 +4987,11 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
           </>
         )}
         {!editing && <div className="message-actions" aria-label="Question actions">
+          {message.kind !== 'runningExample' && (
           <button className="message-action" type="button" aria-label="Edit question" title="Edit question" disabled={editDisabled} onClick={onEdit}>
             <Pencil size={18} aria-hidden="true" />
           </button>
+          )}
           <button className="message-action" type="button" aria-label="Copy question" title="Copy question" onClick={onCopy}>
             <Copy size={18} aria-hidden="true" />
           </button>
