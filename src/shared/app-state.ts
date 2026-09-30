@@ -1,4 +1,5 @@
 import type { PreparationSettings } from './preparation'
+import type { EmbeddingOptions } from './embedding-settings'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
@@ -94,6 +95,10 @@ export type AppTheme = 'light' | 'sarah-and-duck'
 export type AppFontSize = 'extra-small' | 'small' | 'normal' | 'large' | 'extra-large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
+export interface LibrarySearchOptions extends EmbeddingOptions {
+  typoCorrectionEnabled?: boolean
+}
+
 export type ExplanationDepth = 'simple' | 'standard' | 'detailed'
 
 export interface ApplicationSettings {
@@ -102,6 +107,7 @@ export interface ApplicationSettings {
   defaultModelId: string
   suggestionMode: SuggestionMode
   searchMode: SearchMode
+  typoCorrectionEnabled: boolean
   explanationDepthEnabled: boolean
   explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
