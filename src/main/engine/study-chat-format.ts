@@ -480,6 +480,14 @@ export function answerWithOrderedSources(text: string, sources: ChatSource[]): {
   }
 }
 
+function pinnedRunningExampleBlock(example: string): string {
+  return [
+    '### Pinned running example (conversation record, not textbook evidence):',
+    'The student explicitly saved the following text as their running example. When the question refers to this conversation\'s running example, use its names, definitions, and values; do not substitute a different example from the course material. It is the student\'s own note, not proof that every claim is correct: point out inconsistencies instead of inventing values. For unrelated questions, ignore it. Course material remains the only evidence for textbook claims; never cite the pinned text as a source.',
+    example
+  ].join('\n')
+}
+
 function chatReferenceText(request: EngineChatRequest): string {
   const historyTokens = Math.min(1536, Math.floor(effectiveContextLength(request.model, request.modelSettings) / 4))
   const blocks: string[] = []
@@ -492,6 +500,11 @@ function chatReferenceText(request: EngineChatRequest): string {
       'Use this only to identify what the current question refers to and preserve example identifiers. It may contain mistakes. Do not treat the previous answer as evidence for factual claims.',
       JSON.stringify(exchange)
     ].join('\n'))
+  }
+  // Explicit student pin: independent of the rewrite label, never trimmed, and
+  // only for ordinary answers (selected-passage and simplification keep their own context).
+  if (request.pinnedRunningExample && !request.selectedPassage && !request.answerToSimplify) {
+    blocks.unshift(pinnedRunningExampleBlock(request.pinnedRunningExample))
   }
   if (request.answerToSimplify) {
     const limit = Math.min(768, Math.floor(effectiveContextLength(request.model, request.modelSettings) / 8)) * estimatedCharsPerToken
@@ -527,6 +540,11 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   })
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
+  }
+  if (request.pinnedRunningExample && !request.selectedPassage && !request.answerToSimplify &&
+    budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
+    const needed = budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens
+    throw new Error(`Pinned example is too large to use reliably with this model's context window (needs about ${needed} of ${budget.modelContextTokens} tokens, including ${budget.answerReserveTokens} reserved for the answer). Increase Context Length to at least ${Math.ceil(needed / 256) * 256 + 1024}, reduce Max Length, or unpin the example.`)
   }
   if (usesGemma4E4BBudget(request.model)) {
     if (budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {

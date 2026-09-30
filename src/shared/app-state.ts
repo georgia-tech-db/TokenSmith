@@ -189,7 +189,7 @@ export interface ChatMessage {
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string
-  kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'
+  kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback' | 'runningExample' | 'runningExampleSaved'
   quiz?: {
     questionNumber?: number
     totalQuestions?: number
@@ -206,12 +206,18 @@ export interface QuizState {
   usedSourceKeys?: string[]
 }
 
+// The student's own message that was saved (not answered) as a running example.
+export interface PinnedRunningExample {
+  messageId: string
+}
+
 export interface Conversation {
   id: string
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
   quizState?: QuizState
+  runningExample?: PinnedRunningExample
 }
 
 export interface TokenSmithSettings {

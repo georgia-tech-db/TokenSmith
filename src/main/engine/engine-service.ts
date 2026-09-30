@@ -137,6 +137,7 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',
     referenceExchange: request.referenceExchange,
+    pinnedRunningExample: request.pinnedRunningExample,
     model: logModel(request),
     contextBudget: sourceContextBudgetForRequest(request),
     systemPrompt,
