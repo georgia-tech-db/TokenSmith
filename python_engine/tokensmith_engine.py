@@ -1602,6 +1602,7 @@ def spawn_llama_embedder_worker(model_path: str) -> Dict[str, Any]:
         text=True,
         cwd=app_root,
         env=child_env,
+        encoding="utf-8",
     )
 
     return {"process": process, "nextId": 1, "ready": False}
