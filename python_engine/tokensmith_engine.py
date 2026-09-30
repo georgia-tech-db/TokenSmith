@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """TokenSmith local Python worker.
 
-The worker speaks newline-delimited JSON over stdin/stdout. It deliberately
-uses the Python standard library first, with optional llama-cpp-python support
-when it is installed locally.
+The worker handles document processing and retrieval over newline-delimited JSON.
+Model execution belongs to Ollama or a remote provider.
 """
 
 from __future__ import annotations
@@ -13,8 +12,6 @@ import hashlib
 import math
 import os
 import re
-import struct
-import subprocess
 import sys
 import time
 import urllib.error
@@ -26,59 +23,52 @@ from datetime import datetime
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-_BOOT_MODE = sys.argv[1] if len(sys.argv) > 1 else ""
-_NEEDS_STORE = _BOOT_MODE != "--llama-embed-worker"
-_NEEDS_LLAMA = True
-
-if _NEEDS_STORE:
-    try:
-        # Import the store first so FAISS initializes its native runtime before
-        # llama-cpp. Loading them in the opposite order can trip libomp on macOS.
-        from tokensmith_store import (
-            append_material_chunks,
-            begin_material_index,
-            delete_material,
-            dump_index,
-            embedded_chunk_signatures,
-            embedding_models_by_collection_ids,
-            enabled_material_ids_for_requests,
-            fetch_sources,
-            expand_source_units,
-            find_material_id_by_import_path,
-            has_chunks,
-            init_db,
-            keyword_search,
-            keyword_terms_for_query,
-            list_materials,
-            set_material_active,
-            source_document_for_source,
-            starter_source_rows,
-            update_material_index_state,
-            vector_search,
-        )
-    except ImportError:  # pragma: no cover - allows direct package imports in tests
-        from python_engine.tokensmith_store import (
-            append_material_chunks,
-            begin_material_index,
-            delete_material,
-            dump_index,
-            embedded_chunk_signatures,
-            embedding_models_by_collection_ids,
-            enabled_material_ids_for_requests,
-            fetch_sources,
-            expand_source_units,
-            find_material_id_by_import_path,
-            has_chunks,
-            init_db,
-            keyword_search,
-            keyword_terms_for_query,
-            list_materials,
-            set_material_active,
-            source_document_for_source,
-            starter_source_rows,
-            update_material_index_state,
-            vector_search,
-        )
+try:
+    from tokensmith_store import (
+        append_material_chunks,
+        begin_material_index,
+        delete_material,
+        dump_index,
+        embedded_chunk_signatures,
+        embedding_models_by_collection_ids,
+        enabled_material_ids_for_requests,
+        fetch_sources,
+        expand_source_units,
+        find_material_id_by_import_path,
+        has_chunks,
+        init_db,
+        keyword_search,
+        keyword_terms_for_query,
+        list_materials,
+        set_material_active,
+        source_document_for_source,
+        starter_source_rows,
+        update_material_index_state,
+        vector_search,
+    )
+except ImportError:  # pragma: no cover - allows direct package imports in tests
+    from python_engine.tokensmith_store import (
+        append_material_chunks,
+        begin_material_index,
+        delete_material,
+        dump_index,
+        embedded_chunk_signatures,
+        embedding_models_by_collection_ids,
+        enabled_material_ids_for_requests,
+        fetch_sources,
+        expand_source_units,
+        find_material_id_by_import_path,
+        has_chunks,
+        init_db,
+        keyword_search,
+        keyword_terms_for_query,
+        list_materials,
+        set_material_active,
+        source_document_for_source,
+        starter_source_rows,
+        update_material_index_state,
+        vector_search,
+    )
 
 try:
     from tokensmith_cleaning import (
@@ -103,28 +93,10 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         section_header_from_line,
     )
 
-if _NEEDS_LLAMA:
-    try:
-        from llama_cpp import Llama, LlamaRAMCache  # type: ignore
-    except Exception:  # pragma: no cover - optional runtime
-        Llama = None  # type: ignore
-        LlamaRAMCache = None  # type: ignore
-else:
-    Llama = None  # type: ignore
-    LlamaRAMCache = None  # type: ignore
-
 try:
     import pypdfium2 as pdfium  # type: ignore
 except Exception:  # pragma: no cover - optional runtime dependency
     pdfium = None  # type: ignore
-
-try:
-    from jinja2 import StrictUndefined  # type: ignore
-    from jinja2.sandbox import SandboxedEnvironment  # type: ignore
-except Exception:  # pragma: no cover - optional runtime dependency
-    StrictUndefined = None  # type: ignore
-    SandboxedEnvironment = None  # type: ignore
-
 
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 MAX_FOLDER_FILES = 120
@@ -137,11 +109,8 @@ TOKENSMITH_CHUNK_ATTR_RE = re.compile(
 PDF_THUMBNAIL_CACHE_DIR = "tokensmith-pdf-thumbnails"
 PDF_THUMBNAIL_SCALE = 0.2
 PDF_THUMBNAIL_MAX_SIZE = (180, 240)
-LLAMA_EMBEDDING_TEXT_LIMIT = 300
 REMOTE_EMBEDDING_TEXT_LIMIT = 8000
 OLLAMA_EMBEDDING_TEXT_LIMIT = 8000
-ANSWER_START = "<<<ANSWER>>>"
-ANSWER_END = "<<<END>>>"
 STOP_WORDS = {
     "a",
     "always",
@@ -193,26 +162,6 @@ STOP_WORDS = {
 }
 
 
-def display_model_name(model: Dict[str, Any]) -> str:
-    name = str(model.get("name") or "").strip()
-    if name:
-        return name
-
-    remote_name = str(model.get("remoteModelName") or "").strip()
-    if remote_name:
-        return remote_name
-
-    model_path = str(model.get("path") or "").strip()
-    if model_path:
-        return Path(model_path).stem
-
-    return "Local Model"
-
-_GENERATOR_CACHE: Dict[str, Any] = {}
-_EMBEDDER_CACHE: Dict[str, Any] = {}
-_EMBEDDER_FAILURES: Dict[str, str] = {}
-_CHAT_TEMPLATE_CACHE: Dict[str, Optional[str]] = {}
-_CONTEXT_LENGTH_CACHE: Dict[str, Optional[int]] = {}
 VISIBLE_LOG_EVENTS = {
     "follow_up_suggestions",
     "chat_request_context",
@@ -228,21 +177,10 @@ class EngineError(Exception):
     pass
 
 
-def env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def env_int(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
-INDEX_CHECKPOINT_BATCH_SIZE = max(1, env_int("TOKENSMITH_INDEX_CHECKPOINT_BATCH_SIZE", 50))
+try:
+    INDEX_CHECKPOINT_BATCH_SIZE = max(1, int(os.environ.get("TOKENSMITH_INDEX_CHECKPOINT_BATCH_SIZE", 50)))
+except ValueError:
+    INDEX_CHECKPOINT_BATCH_SIZE = 50
 
 
 def log_event(event: str, **details: Any) -> None:
@@ -293,175 +231,6 @@ def normalize_vector(values: Iterable[float]) -> List[float]:
     if norm <= 1e-12:
         return [0.0 for _value in vector]
     return [value / norm for value in vector]
-
-
-def model_hash(model_path: str) -> str:
-    resolved = str(Path(model_path).expanduser())
-    return hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:16]
-
-
-def normalize_model_path(model_path: str) -> str:
-    return str(Path(model_path).expanduser().resolve())
-
-
-GGUF_TYPE_STRING = 8
-GGUF_TYPE_ARRAY = 9
-GGUF_SCALAR_SIZES = {
-    0: 1,   # uint8
-    1: 1,   # int8
-    2: 2,   # uint16
-    3: 2,   # int16
-    4: 4,   # uint32
-    5: 4,   # int32
-    6: 4,   # float32
-    7: 1,   # bool
-    10: 8,  # uint64
-    11: 8,  # int64
-    12: 8,  # float64
-}
-GGUF_UNSIGNED_INT_FORMATS = {
-    0: "<B",
-    2: "<H",
-    4: "<I",
-    10: "<Q",
-}
-
-
-def read_exact(handle: Any, size: int) -> bytes:
-    data = handle.read(size)
-    if len(data) != size:
-        raise EngineError("Unexpected end of GGUF metadata.")
-    return data
-
-
-def read_gguf_string(handle: Any) -> str:
-    length = struct.unpack("<Q", read_exact(handle, 8))[0]
-    return read_exact(handle, length).decode("utf-8", errors="replace")
-
-
-def skip_gguf_value(handle: Any, value_type: int) -> None:
-    if value_type == GGUF_TYPE_STRING:
-        length = struct.unpack("<Q", read_exact(handle, 8))[0]
-        handle.seek(length, os.SEEK_CUR)
-        return
-
-    if value_type == GGUF_TYPE_ARRAY:
-        element_type = struct.unpack("<I", read_exact(handle, 4))[0]
-        length = struct.unpack("<Q", read_exact(handle, 8))[0]
-        for _index in range(length):
-            skip_gguf_value(handle, element_type)
-        return
-
-    size = GGUF_SCALAR_SIZES.get(value_type)
-    if size is None:
-        raise EngineError(f"Unsupported GGUF metadata type: {value_type}")
-    handle.seek(size, os.SEEK_CUR)
-
-
-def read_gguf_metadata_string(model_path: str, key: str) -> Optional[str]:
-    path = Path(model_path).expanduser()
-    if not path.exists():
-        return None
-
-    with path.open("rb") as handle:
-        if read_exact(handle, 4) != b"GGUF":
-            return None
-        _version = struct.unpack("<I", read_exact(handle, 4))[0]
-        _tensor_count = struct.unpack("<Q", read_exact(handle, 8))[0]
-        metadata_count = struct.unpack("<Q", read_exact(handle, 8))[0]
-
-        for _index in range(metadata_count):
-            metadata_key = read_gguf_string(handle)
-            value_type = struct.unpack("<I", read_exact(handle, 4))[0]
-            if metadata_key == key:
-                if value_type != GGUF_TYPE_STRING:
-                    return None
-                return read_gguf_string(handle)
-            skip_gguf_value(handle, value_type)
-
-    return None
-
-
-def read_gguf_metadata_uint_by_suffix(model_path: str, suffix: str) -> Optional[int]:
-    path = Path(model_path).expanduser()
-    if not path.exists():
-        return None
-
-    normalized_suffix = suffix.casefold()
-    with path.open("rb") as handle:
-        if read_exact(handle, 4) != b"GGUF":
-            return None
-        _version = struct.unpack("<I", read_exact(handle, 4))[0]
-        _tensor_count = struct.unpack("<Q", read_exact(handle, 8))[0]
-        metadata_count = struct.unpack("<Q", read_exact(handle, 8))[0]
-
-        for _index in range(metadata_count):
-            metadata_key = read_gguf_string(handle)
-            value_type = struct.unpack("<I", read_exact(handle, 4))[0]
-            if metadata_key.casefold().endswith(normalized_suffix):
-                value_format = GGUF_UNSIGNED_INT_FORMATS.get(value_type)
-                if value_format is None:
-                    return None
-                return int(struct.unpack(value_format, read_exact(handle, GGUF_SCALAR_SIZES[value_type]))[0])
-            skip_gguf_value(handle, value_type)
-
-    return None
-
-
-def gguf_context_length(model_path: Optional[str]) -> Optional[int]:
-    if not model_path:
-        return None
-
-    try:
-        cache_key = normalize_model_path(model_path)
-    except Exception:
-        cache_key = str(model_path)
-
-    if cache_key in _CONTEXT_LENGTH_CACHE:
-        return _CONTEXT_LENGTH_CACHE[cache_key]
-
-    try:
-        context_length = read_gguf_metadata_uint_by_suffix(cache_key, ".context_length")
-    except Exception as error:
-        log_event("gguf_context_length_read_failed", modelPath=cache_key, error=str(error))
-        context_length = None
-
-    if context_length is not None and context_length <= 0:
-        context_length = None
-
-    _CONTEXT_LENGTH_CACHE[cache_key] = context_length
-    return context_length
-
-
-def gguf_chat_template(model_path: Optional[str]) -> str:
-    if not model_path:
-        return ""
-
-    try:
-        cache_key = normalize_model_path(model_path)
-    except Exception:
-        cache_key = str(model_path)
-
-    if cache_key in _CHAT_TEMPLATE_CACHE:
-        return _CHAT_TEMPLATE_CACHE[cache_key] or ""
-
-    try:
-        template = read_gguf_metadata_string(cache_key, "tokenizer.chat_template")
-    except Exception as error:
-        log_event("gguf_chat_template_read_failed", modelPath=cache_key, error=str(error))
-        template = None
-
-    if template and len(template) >= 2 and template[-1] == "\n" and template[-2] != "\n":
-        template = template[:-1]
-
-    _CHAT_TEMPLATE_CACHE[cache_key] = template
-    return template or ""
-
-
-def embedding_model_key(model_path: Optional[str]) -> str:
-    if model_path:
-        return f"llama-cpp:{model_hash(normalize_model_path(model_path))}"
-    return ""
 
 
 def is_remote_embedding_spec(model: Dict[str, Any]) -> bool:
@@ -517,7 +286,7 @@ def embedding_model_key_from_spec(model: Dict[str, Any]) -> str:
         return remote_embedding_model_key(model)
     if is_ollama_embedding_spec(model):
         return ollama_embedding_model_key(model)
-    return embedding_model_key(embedding_model_path_from_spec(model))
+    return ""
 
 
 def format_bytes(size: int) -> str:
@@ -1326,11 +1095,10 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     model = payload.get("model") if isinstance(payload.get("model"), dict) else {}
-    embedding_model_path = embedding_model_path_from_spec(model)
     embedding_key = embedding_model_key_from_spec(model)
     embed_text = None
     if total_embeddings:
-        if not embedding_model_path and not is_remote_embedding_spec(model) and not is_ollama_embedding_spec(model):
+        if not embedding_key:
             raise EngineError("An embedding model is required to index document collections.")
 
         emit_index_progress(
@@ -1341,7 +1109,7 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
             total_embeddings=total_embeddings,
         )
         log_event("embedding_provider_resolve_start", embeddingKey=embedding_key)
-        embedding_key, embed_text, embedding_reason = resolve_embedding_provider_from_spec(model)
+        embedding_key, embed_text, embedding_reason = resolve_embedding_provider_from_spec(model, payload.get("embeddingGpuEnabled") is not False)
         log_event(
             "embedding_provider_resolve_success",
             embeddingKey=embedding_key,
@@ -1559,145 +1327,6 @@ def source_from_chunk(chunk: Dict[str, Any], score: float, query_tokens: List[st
     }
 
 
-def llama_embedder_config() -> Dict[str, Any]:
-    return {
-        "n_ctx": env_int("TOKENSMITH_EMBED_N_CTX", 512),
-        "n_batch": env_int("TOKENSMITH_EMBED_N_BATCH", 128),
-        "n_threads": env_int("TOKENSMITH_EMBED_N_THREADS", 4),
-        "n_gpu_layers": env_int("TOKENSMITH_EMBED_N_GPU_LAYERS", -1),
-        "use_mmap": env_flag("TOKENSMITH_EMBED_USE_MMAP", True),
-    }
-
-
-def create_llama_embedder(model_path: str) -> Any:
-    model_path = normalize_model_path(model_path)
-    if Llama is None:
-        raise EngineError("llama-cpp-python is not installed.")
-    if not Path(model_path).expanduser().exists():
-        raise EngineError("The selected GGUF model file was not found.")
-    return Llama(model_path=model_path, embedding=True, verbose=False, **llama_embedder_config())
-
-
-def spawn_llama_embedder_worker(model_path: str) -> Dict[str, Any]:
-    model_path = normalize_model_path(model_path)
-    config = llama_embedder_config()
-    log_event("llama_embedder_worker_start", modelPath=model_path, modelHash=model_hash(model_path), **config)
-    app_root = str(Path(__file__).resolve().parents[1])
-    child_env = os.environ.copy()
-    child_env["PYTHONPATH"] = os.pathsep.join(
-        item for item in [app_root, child_env.get("PYTHONPATH", "")] if item
-    )
-    worker_code = (
-        "import sys; "
-        "model_path = sys.argv[1]; "
-        "sys.argv = ['tokensmith_engine.py', '--llama-embed-worker', model_path]; "
-        "from python_engine.tokensmith_engine import llama_embed_worker_main; "
-        "llama_embed_worker_main(model_path)"
-    )
-    process = subprocess.Popen(
-        [sys.executable, "-c", worker_code, model_path],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        cwd=app_root,
-        env=child_env,
-        encoding="utf-8",
-    )
-
-    return {"process": process, "nextId": 1, "ready": False}
-
-
-def wait_for_llama_embedder_worker(model_path: str, worker: Dict[str, Any]) -> Dict[str, Any]:
-    if worker.get("ready"):
-        return worker
-
-    process = worker["process"]
-    assert process.stdout is not None
-    ready_line = process.stdout.readline()
-    if not ready_line:
-        return_code = process.poll()
-        raise EngineError(f"The GGUF embedding worker exited before it was ready ({return_code}).")
-
-    try:
-        ready = json.loads(ready_line)
-    except Exception as error:
-        process.kill()
-        raise EngineError("The GGUF embedding worker returned unreadable startup output.") from error
-
-    if not ready.get("ok"):
-        process.kill()
-        raise EngineError(ready.get("error") or "The GGUF embedding worker failed to start.")
-
-    log_event(
-        "llama_embedder_worker_ready",
-        modelPath=model_path,
-        modelHash=model_hash(model_path),
-        dimension=ready.get("dimension"),
-    )
-    worker["ready"] = True
-    return worker
-
-
-def start_llama_embedder_worker(model_path: str) -> Dict[str, Any]:
-    worker = spawn_llama_embedder_worker(model_path)
-    return wait_for_llama_embedder_worker(model_path, worker)
-
-
-def get_llama_embedder_worker(model_path: str) -> Dict[str, Any]:
-    model_path = normalize_model_path(model_path)
-    if model_path in _EMBEDDER_FAILURES:
-        raise EngineError(_EMBEDDER_FAILURES[model_path])
-
-    worker = _EMBEDDER_CACHE.get(model_path)
-    process = worker.get("process") if isinstance(worker, dict) else None
-    if process is not None and process.poll() is None:
-        return wait_for_llama_embedder_worker(model_path, worker)
-
-    _EMBEDDER_CACHE.pop(model_path, None)
-    try:
-        worker = start_llama_embedder_worker(model_path)
-    except Exception as error:
-        _EMBEDDER_FAILURES[model_path] = str(error)
-        raise
-    _EMBEDDER_CACHE[model_path] = worker
-    return worker
-
-
-def request_llama_embedding(model_path: str, text: str) -> List[float]:
-    model_path = normalize_model_path(model_path)
-    worker = get_llama_embedder_worker(model_path)
-    process = worker["process"]
-    if process.stdin is None or process.stdout is None:
-        _EMBEDDER_CACHE.pop(model_path, None)
-        raise EngineError("The GGUF embedding worker is not connected.")
-
-    request_id = str(worker["nextId"])
-    worker["nextId"] += 1
-    process.stdin.write(json.dumps({"id": request_id, "text": text}, ensure_ascii=False) + "\n")
-    process.stdin.flush()
-
-    line = process.stdout.readline()
-    if not line:
-        return_code = process.poll()
-        _EMBEDDER_CACHE.pop(model_path, None)
-        raise EngineError(f"The GGUF embedding worker exited while embedding text ({return_code}).")
-
-    response = json.loads(line)
-    if not response.get("ok"):
-        raise EngineError(response.get("error") or "The GGUF embedding worker could not embed text.")
-    return normalize_vector(response["embedding"])
-
-
-def load_llama_embedder(model_path: str) -> Any:
-    return get_llama_embedder_worker(normalize_model_path(model_path))
-
-
-def llama_embedding(text: str, model_path: str) -> List[float]:
-    embedding_text = normalize_text(text)[:LLAMA_EMBEDDING_TEXT_LIMIT]
-    return request_llama_embedding(model_path, embedding_text)
-
-
 def remote_openai_embedding(text: str, model: Dict[str, Any]) -> List[float]:
     api_key = str(model.get("apiKey") or "").strip()
     base_url = normalize_remote_base_url(str(model.get("baseUrl") or ""))
@@ -1739,7 +1368,7 @@ def remote_openai_embedding(text: str, model: Dict[str, Any]) -> List[float]:
     return [float(value) for value in embedding]
 
 
-def ollama_embedding(text: str, model: Dict[str, Any]) -> List[float]:
+def ollama_embedding(text: str, model: Dict[str, Any], gpu_enabled: bool = True) -> List[float]:
     base_url = normalize_ollama_base_url(str(model.get("ollamaBaseUrl") or model.get("baseUrl") or ""))
     model_name = str(model.get("ollamaModelName") or "").strip()
     if not model_name:
@@ -1751,6 +1380,7 @@ def ollama_embedding(text: str, model: Dict[str, Any]) -> List[float]:
             "model": model_name,
             "input": normalize_text(text)[:OLLAMA_EMBEDDING_TEXT_LIMIT],
             "truncate": True,
+            "options": {"num_gpu": -1 if gpu_enabled else 0},
         }
     ).encode("utf-8")
     request = urllib.request.Request(
@@ -1779,20 +1409,7 @@ def ollama_embedding(text: str, model: Dict[str, Any]) -> List[float]:
     return [float(value) for value in embedding]
 
 
-def resolve_embedding_provider(model_path: Optional[str]) -> Tuple[str, Any, Optional[str]]:
-    if not model_path:
-        return "", None, "An embedding model is required."
-
-    model_path = normalize_model_path(model_path)
-    key = embedding_model_key(model_path)
-    try:
-        load_llama_embedder(model_path)
-        return key, lambda text: llama_embedding(text, model_path), None
-    except Exception as error:
-        return key, None, str(error)
-
-
-def resolve_embedding_provider_from_spec(model: Dict[str, Any]) -> Tuple[str, Any, Optional[str]]:
+def resolve_embedding_provider_from_spec(model: Dict[str, Any], gpu_enabled: bool = True) -> Tuple[str, Any, Optional[str]]:
     if is_remote_embedding_spec(model):
         if not str(model.get("apiKey") or "").strip():
             return remote_embedding_model_key(model), None, "Remote embedding model API key is missing."
@@ -1801,18 +1418,9 @@ def resolve_embedding_provider_from_spec(model: Dict[str, Any]) -> Tuple[str, An
 
     if is_ollama_embedding_spec(model):
         key = ollama_embedding_model_key(model)
-        return key, lambda text: ollama_embedding(text, model), None
+        return key, lambda text: ollama_embedding(text, model, gpu_enabled), None
 
-    return resolve_embedding_provider(embedding_model_path_from_spec(model))
-
-
-def embedding_model_path_from_spec(model: Dict[str, Any]) -> Optional[str]:
-    if not isinstance(model, dict):
-        return None
-    role = model.get("role")
-    if role in {"embedder", "both"}:
-        return model.get("embeddingPath") or model.get("path")
-    return model.get("embeddingPath")
+    return "", None, "Choose an Ollama or remote embedding model."
 
 
 def embedding_model_specs(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1822,32 +1430,21 @@ def embedding_model_specs(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 def resolve_embedding_provider_for_key(
     target_key: str,
     specs: List[Dict[str, Any]],
+    gpu_enabled: bool = True,
 ) -> Tuple[Optional[Any], Optional[str]]:
     for spec in specs:
         if is_remote_embedding_spec(spec):
             if remote_embedding_model_key(spec) != target_key:
                 continue
-            _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec)
+            _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec, gpu_enabled)
             return embed_text, reason
 
         if is_ollama_embedding_spec(spec):
             if ollama_embedding_model_key(spec) != target_key:
                 continue
-            _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec)
+            _resolved_key, embed_text, reason = resolve_embedding_provider_from_spec(spec, gpu_enabled)
             return embed_text, reason
 
-        model_path = embedding_model_path_from_spec(spec)
-        if not model_path:
-            continue
-        normalized_path = normalize_model_path(model_path)
-        if embedding_model_key(normalized_path) != target_key:
-            continue
-        resolved_key, embed_text, reason = resolve_embedding_provider(normalized_path)
-        if reason:
-            return None, reason
-        if resolved_key != target_key:
-            return None, "The installed embedding model did not match the collection index."
-        return embed_text, None
 
     return None, "The embedding model used for this collection is not installed."
 
@@ -2124,7 +1721,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         active_ids_by_embedding_model.items() if search_mode in ("vector", "hybrid") else []
     ):
         log_event("search_embedding_provider_resolve_start", embeddingKey=embedding_key)
-        embed_text, embedding_reason = resolve_embedding_provider_for_key(embedding_key, embedding_specs)
+        embed_text, embedding_reason = resolve_embedding_provider_for_key(embedding_key, embedding_specs, payload.get("embeddingGpuEnabled") is not False)
         log_event(
             "search_embedding_provider_resolve_success",
             embeddingKey=embedding_key,
@@ -2241,739 +1838,10 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"sources": sources, "reason": None if sources else "no_indexed_chunks"}
 
 
-LEGACY_SUGGESTED_FOLLOW_UP_PROMPT = (
-    "Suggest {count} very short factual follow-up questions that have not been answered yet "
-    "or cannot be found inspired by the previous conversation and excerpts."
-)
-DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT = "\n".join(
-    [
-        "Suggest up to {count} natural next questions a curious undergraduate student might ask after this answer.",
-        "Make each question conversational, specific to the concept just discussed, and answerable from the course material.",
-        "Each question must attach to a concrete phrase, mechanism, trade-off, or claim in the latest answer.",
-        "When possible, ask about an idea the answer used but did not fully explain.",
-        "Prefer conceptually linked why/how questions over generic requests for more detail.",
-        "Base the questions on the latest answer the student just saw, not earlier turns or unrelated source details.",
-        "Do not introduce a term, method, workload, or scenario unless it appeared in the latest answer or current question.",
-        "Keep each question short, ideally under 12 words.",
-        "Name the subject in every question, including requests for an example or code. Return fewer questions when useful ideas run out.",
-        "Phrase them as questions from the student to the tutor, not questions that ask the student to think or recall.",
-        (
-            "Prefer simple questions about why a named thing matters, how a named mechanism works, concrete examples, "
-            "intuition, code-level implementation, trade-offs, edge cases, or the workloads already described."
-        ),
-        "Do not repeat a question the student already asked.",
-        "Do not ask for external real-world applications unless the material names one.",
-        "Avoid quiz/exam wording, source/context wording, and generic reflection prompts about what is confusing.",
-        "Return only the questions, one per line.",
-    ]
-)
-
-
-MIN_FOLLOW_UP_SUGGESTION_COUNT = 2
-DEFAULT_FOLLOW_UP_SUGGESTION_COUNT = 4
-
-
-DEFAULT_MODEL_RUNTIME_SETTINGS: Dict[str, Any] = {
-    "systemMessage": "",
-    "chatTemplate": "",
-    "suggestedFollowUpPrompt": DEFAULT_SUGGESTED_FOLLOW_UP_PROMPT,
-    "contextLength": 2048,
-    "maxLength": 4096,
-    "promptBatchSize": 128,
-    "temperature": 0.7,
-    "topP": 0.4,
-    "topK": 40,
-    "minP": 0,
-    "repeatPenaltyTokens": 64,
-    "repeatPenalty": 1.18,
-    "gpuLayers": -1,
-    "device": "applicationDefault",
-}
-DEFAULT_AUTO_CONTEXT_CAP_TOKENS = 8192
-MAX_CONTEXT_TOKENS = 32768
-
-DEFAULT_APPLICATION_SETTINGS: Dict[str, Any] = {
-    "cpuThreads": 4,
-    "suggestionMode": "on",
-    "followUpSuggestionCount": DEFAULT_FOLLOW_UP_SUGGESTION_COUNT,
-    "searchMode": DEFAULT_SEARCH_MODE,
-}
-
-def clamp_number(value: Any, default_value: float, minimum: float, maximum: float) -> float:
-    try:
-        numeric_value = float(value)
-    except (TypeError, ValueError):
-        return default_value
-    if not math.isfinite(numeric_value):
-        return default_value
-    return min(max(numeric_value, minimum), maximum)
-
-
-def normalize_application_settings(settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    settings = settings or {}
-    suggestion_mode = str(settings.get("suggestionMode") or DEFAULT_APPLICATION_SETTINGS["suggestionMode"])
-    if suggestion_mode not in {"on", "off"}:
-        suggestion_mode = DEFAULT_APPLICATION_SETTINGS["suggestionMode"]
-    raw_follow_up_count = settings.get("followUpSuggestionCount")
-    numeric_follow_up_count = clamp_number(
-        raw_follow_up_count,
-        DEFAULT_FOLLOW_UP_SUGGESTION_COUNT,
-        0,
-        DEFAULT_FOLLOW_UP_SUGGESTION_COUNT,
-    )
-    follow_up_count = (
-        0
-        if suggestion_mode == "off"
-        else (
-            MIN_FOLLOW_UP_SUGGESTION_COUNT
-            if numeric_follow_up_count <= MIN_FOLLOW_UP_SUGGESTION_COUNT
-            else DEFAULT_FOLLOW_UP_SUGGESTION_COUNT
-        )
-    )
-
-    return {
-        "cpuThreads": int(round(clamp_number(settings.get("cpuThreads"), DEFAULT_APPLICATION_SETTINGS["cpuThreads"], 1, 64))),
-        "suggestionMode": suggestion_mode,
-        "followUpSuggestionCount": follow_up_count,
-        "searchMode": normalize_search_mode(settings.get("searchMode")),
-    }
-
-
-def normalize_model_runtime_settings(settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    settings = settings or {}
-    device = str(settings.get("device") or DEFAULT_MODEL_RUNTIME_SETTINGS["device"])
-    if device not in {"applicationDefault", "cpu", "gpu"}:
-        device = DEFAULT_MODEL_RUNTIME_SETTINGS["device"]
-    chat_template = str(settings.get("chatTemplate") or DEFAULT_MODEL_RUNTIME_SETTINGS["chatTemplate"])
-    suggested_follow_up_prompt = str(settings.get("suggestedFollowUpPrompt") or "").strip()
-    if suggested_follow_up_prompt in {"", LEGACY_SUGGESTED_FOLLOW_UP_PROMPT}:
-        suggested_follow_up_prompt = DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
-
-    return {
-        "systemMessage": str(settings.get("systemMessage") or DEFAULT_MODEL_RUNTIME_SETTINGS["systemMessage"]),
-        "chatTemplate": chat_template or DEFAULT_MODEL_RUNTIME_SETTINGS["chatTemplate"],
-        "suggestedFollowUpPrompt": suggested_follow_up_prompt,
-        "contextLength": int(round(clamp_number(
-            settings.get("contextLength"),
-            DEFAULT_MODEL_RUNTIME_SETTINGS["contextLength"],
-            512,
-            32768,
-        ))),
-        "maxLength": int(round(clamp_number(
-            settings.get("maxLength"),
-            DEFAULT_MODEL_RUNTIME_SETTINGS["maxLength"],
-            64,
-            8192,
-        ))),
-        "promptBatchSize": int(round(clamp_number(settings.get("promptBatchSize"), DEFAULT_MODEL_RUNTIME_SETTINGS["promptBatchSize"], 1, 4096))),
-        "temperature": clamp_number(
-            settings.get("temperature"),
-            DEFAULT_MODEL_RUNTIME_SETTINGS["temperature"],
-            0,
-            2,
-        ),
-        "topP": clamp_number(
-            settings.get("topP"),
-            DEFAULT_MODEL_RUNTIME_SETTINGS["topP"],
-            0,
-            1,
-        ),
-        "topK": int(round(clamp_number(settings.get("topK"), DEFAULT_MODEL_RUNTIME_SETTINGS["topK"], 0, 1000))),
-        "minP": clamp_number(settings.get("minP"), DEFAULT_MODEL_RUNTIME_SETTINGS["minP"], 0, 1),
-        "repeatPenaltyTokens": int(round(clamp_number(settings.get("repeatPenaltyTokens"), DEFAULT_MODEL_RUNTIME_SETTINGS["repeatPenaltyTokens"], 0, 4096))),
-        "repeatPenalty": clamp_number(
-            settings.get("repeatPenalty"),
-            DEFAULT_MODEL_RUNTIME_SETTINGS["repeatPenalty"],
-            1,
-            3,
-        ),
-        "gpuLayers": int(round(clamp_number(settings.get("gpuLayers"), DEFAULT_MODEL_RUNTIME_SETTINGS["gpuLayers"], -1, 999))),
-        "device": device,
-    }
-
-
-def effective_model_context_length(model: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]]) -> int:
-    normalized_settings = normalize_model_runtime_settings(settings)
-    discovered = None
-    if isinstance(model, dict):
-        discovered = model.get("contextLength")
-        if discovered is None:
-            discovered = gguf_context_length(str(model.get("path") or ""))
-
-    discovered_context = int(round(clamp_number(discovered, 0, 0, MAX_CONTEXT_TOKENS)))
-    configured_context = int(normalized_settings["contextLength"])
-    if discovered_context > 0:
-        return min(discovered_context, max(configured_context, DEFAULT_AUTO_CONTEXT_CAP_TOKENS))
-    return configured_context
-
-
-def model_runtime_settings_from_payload(payload: Dict[str, Any], model: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
-    if isinstance(payload.get("modelSettings"), dict):
-        normalized = normalize_model_runtime_settings(payload["modelSettings"])
-        normalized["contextLength"] = effective_model_context_length(model, normalized)
-        return normalized
-
-    model_id = str(model.get("id") or "")
-    model_defaults = settings.get("modelDefaults") if isinstance(settings.get("modelDefaults"), dict) else {}
-    model_settings_by_id = settings.get("modelSettingsById") if isinstance(settings.get("modelSettingsById"), dict) else {}
-    model_settings = model_settings_by_id.get(model_id) if isinstance(model_settings_by_id.get(model_id), dict) else {}
-    normalized = normalize_model_runtime_settings({**model_defaults, **model_settings})
-    normalized["contextLength"] = effective_model_context_length(model, normalized)
-    return normalized
-
-
-def application_settings_from_payload(payload: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
-    if isinstance(payload.get("applicationSettings"), dict):
-        return normalize_application_settings(payload["applicationSettings"])
-    application_settings = settings.get("application") if isinstance(settings.get("application"), dict) else {}
-    return normalize_application_settings(application_settings)
-
-
-def render_chat_template(chat_template: str, messages: List[Dict[str, str]]) -> Optional[str]:
-    if SandboxedEnvironment is None or StrictUndefined is None or not chat_template.strip():
-        return None
-
-    def raise_template_exception(message: str) -> str:
-        raise EngineError(message)
-
-    try:
-        environment = SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)
-        template = environment.from_string(chat_template)
-        rendered = template.render(
-            messages=messages,
-            add_generation_prompt=True,
-            tools=[],
-            documents=[],
-            controls=[],
-            bos_token="",
-            eos_token="",
-            raise_exception=raise_template_exception,
-            strftime_now=lambda fmt: time.strftime(fmt),
-        )
-    except Exception as error:
-        log_event("chat_template_render_failed", error=str(error))
-        return None
-
-    return rendered if rendered.strip() else None
-
-
-SOURCE_CONTEXT_INSTRUCTIONS = [
-    "Use the provided context as the factual basis for the answer.",
-    "Do not add facts from general knowledge when the context does not support them.",
-    (
-        "Answer directly for a student with enough detail to teach the concept. Use only relevant evidence and keep "
-        "the answer scoped to the user's question."
-    ),
-    (
-        "Explain mechanism and consequence; for yes/no, comparison, or judgment questions, start with the conclusion, "
-        "name the comparison target, and state the workload or condition behind the trade-off."
-    ),
-    (
-        'For "also", "too", or "as well" questions, answer yes only if the context supports the claim for the '
-        "current target. If the context supports only a related target, say the context does not say."
-    ),
-    "Do not overstate with words like always, faster, or better unless the context gives that condition.",
-    "Do not quote the context before answering. Do not mention context labels.",
-    "If the context does not contain the answer, say that plainly and do not speculate.",
-    "Do not end by asking whether the student wants more detail.",
-]
-
-
-def local_source_context(
-    sources: List[Dict[str, Any]],
-    *,
-    max_chars: Optional[int] = None,
-    include_instructions: bool = True,
-) -> str:
-    if not sources:
-        return ""
-
-    parts: List[str] = []
-    if include_instructions:
-        parts.extend(f"{instruction}\n" for instruction in SOURCE_CONTEXT_INSTRUCTIONS)
-        parts.append("\n")
-    parts.append("### Context:\n")
-    for source in sources:
-        text = normalize_text(source.get("context") or source.get("excerpt", ""))
-        if max_chars is not None:
-            text = text[:max_chars]
-        section_header = str(source.get("sectionHeader") or "").strip()
-        locator = str(source.get("locator") or "").strip()
-        locator_line = f"Locator: {locator}\n" if locator else ""
-        section_line = f"Section: {section_header}\n" if section_header else ""
-        parts.append(
-            "Collection: "
-            f"{source.get('materialTitle') or source.get('collectionName') or source.get('collection') or 'Library'}\n"
-            f"Path: {source.get('path') or source.get('title') or ''}\n"
-            f"{locator_line}"
-            f"{section_line}"
-            f"Text: {text}\n\n"
-        )
-    return "".join(parts)
-
-
-def generation_messages(
-    prompt: str,
-    sources: List[Dict[str, Any]],
-    model_settings: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, str]]:
-    system_message = str((model_settings or {}).get("systemMessage") or "").strip()
-    source_context = local_source_context(sources, include_instructions=False)
-    user_content = f"{source_context}\nQuestion: {normalize_text(prompt)}" if source_context else normalize_text(prompt)
-    messages: List[Dict[str, str]] = []
-    if sources:
-        source_instructions = "\n".join(SOURCE_CONTEXT_INSTRUCTIONS)
-        system_message = f"{system_message}\n\n{source_instructions}" if system_message else source_instructions
-    if system_message:
-        messages.append({"role": "system", "content": system_message})
-    messages.append({"role": "user", "content": user_content})
-    return messages
-
-
-def format_generation_prompt(
-    prompt: str,
-    sources: List[Dict[str, Any]],
-    model_settings: Optional[Dict[str, Any]] = None,
-    model_path: Optional[str] = None,
-) -> str:
-    messages = generation_messages(prompt, sources, model_settings)
-    chat_template = str((model_settings or {}).get("chatTemplate") or "") or gguf_chat_template(model_path)
-    rendered_template = render_chat_template(chat_template, messages)
-
-    if rendered_template is not None:
-        return rendered_template
-
-    return "\n\n".join(f"{message['role']}:\n{message['content']}" for message in messages) + "\n\nassistant:\n"
-
-
-def format_follow_up_prompt(
-    prompt: str,
-    answer: str,
-    sources: List[Dict[str, Any]],
-    model_settings: Dict[str, Any],
-    application_settings: Dict[str, Any],
-    model_path: Optional[str] = None,
-) -> str:
-    suggestion_prompt = str(
-        model_settings.get("suggestedFollowUpPrompt") or DEFAULT_MODEL_RUNTIME_SETTINGS["suggestedFollowUpPrompt"]
-    ).strip()
-    count = int(application_settings.get("followUpSuggestionCount", DEFAULT_APPLICATION_SETTINGS["followUpSuggestionCount"]))
-    if "{count}" in suggestion_prompt:
-        suggestion_prompt = suggestion_prompt.replace("{count}", str(count))
-    else:
-        suffix = "" if count == 1 else "s"
-        suggestion_prompt = f"Generate {count} suggested follow-up question{suffix}.\n{suggestion_prompt}"
-    system_message = str(model_settings.get("systemMessage") or "").strip()
-    latest_answer = normalize_text(answer)
-    if len(latest_answer) > 4000:
-        latest_answer = latest_answer[:4000].strip() + "..."
-    user_content = "\n\n".join(
-        [
-            f"Current question:\n{normalize_text(prompt)}",
-            f"Latest answer:\n{latest_answer}",
-            suggestion_prompt,
-        ]
-    )
-    messages = [
-        *([{"role": "system", "content": system_message}] if system_message else []),
-        {"role": "user", "content": user_content},
-    ]
-    chat_template = str(model_settings.get("chatTemplate") or "") or gguf_chat_template(model_path)
-    rendered_template = render_chat_template(chat_template, messages)
-
-    if rendered_template is not None:
-        return rendered_template
-
-    return "\n\n".join(f"{message['role']}: {message['content']}" for message in messages) + "\nassistant:"
-
-
-FOLLOW_UP_QUESTION_RE = re.compile(
-    r"\b(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b[^?\n]*\?"
-)
-STARTS_WITH_QUESTION_RE = re.compile(
-    r"^(?:Are|Can|Could|Do|Does|How|Is|Should|What|When|Where|Which|Who|Whom|Whose|Why|Would)\b",
-    re.IGNORECASE,
-)
-META_SUGGESTION_RE = re.compile(
-    r"\b(?:(?:based on|according to|from)\s+(?:the\s+)?(?:given\s+|provided\s+)?"
-    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
-    r"passage|passages|question|source|sources|text)|"
-    r"in\s+(?:the\s+)?(?:given|provided)\s+"
-    r"(?:answer|context|course material|document|documents|excerpt|excerpts|material|materials|"
-    r"passage|passages|question|source|sources|text))\b",
-    re.IGNORECASE,
-)
-AWKWARD_SUGGESTION_RE = re.compile(
-    r"\b(?:given answer|given question|provided context|provided excerpt|provided source|"
-    r"can you think of|usually confuses people|what part of this|what parts of this)\b",
-    re.IGNORECASE,
-)
-MAX_SUGGESTED_QUESTION_WORDS = 18
-
-
-def normalized_suggestion_key(suggestion: str) -> str:
-    return re.sub(r"[^\w]+", " ", suggestion.casefold()).strip()
-
-
-SUGGESTION_SIMILARITY_STOP_WORDS = {
-    "a",
-    "about",
-    "after",
-    "an",
-    "and",
-    "are",
-    "as",
-    "be",
-    "can",
-    "could",
-    "did",
-    "do",
-    "does",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "it",
-    "its",
-    "me",
-    "of",
-    "on",
-    "or",
-    "the",
-    "that",
-    "this",
-    "to",
-    "was",
-    "what",
-    "when",
-    "where",
-    "which",
-    "why",
-    "with",
-    "would",
-    "you",
-}
-
-
-def comparable_question_tokens(question: str) -> set[str]:
-    return {
-        token
-        for token in normalized_suggestion_key(question).split()
-        if len(token) > 1 and token not in SUGGESTION_SIMILARITY_STOP_WORDS and not token.isdigit()
-    }
-
-
-
-
-def question_overlap(left: str, right: str) -> float:
-    left_tokens = comparable_question_tokens(left)
-    right_tokens = comparable_question_tokens(right)
-    smaller_size = min(len(left_tokens), len(right_tokens))
-    if smaller_size < 3:
-        return 0.0
-    return len(left_tokens.intersection(right_tokens)) / float(smaller_size)
-
-
-def is_repeated_question(suggestion: str, reference_questions: Sequence[str]) -> bool:
-    suggestion_key = normalized_suggestion_key(suggestion)
-    for question in reference_questions:
-        reference_key = normalized_suggestion_key(question)
-        if reference_key and (suggestion_key == reference_key or question_overlap(suggestion, question) >= 0.85):
-            return True
-    return False
-
-
-def suggestion_word_count(suggestion: str) -> int:
-    return len([token for token in normalized_suggestion_key(suggestion).split() if token])
-
-
-def filter_suggested_questions(
-    suggestions: Sequence[str],
-    reference_questions: Sequence[str],
-    limit: int,
-) -> List[str]:
-    filtered: List[str] = []
-    seen: set[str] = set()
-    if limit <= 0:
-        return filtered
-
-    for suggestion in suggestions:
-        key = normalized_suggestion_key(suggestion)
-        if not key or key in seen or not is_useful_suggestion(suggestion) or is_repeated_question(suggestion, reference_questions):
-            continue
-        seen.add(key)
-        filtered.append(suggestion)
-        if len(filtered) >= limit:
-            break
-
-    return filtered
-
-
-def is_useful_suggestion(suggestion: str) -> bool:
-    return (
-        bool(suggestion)
-        and len(suggestion) <= 180
-        and suggestion_word_count(suggestion) <= MAX_SUGGESTED_QUESTION_WORDS
-        and suggestion.endswith("?")
-        and not META_SUGGESTION_RE.search(suggestion)
-        and not AWKWARD_SUGGESTION_RE.search(suggestion)
-    )
-
-
-
-
-def parse_follow_up_suggestions(text: str, limit: int = 4) -> List[str]:
-    limit = max(0, int(limit))
-    if limit == 0:
-        return []
-
-    stripped_text = strip_answer_markers(text).strip()
-    parsed_lines: List[str] = []
-
-    try:
-        parsed = json.loads(stripped_text)
-        if isinstance(parsed, list):
-            parsed_lines = [str(item) for item in parsed]
-    except Exception:
-        parsed_lines = []
-
-    if not parsed_lines:
-        for line in stripped_text.splitlines():
-            line = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\).\:-])\s*", "", line).strip()
-            if not line.endswith("?"):
-                continue
-            if line.count("?") == 1:
-                parsed_lines.append(line)
-                continue
-            line_questions = [match.group(0).strip() for match in FOLLOW_UP_QUESTION_RE.finditer(line)]
-            if STARTS_WITH_QUESTION_RE.search(line):
-                if line_questions:
-                    parsed_lines.append(line_questions[0])
-            else:
-                parsed_lines.extend(line_questions)
-
-    if not parsed_lines:
-        parsed_lines = [match.group(0) for match in FOLLOW_UP_QUESTION_RE.finditer(stripped_text)]
-
-    suggestions: List[str] = []
-    seen: set[str] = set()
-    for line in parsed_lines:
-        suggestion = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\).\:-])\s*", "", str(line)).strip()
-        suggestion = suggestion.strip(" \"'`")
-        match = FOLLOW_UP_QUESTION_RE.search(suggestion)
-        if not match:
-            continue
-        suggestion = match.group(0).strip()
-        if not is_useful_suggestion(suggestion):
-            continue
-        suggestion_key = normalized_suggestion_key(suggestion)
-        if suggestion_key in seen:
-            continue
-        suggestions.append(suggestion)
-        seen.add(suggestion_key)
-        if len(suggestions) == limit:
-            break
-
-    return suggestions
-
-
-def public_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{key: value for key, value in source.items() if key != "context"} for source in sources]
-
-
-def llama_generator_config(model_settings: Dict[str, Any], application_settings: Dict[str, Any]) -> Dict[str, int]:
-    n_gpu_layers = int(model_settings["gpuLayers"])
-    if model_settings.get("device") == "cpu":
-        n_gpu_layers = 0
-
-    return {
-        "n_ctx": int(model_settings["contextLength"]),
-        "n_batch": int(model_settings["promptBatchSize"]),
-        "n_threads": int(application_settings["cpuThreads"]),
-        "n_gpu_layers": n_gpu_layers,
-        "last_n_tokens_size": int(model_settings["repeatPenaltyTokens"]),
-    }
-
-
-def load_llama(model_path: str, model_settings: Optional[Dict[str, Any]] = None, application_settings: Optional[Dict[str, Any]] = None) -> Any:
-    if Llama is None:
-        raise EngineError("llama-cpp-python is not installed.")
-    normalized_model_settings = normalize_model_runtime_settings(model_settings)
-    normalized_application_settings = normalize_application_settings(application_settings)
-    generator_config = llama_generator_config(normalized_model_settings, normalized_application_settings)
-    cache_key = json.dumps({"modelPath": model_path, **generator_config}, sort_keys=True)
-
-    if cache_key not in _GENERATOR_CACHE:
-        _GENERATOR_CACHE[cache_key] = Llama(
-            model_path=model_path,
-            **generator_config,
-            flash_attn=True,
-            verbose=False,
-        )
-        if LlamaRAMCache is not None:
-            _GENERATOR_CACHE[cache_key].set_cache(LlamaRAMCache())
-    return _GENERATOR_CACHE[cache_key]
-
-
-def strip_answer_markers(text: str) -> str:
-    text = text.replace(ANSWER_START, "").replace(ANSWER_END, "")
-    return text.strip()
-
-
-def run_llama_completion(
-    prompt: str,
-    model_path: str,
-    model_settings: Dict[str, Any],
-    application_settings: Optional[Dict[str, Any]] = None,
-) -> str:
-    normalized_model_settings = normalize_model_runtime_settings(model_settings)
-    normalized_application_settings = normalize_application_settings(application_settings)
-    llm = load_llama(model_path, normalized_model_settings, normalized_application_settings)
-    completion_kwargs = {
-        "max_tokens": int(normalized_model_settings["maxLength"]),
-        "temperature": float(normalized_model_settings["temperature"]),
-        "top_p": float(normalized_model_settings["topP"]),
-        "top_k": int(normalized_model_settings["topK"]),
-        "repeat_penalty": float(normalized_model_settings["repeatPenalty"]),
-        "stop": ["</s>", "<|im_end|>", "<|eot_id|>"],
-    }
-    if float(normalized_model_settings["minP"]) > 0:
-        completion_kwargs["min_p"] = float(normalized_model_settings["minP"])
-
-    try:
-        result = llm.create_completion(prompt, **completion_kwargs)
-    except TypeError:
-        if "min_p" not in completion_kwargs:
-            raise
-        completion_kwargs.pop("min_p")
-        result = llm.create_completion(prompt, **completion_kwargs)
-    text = strip_answer_markers(result["choices"][0]["text"])
-    if not text:
-        raise EngineError("The local model returned an empty response.")
-    return text
-
-
-def should_generate_follow_ups(application_settings: Dict[str, Any], sources: List[Dict[str, Any]]) -> bool:
-    return application_settings.get("suggestionMode") != "off"
-
-
-def generate_follow_up_suggestions(
-    prompt: str,
-    answer: str,
-    sources: List[Dict[str, Any]],
-    model_path: str,
-    model_settings: Dict[str, Any],
-    application_settings: Dict[str, Any],
-) -> List[str]:
-    if not should_generate_follow_ups(application_settings, sources):
-        return []
-    suggestion_count = int(
-        application_settings.get("followUpSuggestionCount", DEFAULT_APPLICATION_SETTINGS["followUpSuggestionCount"])
-    )
-
-    suggestion_settings = {
-        **model_settings,
-        "maxLength": min(int(model_settings.get("maxLength") or 128), 160),
-        "temperature": min(max(float(model_settings.get("temperature") or 0.2), 0.2), 0.8),
-    }
-    try:
-        suggestion_text = run_llama_completion(
-            format_follow_up_prompt(prompt, answer, sources, suggestion_settings, application_settings, model_path),
-            model_path,
-            suggestion_settings,
-            application_settings,
-        )
-    except Exception as error:
-        log_event("follow_up_generation_failed", error=str(error))
-        return []
-
-    suggestions = filter_suggested_questions(
-        parse_follow_up_suggestions(suggestion_text, suggestion_count * 2),
-        [prompt],
-        suggestion_count,
-    )
-    log_event("follow_up_suggestions", provider="gguf", prompt=prompt,
-              rawResponse=suggestion_text, suggestions=suggestions, requestedCount=suggestion_count)
-    return suggestions
-
-
-def chat(payload: Dict[str, Any]) -> Dict[str, Any]:
-    user_data_path = payload["userDataPath"]
-    prompt = payload.get("prompt", "")
-    materials = payload.get("materials") or []
-    settings = payload.get("settings") or {}
-    limit = max(1, int(settings.get("maxSources") or 4))
-    model = payload.get("model") or {}
-    application_settings = application_settings_from_payload(payload, settings)
-    model_settings = model_runtime_settings_from_payload(payload, model, settings)
-    if "retrievedSources" in payload:
-        sources = payload.get("retrievedSources") or []
-    else:
-        try:
-            search_result = search_library(
-                {
-                    "userDataPath": user_data_path,
-                    "query": prompt,
-                    "materials": materials,
-                    "limit": limit,
-                    "model": model,
-                    "embeddingModels": payload.get("embeddingModels") or [],
-                    "searchMode": application_settings.get("searchMode"),
-                }
-            )
-            sources = search_result["sources"]
-        except Exception as error:
-            log_event("chat_retrieval_failed", error=str(error))
-            sources = []
-    model_path = model.get("path")
-    model_name = display_model_name(model)
-    if model_path:
-        try:
-            text = run_llama_completion(
-                format_generation_prompt(prompt, sources, model_settings, model_path),
-                model_path,
-                model_settings,
-                application_settings,
-            )
-            follow_up_suggestions = generate_follow_up_suggestions(
-                prompt,
-                text,
-                sources,
-                model_path,
-                model_settings,
-                application_settings,
-            )
-            return {
-                "engineId": "tokensmith",
-                "modelName": model_name,
-                "text": text,
-                "sources": public_sources(sources),
-                "followUpSuggestions": follow_up_suggestions,
-            }
-        except Exception as error:
-            log_event("chat_generation_failed", modelPath=model_path, error=str(error))
-            return {
-                "engineId": "tokensmith",
-                "modelName": model_name,
-                "text": f"The local model could not generate an answer: {error}",
-                "sources": public_sources(sources),
-                "followUpSuggestions": [],
-            }
-    return {
-        "engineId": "tokensmith",
-        "modelName": model_name,
-        "text": "A local model is required to answer.",
-        "sources": public_sources(sources),
-        "followUpSuggestions": [],
-    }
-
-
 def health(_payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "ok": True,
         "engine": "python",
-        "llamaCppAvailable": Llama is not None,
         "supports": [
             "pdf",
             "txt",
@@ -2983,8 +1851,6 @@ def health(_payload: Dict[str, Any]) -> Dict[str, Any]:
             "faiss-index",
             "pdfium-pdf-extraction" if pdfium is not None else "pdfium-unavailable",
             "pdfium-pdf-thumbnails" if pdfium is not None else "pdfium-thumbnails-unavailable",
-            "gguf-embeddings-optional",
-            "gguf-inference-optional",
         ],
     }
 
@@ -2998,7 +1864,12 @@ def preparation_report(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def list_indexed_materials(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return {"materials": list_materials(payload["userDataPath"])}
+    user_data_path = payload["userDataPath"]
+    materials = list_materials(user_data_path)
+    retired = [material for material in materials if str(material.get("embeddingModel") or "").startswith("llama-cpp:")]
+    for material in retired:
+        delete_material(user_data_path, material["id"])
+    return {"materials": [material for material in materials if material not in retired]}
 
 
 def set_material_enabled(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -3031,7 +1902,6 @@ COMMANDS = {
     "preparation_report": preparation_report,
     "search": search_library,
     "starter_sources": starter_sources,
-    "chat": chat,
     "list_materials": list_indexed_materials,
     "set_material_enabled": set_material_enabled,
     "remove_material": remove_material,
@@ -3049,33 +1919,7 @@ def send_progress(request_id: Optional[str], progress: Dict[str, Any]) -> None:
         send({"id": request_id, "progress": progress})
 
 
-def llama_embed_worker_main(model_path: str) -> None:
-    try:
-        embedder = create_llama_embedder(model_path)
-        warmup = embedder.create_embedding("test")
-        dimension = len(warmup["data"][0]["embedding"])
-        send({"ok": True, "dimension": dimension})
-    except Exception as error:
-        send({"ok": False, "error": str(error)})
-        raise SystemExit(1)
-
-    for raw_line in sys.stdin:
-        if not raw_line.strip():
-            continue
-        try:
-            request = json.loads(raw_line)
-            text = normalize_text(request.get("text") or "")[:LLAMA_EMBEDDING_TEXT_LIMIT]
-            result = embedder.create_embedding(text)
-            send({"id": request.get("id"), "ok": True, "embedding": result["data"][0]["embedding"]})
-        except Exception as error:
-            send({"id": locals().get("request", {}).get("id"), "ok": False, "error": str(error)})
-
-
 def main() -> None:
-    if len(sys.argv) >= 3 and sys.argv[1] == "--llama-embed-worker":
-        llama_embed_worker_main(sys.argv[2])
-        return
-
     for raw_line in sys.stdin:
         if not raw_line.strip():
             continue

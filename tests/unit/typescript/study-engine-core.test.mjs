@@ -21,23 +21,18 @@ const applicationSettings = {
   suggestionMode: 'on',
   followUpSuggestionCount: 4,
   showSources: true,
-  cpuThreads: 4
+  embeddingGpuEnabled: true
 }
 const modelSettings = {
   systemMessage: '',
-  chatTemplate: '',
   suggestedFollowUpPrompt: '',
   contextLength: 2048,
   maxLength: 4096,
-  promptBatchSize: 128,
   temperature: 0.7,
   topP: 0.4,
   topK: 40,
   minP: 0,
-  repeatPenaltyTokens: 64,
-  repeatPenalty: 1.18,
-  gpuLayers: -1,
-  device: 'applicationDefault'
+  repeatPenalty: 1.18
 }
 
 function pythonChatModel(overrides = {}) {
@@ -168,7 +163,7 @@ test('sendStudyChatMessage routes Ollama models to the Ollama study engine', asy
 test('sendStudyChatMessage rejects unsupported local GGUF chat models', async () => {
   await assert.rejects(
     sendStudyChatMessage(chatRequest(), engineDependencies()),
-    /Local GGUF chat models are not supported/i
+    /Choose an Ollama or remote chat model/i
   )
 })
 

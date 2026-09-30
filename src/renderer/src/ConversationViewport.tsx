@@ -2,10 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDown, MessageSquarePlus } from 'lucide-react'
-import type { ChatMessage } from '@shared/app-state'
+import type { ChatMessage, ChatSelectedPassage } from '@shared/app-state'
+import { selectChatPassage } from '@shared/chat-selection'
 
 interface SelectedText {
   text: string
+  messageId: string
   top: number
   left: number
 }
@@ -18,23 +20,26 @@ function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
   if (!viewport || !selected || selected.isCollapsed || !selected.rangeCount || !container ||
       !viewport.contains(container) || container !== containerFor(selected.focusNode)) return null
   const text = selected.toString()
-  if (!text.trim()) return null
+  const messageId = container.getAttribute('data-chat-message-id')
+  if (!text.trim() || !messageId) return null
   const rect = selected.getRangeAt(0).getBoundingClientRect()
   const bounds = viewport.getBoundingClientRect()
   if (rect.bottom < bounds.top || rect.top > bounds.bottom) return null
   return {
     text,
+    messageId,
     left: Math.max(8, Math.min(rect.left, window.innerWidth - 168)),
     top: Math.max(bounds.top + 4, Math.min(rect.top - 42, bounds.bottom - 42))
   }
 }
 
-export function ConversationViewport({ messages, pending, children, onQuote, canQuote }: {
+export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true }: {
   messages: ChatMessage[]
   pending: boolean
   children: ReactNode
-  onQuote: (text: string) => void
+  onQuote: (passage: ChatSelectedPassage) => void
   canQuote: boolean
+  isActive?: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const navigatorRef = useRef<HTMLElement>(null)
@@ -48,6 +53,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   const questions = useMemo(() => messages.filter((message) => message.role === 'user'), [messages])
 
   function updateScrollPosition() {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     const bottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 48
@@ -64,6 +70,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   }
 
   useLayoutEffect(() => {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     questionElements.current = new Map(Array.from(viewport.querySelectorAll<HTMLElement>('[data-question-id]'))
@@ -73,9 +80,10 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     if (atBottomRef.current || newQuestion) viewport.scrollTop = viewport.scrollHeight
     previousLastId.current = last?.id
     updateScrollPosition()
-  }, [messages, pending])
+  }, [messages, pending, isActive])
 
   useEffect(() => {
+    if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     const observer = new ResizeObserver(() => {
@@ -85,9 +93,10 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     observer.observe(viewport)
     if (viewport.firstElementChild) observer.observe(viewport.firstElementChild)
     return () => observer.disconnect()
-  }, [questions])
+  }, [questions, isActive])
 
   useEffect(() => {
+    if (!isActive) return
     const navigator = navigatorRef.current
     const marker = navigator?.querySelector<HTMLElement>('[aria-current]')
     if (!navigator || !marker) return
@@ -95,9 +104,14 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     if (marker.offsetTop + marker.offsetHeight > navigator.scrollTop + navigator.clientHeight) {
       navigator.scrollTop = marker.offsetTop + marker.offsetHeight - navigator.clientHeight
     }
-  }, [activeId])
+  }, [activeId, isActive])
 
   useEffect(() => {
+    if (!isActive) {
+      setSelection(null)
+      setPreview(null)
+      return
+    }
     const viewport = viewportRef.current
     if (!viewport) return
     let frame = 0
@@ -139,7 +153,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
       viewport.removeEventListener('scroll', dismiss)
       window.removeEventListener('resize', dismiss)
     }
-  }, [])
+  }, [isActive])
 
   return (
     <div className="conversation-viewport">
@@ -181,7 +195,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           ))}
         </nav>
       )}
-      {preview && questions[preview.index] && createPortal(
+      {isActive && preview && questions[preview.index] && createPortal(
         <div className="question-marker-preview" aria-hidden="true" style={{
           top: Math.max(8, Math.min(preview.top, window.innerHeight - 150)),
           left: Math.max(8, Math.min(preview.left, window.innerWidth - Math.min(300, window.innerWidth - 70) - 8))
@@ -198,17 +212,18 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           <ArrowDown size={18} aria-hidden="true" />
         </button>
       )}
-      {selection && canQuote && createPortal(
+      {isActive && selection && canQuote && createPortal(
         <button className="selection-chat-action" type="button" style={{ top: selection.top, left: selection.left }}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
             // Selection-change rendering can lag behind the user's final range.
             const current = readChatSelection(viewportRef.current)
-            if (current) onQuote(current.text)
+            const passage = current && selectChatPassage(messages, current.messageId, current.text)
+            if (passage) onQuote(passage)
             window.getSelection()?.removeAllRanges()
             setSelection(null)
           }}>
-          <MessageSquarePlus size={16} aria-hidden="true" /> Add to chat
+          <MessageSquarePlus size={16} aria-hidden="true" /> Ask about this
         </button>, document.body
       )}
     </div>

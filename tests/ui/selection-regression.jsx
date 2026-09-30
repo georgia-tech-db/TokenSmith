@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ConversationViewport } from '../../src/renderer/src/ConversationViewport'
-import { addQuoteToDraft } from '../../src/renderer/src/chat-interactions'
+import { SelectedPassagePreview } from '../../src/renderer/src/SelectedPassagePreview'
 import '../../src/renderer/src/chat-interactions.css'
 
 const text = 'Compaction would invalidate all external pointers referencing those old locations.'
@@ -17,9 +17,11 @@ function select(start, end) {
 }
 function Fixture() {
   const [draft, setDraft] = useState('Explain this.')
+  const [passage, setPassage] = useState()
   const [result, setResult] = useState('Ready')
   async function run(kind) {
     setDraft('Explain this.')
+    setPassage(undefined)
     setResult('Running')
     const source = document.querySelector('#source')
     const start = text.indexOf('external')
@@ -38,18 +40,19 @@ function Fixture() {
     // Click before the queued selection-change frame, reproducing an outdated snapshot.
     document.querySelector('.selection-chat-action')?.click()
     await paint()
-    const actual = document.querySelector('textarea').value
-    setResult(actual === `> ${quote}\n\nExplain this.` ? `PASS: ${kind}` : `FAIL: ${kind}: ${actual}`)
+    const actual = document.querySelector('.selected-passage-text')?.textContent
+    setResult(actual === quote && document.querySelector('textarea').value === 'Explain this.' ? `PASS: ${kind}` : `FAIL: ${kind}: ${actual}`)
   }
   return <main>
     <h1>Selection regression checks</h1>
     <button onClick={() => run('snapshot')}>Check final selection</button>
     <button onClick={() => run('drag')}>Check unfinished drag</button>
     <output aria-live="polite">{result}</output>
-    <ConversationViewport messages={[]} pending={false} canQuote onQuote={value => setDraft(old => addQuoteToDraft(old, value))}>
-      <div data-chat-selectable><p id="source">{text}</p><p>A separate paragraph with <strong>formatted text</strong> for manual selection.</p></div>
-      <div data-chat-selectable><p>Another message must not be combined with the first one.</p></div>
+    <ConversationViewport messages={[{ id: 'q', role: 'user', text: 'Why use slotted pages?' }, { id: 'a', role: 'assistant', text }]} pending={false} canQuote onQuote={setPassage}>
+      <div data-chat-selectable data-chat-message-id="a"><p id="source">{text}</p><p>A separate paragraph with <strong>formatted text</strong> for manual selection.</p></div>
+      <div data-chat-selectable data-chat-message-id="q"><p>Another message must not be combined with the first one.</p></div>
     </ConversationViewport>
+    {passage && <SelectedPassagePreview passage={passage} onRemove={() => setPassage(undefined)} />}
     <label>Draft<textarea value={draft} onChange={event => setDraft(event.target.value)} /></label>
   </main>
 }

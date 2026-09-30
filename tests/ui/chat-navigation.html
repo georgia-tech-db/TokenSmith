@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>TokenSmith navigation regression</title></head>
+  <body>
+    <div id="test-controls" aria-label="Test controls" style="height:44px;display:flex;align-items:center;gap:12px;padding:6px;font:13px system-ui;background:white;color:black">
+      <span>Fake engine</span><output id="test-status">0 calls, 0 pending</output>
+      <button id="finish-reply" type="button" disabled>Finish pending answer</button>
+      <button id="fail-reply" type="button" disabled>Fail pending answer</button>
+    </div>
+    <div id="root" style="height:calc(100% - 44px)"></div>
+    <script type="module" src="./chat-navigation.jsx"></script>
+  </body>
+</html>

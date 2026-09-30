@@ -4,6 +4,7 @@ import {
   writeTokenSmithLog
 } from '../python/python-engine-service'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineInfo,
@@ -19,13 +20,16 @@ import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runO
 import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionRequest> {
   if (request.messages.length > 0 || (request.retrievedSources?.length ?? 0) > 0) {
     return request
   }
 
+  signal?.throwIfAborted()
   const starterSources = await starterSourcesWithPython(request.materials, 4)
+  signal?.throwIfAborted()
   if (starterSources.length === 0) {
     throw new Error('No indexed PDF text was available for starter questions.')
   }
@@ -41,14 +45,14 @@ export async function listEngines(): Promise<EngineInfo[]> {
   })
 }
 
-export async function sendChatMessage(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function sendChatMessage(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   writeTokenSmithLog('chat_request_context', chatRequestLogDetails(request))
 
   const response = await sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  })
+  }, options)
 
   writeTokenSmithLog('chat_response_context', {
     modelName: response.modelName,
@@ -60,24 +64,25 @@ export async function sendChatMessage(request: EngineChatRequest): Promise<Engin
   return response
 }
 
-export async function resolveChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
-  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request)
+export async function resolveChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
+  if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request, signal)
   if (request.model.engine === 'remote') {
-    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) })
+    return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) }, signal)
   }
   throw new Error('Question rewriting requires an Ollama or remote chat model.')
 }
 
 export async function suggestChatQuestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
-  const suggestionRequest = await withStarterSources(request)
+  const suggestionRequest = await withStarterSources(request, signal)
   writeTokenSmithLog('question_suggestion_request_context', questionSuggestionLogDetails(suggestionRequest))
   return generateStudyQuestionSuggestions(suggestionRequest, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  })
+  }, signal)
 }
 
 function logSource(source: ChatSource): Record<string, unknown> {
@@ -127,6 +132,7 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
 
   return {
     prompt: request.prompt,
+    selectedPassage: request.selectedPassage,
     answerPrompt: request.answerPrompt,
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',

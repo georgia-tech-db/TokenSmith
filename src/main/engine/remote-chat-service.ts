@@ -1,6 +1,7 @@
 import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineQuestionSuggestionRequest,
@@ -184,7 +185,7 @@ export async function listOpenAiCompatibleModels(
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
   messages: StudyChatMessage[],
-  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean } = {}
+  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean; signal?: AbortSignal } = {}
 ): Promise<string> {
   const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
@@ -193,7 +194,9 @@ async function runRemoteChatCompletion(
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
-    signal: AbortSignal.timeout(180_000),
+    signal: overrides.signal
+      ? AbortSignal.any([overrides.signal, AbortSignal.timeout(180_000)])
+      : AbortSignal.timeout(180_000),
     body: JSON.stringify({
       model: config.modelName,
       messages,
@@ -222,9 +225,9 @@ async function runRemoteChatCompletion(
   return text.trim()
 }
 
-export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
-  if (!lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
+  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
   const started = performance.now()
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const messages = questionRewriteMessages({ ...request, modelSettings: settings })
@@ -232,8 +235,8 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
   const text = await runRemoteChatCompletion({
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName, apiKey: request.model.apiKey, settings
-  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true })
-  const resolution = parseQuestionRewrite(text, request.prompt)
+  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
+  const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
   writeTokenSmithLog('chat_question_rewrite', {
     modelName, prompt: request.prompt, modelMessages: messages,
     rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
@@ -245,7 +248,8 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
 async function generateRemoteFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
-  config: RemoteCompletionConfig
+  config: RemoteCompletionConfig,
+  signal?: AbortSignal
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
     return []
@@ -261,7 +265,7 @@ async function generateRemoteFollowUpSuggestions(
   const text = await runRemoteChatCompletion(
     config,
     followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true }
+    { maxTokens, temperature, requireComplete: true, signal }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -279,7 +283,7 @@ async function generateRemoteFollowUpSuggestions(
   return suggestions
 }
 
-export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function runRemoteStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
   assertRemoteModel(request.model)
 
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
@@ -292,13 +296,16 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     apiKey: request.model.apiKey,
     settings
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
+  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest), { signal: options.signal })
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  options.signal?.throwIfAborted()
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config, options.signal)
   } catch (error) {
+    options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
   }
 
@@ -313,7 +320,8 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
 }
 
 export async function generateRemoteStudyQuestionSuggestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
   assertRemoteModel(request.model)
 
@@ -333,7 +341,9 @@ export async function generateRemoteStudyQuestionSuggestions(
   const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), {
+    maxTokens, temperature, requireComplete: true, signal
+  })
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
     .map((message) => message.text)

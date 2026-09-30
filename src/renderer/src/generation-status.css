@@ -1,0 +1,39 @@
+main.desktop-app { grid-template-rows: minmax(0, 1fr) auto; }
+.desktop-app > .rail { grid-column: 1; grid-row: 1 / -1; }
+.desktop-app > .workspace { grid-column: 2; grid-row: 1; min-height: 0; }
+.generation-status {
+  grid-column: 2; grid-row: 2; display: flex; align-items: center; gap: 16px;
+  min-height: 44px; padding: 7px 28px; border-top: 1px solid var(--line);
+  background: var(--panel); color: var(--content); font-size: .9rem;
+}
+.generation-status-label, .generation-status-stop { border: 0; background: transparent; cursor: pointer; padding: 3px 0; }
+.generation-status-label { text-align: left; font-weight: 600; }
+.generation-status-label:hover { text-decoration: underline; }
+.generation-status-stop { margin-left: auto; color: var(--green-strong); font-weight: 600; }
+.generation-status progress { appearance: none; height: 5px; width: clamp(80px, 18vw, 220px); border: 0; border-radius: 4px; overflow: hidden; background: var(--line); accent-color: var(--green-strong); }
+.generation-status progress::-webkit-progress-bar { background: var(--line); border-radius: 4px; }
+.generation-status progress::-webkit-progress-value { background: var(--green-strong); border-radius: 4px; transition: width 1s linear; }
+.generation-status progress:indeterminate { background: linear-gradient(90deg, var(--line) 25%, var(--green-strong) 50%, var(--line) 75%); background-size: 200% 100%; animation: generation-wait 2s linear infinite; }
+.generation-status progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.generation-status-time { font-variant-numeric: tabular-nums; }
+@keyframes generation-wait { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .generation-status progress:indeterminate { animation: none; }
+  .generation-status progress::-webkit-progress-value { transition: none; }
+}
+@media (max-width: 900px) {
+  .generation-status { gap: 10px; padding-inline: 16px; flex-wrap: wrap; }
+  .generation-status-time { font-size: .85rem; }
+}
+@media (max-width: 650px) {
+  main.desktop-app { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .desktop-app > .rail { grid-column: 1; grid-row: 1; }
+  .desktop-app > .workspace { grid-column: 1; grid-row: 2; }
+  .generation-status { grid-column: 1; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; min-height: 4.5rem; gap: 4px 12px; }
+  .generation-status-label { grid-column: 1; grid-row: 1; }
+  .generation-status-stop { grid-column: 2; grid-row: 1; }
+  .generation-status-time { grid-column: 1; grid-row: 2; }
+  .generation-status progress { grid-column: 2; grid-row: 2; width: 70px; }
+}
+
+.generation-status .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

@@ -1,6 +1,7 @@
 import type {
   ApplicationSettings,
   ChatMessage,
+  ChatSelectedPassage,
   ChatSource,
   CourseMaterial,
   LocalModel,
@@ -17,7 +18,9 @@ export interface ChatReferenceExchange {
 }
 
 export interface EngineQuestionRewriteRequest {
+  requestId?: string
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   messages: ChatMessage[]
   model: LocalModel
   modelSettings?: ModelRuntimeSettings
@@ -35,11 +38,14 @@ export interface EngineInfo {
 }
 
 export interface EngineChatRequest {
+  requestId?: string
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
   referenceExchange?: ChatReferenceExchange
+  answerToSimplify?: string
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel
@@ -47,6 +53,12 @@ export interface EngineChatRequest {
   applicationSettings?: ApplicationSettings
   modelSettings?: ModelRuntimeSettings
   retrievedSources?: ChatSource[]
+}
+
+// Runtime callbacks stay in the main process; only answer payloads cross IPC.
+export interface EngineRunOptions {
+  signal?: AbortSignal
+  onAnswer?: (answer: EngineChatResponse, hasFollowUps: boolean) => void
 }
 
 export interface EngineChatResponse {

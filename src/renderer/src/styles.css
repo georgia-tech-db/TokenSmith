@@ -25,7 +25,7 @@
   color: var(--ink);
   background: var(--bg);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -48,6 +48,32 @@ body,
 
 html {
   font-size: 14px;
+  --reading-font-size: 16px;
+}
+
+html[data-font-size="extra-small"] {
+  font-size: 12px;
+  --reading-font-size: 12px;
+}
+
+html[data-font-size="small"] {
+  font-size: 13px;
+  --reading-font-size: 14px;
+}
+
+html[data-font-size="large"] {
+  font-size: 16px;
+  --reading-font-size: 18px;
+}
+
+html[data-font-size="extra-large"] {
+  font-size: 18px;
+  --reading-font-size: 20px;
+}
+
+/* Keep chat requests and drafts alive while another screen is visible. */
+.chat-frame[hidden] {
+  display: none;
 }
 
 body {
@@ -73,18 +99,6 @@ button {
   background:
     linear-gradient(90deg, rgb(255 255 255 / 62%), transparent 22%),
     var(--bg);
-}
-
-.desktop-app.font-size-small {
-  font-size: 14px;
-}
-
-.desktop-app.font-size-medium {
-  font-size: 15px;
-}
-
-.desktop-app.font-size-large {
-  font-size: 16px;
 }
 
 .rail {
@@ -204,6 +218,7 @@ button {
 }
 
 .chat-frame {
+  position: relative;
   display: grid;
   grid-template-columns: 250px minmax(520px, 1fr) 360px;
 }
@@ -845,7 +860,8 @@ button {
 
 .message-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 940px);
+  grid-template-columns: 32px minmax(0, 72ch);
+  font-size: var(--reading-font-size);
   gap: 14px;
   margin-bottom: 44px;
 }
@@ -891,13 +907,13 @@ button {
 .message-text {
   min-width: 0;
   color: var(--content-ink, #272b31);
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: var(--reading-font-size);
+  line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
 .message-text p {
-  margin: 0 0 10px;
+  margin: 0 0 0.85em;
 }
 
 .message-actions {
@@ -926,12 +942,12 @@ button {
 
 .message-text ul,
 .message-text ol {
-  margin: 8px 0 10px;
-  padding-left: 24px;
+  margin: 0.5em 0 0.85em;
+  padding-left: 1.5em;
 }
 
 .message-text li {
-  margin: 4px 0;
+  margin: 0.35em 0;
 }
 
 .message-text li > ul,
@@ -944,12 +960,12 @@ button {
 }
 
 .message-text strong {
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .message-text :is(h1, h2, h3, h4, h5, h6) {
-  margin: 18px 0 8px;
-  font-size: 1rem;
+  margin: 1.15em 0 0.5em;
+  font-size: 1.125em;
   line-height: 1.4;
 }
 
@@ -967,6 +983,7 @@ button {
   border-radius: 3px;
   background: var(--surface-muted, #eef0ee);
   font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .message-text pre {
@@ -1168,6 +1185,15 @@ button {
   font-size: 0.86rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.source-chip + .source-chip {
+  margin-left: 8px;
+}
+
+.source-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .source-chip[aria-expanded="true"] svg:last-child {
@@ -2954,12 +2980,121 @@ button {
   line-height: 1.45;
 }
 
+.model-recommendation-panel {
+  margin: 0 0 22px;
+  padding: 18px 20px;
+  border: 1px solid #9fc8b0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff9f2 0%, #f8fcf9 100%);
+}
+
+.model-recommendation-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.model-recommendation-panel.is-cloud {
+  border-color: #b8c4dc;
+  background: linear-gradient(135deg, #f1f4fb 0%, #fafbfe 100%);
+}
+
+.model-recommendation-panel.is-loading,
+.model-recommendation-panel.is-unavailable {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  border-color: var(--line);
+  background: var(--panel-soft);
+}
+
+.model-recommendation-panel.is-unavailable {
+  color: var(--muted);
+}
+
+.model-recommendation-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--green-strong);
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(30 72 47 / 10%);
+}
+
+.model-recommendation-copy {
+  min-width: 0;
+}
+
+.model-recommendation-copy > span {
+  color: var(--green-strong);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.model-recommendation-copy h2 {
+  margin: 3px 0 4px;
+  font-size: 1.15rem;
+}
+
+.model-recommendation-copy p,
+.model-recommendation-panel p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.device-details {
+  margin: 14px 0 0 58px;
+  border-top: 1px solid rgb(65 128 87 / 16%);
+  padding-top: 12px;
+}
+
+.device-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.device-details dl {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.device-details dl > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.device-details dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.device-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .model-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 210px;
   gap: 18px;
   overflow: hidden;
   padding: 22px;
+}
+
+.model-card.is-device-recommended {
+  border-color: #79b18e;
+  box-shadow: 0 0 0 2px rgb(65 128 87 / 10%);
 }
 
 .model-card-main {
@@ -3002,6 +3137,20 @@ button {
   color: #6f4d13;
   border-color: #edd59a;
   background: #fff7dc;
+}
+
+.model-recommendation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--green-strong);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .model-title-row p {
@@ -3570,6 +3719,10 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .device-details {
+    margin-left: 0;
+  }
+
   .model-action-box {
     width: min(100%, 260px);
     min-width: 0;
@@ -3762,4 +3915,39 @@ button {
   .chat-setup-copy span {
     white-space: normal;
   }
+}
+
+/* Automatic reading stays inside Chat so navigation and generation controls remain usable. */
+.automatic-source-preview { position: absolute; inset: 0; z-index: 25; background: var(--panel); }
+.automatic-source-preview .pdf-viewer-backdrop { position: absolute; padding: 12px; background: var(--panel); }
+.automatic-source-preview .pdf-viewer-panel { width: 100%; height: 100%; min-height: 0; }
+.automatic-source-preview .markdown-source-dialog { position: absolute; inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); max-width: none; max-height: none; margin: 0; }
+.automatic-source-preview .markdown-viewer-panel { width: 100%; height: 100%; }
+
+.pdf-viewer-header > div:first-child { min-width: 0; flex: 1; }
+.pdf-viewer-header .source-navigation {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 8px; flex: 0 1 auto; min-width: 0; font-size: .85rem;
+}
+.source-navigation button {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 34px; padding: 4px 9px;
+  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel);
+  color: var(--green-strong); cursor: pointer;
+}
+.source-navigation button:disabled { opacity: .45; cursor: default; }
+.source-navigation button:hover:not(:disabled) { background: var(--green-soft); }
+.pdf-viewer-header .source-navigation-position { font-size: .85rem; font-variant-numeric: tabular-nums; }
+.pdf-viewer-header .source-navigation .source-navigation-error { flex-basis: 100%; max-width: 340px; color: var(--danger, #a33); white-space: normal; font-size: .8rem; }
+.markdown-source-body { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }
+.markdown-source-body.has-toc { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); }
+.markdown-source-toc { overflow: auto; min-height: 0; padding: 12px 0; border-right: 1px solid var(--line); background: var(--panel-soft); }
+.markdown-source-toc ol { list-style: none; padding: 0; margin: 0; }
+.markdown-source-toc a { display: block; padding: 7px 12px; font-size: .9rem; line-height: 1.4; overflow-wrap: anywhere; color: var(--ink); text-decoration: none; }
+.markdown-source-toc a:hover, .markdown-source-toc a[aria-current] { color: var(--green-strong); background: var(--green-soft); }
+.markdown-source-toc a:focus-visible { outline: 2px solid var(--green-strong); outline-offset: -2px; }
+@media (max-width: 700px) {
+  .pdf-viewer-header { flex-wrap: wrap; }
+  .pdf-viewer-header > .source-navigation { order: 3; flex-basis: 100%; }
+  .markdown-source-body.has-toc { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .markdown-source-toc { max-height: 26vh; border-right: 0; border-bottom: 1px solid var(--line); }
 }

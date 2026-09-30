@@ -201,12 +201,8 @@ def prepare_blocks(blocks: list[dict], complete: Callable, cache: Path,
     return chunks
 
 
-def completion_client(model: dict, local_complete: Callable | None = None) -> Callable:
+def completion_client(model: dict) -> Callable:
     engine = model.get('engine')
-    if engine == 'python':
-        if not local_complete:
-            raise ValueError('A local preparation model is required.')
-        return local_complete
     if engine not in ('remote', 'ollama'):
         raise ValueError('Choose an available chat model for AI preparation in collection settings.')
     if engine == 'remote' and not model.get('apiKey'):

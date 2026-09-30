@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createElement } from 'react'
@@ -9,12 +9,15 @@ import ts from 'typescript'
 
 const runtime = resolve('.coverage-ts-runtime/markdown-source-viewer')
 mkdirSync(runtime, { recursive: true })
-for (const filename of ['markdown-source.ts', 'MarkdownSourceViewer.tsx']) {
+for (const filename of ['markdown-source.ts', 'SourceNavigation.tsx', 'MarkdownSourceViewer.tsx']) {
   const sourcePath = resolve('src/renderer/src', filename)
   const output = ts.transpileModule(readFileSync(sourcePath, 'utf8'), {
     fileName: sourcePath,
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
-  }).outputText.replace("from './markdown-source'", "from './markdown-source.mjs'")
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+      inlineSourceMap: true, inlineSources: true, sourceRoot: `${dirname(sourcePath)}/`
+    }
+  }).outputText.replace("from './markdown-source'", "from './markdown-source.mjs'").replace("from './SourceNavigation'", "from './SourceNavigation.mjs'")
   writeFileSync(resolve(runtime, filename.replace(/\.tsx?$/, '.mjs')), output)
 }
 const { resolveSourceLineRange, sourceAnchorIndex } = await import(pathToFileURL(resolve(runtime, 'markdown-source.mjs')).href)
@@ -26,10 +29,10 @@ const render = (text, lineFrom, lineTo, chunkText = '') => renderToStaticMarkup(
 test('keeps the full document in one rendered pane and counts hidden comments in source offsets', () => {
   const html = render('# First section\n\nEarlier text.\n\n<!-- tokensmith-chunk id="42" -->\n\n## Selected section\n\n**Cited** text.\n\n## Later section\n\nLater text.', 7, 9)
   assert.equal((html.match(/aria-label="Full source document"/g) || []).length, 1)
-  assert.match(html, /<h1 data-source-line-start="1" data-source-line-end="1">First section<\/h1>/)
-  assert.match(html, /<h2 data-source-line-start="7" data-source-line-end="7" data-source-selected="true">Selected section<\/h2>/)
+  assert.match(html, /<h1 data-source-line-start="1" data-source-line-end="1"[^>]*>First section<\/h1>/)
+  assert.match(html, /<h2 data-source-line-start="7" data-source-line-end="7" data-source-selected="true"[^>]*>Selected section<\/h2>/)
   assert.match(html, /<p data-source-line-start="9" data-source-line-end="9" data-source-selected="true"><strong>Cited<\/strong> text\.<\/p>/)
-  assert.match(html, /<h2 data-source-line-start="11" data-source-line-end="11">Later section<\/h2>/)
+  assert.match(html, /<h2 data-source-line-start="11" data-source-line-end="11"[^>]*>Later section<\/h2>/)
   assert.doesNotMatch(html, /tokensmith-chunk|Full Chunk|Markdown File|<pre>/)
 })
 
@@ -89,4 +92,15 @@ test('source content cannot run HTML, load remote images, or open local files', 
   const html = render('<script>alert(1)</script>\n\n![pixel](https://example.com/pixel)\n\n[local](file:///tmp/secret) [bad](javascript:alert) [Docs](https://example.com/docs)', 3, 5)
   assert.doesNotMatch(html, /<script|<img|<iframe|src=|href="file:|href="javascript:/)
   assert.match(html, /href="https:\/\/example.com\/docs" target="_blank" rel="noopener noreferrer"/)
+})
+
+
+test('the outline anchors actual headings, including Setext, formatting and duplicate titles', () => {
+  const html = render('# **Overview** and `code`\n\n## Details\n\nDetails\n-------\n\n```md\n# Not a heading\n```\n\n<!-- # Hidden -->\n\n### $x^2$ cost', 1, 1)
+  assert.equal((html.match(/data-source-heading-depth=/g) || []).length, 4)
+  for (let i = 1; i <= 4; i++) assert.match(html, new RegExp(`id="source-heading-${i}"`))
+  assert.match(html, /data-source-heading-label="Overview and code"/)
+  assert.equal((html.match(/data-source-heading-label="Details"/g) || []).length, 2)
+  assert.doesNotMatch(html, /data-source-heading-label="Not a heading|data-source-heading-label="Hidden/)
+  assert.match(html, /data-source-heading-label="x\^2 cost"/)
 })
