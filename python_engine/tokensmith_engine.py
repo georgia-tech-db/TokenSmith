@@ -11,6 +11,7 @@ import json
 import hashlib
 import math
 import os
+from pydoc import resolve
 import re
 import sys
 import time
@@ -19,6 +20,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from datetime import datetime
+import networkx as nx
+from bokeh.io import output_file, save
+from bokeh.models import HoverTool, PanTool, WheelZoomTool, ResetTool
+from bokeh.palettes import Category10
+from bokeh.plotting import from_networkx, figure
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -171,6 +177,7 @@ VISIBLE_LOG_EVENTS = {
     "question_suggestion_runtime_context_budget",
     "library_search_request",
     "library_search_result",
+    "custom"
 }
 
 class EngineError(Exception):
@@ -223,6 +230,33 @@ def count_words(text: str) -> int:
 def tokenize(text: str) -> List[str]:
     tokens = re.findall(r"[a-z0-9]+(?:['-][a-z0-9]+)?", text.lower())
     return [token for token in tokens if len(token) > 1 and token not in STOP_WORDS]
+
+
+def clean_query(query: str) -> str:
+    # 1. Normalize internal whitespace first
+    query = re.sub(r"\s+", " ", query).strip()
+    
+    # 2. Strip trailing punctuation ONLY if preceded by a non-whitespace character (\S)
+    query = re.sub(r"(?<=\S)[.!?]+$", "", query)
+    query += "in detail"  # Append "in detail" to the query for better context
+    return query
+
+def embedding_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    """Compute Cosine Similarity between two embedding vectors in [-1.0, 1.0]."""
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+
+    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+
+    denom = norm_a * norm_b
+    if denom <= 1e-12:
+        return 0.0
+
+    cosine_sim = dot_product / denom
+    return max(-1.0, min(1.0, cosine_sim))
+    
 
 
 def normalize_vector(values: Iterable[float]) -> List[float]:
@@ -871,7 +905,7 @@ def index_file(
         path,
         chunks,
         embedding_model,
-        embed_text,
+        embed_text
     )
     document["chunkCount"] = len(stored_chunks)
     document["status"] = "ready" if stored_chunks else "needsReview"
@@ -1009,6 +1043,130 @@ def summarize_material(path: Path, material_id: str, documents: List[Dict[str, A
         "indexedAt": datetime.now().astimezone().isoformat(timespec="seconds") if chunks else None,
         "error": first_error if status == "needsReview" else None,
     }
+
+
+def extract_chunk_terms(chunk: Dict[str, Any]) -> set:
+    """Extract all meaningful terms from bullets and text."""
+    terms = set()
+    terms.update(t for t in tokenize(str(chunk.get("text") or "")) if len(t) >= 4)
+    return terms
+
+
+def visualize_graph(graph: Dict[str, List[str]], graph_nodes: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+    G = nx.DiGraph()
+    for source, targets in graph.items():
+        term_count = len(graph_nodes[source].get("terms", [])) if graph_nodes and source in graph_nodes else 0
+        G.add_node(source, terms=term_count)
+        for target in targets:
+            G.add_edge(source, target)
+
+    # Spread layout out significantly
+    pos = nx.spring_layout(G, k=2.0, iterations=100)
+
+    # Fit view to node bounds
+    x_vals, y_vals = zip(*pos.values())
+    p = figure(
+        width=1000, height=800,
+        x_range=(min(x_vals) - 0.2, max(x_vals) + 0.2),
+        y_range=(min(y_vals) - 0.2, max(y_vals) + 0.2),
+        tools=[PanTool(), WheelZoomTool(), ResetTool(), HoverTool(tooltips=[("Node", "@index"), ("Terms", "@terms")])]
+    )
+    
+    render = from_networkx(G, pos)
+    p.renderers.append(render)
+
+    output_file("utility_graph.html")
+    save(p)
+
+def build_utility_graph_and_store(user_data_path: str, material_id: str, chunks: List[Dict[str, Any]]) -> None:
+    """Build utility graph where edge A→B exists if B is useful for answering questions about A."""
+    # Use provided chunks if they have rowids (e.g., from tests), otherwise fetch from database
+    work_chunks = chunks
+    if chunks and not chunks[0].get("rowid"):
+        try:
+            from tokensmith_store import get_chunks_by_material_id
+            db_chunks = get_chunks_by_material_id(user_data_path, material_id)
+            if db_chunks:
+                work_chunks = db_chunks
+        except Exception:
+            pass
+    
+    if not work_chunks:
+        return
+    
+    graph: Dict[str, List[str]] = {}
+    chunk_ids = [chunk.get("rowid") for chunk in work_chunks]
+    embeddings = [chunk.get("embedding", []) for chunk in work_chunks]
+    all_terms = [extract_chunk_terms(chunk) for chunk in work_chunks]
+    
+    for chunk_id in chunk_ids:
+        if chunk_id:
+            graph[str(chunk_id)] = []
+    
+    # Build a graph where every node is a dict, not just id, but also terms and embedding, so we can use it for more advanced analysis in the future
+    graph_nodes: Dict[str, Dict[str, Any]] = {}
+    for i, chunk_id in enumerate(chunk_ids):
+        if chunk_id:
+            graph_nodes[str(chunk_id)] = {
+                "id": chunk_id,
+                "terms": all_terms[i],
+                "embedding": embeddings[i],
+                "content_text": work_chunks[i].get("text", ""),
+            }
+
+    for i, source_id in enumerate(chunk_ids):
+        if not source_id or not all_terms[i]:
+            continue
+        source_terms_len = len(all_terms[i])
+        for j, target_id in enumerate(chunk_ids):
+            if i == j or not target_id:
+                continue
+            
+            # Connect if high embedding similarity (>= 0.19) OR high term overlap (>= 30%)
+            has_embedding_similarity = False
+            try:
+                emb_i = embeddings[i]
+                emb_j = embeddings[j]
+                # Check embeddings are not empty (works with both lists and numpy arrays)
+                emb_i_len = len(emb_i) if hasattr(emb_i, '__len__') else 0
+                emb_j_len = len(emb_j) if hasattr(emb_j, '__len__') else 0
+                if emb_i_len > 0 and emb_j_len > 0:
+                    has_embedding_similarity = embedding_similarity(emb_i, emb_j) >= 0.1
+            except (TypeError, ValueError, Exception):
+                pass
+            
+            has_term_overlap = source_terms_len > 0 and len(all_terms[i] & all_terms[j]) / source_terms_len >= 0.2
+            
+            if has_term_overlap or has_embedding_similarity:
+                graph[str(source_id)].append(str(target_id))
+                # graph[str(target_id)].append(str(source_id))  # Undirected edge for utility
+
+    db_path = Path(user_data_path) / "similarity_graphs" / f"{material_id}.json"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(db_path, "w", encoding="utf-8") as f:
+        json.dump(graph, f, ensure_ascii=False, indent=2)
+    
+    # Save graph with node details for future analysis (convert sets and ndarrays to lists for JSON serialization)
+    graph_nodes_serializable = {}
+    for node_id, node_data in graph_nodes.items():
+        embedding = node_data.get("embedding", [])
+        # Convert numpy arrays and other iterables to list
+        if hasattr(embedding, 'tolist'):
+            embedding = embedding.tolist()
+        elif not isinstance(embedding, list):
+            embedding = list(embedding) if embedding is not None else []
+        
+        graph_nodes_serializable[node_id] = {
+            "id": node_data.get("id"),
+            "terms": list(node_data.get("terms", [])),
+            "embedding": embedding,
+            "content_text": node_data.get("content_text", ""),
+        }
+    
+    db_path = Path(user_data_path) / "similarity_graphs" / f"{material_id}_graph.json"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(db_path, "w", encoding="utf-8") as f:
+        json.dump(graph_nodes_serializable, f, ensure_ascii=False, indent=2)
 
 
 def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1276,6 +1434,10 @@ def index_material(payload: Dict[str, Any]) -> Dict[str, Any]:
         processed_embeddings=completed_embeddings,
         total_embeddings=total_embeddings,
     )
+    
+    # Build utility graph for chunks
+    build_utility_graph_and_store(user_data_path, material_id, chunks)
+    
     return {"material": material}
 
 
@@ -1675,6 +1837,288 @@ def select_source_rows(
     return selected
 
 
+# create similar  search_library function that uses the similarity graph to find related chunks based on the query and returns them as sources
+
+def load_similarity_graphs(user_data_path: str, material_ids: List[str]) -> Dict[int, List[int]]:
+    """Load similarity graphs from disk and convert to int rowids."""
+    graphs: Dict[str, List[str]] = {}
+    for mat_id in material_ids:
+        path = Path(user_data_path) / "similarity_graphs" / f"{mat_id}.json"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                graphs.update(json.load(f))
+    
+    result: Dict[int, List[int]] = {}
+    for node, neighbors in graphs.items():
+        try:
+            result[int(node)] = [int(n) for n in neighbors if n.isdigit()]
+        except (ValueError, TypeError):
+            pass
+    return result
+
+
+def load_graph_nodes_detailed(user_data_path: str, material_ids: List[str]) -> Dict[int, Dict[str, Any]]:
+    """Load detailed graph nodes with terms and embeddings for scoring."""
+    nodes: Dict[int, Dict[str, Any]] = {}
+    for mat_id in material_ids:
+        path = Path(user_data_path) / "similarity_graphs" / f"{mat_id}_graph.json"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                for node_id_str, node_data in loaded.items():
+                    try:
+                        node_id = int(node_id_str)
+                        # Convert terms list back to set and embedding to list
+                        nodes[node_id] = {
+                            "id": node_data.get("id"),
+                            "terms": set(node_data.get("terms", [])),
+                            "embedding": node_data.get("embedding", []),
+                            "content_text": node_data.get("content_text", ""),
+                        }
+                    except (ValueError, TypeError):
+                        pass
+    return nodes
+
+def save_traversal_graph(G: nx.DiGraph, filename: str = "utility_graph.html") -> None:
+        pos = nx.spring_layout(G, k=2.5, iterations=100)
+        xs, ys = zip(*pos.values())
+
+        # HTML tooltip template with fixed max-width and text wrapping
+        hover_html = """
+            <div style="max-width: 300px; word-wrap: break-word; font-family: sans-serif; font-size: 12px;">
+                <div><strong>Node:</strong> @index</div>
+                <div><strong>Depth:</strong> @depth</div>
+                <div><strong>Score:</strong> @score</div>
+                <div style="margin-top: 4px;"><strong>Content:</strong></div>
+                <div style="white-space: normal; color: #444;">@content</div>
+            </div>
+        """
+
+        p = figure(
+            width=1000, 
+            height=800, 
+            x_range=(min(xs) - 0.2, max(xs) + 0.2), 
+            y_range=(min(ys) - 0.2, max(ys) + 0.2),
+            tools=[
+                PanTool(), 
+                WheelZoomTool(), 
+                ResetTool(), 
+                HoverTool(tooltips=hover_html)
+            ]
+        )
+        
+        renderer = from_networkx(G, pos)
+        renderer.node_renderer.glyph.fill_color = "color"
+        renderer.node_renderer.glyph.size = "size"
+        
+        p.renderers.append(renderer)
+        output_file(filename)
+        save(p)
+
+def save_selected_traversal_graph(G_selected: nx.DiGraph, path_to_dest: Dict[int, List[int]], ranked: Dict[int, Tuple[float, str, str]], graph_nodes: Dict[int, Dict[str, Any]], selected_rids: set) -> None:
+    for rid in selected_rids:
+        if rid in path_to_dest:
+            path = path_to_dest[rid]
+            
+            # Add nodes with correct depth index
+            for idx, node in enumerate(path):
+                if node not in G_selected:
+                    G_selected.add_node(node, depth=idx, score=round(ranked[node][0], 4),content = graph_nodes.get(node, {}).get("content_text", "ADI"))
+                
+                    
+            # Add edges along the path
+            for u, v in zip(path[:-1], path[1:]):
+                sim = round(ranked[v][0] / ranked[u][0], 4) if ranked[u][0] != 0 else 0.0
+                G_selected.add_edge(u, v, similarity=sim)
+    
+    palette = Category10[10]
+    for node, data in G_selected.nodes(data=True):
+        depth = data.get("depth", 0)
+        data["color"] = "#FFD700" if depth == 0 else palette[depth % len(palette)]
+        data["size"] = 22 if depth == 0 else 15
+        
+        if node in selected_rids:
+            data["color"] = "#FF4500"  # Highlight selected nodes
+            data["size"] = 25  # Increase size for selected nodes
+    
+    return G_selected
+
+def do_vector_search(user_data_path: str, query: str, limit: int, active_ids: List[str], embedding_specs: List[Dict[str, Any]]) -> Tuple[Dict[int, Tuple[float, str]], List[str]]:
+    """Search across all embedding models and gather results."""
+    by_model = embedding_models_by_collection_ids(user_data_path, active_ids)
+    model_to_mats = {}
+    for mat_id in active_ids:
+        key = by_model.get(str(mat_id))
+        if key:
+            model_to_mats.setdefault(key, []).append(str(mat_id))
+    
+    hits: Dict[int, Tuple[float, str]] = {}
+    failed: List[str] = []
+    seed_limit = max(limit * 3, limit + 4)
+    
+    for model_key, mat_ids in model_to_mats.items():
+        fn, err = resolve_embedding_provider_for_key(model_key, embedding_specs)
+        if err or not fn:
+            failed.append(model_key)
+            continue
+        try:
+            emb = fn(query)
+            for rowid, score in vector_search(user_data_path, emb, mat_ids, seed_limit, model_key):
+                if rowid not in hits or score > hits[rowid][0]:
+                    hits[rowid] = (score, model_key)
+        except Exception:
+            failed.append(model_key)
+    
+    return hits, failed
+
+
+def search_library_with_similarity_graph(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user_data_path = payload["userDataPath"]
+    init_db(user_data_path)
+
+    query = payload.get("query", "")
+    query = clean_query(query)
+    limit = int(payload.get("limit") or 4)
+    materials = payload.get("materials") or []
+    embedding_specs = embedding_model_specs(payload)
+    ready = [m for m in materials if m.get("id") and m.get("status") == "ready" and m.get("isActive") is not False]
+    active_ids = enabled_material_ids_for_requests(user_data_path, ready)
+    
+    if not active_ids:
+        return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
+    if not has_chunks(user_data_path, active_ids):
+        return {"sources": [], "reason": "no_indexed_chunks"}
+    
+    query_tokens = sorted(set(tokenize(query)))
+    graph = load_similarity_graphs(user_data_path, active_ids)
+    graph_nodes = load_graph_nodes_detailed(user_data_path, active_ids)
+    hits, _ = do_vector_search(user_data_path, query, limit, active_ids, embedding_specs)
+    
+    if not hits:
+        return {"sources": [], "reason": "no_matching_sources"}
+    
+    
+    # Compute query embedding using the embedding model from the first hit
+    query_embedding = []
+    model = payload.get("embeddingModel") or embedding_specs[0] if embedding_specs else None
+    query_embedding = ollama_embedding(query, model)
+    
+    
+    ranked = {rid: (embedding_similarity(query_embedding, graph_nodes[rid]["embedding"]), model, "vector") for rid, (score, model) in hits.items()}
+    log_event("custom", details={"query_embedding": query_embedding, "hit_embeddings": {rid: graph_nodes[rid]["embedding"] for rid in hits.keys() if rid in graph_nodes}})
+    
+    # ranked = {rid: (score, model, "vector") for rid, (score, model) in hits.items()}
+    
+    frontier = list(hits.keys())
+    decay = min(1.0, max(0.0, float(payload.get("graphScoreDecay") or  0.98)))
+
+
+    # 1. Initialize NetworkX DiGraph
+    G = nx.DiGraph()
+
+    # Add initial frontier seed nodes
+    path_to_dest = {}
+    for node in frontier:
+        G.add_node(node, depth=0, score=round(ranked[node][0], 4))
+        path_to_dest[node] = [node]  # Initialize path to self
+
+    # 2. BFS Traversal using graph edges and weighted node/query similarity
+    for depth in range(int(payload.get("graphDepth") or 10)):
+        next_frontier = []
+        
+
+        # Smooth transition centered at depth 2
+        # Starts at 0.30 (depth 0) and smoothly approaches ~0.80 at deeper hops
+        n_weight = 0.2
+        q_weight = 0.8
+
+        for node in frontier:
+            neighbors = graph.get(node, [])
+            current_score, current_model, _ = ranked[node]
+            node_data = graph_nodes.get(node)
+            path_to_dest[node] = path_to_dest.get(node, [node])
+
+            for neighbor in neighbors:
+                if neighbor not in ranked:
+                    path_to_dest[neighbor] = path_to_dest[node] + [neighbor]
+                    neighbor_data = graph_nodes.get(neighbor) or {}
+                    
+                    # Compute similarity score
+                    sim_scores = []
+                    neighbor_emb = neighbor_data.get("embedding", [])
+                    
+                    if len(neighbor_emb) > 0:
+                        if node_data and len(node_data.get("embedding", [])) > 0:
+                            sim_scores.append(n_weight * embedding_similarity(node_data["embedding"], neighbor_emb))
+                        if len(query_embedding) > 0:
+                            sim_scores.append(q_weight * embedding_similarity(query_embedding, neighbor_emb))
+                    
+                    similarity = max(0.1, sum(sim_scores)) if sim_scores else 1.0
+
+                    # Score blend + Depth bonus to encourage deep exploration
+                    neighbor_score = similarity
+
+                    next_frontier.append(neighbor)
+                    ranked[neighbor] = (neighbor_score, current_model, "similarity_graph")
+
+                    # Track in Graph
+                    if 'G' in globals() or 'G' in locals():
+                        G.add_node(neighbor, depth=depth + 1, score=round(neighbor_score, 4), 
+                                content=neighbor_data.get("text") or neighbor_data.get("content", ""))
+                        G.add_edge(node, neighbor, similarity=round(similarity, 4))
+
+        if not next_frontier:
+            break
+        frontier = next_frontier
+    # save_traversal_graph(G)
+    
+    by_mode = {}
+    for rid, (score, model, mode) in ranked.items():
+        by_mode.setdefault(mode, []).append((rid, score))
+
+    # Combine vector and graph results, preferring graph results
+    vector_results = sorted(by_mode.get("vector", []), key=lambda x: x[1], reverse=True)
+    graph_results = sorted(by_mode.get("similarity_graph", []), key=lambda x: x[1], reverse=True)
+    combined_results = sorted(graph_results + vector_results, key=lambda x: x[1], reverse=True)
+    
+    
+    # Build selected results: take graph results first, then fill with vector results
+    selected = []
+    selected_rids = set()
+    
+    # Add graph results first (they're prioritized)
+    for rid, score in combined_results:
+        if len(selected) < 2*limit:
+            selected.append((rid, ranked[rid]))
+            selected_rids.add(rid)
+
+    G_selected = nx.DiGraph()
+    G_selected = save_selected_traversal_graph(G_selected, path_to_dest, ranked, graph_nodes, selected_rids)
+    save_traversal_graph(G_selected, filename="selected_traversal_graph.html")
+    
+    
+    # # Fill remaining slots with vector results
+    for rid, score in vector_results:
+        if len(selected) < limit and rid not in selected_rids:
+            selected.append((rid, ranked[rid]))
+            selected_rids.add(rid)
+    
+    
+    lookup = {rid: (score, model, mode) for rid, (score, model, mode) in selected}
+    rows = fetch_sources(user_data_path, [(rid, score) for rid, (score, _, _) in selected], active_ids)
+    for row in rows:
+        rid = int(row["rowid"])
+        if rid in lookup:
+            score, model, mode = lookup[rid]
+            row["retrieval_mode"] = mode
+            row["query_embedding_model"] = model
+    
+    sources = [source_from_sqlite_chunk(row, query_tokens) for row in rows]
+    graph_hits = sum(1 for _, _, mode in lookup.values() if mode == "similarity_graph")
+    log_event("search_results_ranked", queryChars=len(query), vectorHits=len(hits), graphHits=graph_hits)
+    return {"sources": sources, "reason": None if sources else "no_matching_sources"}
+    
+    
 def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     init_db(user_data_path)
@@ -1900,7 +2344,7 @@ COMMANDS = {
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,
     "preparation_report": preparation_report,
-    "search": search_library,
+    "search": search_library_with_similarity_graph,
     "starter_sources": starter_sources,
     "list_materials": list_indexed_materials,
     "set_material_enabled": set_material_enabled,

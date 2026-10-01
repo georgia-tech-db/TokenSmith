@@ -3,3 +3,5 @@ numpy==2.5.2
 packaging==26.3
 Pillow==12.3.0
 pypdfium2==5.13.0
+networkx==3.1
+bokeh==3.4.1

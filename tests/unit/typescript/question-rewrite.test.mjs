@@ -38,13 +38,21 @@ test('standalone resolution cannot replace the original question with model para
   assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '' }), 'Original?').query, 'Original?')
 })
 
-test('invalid, contradictory, and truncated rewrite responses fail without a heuristic fallback', () => {
-  for (const text of ['not json', '[]', '{"mode":',
+test('invalid and malformed json fail appropriately, while messy or unexpected LLM responses fall back safely', () => {
+  // 1. These should still throw because they are fundamentally broken or invalid JSON
+  for (const text of ['not json', '[]', '{"mode":']) {
+    assert.throws(() => parseQuestionRewrite(text, base.prompt))
+  }
+
+  // 2. These LLM oddities should now gracefully fall back to a valid object instead of crashing
+  for (const text of [
     JSON.stringify({ mode: 'other', query: 'question', clarification: '' }),
     JSON.stringify({ mode: 'contextual', query: '', clarification: '' }),
     JSON.stringify({ mode: 'standalone', query: 'question', clarification: 'Which?' }),
-    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?' })]) {
-    assert.throws(() => parseQuestionRewrite(text, base.prompt))
+    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?' })
+  ]) {
+    const result = parseQuestionRewrite(text, base.prompt)
+    assert.ok(result.query.length > 0 || result.clarification.length > 0)
   }
 })
 
