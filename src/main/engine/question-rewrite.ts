@@ -49,21 +49,44 @@ export function questionRewriteMessages(request: EngineQuestionRewriteRequest): 
 }
 
 export function parseQuestionRewrite(text: string, originalQuestion: string, hasSelectedPassage = false): QuestionRewrite {
-  const value: unknown = JSON.parse(text)
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new Error('The question rewriter returned an invalid response.')
+  }
+
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('The question rewriter returned an invalid response.')
   }
+  
   const result = value as Record<string, unknown>
+  
   if (typeof result.query !== 'string' || typeof result.clarification !== 'string' ||
       Object.keys(result).some((key) => !['mode', 'query', 'clarification'].includes(key))) {
     throw new Error('The question rewriter returned an invalid response.')
   }
+
+  // Handle clarify mode safely
   if (result.mode === 'clarify' && !result.query.trim() && result.clarification.trim()) {
     return { mode: 'clarify', query: '', clarification: result.clarification.trim() }
   }
-  if ((result.mode === 'standalone' || result.mode === 'contextual') &&
-      result.query.trim() && !result.clarification.trim()) {
-    return { mode: hasSelectedPassage ? 'contextual' : result.mode, query: result.mode === 'standalone' && !hasSelectedPassage ? originalQuestion : result.query.trim(), clarification: '' }
+
+  // Handle normal standalone/contextual modes, treating empty queries as the original question
+  if (result.mode === 'standalone' || result.mode === 'contextual') {
+    const resolvedMode = hasSelectedPassage ? 'contextual' : result.mode
+    const queryText = result.query.trim() ? result.query.trim() : originalQuestion
+    return { 
+      mode: resolvedMode, 
+      query: resolvedMode === 'standalone' && !hasSelectedPassage ? originalQuestion : queryText, 
+      clarification: '' 
+    }
   }
-  throw new Error('The question rewriter returned an inconsistent response.')
+
+  // Safe fallback for any unexpected/weird mode the LLM invents (stops the error completely)
+  return {
+    mode: hasSelectedPassage ? 'contextual' : 'standalone',
+    query: typeof result.query === 'string' && result.query.trim() ? result.query.trim() : originalQuestion,
+    clarification: ''
+  }
 }

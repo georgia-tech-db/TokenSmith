@@ -1477,6 +1477,47 @@ def expand_source_units(
                 'page_end': parts[-1]['page_end'], 'line_to': parts[-1]['line_to'],
                 'unit_complete': True, 'source_chunk_ids': [p['stable_chunk_id'] for p in parts]})
     return expanded
+def get_chunks_by_material_id(
+    user_data_path: str,
+    material_id: Any,
+) -> List[Dict[str, Any]]:
+    """Fetch all chunks for a material with their database rowids and embeddings."""
+    init_db(user_data_path)
+    
+    # Convert material_id to integer if it's already an int or can be converted
+    try:
+        col_id = int(material_id)
+    except (ValueError, TypeError):
+        # If it's a string like "material-xxx", try to look it up
+        col_id = collection_id_from_material_id(material_id)
+    
+    if col_id is None or col_id <= 0:
+        return []
+    
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            {source_row_select()}
+            WHERE col.id = ?
+              AND s.status = 'ready'
+            """,
+            (col_id,),
+        ).fetchall()
+    
+    result = []
+    for row in rows:
+        chunk_dict = dict(row)
+        # Fetch embedding if it exists
+        with connect(user_data_path) as conn:
+            embedding_row = conn.execute(
+                "SELECT embedding FROM embeddings WHERE chunk_id = ? LIMIT 1",
+                (chunk_dict.get("rowid"),),
+            ).fetchone()
+        if embedding_row and embedding_row["embedding"]:
+            chunk_dict["embedding"] = blob_to_vector(embedding_row["embedding"])
+        result.append(chunk_dict)
+    
+    return result
 
 
 def get_chunks_by_rowids(
