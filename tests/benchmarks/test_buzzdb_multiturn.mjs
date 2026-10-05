@@ -49,6 +49,7 @@ export async function runBuzzdbMultiturnBenchmark() {
           assert.deepEqual(prepared.request.referenceExchange, { question: previousQuestion, answer: previousAnswer })
           assert.ok(packed.includes('not factual evidence'))
           assert.ok(!packed.includes('Fixture retrieval query:'))
+          assert.equal(packed.split('\n\nQuestion:').at(-1).trim(), turn.prompt)
         } else {
           assert.equal(prepared.request.referenceExchange, undefined)
           assert.ok(!packed.includes('### Previous exchange'))

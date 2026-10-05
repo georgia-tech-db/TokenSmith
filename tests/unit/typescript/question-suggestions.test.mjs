@@ -39,9 +39,13 @@ test('follow-ups use the actual new answer and do not drop complete questions so
   const original = globalThis.fetch
   const question = 'When does the complexity difference between a range scan and a full scan become practically noticeable when dealing with millions of records?'
   try {
-    let calls = 0
+    let calls = 0, probes = 0
     globalThis.fetch = async (_url, options) => {
       const body = JSON.parse(options.body)
+      if (body.options.num_predict === 1) {
+        probes++
+        return { ok: true, json: async () => ({ prompt_eval_count: 1800 }) }
+      }
       if (++calls === 2) {
         assert.equal(body.format.type, 'array')
         assert.equal(body.options.num_predict, 384)
@@ -55,6 +59,7 @@ test('follow-ups use the actual new answer and do not drop complete questions so
     }
     const result = await runOllamaStudyEngine(request)
     assert.equal(calls, 2)
+    assert.equal(probes, 1)
     assert.deepEqual(result.followUpSuggestions, [question])
   } finally { globalThis.fetch = original }
 })

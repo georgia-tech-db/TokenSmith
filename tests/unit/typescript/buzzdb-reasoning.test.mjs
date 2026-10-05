@@ -1,11 +1,32 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { formatReasoningAnswers, packedEvidenceFromCalls, runReasoningTurns } from '../../benchmarks/buzzdb_reasoning.mjs'
+import { formatReasoningAnswers, liveBenchmarkOptions, packedEvidenceFromCalls, runReasoningTurns, seededBenchmarkFetch } from '../../benchmarks/buzzdb_reasoning.mjs'
 import { formatBenchmarkSummary } from '../../benchmarks/test_buzzdb_retrieval.mjs'
 import { buzzdbChunk } from '../../helpers/buzzdb-fixture.mjs'
 
 const families = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_cases.json', 'utf8'))
+
+test('live model and seed are explicit without changing the default or accepting invalid seeds', () => {
+  assert.equal(liveBenchmarkOptions({}).modelName, 'gemma4:e4b')
+  assert.equal(liveBenchmarkOptions({}).seed, undefined)
+  assert.equal(liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_MODEL: 'gemma4:26b', TOKENSMITH_BENCHMARK_SEED: '19' }).modelName, 'gemma4:26b')
+  assert.equal(liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_SEED: '0' }).seed, 0)
+  for (const seed of ['', ' ', 'abc', '-1', '1.5', '2147483648']) {
+    assert.throws(() => liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_SEED: seed }), /SEED/)
+  }
+  assert.throws(() => liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_MODEL: ' ' }), /MODEL/)
+})
+
+test('paired seeds apply to actual chat requests, not embedding requests or production settings', () => {
+  const args = ['http://localhost:11434/api/chat', { body: JSON.stringify({ options: { temperature: 0.7 }, messages: [] }) }]
+  const seeded = seededBenchmarkFetch(args, 19)
+  assert.deepEqual(JSON.parse(seeded[1].body).options, { temperature: 0.7, seed: 19 })
+  assert.equal(JSON.parse(args[1].body).options.seed, undefined)
+  assert.equal(seededBenchmarkFetch(args, undefined), args)
+  const embed = ['http://localhost:11434/api/embed', args[1]]
+  assert.equal(seededBenchmarkFetch(embed, 19), embed)
+})
 
 test('six reasoning families have source-backed rubrics for all eighteen turns', () => {
   assert.equal(families.length, 6)
@@ -19,6 +40,21 @@ test('six reasoning families have source-backed rubrics for all eighteen turns',
     }
     for (const turn of family.turns) {
       assert.ok(turn.question.trim())
+      assert.ok(turn.referenceAnswer.trim())
+      assert.equal(turn.criteria.length, 4)
+    }
+  }
+})
+
+test('new diagnostic chains have distinct questions, valid passages, and evaluator-only criteria', () => {
+  const variants = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_variants.json', 'utf8'))
+  assert.equal(variants.length, 3)
+  const originalQuestions = new Set(families.flatMap(family => family.turns.map(turn => turn.question)))
+  for (const family of variants) {
+    assert.deepEqual(family.turns.map(turn => turn.phase), ['initial', 'followup'])
+    for (const group of family.evidenceGroups) for (const id of group.chunkIds) buzzdbChunk(id)
+    for (const turn of family.turns) {
+      assert.ok(!originalQuestions.has(turn.question))
       assert.ok(turn.referenceAnswer.trim())
       assert.equal(turn.criteria.length, 4)
     }

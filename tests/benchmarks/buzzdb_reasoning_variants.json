@@ -1,0 +1,68 @@
+[
+  {
+    "id": "slot_relocation",
+    "title": "Slot identity within and across pages",
+    "evidenceGroups": [
+      { "id": "rid", "chunkIds": ["ch03.036", "ch03.037"], "requiredContext": ["page_id", "slot_id"] },
+      { "id": "indirection", "chunkIds": ["ch03.039", "ch03.040"], "requiredContext": ["offset"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "An index stores RID (7, 3) for a record. During slotted-page compaction on page 7, that record's bytes move from offset 800 to offset 500 without changing its length or slot number. Using the book's slot-directory design, what must change and what stays the same? Does the index entry need rewriting?",
+        "referenceAnswer": "Slot 3 on page 7 must now point to offset 500. The record bytes move, but page ID 7, slot ID 3, record length, and RID (7,3) remain unchanged. The index entry does not need rewriting for this within-page move because it resolves through the slot directory.",
+        "criteria": ["Update slot 3's offset from 800 to 500", "Preserve page ID 7 and slot ID 3", "Keep index RID (7,3) unchanged for this within-page move", "Explain slot-directory indirection rather than physical-byte addressing"]
+      },
+      {
+        "phase": "followup",
+        "question": "Now change the operation: move that record to page 9, slot 2, and remove its bytes from page 7. Does the same unchanged RID still find it just because both pages have slot directories? Assume no forwarding mechanism was added.",
+        "referenceAnswer": "No. (7,3) still addresses slot 3 on page 7, not (9,2). Within-page offset indirection does not automatically provide cross-page forwarding. The index/reference must change to (9,2), or the design must explicitly add forwarding; no such mechanism may be assumed here.",
+        "criteria": ["Reject unchanged RID working automatically across pages", "Distinguish (7,3) from destination (9,2)", "Explain that within-page slot indirection does not imply cross-page forwarding", "Update references or explicitly add forwarding as a proposed design, not an existing feature"]
+      }
+    ]
+  },
+  {
+    "id": "split_kind_change",
+    "title": "Copy-up versus push-up with identical key values",
+    "evidenceGroups": [
+      { "id": "leaf", "chunkIds": ["ch09.061", "ch09.062", "ch09.068"], "requiredContext": ["copy"] },
+      { "id": "internal", "chunkIds": ["ch09.069", "ch09.070"], "requiredContext": ["mid"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "A B+ tree leaf temporarily holds keys [4, 8, 12, 16] after insertion, with maxKeys=3. Use the book's leaf split with mid=2 (zero-based). Show the two resulting leaves and the separator copied into the parent. Does key 12 still have a data entry in a leaf? Explain why.",
+        "referenceAnswer": "The left leaf has [4,8], the right leaf [12,16], and separator 12 is copied into the parent. Key 12 and its associated data entry stay in the right leaf. The parent's copy is for routing; the leaf retains the dataset entry.",
+        "criteria": ["Left leaf [4,8] and right leaf [12,16]", "Copy separator 12 to the parent", "Retain key 12 and its data entry in the right leaf", "Distinguish routing copy from leaf data and do not delete the data entry"]
+      },
+      {
+        "phase": "followup",
+        "question": "Now those same four keys are in an internal node instead, with children C0 through C4 from left to right. Keep mid=2. Show the keys and children left in each split internal node and what goes to the parent. Does the separator stay in either split node this time?",
+        "referenceAnswer": "Push separator 12 to the parent. The left internal node has keys [4,8] and children [C0,C1,C2]; the right has key [16] and children [C3,C4]. Separator 12 is removed from these two internal nodes. This does not delete the corresponding data key from leaves below them.",
+        "criteria": ["Push separator 12 to the parent and remove it from both split internal nodes", "Left keys [4,8] with children C0,C1,C2", "Right key [16] with children C3,C4", "Respect the explicit change from leaf to internal node; do not claim leaf data for key 12 is deleted"]
+      }
+    ]
+  },
+  {
+    "id": "simd_mask_change",
+    "title": "Inclusive masks and a changed Boolean operation",
+    "evidenceGroups": [
+      { "id": "comparisons", "chunkIds": ["ch15.085", "ch15.086"], "requiredContext": ["vcgeq_s32", "vcleq_s32"] },
+      { "id": "conjunction", "chunkIds": ["ch15.085", "ch15.086"], "requiredContext": ["vandq_u32"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "Using the book's SIMD timestamp filter, take lanes [9, 10, 20, 21] and the inclusive range [10, 20]. Show the >= start mask, the <= end mask, and their final AND mask. Give both true/false lanes and the actual unsigned 32-bit lane values for the final mask, not temperatures or averages.",
+        "referenceAnswer": ">=10 is [false,true,true,true]; <=20 is [true,true,true,false]. AND is [false,true,true,false], represented as [0,4294967295,4294967295,0] or [0,0xFFFFFFFF,0xFFFFFFFF,0]. Both boundary timestamps pass. All-one bits are not the unsigned integer 1.",
+        "criteria": ["Correct lower mask [false,true,true,true]", "Correct upper mask [true,true,true,false]", "Final AND [false,true,true,false] includes both endpoints", "Final uint32 lanes 0,0xFFFFFFFF,0xFFFFFFFF,0 rather than integer ones"]
+      },
+      {
+        "phase": "followup",
+        "question": "Keep those timestamps and boundaries, but replace the bitwise AND with bitwise OR. Which lanes now pass, and why is that wrong for a between-range filter? Do not silently keep using AND.",
+        "referenceAnswer": "OR produces [true,true,true,true], or four 0xFFFFFFFF lanes. Timestamp 9 passes the <=20 condition and 21 passes >=10, although both are outside the range. A between-range predicate requires both comparisons, not either one.",
+        "criteria": ["OR makes all four lanes true", "9 passes the upper-bound comparison despite failing the lower", "21 passes the lower-bound comparison despite failing the upper", "Explain both conditions are required for between and explicitly honor the changed operator"]
+      }
+    ]
+  }
+]

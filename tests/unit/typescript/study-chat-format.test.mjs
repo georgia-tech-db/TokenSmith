@@ -53,6 +53,7 @@ const ollamaChatModel = {
   status: 'ready',
   source: 'ollama',
   ollamaModelName: 'llama3',
+  contextLength: 8192,
   addedAt
 }
 
@@ -124,13 +125,14 @@ test('modelAwareRuntimeSettings uses discovered model context with a bounded aut
   assert.equal(runtimeSettings.maxLength, 512)
 })
 
-test('studyChatMessages budgets and clips source context around matched terms', () => {
+test('remote studyChatMessages budgets and clips source context around matched terms', () => {
   const request = {
     prompt: 'Why is pinning needed?',
     messages: [],
     materials: [],
     model: {
       ...ollamaChatModel,
+      engine: 'remote',
       contextLength: 2048
     },
     settings: {},

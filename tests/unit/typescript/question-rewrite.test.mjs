@@ -72,6 +72,7 @@ test('contextual rewrites affect retrieval but never replace the student task', 
   assert.match(prompt, /not factual evidence/)
   assert.match(prompt, /records A and B/)
   assert.doesNotMatch(prompt, /checkpoint record A example/)
+  assert.equal(prompt.split('\n\nQuestion:').at(-1).trim(), base.prompt)
 })
 
 test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {
@@ -106,8 +107,10 @@ test('history consumes context budget and is bounded before source packing', () 
   const budget = sourceContextBudgetForRequest(contextual)
   assert.ok(budget.fixedPromptTokens > standalone.fixedPromptTokens)
   assert.ok(budget.sourceBudgetTokens < standalone.sourceBudgetTokens)
-  assert.ok(budget.fixedPromptTokens < 3000)
-  assert.match(studyChatMessages(contextual).at(-1).content, /\[truncated\]/)
+  assert.ok(budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens < budget.modelContextTokens)
+  const content = studyChatMessages(contextual).at(-1).content
+  assert.match(content, /\[truncated\]/)
+  assert.ok(content.split('### Context:')[0].length < 1536 * 4 + 512)
 })
 
 test('answer normalization preserves paragraphs, list indentation, code and tables', () => {

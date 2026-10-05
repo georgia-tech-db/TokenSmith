@@ -19,7 +19,7 @@ const minModelContextTokens = 512
 const maxModelContextTokens = 32768
 const defaultAnswerReserveTokens = 768
 const minAnswerReserveTokens = 256
-const maxAnswerReserveTokens = 1024
+const maxAnswerReserveTokens = 8192
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
   'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
@@ -96,14 +96,14 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / estimatedCharsPerToken)
 }
 
-// This profile is deliberately limited to the locally evaluated model. It is a
-// conservative packing estimate, not a tokenizer; Ollama verifies the final prompt.
-export function usesGemma4E4BBudget(model?: LocalModel): boolean {
-  return model?.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(model.ollamaModelName ?? '')
+// Ollama measures the rendered prompt before generation. Keep evidence units
+// intact; the estimate is only an initial packing bound, not a tokenizer.
+function usesWholeSourceBudget(model?: LocalModel): boolean {
+  return model?.engine === 'ollama'
 }
 
 function sourceCharsPerToken(model?: LocalModel): number {
-  return usesGemma4E4BBudget(model) ? 2.5 : estimatedCharsPerToken
+  return usesWholeSourceBudget(model) ? 2.5 : estimatedCharsPerToken
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
@@ -142,9 +142,8 @@ export function modelAwareRuntimeSettings(
   }
 }
 
-function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>, model?: LocalModel): number {
-  const maximum = usesGemma4E4BBudget(model) ? 8192 : maxAnswerReserveTokens
-  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maximum)
+function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>): number {
+  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maxAnswerReserveTokens)
 }
 
 function safetyMarginTokens(modelContextTokens: number): number {
@@ -284,7 +283,7 @@ function sourcePrefix(source: ChatSource): string {
 
 function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const modelContextTokens = effectiveContextLength(options?.model, options?.modelSettings)
-  const answerReserve = answerReserveTokens(options?.modelSettings, options?.model)
+  const answerReserve = answerReserveTokens(options?.modelSettings)
   const safetyMargin = safetyMarginTokens(modelContextTokens)
   const fixedPromptText = [
     options?.modelSettings?.systemMessage,
@@ -294,7 +293,7 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
     options?.prompt ? `Question: ${options.prompt}` : ''
   ].filter(Boolean).join('\n\n')
   const fixedPromptTokens = Math.ceil(fixedPromptText.length / sourceCharsPerToken(options?.model)) +
-    (usesGemma4E4BBudget(options?.model) ? 32 : 0)
+    (usesWholeSourceBudget(options?.model) ? 32 : 0)
 
   return {
     modelContextTokens,
@@ -343,12 +342,12 @@ export function packSourceContext(
       break
     }
 
-    // Keep code and evidence units intact for the evaluated Gemma profile.
+    // Keep code and evidence units intact for Ollama's measured prompt path.
     // A smaller later unit may still fit, so do not stop at an oversized unit.
-    if (usesGemma4E4BBudget(options.model) && countTokens(sourceText(source).text) > textBudgetTokens) {
+    if (usesWholeSourceBudget(options.model) && countTokens(sourceText(source).text) > textBudgetTokens) {
       continue
     }
-    const clipped = usesGemma4E4BBudget(options.model)
+    const clipped = usesWholeSourceBudget(options.model)
       ? sourceText(source)
       : sourceText(source, textBudgetTokens, terms)
     const block = `${prefix}${clipped.text}${suffix}`
@@ -528,13 +527,11 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
   }
-  if (usesGemma4E4BBudget(request.model)) {
-    if (budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
-      throw new Error('The question and conversation leave too little room for an answer. Increase Context Length or reduce Max Length.')
-    }
-    if (request.retrievedSources?.length && !sources.length) {
-      throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
-    }
+  if (budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
+    throw new Error('The question and conversation leave too little room for an answer. Increase Context Length or reduce Max Length.')
+  }
+  if (request.retrievedSources?.length && !sources.length) {
+    throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
   }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')

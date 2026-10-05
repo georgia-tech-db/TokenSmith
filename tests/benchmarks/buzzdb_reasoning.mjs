@@ -1,11 +1,29 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { requireTranspiledTs } from '../unit/typescript/ts-module-loader.mjs'
 
 const casesPath = 'tests/benchmarks/buzzdb_reasoning_cases.json'
+
+export function liveBenchmarkOptions(env = process.env) {
+  const modelName = (env.TOKENSMITH_BENCHMARK_MODEL ?? 'gemma4:e4b').trim()
+  if (!modelName) throw new Error('TOKENSMITH_BENCHMARK_MODEL must name an installed Ollama model.')
+  const rawSeed = env.TOKENSMITH_BENCHMARK_SEED
+  const seed = rawSeed === undefined ? undefined : Number(rawSeed)
+  if (seed !== undefined && (!rawSeed.trim() || !Number.isSafeInteger(seed) || seed < 0 || seed > 2147483647)) {
+    throw new Error('TOKENSMITH_BENCHMARK_SEED must be an integer between 0 and 2147483647.')
+  }
+  return { modelName, seed, casesFile: env.TOKENSMITH_BENCHMARK_CASES_PATH || casesPath,
+    sourceRoot: resolve(env.TOKENSMITH_BENCHMARK_APP_SOURCE_ROOT || '.') }
+}
+
+export function seededBenchmarkFetch(args, seed) {
+  if (seed === undefined || !String(args[0]).endsWith('/api/chat') || !args[1]?.body) return args
+  const body = JSON.parse(args[1].body)
+  return [args[0], { ...args[1], body: JSON.stringify({ ...body, options: { ...body.options, seed } }) }]
+}
 
 // Only questions and actual preceding answers cross this boundary. Rubrics are
 // attached to results afterwards, never to the generator request.
@@ -112,8 +130,8 @@ export function packedEvidenceFromCalls(calls, sources) {
   const final = calls.findLast(call => call.request?.messages && !call.request.format && call.request.options?.num_predict !== 1)
   if (!final) return []
   const prompt = final.request.messages.filter(message => message.role === 'user').map(message => message.content).join('\n')
-  // Gemma E4B's production packer preserves complete source units. Test the
-  // actual final request, not the preflight estimate or previous-answer text.
+  // Count complete source units in the actual final request. Clipped legacy
+  // passages remain in the raw request, but do not count as fully preserved.
   const sourceRegion = prompt.split('### Context:')[1]?.split('\n\nQuestion:')[0] ?? ''
   return sources.filter(source => sourceRegion.includes(`Text: ${(source.context || source.excerpt).trim()}\n### End source unit`))
 }
@@ -121,7 +139,7 @@ export function packedEvidenceFromCalls(calls, sources) {
 export function formatReasoningAnswers(suite) {
   const lines = [
     '# BuzzDB Live Reasoning Answers', '',
-    `Model: ${suite.model}. ${suite.passed}/${suite.total} completed answers. **Not an answer-accuracy score.**`,
+    `Model: ${suite.model}. Seed: ${suite.seed ?? 'runtime default'}. ${suite.passed}/${suite.total} completed answers. **Not an answer-accuracy score.**`,
     'Real Nomic hybrid retrieval, production rewriting/packing/generation, and each chain\'s own new answers.',
     'Fixed diagnostic follow-ups, not adaptive student questions. Reference answers and criteria were withheld from the model.',
     'Suggestions disabled to measure the answer path. Timings include preflight; no retries replace failed answers.', '',
@@ -133,7 +151,7 @@ export function formatReasoningAnswers(suite) {
       '**Review criteria:**', ...item.criteria.map(criterion => `- ${criterion}`), '',
       `**Retrieved evidence:** ${item.retrievalEvidenceFailures?.length ? item.retrievalEvidenceFailures.join('; ') : item.retrievalEvidenceFailures ? 'All required groups found.' : 'Not evaluated.'}`, '',
       `**Packed evidence:** ${item.packedEvidenceFailures?.length ? item.packedEvidenceFailures.join('; ') : item.packedEvidenceFailures ? 'All required groups preserved.' : 'Not evaluated.'}`, '',
-      '**Sources included in the final model request:**',
+      '**Complete source units identified in the final model request:**',
       ...(item.packedEvidence ?? []).map(source => `- ${source.chunkIds.join(', ')}: ${source.section}`), ''
     ])
   ]
@@ -141,19 +159,24 @@ export function formatReasoningAnswers(suite) {
 }
 
 export async function runBuzzdbReasoningBenchmark() {
-  const { prepareRewrittenStudyChat } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
-  const { resolveOllamaChatQuestion, runOllamaStudyEngine } = requireTranspiledTs('src/main/engine/ollama-service.ts')
-  const { modelAwareRetrievalLimit } = requireTranspiledTs('src/shared/retrieval-budget.ts')
-  const families = JSON.parse(readFileSync(casesPath, 'utf8'))
+  const { modelName, seed, casesFile, sourceRoot } = liveBenchmarkOptions()
+  const families = JSON.parse(readFileSync(casesFile, 'utf8'))
   const baseUrl = (process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
-  const modelName = 'gemma4:e4b'
   const tags = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(15_000) }).then(response => {
     if (!response.ok) throw new Error(`Ollama model listing: HTTP ${response.status}`)
     return response.json()
   })
   const installed = tags.models.find(model => model.name === modelName)
   if (!installed) throw new Error(`Install ${modelName} before running --live. No downloads are performed by this benchmark.`)
-  const model = { id: 'benchmark-gemma', name: modelName, ollamaModelName: modelName,
+  const directory = resolve(process.env.TOKENSMITH_BENCHMARK_LIVE_DIR ?? `tmp/buzzdb-reasoning-${new Date().toISOString().replaceAll(':', '-')}`)
+  mkdirSync(dirname(directory), { recursive: true })
+  mkdirSync(directory, { recursive: false })
+  const snapshot = resolve(directory, 'app')
+  cpSync(resolve(sourceRoot, 'src'), resolve(snapshot, 'src'), { recursive: true })
+  const { prepareRewrittenStudyChat } = requireTranspiledTs(resolve(snapshot, 'src/shared/study-chat-pipeline.ts'))
+  const { resolveOllamaChatQuestion, runOllamaStudyEngine } = requireTranspiledTs(resolve(snapshot, 'src/main/engine/ollama-service.ts'))
+  const { modelAwareRetrievalLimit } = requireTranspiledTs(resolve(snapshot, 'src/shared/retrieval-budget.ts'))
+  const model = { id: 'benchmark-generator', name: modelName, ollamaModelName: modelName,
     engine: 'ollama', source: 'ollama', role: 'generator', status: 'ready', ollamaBaseUrl: baseUrl, contextLength: 8192 }
   const modelSettings = { contextLength: 8192, maxLength: 1536, temperature: 0.7, topP: 0.4,
     topK: 40, minP: 0, repeatPenalty: 1.18, thinking: false, systemMessage: '' }
@@ -161,18 +184,16 @@ export async function runBuzzdbReasoningBenchmark() {
   const base = { model, modelSettings, applicationSettings, materials: [{ id: '1', status: 'ready', isActive: true }],
     settings: { maxSources: 4, application: applicationSettings, modelDefaults: modelSettings, modelSettingsById: {} } }
   const limit = modelAwareRetrievalLimit(base.settings.maxSources, model, modelSettings)
-  const directory = resolve(process.env.TOKENSMITH_BENCHMARK_LIVE_DIR ?? `tmp/buzzdb-reasoning-${new Date().toISOString().replaceAll(':', '-')}`)
-  mkdirSync(dirname(directory), { recursive: true })
-  mkdirSync(directory, { recursive: false })
-  const files = [casesPath, 'tests/fixtures/buzzdb/buzzdb-book.tokensmith.md',
+  const files = [casesFile, 'tests/fixtures/buzzdb/buzzdb-book.tokensmith.md',
     'tests/benchmarks/buzzdb_reasoning.mjs', 'tests/benchmarks/buzzdb_live_worker.py',
     'src/main/engine/ollama-service.ts', 'src/main/engine/study-chat-format.ts',
     'src/shared/study-chat-pipeline.ts', 'src/shared/retrieval-budget.ts',
     'python_engine/tokensmith_engine.py', 'python_engine/tokensmith_store.py']
   const suite = { name: 'reasoning_answers', label: 'live reasoning answers (execution only; ungraded)',
     unit: 'completed answers', model: modelName, modelDigest: installed.digest, modelMetadata: installed,
-    settings: modelSettings, retrievalLimit: limit, reviewStatus: 'ungraded',
-    sourceHashes: Object.fromEntries(files.map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')])),
+    settings: modelSettings, seed, retrievalLimit: limit, reviewStatus: 'ungraded', sourceSnapshot: snapshot,
+    sourceHashes: Object.fromEntries(files.map(path => [path, createHash('sha256')
+      .update(readFileSync(path.startsWith('src/') ? resolve(snapshot, path) : path)).digest('hex')])),
     createdAt: new Date().toISOString(), outputDirectory: directory, passed: 0,
     total: families.reduce((count, family) => count + family.turns.length, 0), cases: [] }
   const save = () => {
@@ -186,6 +207,7 @@ export async function runBuzzdbReasoningBenchmark() {
   let stage
   globalThis.fetch = async (...args) => {
     const started = performance.now()
+    args = seededBenchmarkFetch(args, seed)
     const request = args[1]?.body ? JSON.parse(args[1].body) : undefined
     const call = { stage, url: String(args[0]), request }
     calls.push(call)

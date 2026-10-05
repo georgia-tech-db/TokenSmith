@@ -36,9 +36,7 @@ import {
   suggestionMaxTokens,
   shouldGenerateFollowUps,
   sourceContextBudgetForRequest,
-  studyChatMessages,
   prepareStudyChatMessages,
-  usesGemma4E4BBudget,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
@@ -902,7 +900,7 @@ async function runOllamaChatCompletion(
   return text.trim()
 }
 
-async function verifiedGemmaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
+async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
   let candidate = request
   for (;;) {
     signal?.throwIfAborted()
@@ -1008,14 +1006,9 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
-  let messages: StudyChatMessage[]
-  if (usesGemma4E4BBudget(runtimeRequest.model)) {
-    const verified = await verifiedGemmaChat(runtimeRequest, baseUrl, modelName, options.signal)
-    runtimeRequest = verified.request
-    messages = verified.messages
-  } else {
-    messages = studyChatMessages(runtimeRequest)
-  }
+  const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
+  runtimeRequest = verified.request
+  const messages = verified.messages
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
   const text = await runOllamaChatCompletion(baseUrl, modelName, messages, runtimeSettings, {

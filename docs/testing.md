@@ -67,13 +67,41 @@ To also generate the 18 new answers using the installed `gemma4:e4b` model:
 TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz npm run test:benchmark -- --live
 ```
 
+Select a different installed Ollama model without changing the app's settings:
+
+```sh
+TOKENSMITH_BENCHMARK_MODEL=gemma4:26b TOKENSMITH_BENCHMARK_SEED=19 TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz npm run test:benchmark -- --live
+```
+
+The optional seed is applied to every chat API request (rewriter, prompt probe,
+and answer), recorded with the actual requests, and never saved to application
+settings. An unset seed keeps the runtime default. A fixed seed aids paired
+comparisons but does not guarantee identical outputs across runtime versions.
+The model must already be installed; the runner never downloads it.
+
+`TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_reasoning_variants.json`
+selects six additional live turns covering slot relocation, leaf/internal splits,
+and SIMD masks. These alternate live cases do not replace or enlarge the 16 CI
+retrieval questions. They were authored before the MoE prompt experiment and
+include explicit changes to the preceding scenario. Like the original chains,
+they are fixed diagnostic questions, not adaptively generated student follow-ups.
+
 This is the same benchmark entry point, with an opt-in live-answer stage. It uses
 production rewriting, real Nomic hybrid search, source packing/preflight, and
 generation. The profile matches the app defaults: 8,192 context, 1,536 output,
 temperature 0.7, top-p 0.4, top-k 40, repeat penalty 1.18, thinking off, and no
-custom system prompt. The production model-aware retrieval limit is used (7
-candidates for this profile). Suggestions are disabled to isolate the answer path.
+custom system prompt. The production model-aware retrieval limit is recorded
+per run (7 candidates for E4B and 8 for 26B with these settings). Suggestions are
+disabled to isolate the answer path.
 It does not modify the installed app, its library, or saved model settings.
+
+All Ollama chat models use a measured prompt preflight, not just E4B. The packer
+reserves the requested output allowance, keeps source units intact, and removes
+whole trailing units if Ollama's token count leaves insufficient answer space.
+An impossible fit fails explicitly. This verifies context headroom, not answer
+correctness, and adds a one-token probe before generation (additional probes
+only when a smaller prompt must be measured). Remote models reserve their full
+output allowance too, but continue to use estimated packing without this probe.
 
 Each family starts fresh, and later turns use its own newly generated answers.
 These are fixed diagnostic probes, not adaptive student questions. Expected answers
@@ -87,8 +115,16 @@ preflight/final token counts, timings, model digest, and source hashes in a fres
 `tmp/buzzdb-reasoning-<timestamp>/` directory. Set `TOKENSMITH_BENCHMARK_LIVE_DIR`
 to choose a different **new** directory. Existing runs are never overwritten.
 `answers.md` is readable; `results.json` retains the full evidence and requests.
-Evidence checks are also applied to the passages actually included in the final
-Gemma request, so packing losses are distinguishable from retrieval omissions.
+The evaluated TypeScript application is copied to `app/src` in that directory
+and loaded from that snapshot, so editing the working tree during a run cannot
+change its pipeline. For a controlled replay of an earlier implementation, set
+`TOKENSMITH_BENCHMARK_APP_SOURCE_ROOT` to its saved `app` directory. Python
+retrieval still uses the current checkout and validated embedding cache; its
+source hashes are recorded. This is not a full historical-environment replay.
+Evidence checks are also applied to complete passages identified in the final
+model request, so packing losses are distinguishable from retrieval omissions.
+When replaying a legacy packer that clips passages, partially included sources
+do not count as fully preserved; their actual text remains in the saved requests.
 The live report tracks each family's canonical reference passages across its
 turns. Missing one is a diagnostic, not proof that no equivalent evidence exists
 or that the answer is wrong; follow-ups can also need only a subset of that
