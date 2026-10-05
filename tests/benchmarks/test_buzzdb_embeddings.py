@@ -14,12 +14,13 @@ import numpy as np
 
 from python_engine import tokensmith_engine as engine
 from python_engine import tokensmith_store as store
-from tests.benchmarks.test_buzzdb_grounding import normalize_text, validate_grounding_case
+from tests.benchmarks.test_buzzdb_grounding import (
+    assert_all_case_chunks_exist, load_grounding_cases, normalize_text, validate_grounding_case,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "tests/fixtures/buzzdb/buzzdb-book.tokensmith.md"
-CASES_PATH = ROOT / "tests/benchmarks/buzzdb_grounding_cases.json"
 MODEL = json.loads((ROOT / "tests/benchmarks/embedding-model.json").read_text())
 BASE_URL = engine.normalize_ollama_base_url(os.environ.get("TOKENSMITH_BENCHMARK_OLLAMA_URL", ""))
 MODEL_SPEC = {"engine": "ollama", "role": "embedder", "ollamaModelName": MODEL["name"], "ollamaBaseUrl": BASE_URL}
@@ -126,8 +127,9 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temp_dir.cleanup)
         cls.user_data_path = cls.temp_dir.name
-        cls.cases = json.loads(CASES_PATH.read_text())
+        cls.cases = load_grounding_cases()
         cls.chunks = all_chunks()
+        assert_all_case_chunks_exist(cls.cases, {chunk["tokensmithChunkId"]: chunk for chunk in cls.chunks})
         cls.bundle = load_embedding_bundle()
         validate_bundle(cls.bundle, cls.chunks)
         cls.measurements = {"chunk_count": len(cls.chunks), "fresh_query_embedding_seconds": 0.0}

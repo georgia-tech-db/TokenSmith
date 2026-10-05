@@ -1,0 +1,172 @@
+[
+  {
+    "id": "buffer_safety",
+    "title": "Pinned pages, dirty pages, and WAL",
+    "evidenceGroups": [
+      { "id": "pinning", "chunkIds": ["ch05.084"], "requiredContext": ["ineligible for eviction"] },
+      { "id": "wal", "chunkIds": ["ch05.016", "ch06.096"], "requiredContext": ["before the page itself"] },
+      { "id": "writeback", "chunkIds": ["ch05.097"], "requiredContext": ["flushed before its frame can be reused"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "A buffer pool contains three pages: A is pinned and clean; B is unpinned and dirty, with its log records not yet durable; C is unpinned and clean. A is least recently used. A new page must enter the pool. Which page can be evicted immediately without additional writes? What must happen before B can be evicted? Explain using the book's buffer-management and write-ahead logging rules.",
+        "referenceAnswer": "Evict C immediately. A is ineligible while pinned regardless of recency. Before reusing B's frame, make its relevant log records durable, then write its dirty contents to disk. Unpinned is an eligibility condition, not proof of persistence.",
+        "criteria": ["Choose C for immediate eviction without writes", "A cannot be evicted while pinned regardless of recency", "B needs its relevant log records durable before its dirty page write", "Then write B's dirty page before reusing its frame; distinguish eligibility from write ordering"]
+      },
+      {
+        "phase": "followup",
+        "question": "I thought unpinned meant safe to discard. Since B is unpinned, why can't we just discard it and reconstruct it from the log after a crash?",
+        "referenceAnswer": "Unpinned only means there are no active users. B still contains changes not safely persisted, and its log is not durable in this scenario. The stated design requires log-before-page ordering and writing B before reusing its frame, rather than treating crash recovery as ordinary eviction.",
+        "criteria": ["Unpinned means no active users, not that data is durable", "Discarding dirty contents without safe persistence loses changes", "B's relevant log is not yet durable in the stated scenario", "Explain log-before-page followed by page write before reuse under this buffer-manager design"]
+      },
+      {
+        "phase": "transfer",
+        "question": "New scenario: the pool contains only X and Y. X is pinned and clean. Y is unpinned and dirty, and all log records for Y are already durable. A third page is requested. May we discard Y immediately without writing it? Give the safe sequence and explain what would change if Y were also pinned.",
+        "referenceAnswer": "No. Durable WAL satisfies the prerequisite for writing Y, but this buffer manager must still flush Y before reusing its frame. X remains ineligible. If Y is pinned too, neither frame is eligible: wait for unpinning or report that no victim is available.",
+        "criteria": ["Do not discard Y's dirty page without a page write in this design", "WAL prerequisite is already satisfied, so flush Y then reuse frame", "X cannot be evicted while pinned", "If both pages pinned, no immediately eligible victim; wait/unpin or report inability rather than evict pinned page"]
+      }
+    ]
+  },
+  {
+    "id": "twoq_trace",
+    "title": "Tracing the book's TwoQPolicy",
+    "evidenceGroups": [
+      { "id": "touch", "chunkIds": ["ch06.056", "ch06.061", "ch06.071"], "requiredContext": ["FIFO.push_back(page_id)", "LRU.push_front(page_id)"] },
+      { "id": "evict", "chunkIds": ["ch06.056", "ch06.062", "ch06.071"], "requiredContext": ["FIFO.front()", "LRU.back()"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "Using the exact TwoQPolicy touch and evict logic in the BuzzDB book, trace A, B, A, C, D, E, A with cacheSize=3 and initially empty FIFO and LRU lists. Show both lists after every access, with the front on the left, hit/miss, and any eviction. Assume all pages are otherwise evictable. Compare the final A access with ordinary LRU of capacity 3.",
+        "referenceAnswer": "FIFO/LRU after each access: [A]/[] miss; [A,B]/[] miss; [B]/[A] hit; [B,C]/[A] miss; [C,D]/[A] miss evict B; [D,E]/[A] miss evict C; [D,E]/[A] hit. Ordinary LRU evicts A when E arrives, so the last A misses.",
+        "criteria": ["A/B/A yields FIFO[B], LRU[A] and third access hit", "C/D/E yields FIFO[B,C], then[C,D] evict B, then[D,E] evict C; LRU[A] retained", "Final A hit and final FIFO[D,E], LRU[A]; show full trace", "Ordinary LRU evicts A on E and final A misses; distinguish list directions"]
+      },
+      {
+        "phase": "followup",
+        "question": "So once A reaches the protected LRU list, it can never be evicted? Using the final state of that trace, give a concrete continuation that would evict A under the book's implementation.",
+        "referenceAnswer": "Protection is not permanent. From FIFO[D,E], LRU[A], access D then E: both are hits and promote to LRU, giving FIFO[], LRU[E,D,A]. A miss on F now evicts LRU.back(), A. Misses alone cannot drain FIFO because each miss inserts a new page.",
+        "criteria": ["Reject permanent protection", "Explain evict chooses LRU.back when FIFO is empty", "Valid continuation such as D,E,F promotes D/E then evicts A on F", "Show state or reasoning sufficient to verify the continuation"]
+      },
+      {
+        "phase": "transfer",
+        "question": "Start fresh with cacheSize=2. Trace X, X, Y, Y, Z under the same TwoQPolicy. Which page does Z evict, and why does this not contradict the policy's preference for evicting FIFO pages first? Show FIFO and LRU, front on left, at each step.",
+        "referenceAnswer": "FIFO/LRU: [X]/[] miss; []/[X] hit; [Y]/[X] miss; []/[Y,X] hit; [Z]/[Y] miss evict X. FIFO is empty before the final miss, so evict falls back to the back of LRU.",
+        "criteria": ["X then X promotes X to LRU[X]", "Y then Y yields FIFO empty and LRU[Y,X]", "Z evicts X from LRU.back, final FIFO[Z] LRU[Y]", "Correct per-step hits/misses and explains FIFO-empty fallback"]
+      }
+    ]
+  },
+  {
+    "id": "aggregate_bug",
+    "title": "Aggregate initialization and implementation bugs",
+    "evidenceGroups": [
+      { "id": "initialization", "chunkIds": ["ch13.045", "ch13.052", "ch13.082"], "requiredContext": ["Field(0)"] },
+      { "id": "update", "chunkIds": ["ch13.025", "ch13.083"], "requiredContext": ["std::max", "std::min", "currentAggr.asInt() + 1"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "Trace the book's actual HashAggregationOperator code when computing MAX for one new group containing integer values -8 and -3. Include how the state is initialized and how updateAggregate changes it after each tuple. Does this implementation return the mathematically correct result? Explain a minimal correction; do not assume textbook code is automatically correct.",
+        "referenceAnswer": "Field(0) initializes the state to zero. max(0,-8)=0 and max(0,-3)=0, so the implementation returns 0 instead of -3. Initialize MIN/MAX from the first value, or use appropriate type-specific identities, without changing the zero baselines for SUM and COUNT.",
+        "criteria": ["Find zero initialization via Field(0)", "Trace max(0,-8)=0 then max(0,-3)=0", "Actual result 0 is wrong; correct MAX=-3", "Use aggregate-specific initialization or first-value initialization for MIN/MAX without breaking COUNT/SUM"]
+      },
+      {
+        "phase": "followup",
+        "question": "Could I fix this simply by replacing every initial Field(0) with the smallest representable integer, for all aggregate functions? Explain which aggregates that would break and a safer initialization rule.",
+        "referenceAnswer": "No. INT_MIN can be a MAX identity for integers, but breaks SUM and COUNT, which need zero, and MIN, which needs an upper identity or the first value. Initialization must depend on the aggregate and value type; first-value initialization applies to MIN/MAX, not indiscriminately to every aggregate.",
+        "criteria": ["Reject one INT_MIN initializer for all functions", "SUM and COUNT need zero baseline, so INT_MIN breaks them", "MIN requires first value or upper identity rather than INT_MIN", "Describe per-function and type-aware initialization; MAX first-value/lower identity"]
+      },
+      {
+        "phase": "transfer",
+        "question": "For a fresh group, run the original unmodified code on MIN with integer values 6 and 11. Show initialization and both updates, state the actual and correct results, and explain whether initializing from the first observed value fixes this case too.",
+        "referenceAnswer": "The original initializes to 0; min(0,6)=0 and min(0,11)=0. It returns 0, whereas the correct MIN is 6. Initializing to the first observed value gives 6, then min(6,11)=6.",
+        "criteria": ["Original state starts at zero", "min(0,6)=0 and min(0,11)=0", "Actual 0 versus correct 6", "First observed value 6 then min(6,11)=6 works"]
+      }
+    ]
+  },
+  {
+    "id": "column_pages",
+    "title": "Row selectivity versus page reads",
+    "evidenceGroups": [
+      { "id": "filter_scan", "chunkIds": ["ch15.024", "ch15.041"], "requiredContext": ["pageOffsetMap[startRow / INTS_PER_PAGE].push_back(i)"] },
+      { "id": "aggregate_reads", "chunkIds": ["ch15.024", "ch15.043"], "requiredContext": ["readColumnPage(aggregateFile", "aggregatePage[rowIndex]"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "In the book's queryColumnarStorage implementation, only 1% of rows pass the filter. Does that mean only 1% of the aggregate column's pages are read? Explain how pageOffsetMap is built and used, and compare qualifying rows clustered on a few pages with qualifying rows scattered across many pages. Do not invent a measured speedup.",
+        "referenceAnswer": "No. The filter column is scanned and qualifying offsets are grouped by page in pageOffsetMap. The aggregate phase reads every represented aggregate page, using only matching offsets in the sum. Clustered qualifying rows may touch few pages; scattered rows may touch every page despite identical row selectivity.",
+        "criteria": ["Reject row selectivity equaling page selectivity", "Filter column is scanned and pageOffsetMap records page index and qualifying offsets", "Aggregate phase reads each represented aggregate page and only sums qualifying offsets", "Clustered matches can touch few pages, scattered matches can touch most/all pages"]
+      },
+      {
+        "phase": "followup",
+        "question": "But if only ten rows qualify, surely the engine reads only ten values from disk? Explain exactly where the distinction between values used and pages read matters.",
+        "referenceAnswer": "The implementation reads pages, not isolated scalar values. Ten qualifying rows can require between one and ten aggregate pages when each value fits on a page and column layouts align. Other values on those pages are read but not summed. Scanning the filter column is an additional cost.",
+        "criteria": ["Disk reads are page/block granularity, not ten isolated scalar reads", "Ten qualifying values can require one to ten aggregate pages under one-value-per-row same-page-layout assumptions", "Whole relevant pages are read but only matching offsets contribute to sum", "Filter-column scanning cost remains; no universal ten-value I/O claim"]
+      },
+      {
+        "phase": "transfer",
+        "question": "Assume 10,000 rows, 100 fixed-width integer values per page in each of two aligned columns, no compression or cache, and the book's two-phase queryColumnarStorage algorithm. Exactly 100 rows qualify. Case A: all 100 qualifying rows are on one page. Case B: exactly one qualifying row is on each of the 100 pages. How many filter pages, aggregate pages, and total pages are read in each case? Ignore metadata I/O.",
+        "referenceAnswer": "Both cases scan 100 filter pages. A reads 1 aggregate page for a total of 101. B reads 100 aggregate pages for a total of 200. Both have 1% qualifying rows, but their aggregate-page coverage differs.",
+        "criteria": ["Filter reads 100 pages in both cases", "Case A reads 1 aggregate page, total 101", "Case B reads 100 aggregate pages, total 200", "Explains equal 1% row selectivity but different aggregate-page coverage"]
+      }
+    ]
+  },
+  {
+    "id": "aggregation_tradeoffs",
+    "title": "Hash aggregation, ordering, and memory",
+    "evidenceGroups": [
+      { "id": "memory", "chunkIds": ["ch13.090", "ch13.093"], "requiredContext": ["number of distinct groups"] },
+      { "id": "ordering", "chunkIds": ["ch13.092", "ch13.093"], "requiredContext": ["unordered", "sort"] },
+      { "id": "spilling_not_implemented", "chunkIds": ["ch13.093"], "requiredContext": ["Simple in-memory versions (like BuzzDB's) fail"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "For GROUP BY department ORDER BY department, a student says hashing must always beat sorting because hash aggregation is O(N). Explain when that conclusion fails using the book. Address output order, number of distinct groups, available memory, and whether the simple BuzzDB implementation already supports spilling.",
+        "referenceAnswer": "Average O(N) hashing excludes sorting its unordered output groups. Costs depend on the group count and memory; sorting may supply the requested order and external sorting can handle limited memory. BuzzDB's simple hash aggregation is in-memory and does not automatically spill. With few groups, hashing followed by a small output sort may still be attractive.",
+        "criteria": ["Reject unconditional dominance; O(N) average hashing not entire ordered query cost", "Hash output unordered needs sorting groups, whereas sorted aggregation can supply order", "Hash state grows with distinct groups and may exceed memory", "Simple BuzzDB in-memory version does not implement spilling; external sorting or enhanced partitioned hashing are alternatives"]
+      },
+      {
+        "phase": "followup",
+        "question": "But there are only five departments. Doesn't ORDER BY make hashing slow anyway? Explain what would be sorted after hashing and distinguish input rows from output groups.",
+        "referenceAnswer": "Hashing processes N input rows into only five group states. The final sort orders those five result rows, not all N input rows, so ordering adds little work here. Hashing can be attractive; neither strategy is guaranteed faster without the workload and measurements.",
+        "criteria": ["Hash consumes N input rows into G=5 group states", "Only five output groups need sorting, not all N rows", "Ordering cost small in this case, hashing may be attractive", "Avoid claiming guaranteed faster without conditions/measurements"]
+      },
+      {
+        "phase": "transfer",
+        "question": "Now change the grouping key to a nearly unique user_id with 10 million distinct groups. Assume each hash-table group needs 64 bytes total, and the aggregation memory budget is 128 MiB. Can the book's simple in-memory implementation safely fit all groups? Compute the minimum state size, distinguish what the implementation does from a possible improved design, and suggest a feasible alternative.",
+        "referenceAnswer": "The assumed state is 10,000,000 * 64 = 640,000,000 bytes, about 610.35 MiB, exceeding 128 MiB. The simple implementation cannot fit within that budget and does not automatically spill. An external-sort aggregation or an explicitly added partitioned-hash spilling implementation is an alternative, not an existing feature.",
+        "criteria": ["Compute 640,000,000 bytes, approximately 610 MiB", "Exceeds 128 MiB, so cannot safely fit all groups", "Do not claim simple BuzzDB automatically spills; memory exhaustion/failure possible", "External sort aggregation or explicitly implemented partitioned hash spilling; distinguish proposal from existing behavior"]
+      }
+    ]
+  },
+  {
+    "id": "batch_speedup",
+    "title": "Batch size versus end-to-end speedup",
+    "evidenceGroups": [
+      { "id": "amortized_calls", "chunkIds": ["ch15.081"], "requiredContext": ["overhead of function calls", "applies its logic"] },
+      { "id": "remaining_bottlenecks", "chunkIds": ["ch15.074", "ch15.080", "ch15.081"], "requiredContext": ["CPU", "I/O"] }
+    ],
+    "turns": [
+      {
+        "phase": "initial",
+        "question": "If I replace tuple-at-a-time execution with batches of 1,024 values, will my query become 1,024 times faster? Use the book to explain what work is reduced, what work remains, and what measurements would be needed to estimate end-to-end speedup.",
+        "referenceAnswer": "No. Batching amortizes per-call overhead, but predicates, arithmetic, I/O, and other work remain. Locality and SIMD can also help, but an end-to-end speedup requires a baseline cost breakdown and measurements of the implementation, not multiplying by batch size.",
+        "criteria": ["Reject guaranteed 1024x query speedup", "Calls amortized across batch; per-value predicates/arithmetic remain", "Locality/SIMD may help but I/O and other costs remain", "Need baseline time breakdown, actual batch implementation and measurements; no fabricated exact speedup"]
+      },
+      {
+        "phase": "followup",
+        "question": "The book says one call can process 1,024 values instead of one. Why can't I multiply the whole query speed by 1,024? Explain with a small hypothetical time breakdown and clearly label it as hypothetical.",
+        "referenceAnswer": "Only the affected component gets that reduction. For example, hypothetically 20 ms of call overhead plus 80 ms of other work becomes 20/1024 + 80 = 80.01953125 ms, about a 1.2497x speedup, not 1024x. Other correctly calculated hypothetical examples are equally valid.",
+        "criteria": ["Distinguish call-overhead reduction from total-work reduction", "Give explicitly hypothetical numeric time breakdown", "Correct calculation leaves unaffected work unchanged", "Conclude whole-query speedup limited by remaining work rather than claim benchmark measurement"]
+      },
+      {
+        "phase": "transfer",
+        "question": "A hypothetical query takes 100 ms: 20 ms in per-tuple call overhead and 80 ms in all other work. Assume batching reduces only the call overhead by a factor of 1,024, with no other effects. Calculate the new time and overall speedup. What is the maximum speedup even if call overhead becomes zero? These are assumed timings, not measured BuzzDB results.",
+        "referenceAnswer": "The new overhead is 20/1024 = 0.01953125 ms. Total time is 80.01953125 ms, and speedup is 100/80.01953125, approximately 1.2497x. Eliminating call overhead entirely leaves 80 ms, a maximum 1.25x speedup under the stated hypothetical assumptions.",
+        "criteria": ["New call overhead 20/1024=0.01953125 ms", "New total approximately 80.0195 ms", "Overall speedup approximately 1.2497x", "Zero-overhead limit 100/80=1.25x; label hypothetical not measured"]
+      }
+    ]
+  }
+]

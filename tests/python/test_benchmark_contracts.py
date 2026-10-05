@@ -1,3 +1,6 @@
+from contextlib import redirect_stdout
+import io
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -5,10 +8,57 @@ from unittest.mock import patch
 import numpy as np
 
 from tests.benchmarks import test_buzzdb_embeddings as benchmark
-from tests.benchmarks.test_buzzdb_grounding import validate_grounding_case
+from tests.benchmarks import buzzdb_live_worker
+from tests.benchmarks.test_buzzdb_grounding import (
+    assert_all_case_chunks_exist, load_grounding_cases, normalize_text, validate_grounding_case,
+)
 
 
 class BenchmarkContractTests(unittest.TestCase):
+    def test_live_worker_keeps_setup_progress_out_of_its_json_protocol(self):
+        output = io.StringIO()
+        errors = io.StringIO()
+        bench = benchmark.BuzzDBEmbeddingBenchmarkTests
+        with patch.object(bench, "setUpClass", side_effect=lambda: print("Embedding book progress")), \
+                patch.object(bench, "bundle", {"metadata": {"fixture": "test"}}, create=True), \
+                patch.object(bench, "retrieve_sources", return_value={"sources": []}), \
+                patch.object(bench, "doClassCleanups") as cleanup, \
+                patch("sys.stdin", io.StringIO('{"id":1,"command":"search","query":"Q","limit":7}\n')), \
+                patch("sys.stderr", errors), redirect_stdout(output):
+            buzzdb_live_worker.main()
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertTrue(messages[0]["ready"])
+        self.assertEqual(messages[1], {"id": 1, "ok": True, "result": {"sources": []}})
+        self.assertIn("Embedding book progress", errors.getvalue())
+        cleanup.assert_called_once()
+
+    def test_reasoning_cases_extend_real_retrieval_without_replacing_basic_cases(self):
+        cases = load_grounding_cases()
+        self.assertEqual(len(cases), 16)
+        self.assertEqual(len({case["id"] for case in cases}), 16)
+        self.assertEqual(sum(bool(case.get("evidenceGroups")) for case in cases), 6)
+        chunks = {chunk["tokensmithChunkId"]: chunk for chunk in benchmark.all_chunks()}
+        assert_all_case_chunks_exist(cases, chunks)
+        for case in cases:
+            self.assertTrue(case["question"])
+            self.assertTrue(case["referenceAnswer"])
+            if not case.get("evidenceGroups"):
+                continue
+            ids = list(dict.fromkeys(chunk_id for group in case["evidenceGroups"] for chunk_id in group["chunkIds"]))
+            context = normalize_text("\n".join(chunks[chunk_id]["text"] for chunk_id in ids))
+            self.assertEqual(validate_grounding_case(case, [], ids, context), [], case["id"])
+
+    def test_evidence_groups_require_each_prerequisite_and_preserved_text(self):
+        case = {"evidenceGroups": [
+            {"id": "initializer", "chunkIds": ["a", "alternative-a"], "requiredContext": ["Field(0)"]},
+            {"id": "update", "chunkIds": ["b"], "requiredContext": ["std::max"]},
+        ]}
+        full = normalize_text("Field(0) std::max")
+        self.assertEqual(validate_grounding_case(case, [], ["alternative-a", "b"], full), [])
+        self.assertTrue(any("update" in failure for failure in validate_grounding_case(case, [], ["a"], full)))
+        failures = validate_grounding_case(case, [], ["a", "b"], normalize_text("std::max"))
+        self.assertTrue(any("initializer" in failure for failure in failures))
+
     def cache_state(self):
         chunks = [{"tokensmithChunkId": "a", "text": "First passage"},
                   {"tokensmithChunkId": "b", "text": "Second passage"}]

@@ -51,6 +51,56 @@ Changes to the model, parsed chunks, or embedding input preparation invalidate
 the cache; question or ranking changes alone can reuse the book vectors.
 Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally.
 
+### Harder BuzzDB Questions
+
+The regular benchmark has 16 live hybrid-retrieval questions (10 conceptual and
+6 application/reasoning questions), plus 16 mocked conversation-contract checks.
+The six harder families cover buffer safety/WAL, 2Q traces, aggregate initialization
+bugs, column-page reads, aggregation trade-offs, and batching speedups. Each has
+three turns and four evaluator-only criteria per turn in
+[buzzdb_reasoning_cases.json](../tests/benchmarks/buzzdb_reasoning_cases.json).
+Required evidence groups check each prerequisite, not just one matching passage.
+
+To also generate the 18 new answers using the installed `gemma4:e4b` model:
+
+```sh
+TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz npm run test:benchmark -- --live
+```
+
+This is the same benchmark entry point, with an opt-in live-answer stage. It uses
+production rewriting, real Nomic hybrid search, source packing/preflight, and
+generation. The profile matches the app defaults: 8,192 context, 1,536 output,
+temperature 0.7, top-p 0.4, top-k 40, repeat penalty 1.18, thinking off, and no
+custom system prompt. The production model-aware retrieval limit is used (7
+candidates for this profile). Suggestions are disabled to isolate the answer path.
+It does not modify the installed app, its library, or saved model settings.
+
+Each family starts fresh, and later turns use its own newly generated answers.
+These are fixed diagnostic probes, not adaptive student questions. Expected answers
+and rubrics are never sent to the model. An execution failure blocks the remaining
+dependent turns; no retry or reference answer replaces it. A wrong but completed
+answer remains in the conversation. Reference traces and arithmetic are authored
+expectations, not an automatic prose-grading mechanism.
+
+The run saves full questions, answers, ranked evidence, actual model requests,
+preflight/final token counts, timings, model digest, and source hashes in a fresh
+`tmp/buzzdb-reasoning-<timestamp>/` directory. Set `TOKENSMITH_BENCHMARK_LIVE_DIR`
+to choose a different **new** directory. Existing runs are never overwritten.
+`answers.md` is readable; `results.json` retains the full evidence and requests.
+Evidence checks are also applied to the passages actually included in the final
+Gemma request, so packing losses are distinguishable from retrieval omissions.
+The live report tracks each family's canonical reference passages across its
+turns. Missing one is a diagnostic, not proof that no equivalent evidence exists
+or that the answer is wrong; follow-ups can also need only a subset of that
+family's evidence. Review the actual passages before attributing an answer error
+to retrieval. The initial CI questions require all their specified groups.
+
+Completed answers are explicitly **ungraded**, not accuracy passes. Review all
+four criteria (0 / 0.5 / 1 each) and record additional substantive errors
+separately; a correct number or keyword alone is not a correct explanation.
+Label manual reviews with their reviewer and run identity. The live stage is
+not part of every-PR CI and does not change the retrieval badge's meaning.
+
 Configure branch protection to require `Build and tests` and
 `BuzzDB hybrid retrieval and conversation contracts` before merging. The README
 badges track `main`, while each PR has its own check results.

@@ -15,7 +15,16 @@ from python_engine import tokensmith_store as store
 
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "buzzdb" / "buzzdb-book.tokensmith.md"
 CASES_PATH = ROOT / "tests" / "benchmarks" / "buzzdb_grounding_cases.json"
+REASONING_CASES_PATH = ROOT / "tests" / "benchmarks" / "buzzdb_reasoning_cases.json"
 BUZZDB_COLLECTION_ID = "1"
+
+
+def load_grounding_cases():
+    cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+    for family in json.loads(REASONING_CASES_PATH.read_text(encoding="utf-8")):
+        cases.append({**family["turns"][0], "id": family["id"], "topK": 8,
+                      "evidenceGroups": family["evidenceGroups"]})
+    return cases
 
 
 def case_retrieval_query(case):
@@ -28,7 +37,7 @@ def normalize_text(value):
 
 
 def load_buzzdb_fixture(user_data_path):
-    cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+    cases = load_grounding_cases()
     chunk_by_id = {}
     chunk_id_by_rowid = {}
 
@@ -75,6 +84,10 @@ def assert_all_case_chunks_exist(cases, chunk_by_id):
         for chunk_id in case.get("forbiddenChunkIds", []):
             if chunk_id not in chunk_by_id:
                 missing.append(f"{case['id']} forbidden {chunk_id}")
+        for group in case.get("evidenceGroups", []):
+            for chunk_id in group["chunkIds"]:
+                if chunk_id not in chunk_by_id:
+                    missing.append(f"{case['id']} {group['id']} {chunk_id}")
     if missing:
         raise AssertionError("Missing BuzzDB fixture chunks: " + ", ".join(missing))
 
@@ -101,6 +114,12 @@ def retrieve_case(user_data_path, chunk_by_id, chunk_id_by_rowid, case):
 
 def validate_grounding_case(case, terms, hit_ids, normalized_context):
     failures = []
+    for group in case.get("evidenceGroups", []):
+        if not any(chunk_id in hit_ids for chunk_id in group["chunkIds"]):
+            failures.append(f"missing evidence group {group['id']}: need one of {group['chunkIds']}")
+        for required in group.get("requiredContext", []):
+            if normalize_text(required) not in normalized_context:
+                failures.append(f"missing evidence group {group['id']} context {required!r}")
     expected = case.get("expectedChunkIds", [])
     min_expected_hits = int(case.get("minExpectedHits", len(expected)))
     matched = [chunk_id for chunk_id in expected if chunk_id in hit_ids]

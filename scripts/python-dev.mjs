@@ -432,7 +432,7 @@ function runIntegration() {
 
 function runBenchmark() {
   const python = requireRuntimePython()
-  process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', [], {
+  process.exit(runNode('tests/benchmarks/test_buzzdb_retrieval.mjs', taskArgs, {
     TOKENSMITH_BENCHMARK_PYTHON: python.executable,
     ...pythonEnv(python.executable)
   }))
