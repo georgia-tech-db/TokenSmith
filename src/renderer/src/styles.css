@@ -3609,6 +3609,45 @@ button {
   padding: 0 16px;
 }
 
+.reasoning-mode {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--border-control, #d8d9d7);
+  border-radius: 8px;
+}
+
+.reasoning-mode label {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.reasoning-mode input {
+  position: absolute;
+  opacity: 0;
+}
+
+.reasoning-mode span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border-radius: 5px;
+}
+
+.reasoning-mode input:checked + span {
+  background: var(--green-soft);
+  color: var(--green-strong);
+  font-weight: 650;
+}
+
+.reasoning-mode input:focus-visible + span {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+
 .settings-control.is-number {
   max-width: 168px;
   justify-self: end;

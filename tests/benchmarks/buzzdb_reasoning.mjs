@@ -11,11 +11,13 @@ export function liveBenchmarkOptions(env = process.env) {
   const modelName = (env.TOKENSMITH_BENCHMARK_MODEL ?? 'gemma4:e4b').trim()
   if (!modelName) throw new Error('TOKENSMITH_BENCHMARK_MODEL must name an installed Ollama model.')
   const rawSeed = env.TOKENSMITH_BENCHMARK_SEED
+  const reasoningMode = env.TOKENSMITH_BENCHMARK_REASONING ?? 'off'
+  if (!['auto', 'off', 'on'].includes(reasoningMode)) throw new Error('TOKENSMITH_BENCHMARK_REASONING must be auto, off, or on.')
   const seed = rawSeed === undefined ? undefined : Number(rawSeed)
   if (seed !== undefined && (!rawSeed.trim() || !Number.isSafeInteger(seed) || seed < 0 || seed > 2147483647)) {
     throw new Error('TOKENSMITH_BENCHMARK_SEED must be an integer between 0 and 2147483647.')
   }
-  return { modelName, seed, casesFile: env.TOKENSMITH_BENCHMARK_CASES_PATH || casesPath,
+  return { modelName, seed, reasoningMode, casesFile: env.TOKENSMITH_BENCHMARK_CASES_PATH || casesPath,
     sourceRoot: resolve(env.TOKENSMITH_BENCHMARK_APP_SOURCE_ROOT || '.') }
 }
 
@@ -64,7 +66,7 @@ export async function runReasoningTurns(families, run, onResult = async () => {}
   return results
 }
 
-function startRetrievalWorker() {
+export function startRetrievalWorker() {
   const child = spawn(process.env.TOKENSMITH_BENCHMARK_PYTHON ?? 'python3',
     ['-m', 'tests.benchmarks.buzzdb_live_worker'], {
       cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'],
@@ -159,7 +161,7 @@ export function formatReasoningAnswers(suite) {
 }
 
 export async function runBuzzdbReasoningBenchmark() {
-  const { modelName, seed, casesFile, sourceRoot } = liveBenchmarkOptions()
+  const { modelName, seed, reasoningMode, casesFile, sourceRoot } = liveBenchmarkOptions()
   const families = JSON.parse(readFileSync(casesFile, 'utf8'))
   const baseUrl = (process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
   const tags = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(15_000) }).then(response => {
@@ -179,7 +181,7 @@ export async function runBuzzdbReasoningBenchmark() {
   const model = { id: 'benchmark-generator', name: modelName, ollamaModelName: modelName,
     engine: 'ollama', source: 'ollama', role: 'generator', status: 'ready', ollamaBaseUrl: baseUrl, contextLength: 8192 }
   const modelSettings = { contextLength: 8192, maxLength: 1536, temperature: 0.7, topP: 0.4,
-    topK: 40, minP: 0, repeatPenalty: 1.18, thinking: false, systemMessage: '' }
+    topK: 40, minP: 0, repeatPenalty: 1.18, reasoningMode, systemMessage: '' }
   const applicationSettings = { suggestionMode: 'off', searchMode: 'hybrid', explanationDepthEnabled: false, embeddingGpuEnabled: true }
   const base = { model, modelSettings, applicationSettings, materials: [{ id: '1', status: 'ready', isActive: true }],
     settings: { maxSources: 4, application: applicationSettings, modelDefaults: modelSettings, modelSettingsById: {} } }
@@ -187,6 +189,7 @@ export async function runBuzzdbReasoningBenchmark() {
   const files = [casesFile, 'tests/fixtures/buzzdb/buzzdb-book.tokensmith.md',
     'tests/benchmarks/buzzdb_reasoning.mjs', 'tests/benchmarks/buzzdb_live_worker.py',
     'src/main/engine/ollama-service.ts', 'src/main/engine/study-chat-format.ts',
+    'src/main/engine/question-rewrite.ts', 'src/shared/reasoning.ts',
     'src/shared/study-chat-pipeline.ts', 'src/shared/retrieval-budget.ts',
     'python_engine/tokensmith_engine.py', 'python_engine/tokensmith_store.py']
   const suite = { name: 'reasoning_answers', label: 'live reasoning answers (execution only; ungraded)',

@@ -12,6 +12,7 @@ import type {
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
 import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
@@ -59,6 +60,8 @@ interface OllamaTagsResponse {
 }
 
 interface OllamaShowResponse {
+  capabilities?: string[]
+  thinking?: { values?: Array<boolean | string> }
   details?: {
     context_length?: number | string
   }
@@ -927,13 +930,29 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
   }
 }
 
+async function supportsSwitchableThinking(baseUrl: string, modelName: string, signal?: AbortSignal): Promise<boolean> {
+  const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/show`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelName }), signal
+  })
+  if (!response.ok) throw new Error(`Could not check model reasoning support: HTTP ${response.status}.`)
+  const metadata = await response.json() as OllamaShowResponse
+  const supported = metadata.thinking?.values
+    ? metadata.thinking.values.includes(true) && metadata.thinking.values.includes(false)
+    : metadata.capabilities?.includes('thinking') === true
+  writeTokenSmithLog('ollama_reasoning_support', { modelName, supported })
+  return supported
+}
+
 export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertOllamaModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) {
-    return { mode: 'standalone', query: request.prompt, clarification: '' }
-  }
   const started = performance.now()
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
+  const automatic = reasoningMode(request.modelSettings) === 'auto'
+  const canReason = automatic && await supportsSwitchableThinking(baseUrl, request.model.ollamaModelName, signal)
+  if (!request.selectedPassage && !lastChatExchange(request.messages) && !canReason) {
+    return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  }
   const runtime = await requestWithOllamaRuntimeContext(
     request, baseUrl, request.model.ollamaModelName
   )
@@ -942,7 +961,8 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
     maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
   })
   try {
-    const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const parsed = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const resolution: QuestionRewrite = automatic && !canReason ? { ...parsed, reasoning: false } : parsed
     writeTokenSmithLog('chat_question_rewrite', {
       modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
       rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
@@ -1006,6 +1026,23 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  const mode = reasoningMode(runtimeRequest.modelSettings)
+  let selected = request.reasoning === true
+  if (mode === 'auto' && request.reasoning === undefined) {
+    const resolution = await resolveOllamaChatQuestion(runtimeRequest, options.signal)
+    if (resolution.mode === 'clarify') {
+      return { engineId: 'tokensmith', modelName: request.model.name, text: resolution.clarification, sources: [], followUpSuggestions: [] }
+    }
+    selected = resolution.reasoning
+  }
+  const modelSettings = answerReasoningSettings(runtimeRequest.modelSettings, selected)
+  if (modelSettings?.thinking && !await supportsSwitchableThinking(baseUrl, modelName, options.signal)) {
+    throw new Error('This model does not advertise switchable reasoning. Choose Auto or Off, or select a model that supports it.')
+  }
+  runtimeRequest = { ...runtimeRequest, modelSettings }
+  writeTokenSmithLog('chat_reasoning_selection', {
+    modelName, mode, selected, thinking: modelSettings?.thinking === true, maxLength: modelSettings?.maxLength
+  })
   const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
   runtimeRequest = verified.request
   const messages = verified.messages

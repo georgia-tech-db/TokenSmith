@@ -10,6 +10,9 @@ const families = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_case
 test('live model and seed are explicit without changing the default or accepting invalid seeds', () => {
   assert.equal(liveBenchmarkOptions({}).modelName, 'gemma4:e4b')
   assert.equal(liveBenchmarkOptions({}).seed, undefined)
+  assert.equal(liveBenchmarkOptions({}).reasoningMode, 'off')
+  assert.equal(liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_REASONING: 'auto' }).reasoningMode, 'auto')
+  assert.throws(() => liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_REASONING: 'sometimes' }), /REASONING/)
   assert.equal(liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_MODEL: 'gemma4:26b', TOKENSMITH_BENCHMARK_SEED: '19' }).modelName, 'gemma4:26b')
   assert.equal(liveBenchmarkOptions({ TOKENSMITH_BENCHMARK_SEED: '0' }).seed, 0)
   for (const seed of ['', ' ', 'abc', '-1', '1.5', '2147483648']) {

@@ -32,7 +32,7 @@ export async function runBuzzdbMultiturnBenchmark() {
         let calls = 0
         const query = turn.expectedMode === 'standalone' ? turn.prompt : `Fixture retrieval query: ${id}`
         const prepared = await prepareRewrittenStudyChat(request, {
-          resolve: async () => ({ mode: turn.expectedMode, query, clarification: '' }),
+          resolve: async () => ({ mode: turn.expectedMode, query, clarification: '', reasoning: false }),
           search: async (actualQuery) => {
             calls += 1
             assert.equal(actualQuery, messages.length ? query : turn.prompt)

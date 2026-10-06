@@ -12,7 +12,8 @@ const request = (overrides = {}) => ({ model, modelSettings: { contextLength: 81
 
 async function mockFetch(handler, callback) {
   const saved = globalThis.fetch
-  globalThis.fetch = async (url, options) => ({ ok: true, json: async () => handler(JSON.parse(options.body)) })
+  globalThis.fetch = async (url, options) => ({ ok: true, json: async () => String(url).endsWith('/show')
+    ? { capabilities: ['completion', 'thinking'] } : handler(JSON.parse(options.body)) })
   try { return await callback() } finally { globalThis.fetch = saved }
 }
 
@@ -78,7 +79,7 @@ test('actual preflight overflow removes a whole source, preserves the question, 
   }, () => runOllamaStudyEngine(request({ modelSettings: { contextLength: 8192, maxLength: 1536, thinking: true } })))
   assert.equal(calls.length, 3)
   assert.equal(calls[2].think, true)
-  assert.equal(calls[2].options.num_predict, 1536)
+  assert.equal(calls[2].options.num_predict, 4096)
   assert.match(calls[2].messages.at(-1).content, /Trace the updates/)
   assert.doesNotMatch(calls[2].messages.at(-1).content, /Update with max|discard me|internal/)
   assert.equal(answer.text, 'The actual result is zero.')
@@ -107,7 +108,7 @@ test('question rewriting stays non-thinking even when answer thinking is enabled
   const bodies = []
   const result = await mockFetch(body => {
     bodies.push(body)
-    return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'contextual', query: 'Why is the aggregate state zero?', clarification: '' }) } }
+    return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'contextual', query: 'Why is the aggregate state zero?', clarification: '', reasoning: false }) } }
   }, () => resolveOllamaChatQuestion(request({ prompt: 'Why?', modelSettings: { contextLength: 8192, maxLength: 4096, thinking: true },
     messages: [{ role: 'user', text: 'What is the aggregate state?' }, { role: 'assistant', text: 'Zero.' }] })))
   assert.equal(result.mode, 'contextual')

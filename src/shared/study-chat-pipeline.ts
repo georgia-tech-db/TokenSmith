@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatSource } from './app-state'
 import { questionWithSelection } from './chat-selection'
+import { reasoningMode } from './reasoning'
 import type {
   ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
 } from './engine'
@@ -42,11 +43,12 @@ export async function prepareRewrittenStudyChat(
   searchMs: number
 }> {
   const previous = lastChatExchange(request.messages)
-  const needsRewrite = Boolean(previous || request.selectedPassage)
+  const needsRewrite = Boolean(previous || request.selectedPassage ||
+    (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
   const rewriteStart = performance.now()
   const resolution: QuestionRewrite = needsRewrite
     ? await dependencies.resolve(request)
-    : { mode: 'standalone', query: request.prompt, clarification: '' }
+    : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
   const rewriteMs = needsRewrite ? performance.now() - rewriteStart : 0
   if (resolution.mode === 'clarify') {
     return { resolution, rewriteMs, searchMs: 0 }
@@ -68,6 +70,7 @@ export async function prepareRewrittenStudyChat(
       answerPrompt: request.prompt,
       retrievalQuery: query,
       conversationContextMode: mode,
+      reasoning: resolution.reasoning,
       referenceExchange: mode === 'contextual' && !request.selectedPassage ? previous : undefined,
       retrievedSources
     }

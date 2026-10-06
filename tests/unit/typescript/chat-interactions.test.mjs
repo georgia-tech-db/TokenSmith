@@ -226,7 +226,7 @@ test('resending an edited follow-up passes only the earlier exchange through the
   }, {
     resolve: async (request) => {
       rewriteMessages = request.messages
-      return { mode: 'contextual', query: 'How is a B+ tree kept balanced?', clarification: '' }
+      return { mode: 'contextual', query: 'How is a B+ tree kept balanced?', clarification: '', reasoning: false }
     },
     search: async (query) => { searchQuery = query; return [] }
   })

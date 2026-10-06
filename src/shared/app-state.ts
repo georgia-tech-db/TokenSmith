@@ -95,6 +95,7 @@ export type AppFontSize = 'extra-small' | 'small' | 'normal' | 'large' | 'extra-
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
 export type ExplanationDepth = 'simple' | 'standard' | 'detailed'
+export type ReasoningMode = 'auto' | 'off' | 'on'
 
 export interface ApplicationSettings {
   theme: AppTheme
@@ -116,6 +117,7 @@ export interface ModelRuntimeSettings {
   contextLength: number
   maxLength: number
   thinking?: boolean
+  reasoningMode?: ReasoningMode
   temperature: number
   topP: number
   topK: number

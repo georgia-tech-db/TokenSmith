@@ -22,9 +22,13 @@ test('timing separates models, endpoints, task kinds and important runtime setti
     { ...context, model: { ...context.model, ollamaModelName: 'gemma4:12b' } },
     { ...context, model: { ...context.model, ollamaBaseUrl: 'http://other-machine:11434' } },
     { ...context, settings: { ...context.settings, thinking: true } },
+    { ...context, settings: { ...context.settings, reasoningMode: 'auto' } },
     { ...context, settings: { ...context.settings, contextLength: 16384 } },
     { ...context, settings: { ...context.settings, maxLength: 4096 } }
   ]) assert.equal(estimateWait(changed, history).samples, 0)
+  const modes = ['auto', 'off', 'on'].map(reasoningMode => timingKeys({ ...context, settings: { ...context.settings, reasoningMode } }))
+  assert.equal(new Set(modes.map(({ family }) => family)).size, 3)
+  assert.equal(new Set(modes.map(({ key }) => key)).size, 3)
   const key = JSON.stringify(timingKeys({ ...context, model: { ...context.model, ollamaBaseUrl: 'https://secret:password@example.com/?key=private' } }))
   assert.doesNotMatch(key, /secret|password|private|example/)
 })

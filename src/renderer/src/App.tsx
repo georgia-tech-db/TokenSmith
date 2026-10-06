@@ -204,6 +204,7 @@ const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   starterQuestionPrompt: defaultStarterQuestionPrompt,
   contextLength: 8192,
   maxLength: 1536,
+  reasoningMode: 'auto',
   temperature: 0.7,
   topP: 0.4,
   topK: 40,
@@ -856,6 +857,8 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
       8192
     )),
     thinking: settings?.thinking === true,
+    reasoningMode: normalizeChoice(settings?.reasoningMode, ['auto', 'off', 'on'] as const,
+      settings?.thinking === true ? 'on' : 'auto'),
     temperature: clampNumber(
       settings?.temperature,
       defaultModelRuntimeSettings.temperature,
@@ -7120,14 +7123,20 @@ function SettingsScreen({
                 </SettingsGroup>
 
                 <SettingsGroup title="Generation">
-                  {selectedModel.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(selectedModel.ollamaModelName ?? '') && (
-                    <SettingsRow label="Thinking" description="Give Gemma extra time to reason before answering. Thinking shares the response allowance; use a larger Max Length for complex questions.">
-                      <CheckboxField
-                        ariaLabel="Thinking"
-                        checked={activeModelSettings.thinking === true}
-                        onChange={(thinking) => updateModelSettings({ thinking })}
-                      />
-                    </SettingsRow>
+                  {selectedModel.engine === 'ollama' && (
+                    <div className="settings-row">
+                      <span><strong>Reasoning</strong><small>On supported models. Reasoning reserves at least 4,096 output tokens.</small></span>
+                      <fieldset className="reasoning-mode" aria-label="Reasoning">
+                        {(['auto', 'off', 'on'] as const).map(mode => (
+                          <label key={mode}>
+                            <input type="radio" name="reasoning-mode" value={mode}
+                              checked={activeModelSettings.reasoningMode === mode}
+                              onChange={() => updateModelSettings({ reasoningMode: mode, thinking: mode === 'on' })} />
+                            <span>{mode === 'auto' ? 'Auto' : mode === 'off' ? 'Off' : 'On'}</span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    </div>
                   )}
                   <div className="settings-two-column">
                     <SettingsRow label="Context Length" description="Number of input and output tokens the model sees.">
@@ -7140,7 +7149,8 @@ function SettingsScreen({
                         onChange={(contextLength) => updateModelSettings({ contextLength })}
                       />
                     </SettingsRow>
-                    <SettingsRow label="Max Length" description="Maximum generated tokens, including thinking when enabled.">
+                    <SettingsRow label="Max Length" description={selectedModel.engine === 'ollama'
+                      ? 'Output token allowance. Reasoning reserves at least 4,096 tokens.' : 'Maximum generated tokens.'}>
                       <NumberField
                         ariaLabel="Max length"
                         min={64}

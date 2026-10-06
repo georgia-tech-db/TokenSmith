@@ -227,7 +227,7 @@ async function runRemoteChatCompletion(
 
 export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
+  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
   const started = performance.now()
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const messages = questionRewriteMessages({ ...request, modelSettings: settings })

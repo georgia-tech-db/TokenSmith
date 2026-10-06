@@ -27,8 +27,8 @@ export interface EngineQuestionRewriteRequest {
 }
 
 export type QuestionRewrite =
-  | { mode: ConversationContextMode; query: string; clarification: '' }
-  | { mode: 'clarify'; query: ''; clarification: string }
+  | { mode: ConversationContextMode; query: string; clarification: ''; reasoning: boolean }
+  | { mode: 'clarify'; query: ''; clarification: string; reasoning: false }
 
 export interface EngineInfo {
   id: 'tokensmith'
@@ -44,6 +44,7 @@ export interface EngineChatRequest {
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
+  reasoning?: boolean
   referenceExchange?: ChatReferenceExchange
   answerToSimplify?: string
   messages: ChatMessage[]

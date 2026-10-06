@@ -7,9 +7,10 @@ export const questionRewriteSchema = {
   properties: {
     mode: { type: 'string', enum: ['standalone', 'contextual', 'clarify'] },
     query: { type: 'string' },
-    clarification: { type: 'string' }
+    clarification: { type: 'string' },
+    reasoning: { type: 'boolean' }
   },
-  required: ['mode', 'query', 'clarification'],
+  required: ['mode', 'query', 'clarification', 'reasoning'],
   additionalProperties: false
 }
 
@@ -21,7 +22,9 @@ const rewriteInstruction = [
   'Use mode standalone only when every necessary referent is identifiable from the current question alone. Copy it exactly, including for a fully specified new topic; do not carry the old subject into a topic change.',
   'Keep the student\'s requested task, comparison direction, conditions, and example identifiers. Correct obvious typos, but do not add explanations or factual claims from the previous answer.',
   'If more than one subject is plausible and the exchange does not distinguish them, use mode clarify, leave query empty, and ask one short question naming the alternatives.',
-  'For standalone and contextual, leave clarification empty. Return only JSON with mode, query, and clarification.'
+  'Independently decide whether answering needs deliberate reasoning. Classify the work required after resolving references, not question length, specific words, or whether it is contextual.',
+  'Set reasoning false for a direct fact, definition, summary, or explanation of a standard mechanism. Set reasoning true when the task requires applying a procedure to specific inputs, calculating or tracing a result, checking a claim, or drawing a conclusion across constraints. A worked example requires reasoning even when requested briefly. If unsure whether a direct explanation suffices, choose true. Do not solve the task to classify it.',
+  'For mode clarify, set reasoning false. For standalone and contextual, leave clarification empty. Return only JSON with mode, query, clarification, and reasoning.'
 ].join('\n')
 
 export function questionRewriteMessages(request: EngineQuestionRewriteRequest): StudyChatMessage[] {
@@ -54,16 +57,16 @@ export function parseQuestionRewrite(text: string, originalQuestion: string, has
     throw new Error('The question rewriter returned an invalid response.')
   }
   const result = value as Record<string, unknown>
-  if (typeof result.query !== 'string' || typeof result.clarification !== 'string' ||
-      Object.keys(result).some((key) => !['mode', 'query', 'clarification'].includes(key))) {
+  if (typeof result.query !== 'string' || typeof result.clarification !== 'string' || typeof result.reasoning !== 'boolean' ||
+      Object.keys(result).some((key) => !['mode', 'query', 'clarification', 'reasoning'].includes(key))) {
     throw new Error('The question rewriter returned an invalid response.')
   }
-  if (result.mode === 'clarify' && !result.query.trim() && result.clarification.trim()) {
-    return { mode: 'clarify', query: '', clarification: result.clarification.trim() }
+  if (result.mode === 'clarify' && !result.query.trim() && result.clarification.trim() && !result.reasoning) {
+    return { mode: 'clarify', query: '', clarification: result.clarification.trim(), reasoning: false }
   }
   if ((result.mode === 'standalone' || result.mode === 'contextual') &&
       result.query.trim() && !result.clarification.trim()) {
-    return { mode: hasSelectedPassage ? 'contextual' : result.mode, query: result.mode === 'standalone' && !hasSelectedPassage ? originalQuestion : result.query.trim(), clarification: '' }
+    return { mode: hasSelectedPassage ? 'contextual' : result.mode, query: result.mode === 'standalone' && !hasSelectedPassage ? originalQuestion : result.query.trim(), clarification: '', reasoning: result.reasoning }
   }
   throw new Error('The question rewriter returned an inconsistent response.')
 }

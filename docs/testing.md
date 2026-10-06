@@ -79,6 +79,22 @@ settings. An unset seed keeps the runtime default. A fixed seed aids paired
 comparisons but does not guarantee identical outputs across runtime versions.
 The model must already be installed; the runner never downloads it.
 
+Set `TOKENSMITH_BENCHMARK_REASONING=auto`, `on`, or `off` to compare reasoning
+policies. The benchmark defaults to `off` for continuity with earlier runs;
+new app settings default to `auto`. Auto adds a non-thinking structured planning
+call for first questions on supported Ollama models and shares the existing
+rewrite call for follow-ups. Its boolean decision is independent of contextual
+versus standalone mode. The requested task and previous exchange determine the
+decision, without question-length rules or subject-specific keywords.
+
+Reasoning answers reserve at least 4,096 generated tokens (reasoning plus final
+answer) before packing sources; larger configured allowances are preserved.
+The same context-fit checks still apply. Unsupported models stay non-thinking
+in Auto; forcing On reports unsupported reasoning. Cloud generation settings are
+unchanged. Logs record model capability, planner decision, effective reasoning
+mode, and output allowance. Compare actual answers, limits, and total latency,
+not just routing labels or successful completion.
+
 `TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_reasoning_variants.json`
 selects six additional live turns covering slot relocation, leaf/internal splits,
 and SIMD masks. These alternate live cases do not replace or enlarge the 16 CI
@@ -88,8 +104,8 @@ they are fixed diagnostic questions, not adaptively generated student follow-ups
 
 This is the same benchmark entry point, with an opt-in live-answer stage. It uses
 production rewriting, real Nomic hybrid search, source packing/preflight, and
-generation. The profile matches the app defaults: 8,192 context, 1,536 output,
-temperature 0.7, top-p 0.4, top-k 40, repeat penalty 1.18, thinking off, and no
+generation. The baseline profile uses 8,192 context, 1,536 output,
+temperature 0.7, top-p 0.4, top-k 40, repeat penalty 1.18, reasoning off, and no
 custom system prompt. The production model-aware retrieval limit is recorded
 per run (7 candidates for E4B and 8 for 26B with these settings). Suggestions are
 disabled to isolate the answer path.

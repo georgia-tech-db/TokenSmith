@@ -35,20 +35,20 @@ test('an incomplete exchange is not replaced with older history', () => {
 })
 
 test('standalone resolution cannot replace the original question with model paraphrasing', () => {
-  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '' }), 'Original?').query, 'Original?')
+  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '', reasoning: false }), 'Original?').query, 'Original?')
 })
 
 test('invalid, contradictory, and truncated rewrite responses fail without a heuristic fallback', () => {
   for (const text of ['not json', '[]', '{"mode":',
-    JSON.stringify({ mode: 'other', query: 'question', clarification: '' }),
-    JSON.stringify({ mode: 'contextual', query: '', clarification: '' }),
-    JSON.stringify({ mode: 'standalone', query: 'question', clarification: 'Which?' }),
-    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?' })]) {
+    JSON.stringify({ mode: 'other', query: 'question', clarification: '', reasoning: false }),
+    JSON.stringify({ mode: 'contextual', query: '', clarification: '', reasoning: false }),
+    JSON.stringify({ mode: 'standalone', query: 'question', clarification: 'Which?', reasoning: false }),
+    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?', reasoning: false })]) {
     assert.throws(() => parseQuestionRewrite(text, base.prompt))
   }
 })
 
-test('first turns skip the rewriter and still retrieve normally', async () => {
+test('first turns without Auto skip the rewriter and still retrieve normally', async () => {
   let queries = []
   const result = await prepareRewrittenStudyChat({ ...base, messages: [] }, {
     resolve: () => assert.fail('First turn should not call the model twice'),
@@ -61,7 +61,7 @@ test('first turns skip the rewriter and still retrieve normally', async () => {
 
 test('contextual rewrites affect retrieval but never replace the student task', async () => {
   const result = await prepareRewrittenStudyChat(base, {
-    resolve: async () => ({ mode: 'contextual', query: 'checkpoint record A example', clarification: '' }),
+    resolve: async () => ({ mode: 'contextual', query: 'checkpoint record A example', clarification: '', reasoning: false }),
     search: async (query) => { assert.equal(query, 'checkpoint record A example'); return [source] }
   })
   assert.equal(result.request.prompt, base.prompt)
@@ -77,7 +77,7 @@ test('contextual rewrites affect retrieval but never replace the student task', 
 
 test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {
   const result = await prepareRewrittenStudyChat({ ...base, prompt: 'What is isolation?' }, {
-    resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '' }),
+    resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '', reasoning: false }),
     search: async (query) => { assert.equal(query, 'What is isolation?'); return [source] }
   })
   assert.equal(result.request.referenceExchange, undefined)
@@ -86,7 +86,7 @@ test('a topic change excludes the previous answer and ignores a rewritten standa
 
 test('clarification stops before retrieval or answer generation', async () => {
   const result = await prepareRewrittenStudyChat(base, {
-    resolve: async () => ({ mode: 'clarify', query: '', clarification: 'Which record do you mean?' }),
+    resolve: async () => ({ mode: 'clarify', query: '', clarification: 'Which record do you mean?', reasoning: false }),
     search: () => assert.fail('Must not retrieve a guessed question')
   })
   assert.equal(result.request, undefined)
@@ -129,7 +129,7 @@ test('Ollama rewrite uses the selected model, schema, thinking off and a true te
       assert.equal(request.options.num_predict, 512)
       assert.equal(request.format.type, 'object')
       return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: JSON.stringify({
-        mode: 'contextual', query: 'checkpoint example with record A', clarification: ''
+        mode: 'contextual', query: 'checkpoint example with record A', clarification: '', reasoning: false
       }) } }) }
     }
     const result = await resolveOllamaChatQuestion(base)
@@ -149,7 +149,7 @@ test('remote chat uses the same rewrite contract without a heuristic routing pat
       assert.equal(request.temperature, 0)
       assert.equal(request.messages[1].content, questionRewriteMessages(base)[1].content)
       return { ok: true, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-        mode: 'standalone', query: 'unwanted paraphrase', clarification: ''
+        mode: 'standalone', query: 'unwanted paraphrase', clarification: '', reasoning: false
       }) } }] }) }
     }
     const result = await resolveRemoteChatQuestion({ ...base, model: {
@@ -176,7 +176,7 @@ test('an explicit selection replaces unrelated recent history in rewrite input',
 })
 
 test('the query resolved from a selection survives a standalone mode label', () => {
-  const result = parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'Why must slot IDs remain stable during compaction?', clarification: '' }), 'Why?', true)
+  const result = parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'Why must slot IDs remain stable during compaction?', clarification: '', reasoning: false }), 'Why?', true)
   assert.equal(result.mode, 'contextual')
   assert.equal(result.query, 'Why must slot IDs remain stable during compaction?')
 })
@@ -186,7 +186,7 @@ test('a selected older passage reaches retrieval and generation without replayin
   const result = await prepareRewrittenStudyChat({ ...base, prompt, selectedPassage }, {
     resolve: async (request) => {
       assert.deepEqual(request.selectedPassage, selectedPassage)
-      return { mode: 'standalone', query: 'Why must slotted page slot IDs remain stable during compaction?', clarification: '' }
+      return { mode: 'standalone', query: 'Why must slotted page slot IDs remain stable during compaction?', clarification: '', reasoning: false }
     },
     search: async (query) => { assert.match(query, /slot IDs/); return [source] }
   })
@@ -206,7 +206,7 @@ test('a selected older passage reaches retrieval and generation without replayin
 test('a saved selection works even when its original message is absent', async () => {
   let rewritten = false
   const result = await prepareRewrittenStudyChat({ ...base, messages: [], selectedPassage }, {
-    resolve: async () => { rewritten = true; return { mode: 'contextual', query: 'slot ID stability', clarification: '' } },
+    resolve: async () => { rewritten = true; return { mode: 'contextual', query: 'slot ID stability', clarification: '', reasoning: false } },
     search: async () => []
   })
   assert.ok(rewritten)
@@ -240,7 +240,7 @@ test('Ollama and cloud rewriters honor selections without requiring a complete l
       assert.equal(input.selected_passage.text, selectedPassage.text)
       assert.equal(input.previous_exchange, null)
       calls++
-      const content = JSON.stringify({ mode: 'contextual', query: 'slot ID compaction', clarification: '' })
+      const content = JSON.stringify({ mode: 'contextual', query: 'slot ID compaction', clarification: '', reasoning: false })
       return { ok: true, json: async () => ({ done_reason: 'stop', message: { content }, choices: [{ finish_reason: 'stop', message: { content } }] }) }
     }
     assert.equal((await resolveOllamaChatQuestion({ ...base, messages: [], selectedPassage })).mode, 'contextual')
