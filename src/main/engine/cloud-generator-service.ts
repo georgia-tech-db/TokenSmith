@@ -3,8 +3,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { LocalModel } from '../../shared/app-state'
 import { remoteProviderCatalog } from '../../shared/model-providers'
-import { isCloudGenerator } from '../../shared/cloud-generators'
-import type { CloudConnection, CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult, CloudSetupError } from '../../shared/cloud-generators'
+import { isCloudConnectionModel } from '../../shared/cloud-generators'
+import type { CloudConnection, CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult, CloudSetupError, ForgottenCloudConnections } from '../../shared/cloud-generators'
 import { remoteChatParameters } from './remote-chat-parameters'
 
 interface Encryption {
@@ -28,17 +28,25 @@ export async function cloudResult<T>(work: () => Promise<T>): Promise<CloudResul
   }
 }
 
-export function cloudChatModelIds(data: unknown, providerId: string): string[] {
+export function cloudModelIds(data: unknown, providerId: string, role: 'generator' | 'embedder' = 'generator'): string[] {
   const rows = (data as { data?: Array<{ id?: string; capabilities?: { completion_chat?: boolean } }> })?.data
   if (!Array.isArray(rows)) return []
-  return [...new Set(rows.filter(row => row.capabilities?.completion_chat !== false).map(row => {
+  return [...new Set(rows.filter(row => role === 'embedder' || row.capabilities?.completion_chat !== false).map(row => {
     const id = typeof row.id === 'string' ? row.id.trim() : ''
     return providerId === 'gemini' ? id.replace(/^models\//, '') : id
-  }).filter(id => id && !/(embed|moderation|whisper|transcri|\btts\b|dall-e|image|realtime|audio|video|sora|rerank)/i.test(id))
+  }).filter(id => {
+    if (!id) return false
+    const embedding = /(embed|embedding)/i.test(id)
+    return role === 'embedder' ? embedding : !embedding && !/(moderation|whisper|transcri|\btts\b|dall-e|image|realtime|audio|video|sora|rerank)/i.test(id)
+  })
     // Gemini's catalog also contains agents, music, video and live-only models.
     // Keep ordinary Gemini/Gemma text models here; unusual endpoints can use manual entry.
     .filter(id => providerId !== 'gemini' || (/^(gemini-|gemma-)/.test(id) && !/(live|robotics|computer-use|customtools)/i.test(id))))]
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+}
+
+export function cloudChatModelIds(data: unknown, providerId: string): string[] {
+  return cloudModelIds(data, providerId, 'generator')
 }
 
 export class CloudGeneratorService {
@@ -92,14 +100,14 @@ export class CloudGeneratorService {
   }
 
   credentialFor(model: LocalModel): string | undefined {
-    if (!isCloudGenerator(model) || !model.connectionId) return undefined
+    if (!isCloudConnectionModel(model) || !model.connectionId) return undefined
     const record = this.records.get(model.connectionId)
     if (!record || record.providerId !== model.providerId || record.baseUrl !== model.baseUrl?.replace(/\/+$/, '')) return undefined
     return this.keys.get(record.id)
   }
 
   describeModel(model: LocalModel): LocalModel {
-    if (!isCloudGenerator(model) || !model.connectionId) return model
+    if (!isCloudConnectionModel(model) || !model.connectionId) return model
     const connected = Boolean(this.credentialFor(model))
     return { ...model, cloudCredentialStatus: connected ? 'connected' : 'reconnect', status: connected ? 'ready' : 'needsRuntime' }
   }
@@ -107,14 +115,20 @@ export class CloudGeneratorService {
   private resolve(input: CloudConnectionInput) {
     const provider = remoteProviderCatalog.find(provider => provider.id === input.providerId)
     if (!provider) throw new SetupError('configuration', 'Choose a supported service.')
-    const record = input.connectionId ? this.records.get(input.connectionId) : undefined
-    const baseUrl = (provider.baseUrl ?? input.baseUrl ?? record?.baseUrl ?? '').trim().replace(/\/+$/, '')
+    const requestedRecord = input.connectionId ? this.records.get(input.connectionId) : undefined
+    if (input.connectionId && !requestedRecord) {
+      throw new SetupError('configuration', 'This saved connection is no longer available. Enter the API key again.')
+    }
+    const baseUrl = (provider.baseUrl ?? input.baseUrl ?? requestedRecord?.baseUrl ?? '').trim().replace(/\/+$/, '')
     try {
       const url = new URL(baseUrl)
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       if (url.username || url.password || url.search || url.hash ||
           (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) throw new Error('Invalid URL')
     } catch { throw new SetupError('configuration', 'Enter an HTTPS API address, or an HTTP address on this device.') }
+    const record = requestedRecord ?? [...this.records.values()].find(candidate =>
+      candidate.providerId === provider.id && candidate.baseUrl === baseUrl
+    )
     if (record && (record.providerId !== provider.id || record.baseUrl !== baseUrl)) {
       throw new SetupError('configuration', 'This saved connection belongs to another service. Enter a new API key.')
     }
@@ -162,7 +176,36 @@ export class CloudGeneratorService {
 
   async discover(input: CloudConnectionInput): Promise<string[]> {
     const { provider, baseUrl, apiKey } = this.resolve(input)
-    return this.withRequest(input, async signal => cloudChatModelIds(await this.json(`${baseUrl}/models`, apiKey, undefined, signal), provider.id))
+    return this.withRequest(input, async signal => cloudModelIds(
+      await this.json(`${baseUrl}/models`, apiKey, undefined, signal), provider.id,
+      input.role === 'embedder' ? 'embedder' : 'generator'
+    ))
+  }
+
+  async forget(connectionId: string): Promise<ForgottenCloudConnections> {
+    const record = this.records.get(connectionId)
+    if (!record) return { connectionIds: [] }
+    const operation = this.pendingWrite.then(async () => {
+      const removedRecords = [...this.records.values()].filter(candidate =>
+        candidate.providerId === record.providerId &&
+        (record.providerId !== 'custom' || candidate.baseUrl === record.baseUrl))
+      const removedIds = removedRecords.map(candidate => candidate.id)
+      const records = new Map(this.records)
+      for (const id of removedIds) records.delete(id)
+      try {
+        if (!this.unreadableStore && removedRecords.some(candidate => candidate.remembered)) {
+          await mkdir(dirname(this.file), { recursive: true })
+          const temp = `${this.file}.${randomUUID()}.tmp`
+          await writeFile(temp, JSON.stringify({ version: 1, connections: [...records.values()].filter(item => item.remembered) }), { mode: 0o600 })
+          await rename(temp, this.file)
+        }
+        this.records = records
+        for (const id of removedIds) this.keys.delete(id)
+        return { connectionIds: removedIds }
+      } catch { throw new SetupError('storage', 'Could not remove the saved API key. Please try again.') }
+    })
+    this.pendingWrite = operation.then(() => undefined, () => undefined)
+    return await operation
   }
 
   async connect(input: CloudGeneratorInput): Promise<LocalModel> {
@@ -171,16 +214,19 @@ export class CloudGeneratorService {
 
   private async connectRequest(input: CloudGeneratorInput, signal: AbortSignal): Promise<LocalModel> {
     const { provider, baseUrl, apiKey, record } = this.resolve(input)
+    const role = input.role === 'embedder' ? 'embedder' : 'generator'
     const modelName = input.modelName.trim().replace(provider.id === 'gemini' ? /^models\// : /$^/, '')
     if (!modelName || modelName.length > 240) throw new SetupError('model', 'Choose a chat model to continue.')
     if (input.remember && !this.secureStorageAvailable()) throw new SetupError('storage', 'Secure storage is unavailable. Unlock it or choose “This session only”.')
-    const response = await this.json(`${baseUrl}/chat/completions`, apiKey, {
-      model: modelName, messages: [{ role: 'user', content: 'Reply with the word OK.' }],
-      ...remoteChatParameters(baseUrl, modelName, 512)
-    }, signal) as { choices?: Array<{ message?: { content?: string }; text?: string }> }
+    const response = await this.json(role === 'embedder' ? `${baseUrl}/embeddings` : `${baseUrl}/chat/completions`, apiKey,
+      role === 'embedder'
+        ? { model: modelName, input: 'TokenSmith connection check' }
+        : { model: modelName, messages: [{ role: 'user', content: 'Reply with the word OK.' }], ...remoteChatParameters(baseUrl, modelName, 512) },
+      signal) as { choices?: Array<{ message?: { content?: string }; text?: string }>; data?: unknown[] }
     signal.throwIfAborted()
     const content = response.choices?.[0]?.message?.content ?? response.choices?.[0]?.text
-    if (typeof content !== 'string' || !content.trim()) throw new SetupError('model', 'The model did not return a text answer. Choose another chat model or retry.')
+    if (role === 'generator' && (typeof content !== 'string' || !content.trim())) throw new SetupError('model', 'The model did not return a text answer. Choose another chat model or retry.')
+    if (role === 'embedder' && !Array.isArray(response.data)) throw new SetupError('model', 'The model did not return embeddings. Choose another embedding model or retry.')
 
     const id = record?.id ?? randomUUID()
     const operation = this.pendingWrite.then(async () => {
@@ -204,7 +250,7 @@ export class CloudGeneratorService {
     this.pendingWrite = operation.catch(() => {})
     await operation
     return { id: input.modelId || `cloud:${id}:${modelName}`, name: `${provider.name} ${modelName}`,
-      engine: 'remote', source: 'remote', role: 'generator', status: 'ready',
+      engine: 'remote', source: 'remote', role, status: 'ready',
       providerId: provider.id, providerName: provider.name, baseUrl, remoteModelName: modelName,
       connectionId: id, cloudCredentialStatus: 'connected', addedAt: new Date().toISOString() }
   }

@@ -139,13 +139,10 @@ const tokenSmithBridge: TokenSmithBridge = {
       ipcRenderer.off('ollama:pull-progress', listener)
     }
   },
-  listRemoteProviderModels: (apiKey, baseUrl, role) =>
-    ipcRenderer.invoke('models:list-remote-provider-models', apiKey, baseUrl, role) as Promise<
-      Awaited<ReturnType<TokenSmithBridge['listRemoteProviderModels']>>
-    >,
   getCloudConnections: () => ipcRenderer.invoke('cloud:connections'),
   discoverCloudModels: (input) => ipcRenderer.invoke('cloud:discover', input),
   connectCloudGenerator: (input) => ipcRenderer.invoke('cloud:connect-generator', input),
+  forgetCloudConnection: (connectionId) => ipcRenderer.invoke('cloud:forget', connectionId),
   cancelCloudSetup: (requestId) => ipcRenderer.invoke('cloud:cancel', requestId),
   removeModel: (model) =>
     ipcRenderer.invoke('models:remove-model', model) as Promise<Awaited<ReturnType<TokenSmithBridge['removeModel']>>>,

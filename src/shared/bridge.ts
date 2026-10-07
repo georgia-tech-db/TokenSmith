@@ -27,7 +27,7 @@ import type {
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { DeviceCapabilities } from './device-capabilities'
-import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult } from './cloud-generators'
+import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult, ForgottenCloudConnections } from './cloud-generators'
 import type {
   OllamaDeleteResult,
   OllamaOpenResult,
@@ -87,10 +87,10 @@ export interface TokenSmithBridge {
   cancelOllamaPull: (modelName: string, baseUrl?: string) => Promise<void>
   deleteOllamaModel: (modelName: string, baseUrl?: string) => Promise<OllamaDeleteResult>
   onOllamaPullProgress: (callback: (progress: OllamaPullProgress) => void) => () => void
-  listRemoteProviderModels: (apiKey: string, baseUrl: string, role?: LocalModelRole) => Promise<string[]>
   getCloudConnections: () => Promise<CloudConnectionStatus>
   discoverCloudModels: (input: CloudConnectionInput) => Promise<CloudResult<string[]>>
   connectCloudGenerator: (input: CloudGeneratorInput) => Promise<CloudResult<LocalModel>>
+  forgetCloudConnection: (connectionId: string) => Promise<CloudResult<ForgottenCloudConnections>>
   cancelCloudSetup: (requestId: string) => Promise<void>
   removeModel: (model: LocalModel) => Promise<void>
 }
