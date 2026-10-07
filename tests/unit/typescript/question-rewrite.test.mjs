@@ -52,17 +52,22 @@ test('first turns without Auto skip the rewriter and still retrieve normally', a
   let queries = []
   const result = await prepareRewrittenStudyChat({ ...base, messages: [] }, {
     resolve: () => assert.fail('First turn should not call the model twice'),
-    search: async (query) => { queries.push(query); return [source] }
+    search: async (query) => { queries.push(query); return { sources: [source] } }
   })
   assert.deepEqual(queries, [base.prompt])
   assert.equal(result.rewriteMs, 0)
+  assert.equal(result.latencySpans[0].status, 'skipped')
+  assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Rewriting', 'Retrieval'])
   assert.equal(result.request.referenceExchange, undefined)
 })
 
 test('contextual rewrites affect retrieval but never replace the student task', async () => {
   const result = await prepareRewrittenStudyChat(base, {
     resolve: async () => ({ mode: 'contextual', query: 'checkpoint record A example', clarification: '', reasoning: false }),
-    search: async (query) => { assert.equal(query, 'checkpoint record A example'); return [source] }
+    search: async (query) => {
+      assert.equal(query, 'checkpoint record A example')
+      return { sources: [source], retrievalChildren: [{ stage: 'Vector search', startedAt: Date.now(), durationMs: 2, outCount: 1 }] }
+    }
   })
   assert.equal(result.request.prompt, base.prompt)
   assert.equal(result.request.answerPrompt, base.prompt)
@@ -73,12 +78,13 @@ test('contextual rewrites affect retrieval but never replace the student task', 
   assert.match(prompt, /records A and B/)
   assert.doesNotMatch(prompt, /checkpoint record A example/)
   assert.equal(prompt.split('\n\nQuestion:').at(-1).trim(), base.prompt)
+  assert.equal(result.latencySpans[1].children[0].stage, 'Vector search')
 })
 
 test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {
   const result = await prepareRewrittenStudyChat({ ...base, prompt: 'What is isolation?' }, {
     resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '', reasoning: false }),
-    search: async (query) => { assert.equal(query, 'What is isolation?'); return [source] }
+    search: async (query) => { assert.equal(query, 'What is isolation?'); return { sources: [source] } }
   })
   assert.equal(result.request.referenceExchange, undefined)
   assert.doesNotMatch(studyChatMessages(result.request).at(-1).content, /checkpoint|records A and B/)
@@ -188,7 +194,7 @@ test('a selected older passage reaches retrieval and generation without replayin
       assert.deepEqual(request.selectedPassage, selectedPassage)
       return { mode: 'standalone', query: 'Why must slotted page slot IDs remain stable during compaction?', clarification: '', reasoning: false }
     },
-    search: async (query) => { assert.match(query, /slot IDs/); return [source] }
+    search: async (query) => { assert.match(query, /slot IDs/); return { sources: [source] } }
   })
   assert.equal(result.resolution.mode, 'contextual')
   assert.equal(result.request.prompt, prompt)
@@ -207,7 +213,7 @@ test('a saved selection works even when its original message is absent', async (
   let rewritten = false
   const result = await prepareRewrittenStudyChat({ ...base, messages: [], selectedPassage }, {
     resolve: async () => { rewritten = true; return { mode: 'contextual', query: 'slot ID stability', clarification: '', reasoning: false } },
-    search: async () => []
+    search: async () => ({ sources: [] })
   })
   assert.ok(rewritten)
   assert.match(studyChatMessages(result.request).at(-1).content, /slot ID stays the same/)

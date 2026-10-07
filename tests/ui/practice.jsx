@@ -39,7 +39,9 @@ window.tokensmith = {
   },
   searchLibrary: async (query, materials, limit, models, mode, options) => {
     calls.push({ kind: 'search', query, mode, options })
-    return options.documents.map(ref => sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), 0))
+    return {
+      sources: options.documents.map(ref => sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), 0))
+    }
   },
   cancelChatQuestionSuggestions: async id => { calls.push({ kind: 'cancel-suggestions', id }) },
   suggestChatQuestions: async (id, request) => {

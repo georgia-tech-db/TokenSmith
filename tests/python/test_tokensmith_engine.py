@@ -555,6 +555,12 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIsInstance(search["sources"][0]["chunkRowid"], int)
             self.assertIn(material["id"], search["sources"][0]["sourceId"])
             self.assertIn(str(note_path.resolve()), search["sources"][0]["sourceId"])
+            self.assertEqual(
+                [span["stage"] for span in search["latencySpans"]],
+                ["Query embedding", "Vector search", "Fusion and selection"],
+            )
+            self.assertTrue(all(span["durationMs"] >= 0 for span in search["latencySpans"]))
+            self.assertEqual(search["latencySpans"][-1]["outCount"], len(search["sources"]))
 
             resolved_source = engine.resolve_source_document(
                 {
@@ -696,6 +702,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIn("hashing", search["keywordTerms"])
             self.assertIn("hashing", search["sources"][0]["keywordTerms"])
             self.assertIn("hashing", search["sources"][0]["queryTerms"])
+            self.assertEqual(
+                [span["stage"] for span in search["latencySpans"]],
+                ["Keyword search", "Fusion and selection"],
+            )
 
     def test_source_selection_demotes_exercises_for_concept_questions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -758,6 +768,10 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
 
             self.assertGreaterEqual(len(search["sources"]), 1)
             self.assertEqual(search["sources"][0]["chunkId"], "ch06.002")
+            self.assertEqual(
+                [span["stage"] for span in search["latencySpans"]],
+                ["Query embedding", "Vector search", "Keyword search", "Fusion and selection"],
+            )
             combined_context = "\n".join(source["context"] for source in search["sources"])
             self.assertNotIn("Check Your Understanding", combined_context)
             self.assertNotIn("simple LRU would achieve a higher hit rate", combined_context)

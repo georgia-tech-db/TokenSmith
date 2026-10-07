@@ -1555,6 +1555,29 @@ def normalize_search_mode(value: Any) -> str:
     return mode if mode in SEARCH_MODES else DEFAULT_SEARCH_MODE
 
 
+def retrieval_latency_span(
+    stage: str,
+    started_at: float,
+    started: float,
+    *,
+    in_count: Optional[int] = None,
+    out_count: Optional[int] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    span: Dict[str, Any] = {
+        "stage": stage,
+        "startedAt": started_at,
+        "durationMs": max(0.0, (time.perf_counter() - started) * 1000.0),
+    }
+    if in_count is not None:
+        span["inCount"] = max(0, int(in_count))
+    if out_count is not None:
+        span["outCount"] = max(0, int(out_count))
+    if details:
+        span["details"] = details
+    return span
+
+
 def reciprocal_rank_fusion(
     rankings: Sequence[Tuple[float, Sequence[int]]],
     limit: int,
@@ -1689,6 +1712,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     query = payload.get("query", "")
     limit = int(payload.get("limit") or 4)
     search_mode = normalize_search_mode(payload.get("searchMode"))
+    latency_spans: List[Dict[str, Any]] = []
     candidate_limit = max(limit * 8, limit) if search_mode in ("keyword", "hybrid") else limit
     materials = payload.get("materials") or []
     documents = validate_study_documents(user_data_path, payload["documents"]) if "documents" in payload else None
@@ -1711,10 +1735,14 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     query_tokens = sorted(set(tokenize(query)))
     if not active_ids:
-        return {"sources": [], "reason": "no_selected_documents" if documents is not None else no_enabled_materials_reason(user_data_path)}
+        return {
+            "sources": [],
+            "reason": "no_selected_documents" if documents is not None else no_enabled_materials_reason(user_data_path),
+            "latencySpans": latency_spans,
+        }
 
     if not has_chunks(user_data_path, active_ids):
-        return {"sources": [], "reason": "no_indexed_chunks"}
+        return {"sources": [], "reason": "no_indexed_chunks", "latencySpans": latency_spans}
 
     collection_embedding_models = embedding_models_by_collection_ids(user_data_path, active_ids)
     active_ids_by_embedding_model: Dict[str, List[str]] = {}
@@ -1726,10 +1754,17 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     vector_hits_by_rowid: Dict[int, Tuple[float, str]] = {}
     skipped_embedding_models: List[str] = []
+    query_embedding_started_at: Optional[float] = None
+    query_embedding_duration_ms = 0.0
+    vector_search_started_at: Optional[float] = None
+    vector_search_duration_ms = 0.0
 
     for embedding_key, grouped_active_ids in (
         active_ids_by_embedding_model.items() if search_mode in ("vector", "hybrid") else []
     ):
+        if query_embedding_started_at is None:
+            query_embedding_started_at = time.time() * 1000.0
+        embedding_started = time.perf_counter()
         log_event("search_embedding_provider_resolve_start", embeddingKey=embedding_key)
         embed_text, embedding_reason = resolve_embedding_provider_for_key(embedding_key, embedding_specs, payload.get("embeddingGpuEnabled") is not False)
         log_event(
@@ -1738,6 +1773,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             reason=embedding_reason,
         )
         if embedding_reason or embed_text is None:
+            query_embedding_duration_ms += (time.perf_counter() - embedding_started) * 1000.0
             skipped_embedding_models.append(embedding_key)
             continue
 
@@ -1748,23 +1784,64 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as error:
             log_event("query_embedding_failed", embeddingKey=embedding_key, error=str(error))
             skipped_embedding_models.append(embedding_key)
+            query_embedding_duration_ms += (time.perf_counter() - embedding_started) * 1000.0
             continue
+        query_embedding_duration_ms += (time.perf_counter() - embedding_started) * 1000.0
 
+        if vector_search_started_at is None:
+            vector_search_started_at = time.time() * 1000.0
+        vector_started = time.perf_counter()
         for rowid, score in vector_search(
             user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key, **scope_args
         ):
             current = vector_hits_by_rowid.get(rowid)
             if current is None or score > current[0]:
                 vector_hits_by_rowid[rowid] = (score, embedding_key)
+        vector_search_duration_ms += (time.perf_counter() - vector_started) * 1000.0
+
+    if search_mode in ("vector", "hybrid"):
+        latency_spans.append(
+            {
+                "stage": "Query embedding",
+                "startedAt": query_embedding_started_at or time.time() * 1000.0,
+                "durationMs": query_embedding_duration_ms,
+                "outCount": len(active_ids_by_embedding_model) - len(skipped_embedding_models),
+                "details": {
+                    "models": len(active_ids_by_embedding_model),
+                    "skipped_models": len(skipped_embedding_models),
+                },
+            }
+        )
+        latency_spans.append(
+            {
+                "stage": "Vector search",
+                "startedAt": vector_search_started_at or time.time() * 1000.0,
+                "durationMs": vector_search_duration_ms,
+                "outCount": len(vector_hits_by_rowid),
+            }
+        )
 
     keyword_terms: List[str] = []
     keyword_hits: List[Tuple[int, float]] = []
     if search_mode in ("keyword", "hybrid"):
+        keyword_started_at = time.time() * 1000.0
+        keyword_started = time.perf_counter()
         keyword_terms = keyword_terms_for_query(user_data_path, query, active_ids, **scope_args)
         keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms, **scope_args)
+        latency_spans.append(
+            retrieval_latency_span(
+                "Keyword search",
+                keyword_started_at,
+                keyword_started,
+                out_count=len(keyword_hits),
+                details={"terms": len(keyword_terms)},
+            )
+        )
 
     vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
     ranked_limit = candidate_limit if search_mode in ("keyword", "hybrid") else limit
+    fusion_started_at = time.time() * 1000.0
+    fusion_started = time.perf_counter()
     ranked = combine_search_hits(search_mode, vector_hits, keyword_hits, ranked_limit)
 
     log_event(
@@ -1798,6 +1875,16 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     for source in sources:
         source["queryTerms"] = source_query_tokens
         source["keywordTerms"] = list(keyword_terms)
+    latency_spans.append(
+        retrieval_latency_span(
+            "Fusion and selection",
+            fusion_started_at,
+            fusion_started,
+            in_count=len(vector_hits) + len(keyword_hits),
+            out_count=len(sources),
+            details={"candidates": len(ranked)},
+        )
+    )
     log_event(
         "search_sources_selected",
         queryChars=len(query),
@@ -1811,6 +1898,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         "reason": None if sources else "no_matching_sources",
         "queryTerms": source_query_tokens,
         "keywordTerms": keyword_terms,
+        "latencySpans": latency_spans,
     }
 
 

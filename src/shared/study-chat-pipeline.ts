@@ -1,9 +1,10 @@
-import type { ChatMessage, ChatSource } from './app-state'
+import type { ChatMessage } from './app-state'
 import { questionWithSelection } from './chat-selection'
 import { reasoningMode } from './reasoning'
 import type {
-  ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
+  ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, LibrarySearchResult, QuestionRewrite
 } from './engine'
+import { startLatencySpan, type LatencySpan } from './latency-trace'
 
 export function answerForDisplay(message: ChatMessage) {
   if (message.explanationView === 'reasoning' && message.reasoningAnswer) return message.reasoningAnswer
@@ -31,7 +32,7 @@ export function trimReferenceExchange(exchange: ChatReferenceExchange, maxChars:
 
 interface RewritePipelineDependencies {
   resolve: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
-  search: (query: string) => Promise<ChatSource[]>
+  search: (query: string) => Promise<LibrarySearchResult>
 }
 
 export async function prepareRewrittenStudyChat(
@@ -42,29 +43,49 @@ export async function prepareRewrittenStudyChat(
   request?: EngineChatRequest
   rewriteMs: number
   searchMs: number
+  latencySpans: LatencySpan[]
 }> {
   const previous = lastChatExchange(request.messages)
   const needsRewrite = Boolean(previous || request.selectedPassage ||
     (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
-  const rewriteStart = performance.now()
+  const rewriteTimer = startLatencySpan('Rewriting')
   const resolution: QuestionRewrite = needsRewrite
     ? await dependencies.resolve(request)
     : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
-  const rewriteMs = needsRewrite ? performance.now() - rewriteStart : 0
+  const rewriteSpan = rewriteTimer.finish({
+    status: needsRewrite ? 'ok' : 'skipped',
+    inCount: previous ? 1 : 0,
+    details: {
+      history_turns: previous ? 1 : 0,
+      selected_passage: Boolean(request.selectedPassage),
+      mode: resolution.mode
+    }
+  })
+  const rewriteMs = needsRewrite ? rewriteSpan.durationMs : 0
   if (resolution.mode === 'clarify') {
-    return { resolution, rewriteMs, searchMs: 0 }
+    return { resolution, rewriteMs, searchMs: 0, latencySpans: [rewriteSpan] }
   }
 
   // A selected passage is explicit context, even if the model labels its query standalone.
   const mode = request.selectedPassage ? 'contextual' : resolution.mode
   const query = mode === 'standalone' ? request.prompt : resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
-  const searchStart = performance.now()
-  const retrievedSources = await dependencies.search(query)
+  const searchTimer = startLatencySpan('Retrieval')
+  const searchResult = await dependencies.search(query)
+  const retrievedSources = searchResult.sources
+  const retrievalSpan = searchTimer.finish({
+    outCount: retrievedSources.length,
+    details: {
+      mode: request.applicationSettings?.searchMode ?? 'hybrid',
+      reason: searchResult.reason ?? null
+    },
+    children: searchResult.retrievalChildren
+  })
   return {
     resolution: { ...resolution, mode, query },
     rewriteMs,
-    searchMs: performance.now() - searchStart,
+    searchMs: retrievalSpan.durationMs,
+    latencySpans: [rewriteSpan, retrievalSpan],
     request: {
       ...request,
       // A rewrite is a retrieval aid, never the student's replacement task.

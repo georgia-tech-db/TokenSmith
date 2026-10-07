@@ -9,6 +9,10 @@ let state = {
     { id: 'q1', role: 'user', text: question },
     { id: 'a1', role: 'assistant', text: 'Promote 30. Left: keys [10, 20], children C0, C1, C2. Right: key [40], child C4.',
       sources, conversationContextMode: 'standalone', responseDurationMs: 5400,
+      latencyTrace: { requestId: 'fixture', totalDurationMs: 5200, spans: [
+        { stage: 'Retrieval', startedAt: 1, durationMs: 700, outCount: 1, details: { mode: 'hybrid' }, children: [{ stage: 'Vector search', startedAt: 1, durationMs: 300 }] },
+        { stage: 'Generation', startedAt: 2, durationMs: 4500, details: { prompt_tokens: 120 } },
+        { stage: 'Suggestions', startedAt: 3, durationMs: 0, status: 'error' }] },
       reasoning: { modelId: model.id, supported: !params.has('unsupported'), used: params.has('used') },
       answerContext: { prompt: question, conversationContextMode: 'standalone', modelSettings: { contextLength: 8192, maxLength: 1536, reasoningMode: 'auto' } },
       followUpSuggestions: ['How does the parent change?'] }

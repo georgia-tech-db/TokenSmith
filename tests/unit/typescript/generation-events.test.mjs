@@ -4,7 +4,7 @@ import { requireTranspiledTs } from './ts-module-loader.mjs'
 const { runOllamaStudyEngine } = requireTranspiledTs('src/main/engine/ollama-service.ts')
 const { runRemoteStudyEngine } = requireTranspiledTs('src/main/engine/remote-chat-service.ts')
 const sources = [{ title: 'Book', locator: 'Page 1', excerpt: 'Atomicity is all or nothing.' }]
-const request = engine => ({ prompt:'Explain atomicity', messages:[], materials:[], settings:{}, retrievedSources:sources,
+const request = engine => ({ requestId:'generation-test', prompt:'Explain atomicity', messages:[], materials:[], settings:{}, retrievedSources:sources,
   model: engine === 'ollama' ? { name:'Test', engine, ollamaModelName:'test:12b', contextLength:8192 }
     : { name:'Test', engine, remoteModelName:'test', baseUrl:'https://example.test/v1', apiKey:'test' },
   modelSettings:{contextLength:8192,maxLength:512}, applicationSettings:{suggestionMode:'on',followUpSuggestionCount:2} })
@@ -13,7 +13,10 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
   test(`${engine}: delivers the answer before suggestions finish after any budget preflight`, async () => {
     const saved = globalThis.fetch
     const followUps = deferred(), started = deferred()
-    const payload = text => engine === 'ollama' ? {message:{content:text}} : {choices:[{message:{content:text}}]}
+    const payload = text => engine === 'ollama'
+      ? {message:{content:text},done_reason:'stop',prompt_eval_count:120,eval_count:30,
+          load_duration:20_000_000,prompt_eval_duration:40_000_000,eval_duration:80_000_000}
+      : {choices:[{message:{content:text},finish_reason:'stop'}],usage:{prompt_tokens:120,completion_tokens:30}}
     let calls = 0, probes = 0, observed, done = false
     globalThis.fetch = async (_url, options) => {
       if (engine === 'ollama' && JSON.parse(options.body).options.num_predict === 1) {
@@ -32,11 +35,22 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
       assert.match(observed.answer.text, /atomic transaction/)
       assert.deepEqual(observed.answer.sources, sources)
       assert.equal(observed.hasFollowUps, true)
+      assert.deepEqual(observed.answer.latencyTrace.spans.map(({stage})=>stage), ['Prompt preparation','Generation'])
+      assert.equal(observed.answer.latencyTrace.requestId, 'generation-test')
+      assert.equal(observed.answer.latencyTrace.spans[1].details.prompt_tokens, 120)
+      if (engine === 'ollama') {
+        assert.deepEqual(observed.answer.latencyTrace.spans[1].children.map(({stage})=>stage),
+          ['Prompt preflight','Model load','Prompt evaluation','Token generation'])
+        assert.equal(observed.answer.latencyTrace.spans[1].children[1].durationMs, 20)
+      }
       followUps.resolve({ok:true,json:async()=>payload(JSON.stringify({questions:['What happens during a rollback?','How does durability differ?']}))})
       const result = await pending
       assert.equal(result.text, observed.answer.text)
       assert.equal(calls, 2)
       assert.equal(probes, engine === 'ollama' ? 1 : 0)
+      assert.deepEqual(result.latencyTrace.spans.map(({stage})=>stage),
+        ['Prompt preparation','Generation','Suggestions'])
+      assert.equal(result.latencyTrace.spans[2].outCount, 2)
     } finally {globalThis.fetch=saved}
   })
   test(`${engine}: stopping during a response body aborts inference and keeps the already delivered answer`, async () => {

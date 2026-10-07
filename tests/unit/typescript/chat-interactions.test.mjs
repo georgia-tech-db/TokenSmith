@@ -219,7 +219,7 @@ test('resending an edited follow-up passes only the earlier exchange through the
       rewriteMessages = request.messages
       return { mode: 'contextual', query: 'How is a B+ tree kept balanced?', clarification: '', reasoning: false }
     },
-    search: async (query) => { searchQuery = query; return [] }
+    search: async (query) => { searchQuery = query; return { sources: [] } }
   })
   assert.deepEqual(rewriteMessages, history.slice(0, 2))
   assert.equal(searchQuery, 'How is a B+ tree kept balanced?')
@@ -232,7 +232,7 @@ test('resending the first question cannot reuse answers from the discarded branc
   const edited = replaceQuestion(history, 'q1', 'How do hash indexes work?')
   const result = await prepareRewrittenStudyChat({ prompt: edited[0].text, messages: [] }, {
     resolve: async () => assert.fail('The first question should not be rewritten using old history'),
-    search: async () => []
+    search: async () => ({ sources: [] })
   })
   assert.equal(result.resolution.mode, 'standalone')
   assert.equal(result.request.referenceExchange, undefined)

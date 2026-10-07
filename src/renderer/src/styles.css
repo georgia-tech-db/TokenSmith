@@ -1200,6 +1200,52 @@ button {
   transform: rotate(180deg);
 }
 
+.query-plan {
+  display: block;
+}
+
+.query-plan-body {
+  display: grid;
+  gap: 8px;
+  width: min(680px, 100%);
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle, #e5e7e5);
+  border-radius: 8px;
+  background: var(--surface-elevated, #ffffff);
+}
+
+.query-plan-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.query-plan-totals div {
+  display: flex;
+  gap: 6px;
+}
+
+.query-plan-totals dt {
+  color: var(--content-muted, #4f5359);
+}
+
+.query-plan-totals dd {
+  margin: 0;
+  color: var(--content-ink, #30343a);
+  font-weight: 650;
+}
+
+.query-plan-text {
+  margin: 0;
+  color: var(--content-ink, #30343a);
+  font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .source-list {
   display: grid;
   gap: 9px;

@@ -38,7 +38,7 @@ test('automatic first turns plan once, preserve the original task, and do not re
   let searches = 0
   const result = await prepareRewrittenStudyChat(base, {
     resolve: async () => { plans++; return { mode: 'standalone', query: 'Unwanted paraphrase', clarification: '', reasoning: true } },
-    search: async query => { searches++; assert.equal(query, base.prompt); return base.retrievedSources }
+    search: async query => { searches++; assert.equal(query, base.prompt); return { sources: base.retrievedSources } }
   })
   assert.equal(plans, 1)
   assert.equal(searches, 1)

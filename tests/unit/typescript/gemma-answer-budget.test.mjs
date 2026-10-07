@@ -84,6 +84,12 @@ test('actual preflight overflow removes a whole source, preserves the question, 
   assert.doesNotMatch(calls[2].messages.at(-1).content, /Update with max|discard me|internal/)
   assert.equal(answer.text, 'The actual result is zero.')
   assert.deepEqual(answer.sources.map(s => s.title), ['first'])
+  assert.deepEqual(answer.latencyTrace.spans.map(({ stage }) => stage),
+    ['Prompt preparation', 'Generation', 'Suggestions'])
+  assert.equal(answer.latencyTrace.spans[0].inCount, 2)
+  assert.equal(answer.latencyTrace.spans[0].outCount, 1)
+  assert.equal(answer.latencyTrace.spans[1].children.filter(({ stage }) => stage === 'Prompt preflight').length, 2)
+  assert.equal(answer.latencyTrace.spans[2].status, 'skipped')
 })
 
 test('length-limited plain answers and missing token measurements are not reported as complete', async () => {
