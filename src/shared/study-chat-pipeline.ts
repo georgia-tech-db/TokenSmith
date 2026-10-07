@@ -6,6 +6,7 @@ import type {
 } from './engine'
 
 export function answerForDisplay(message: ChatMessage) {
+  if (message.explanationView === 'reasoning' && message.reasoningAnswer) return message.reasoningAnswer
   return message.explanationView === 'simple' && message.simplerExplanation
     ? message.simplerExplanation
     : message

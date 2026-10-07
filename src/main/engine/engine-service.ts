@@ -28,10 +28,10 @@ async function withStarterSources(
   }
 
   signal?.throwIfAborted()
-  const starterSources = await starterSourcesWithPython(request.materials, 4)
+  const starterSources = await starterSourcesWithPython(request.materials, 4, request.documents)
   signal?.throwIfAborted()
   if (starterSources.length === 0) {
-    throw new Error('No indexed PDF text was available for starter questions.')
+    throw new Error('No indexed text was available in the selected documents for starter questions.')
   }
 
   return { ...request, retrievedSources: starterSources }

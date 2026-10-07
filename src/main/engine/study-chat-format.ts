@@ -1,5 +1,7 @@
 import type { ChatSource, ExplanationDepth, LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import type { EngineChatRequest, EngineQuestionSuggestionRequest } from '../../shared/engine'
+import { practiceSystemPrompt } from '../../shared/quiz'
+import { practiceSourceKey } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { questionWithSelection, selectedPassageReference } from '../../shared/chat-selection'
 import {
@@ -90,6 +92,9 @@ interface SourceContextOptions {
   includeBudget?: boolean
   includeInstructions?: boolean
   explanationDepth?: ExplanationDepth
+  systemInstructions?: string
+  includeEvidenceIds?: boolean
+  wholeSources?: boolean
 }
 
 export function estimateTokens(text: string): number {
@@ -287,7 +292,7 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const safetyMargin = safetyMarginTokens(modelContextTokens)
   const fixedPromptText = [
     options?.modelSettings?.systemMessage,
-    sourceContextInstructions.join('\n'),
+    options?.systemInstructions ?? sourceContextInstructions.join('\n'),
     explanationDepthInstruction(options?.explanationDepth),
     options?.referenceText,
     options?.prompt ? `Question: ${options.prompt}` : ''
@@ -324,7 +329,7 @@ export function packSourceContext(
   let truncatedSourceCount = 0
 
   for (const source of sources) {
-    const prefix = sourcePrefix(source)
+    const prefix = (options.includeEvidenceIds ? `Evidence ID: ${practiceSourceKey(source)}\n` : '') + sourcePrefix(source)
     const suffix = '\n### End source unit\n'
     if (!options.includeBudget) {
       const unbudgetedText = sourceText(source)
@@ -344,10 +349,10 @@ export function packSourceContext(
 
     // Keep code and evidence units intact for Ollama's measured prompt path.
     // A smaller later unit may still fit, so do not stop at an oversized unit.
-    if (usesWholeSourceBudget(options.model) && countTokens(sourceText(source).text) > textBudgetTokens) {
+    if ((options.wholeSources || usesWholeSourceBudget(options.model)) && countTokens(sourceText(source).text) > textBudgetTokens) {
       continue
     }
-    const clipped = usesWholeSourceBudget(options.model)
+    const clipped = options.wholeSources || usesWholeSourceBudget(options.model)
       ? sourceText(source)
       : sourceText(source, textBudgetTokens, terms)
     const block = `${prefix}${clipped.text}${suffix}`
@@ -378,7 +383,7 @@ export function packSourceContext(
 
   return {
     context: [
-      ...(options.includeInstructions === false ? [] : [...sourceContextInstructions, '']),
+      ...(options.includeInstructions === false ? [] : [options.systemInstructions ?? sourceContextInstructionText(), '']),
       '### Context:',
       ...blocks
     ].join('\n'),
@@ -508,12 +513,14 @@ function chatReferenceText(request: EngineChatRequest): string {
 export function prepareStudyChatMessages(request: EngineChatRequest): {
   messages: StudyChatMessage[]; budget: SourceContextBudget; sources: ChatSource[]
 } {
-  const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
+  const runtimeSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
     | Partial<ModelRuntimeSettings>
     | undefined
+  const modelSettings = request.practiceTask ? { ...runtimeSettings, systemMessage: '' } : runtimeSettings
+  const practiceInstructions = request.practiceTask ? practiceSystemPrompt(request.practiceTask) : undefined
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = answerPromptForRequest(request)
-  const referenceText = chatReferenceText(request)
+  const referenceText = request.practiceTask ? '' : chatReferenceText(request)
   const { context, budget, sources } = packSourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
     evidenceQuery: request.retrievalQuery,
@@ -522,7 +529,10 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     modelSettings,
     includeBudget: true,
     includeInstructions: false,
-    explanationDepth: requestExplanationDepth(request.applicationSettings)
+    explanationDepth: request.practiceTask ? undefined : requestExplanationDepth(request.applicationSettings),
+    systemInstructions: practiceInstructions,
+    includeEvidenceIds: Boolean(request.practiceTask),
+    wholeSources: Boolean(request.practiceTask)
   })
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
@@ -533,14 +543,17 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   if (request.retrievedSources?.length && !sources.length) {
     throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
   }
+  if (request.practiceTask === 'feedback' && sources.length !== request.retrievedSources?.length) {
+    throw new Error('The full grading evidence does not fit this model context. Increase Context Length before checking the answer.')
+  }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
     : answerPrompt
   const messages: StudyChatMessage[] = []
   const systemMessage = [
     configuredSystemMessage,
-    context || referenceText ? sourceContextInstructionText() : '',
-    explanationDepthInstruction(requestExplanationDepth(request.applicationSettings))
+    practiceInstructions ?? (context || referenceText ? sourceContextInstructionText() : ''),
+    request.practiceTask ? '' : explanationDepthInstruction(requestExplanationDepth(request.applicationSettings))
   ].filter(Boolean).join('\n\n')
 
   if (systemMessage) {
@@ -556,7 +569,7 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
 }
 
 export function shouldGenerateFollowUps(request: EngineChatRequest): boolean {
-  return request.applicationSettings?.suggestionMode !== 'off'
+  return !request.practiceTask && request.applicationSettings?.suggestionMode !== 'off'
 }
 
 export function followUpSuggestionCount(request: EngineChatRequest): number {

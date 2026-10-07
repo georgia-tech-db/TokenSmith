@@ -13,6 +13,7 @@ import type {
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
+import { practiceResponseSchema } from '../../shared/quiz'
 import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
@@ -923,7 +924,7 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
       modelName, promptTokens, fits, budget: prepared.budget, sourceCount: prepared.sources.length
     })
     if (fits) return { ...prepared, request: { ...candidate, retrievedSources: prepared.sources } }
-    if (prepared.sources.length <= 1) {
+    if (candidate.practiceTask === 'feedback' || prepared.sources.length <= 1) {
       throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
     }
     candidate = { ...candidate, retrievedSources: prepared.sources.slice(0, -1) }
@@ -1026,6 +1027,14 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  if (request.practiceTask) {
+    const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
+    const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, runtimeRequest.modelSettings, {
+      format: practiceResponseSchema(request.practiceTask), temperature: request.practiceTask === 'feedback' ? 0 : 0.3,
+      thinking: false, signal: options.signal
+    })
+    return { engineId: 'tokensmith', modelName: request.model.name, text, sources: verified.sources }
+  }
   const mode = reasoningMode(runtimeRequest.modelSettings)
   let selected = request.reasoning === true
   if (mode === 'auto' && request.reasoning === undefined) {
@@ -1036,7 +1045,15 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     selected = resolution.reasoning
   }
   const modelSettings = answerReasoningSettings(runtimeRequest.modelSettings, selected)
-  if (modelSettings?.thinking && !await supportsSwitchableThinking(baseUrl, modelName, options.signal)) {
+  let reasoningSupported: boolean | undefined
+  try {
+    reasoningSupported = await supportsSwitchableThinking(baseUrl, modelName, options.signal)
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (modelSettings?.thinking) throw error
+    writeTokenSmithLog('ollama_reasoning_support_unavailable', { modelName, error: errorMessage(error, 'Unavailable') })
+  }
+  if (modelSettings?.thinking && !reasoningSupported) {
     throw new Error('This model does not advertise switchable reasoning. Choose Auto or Off, or select a model that supports it.')
   }
   runtimeRequest = { ...runtimeRequest, modelSettings }
@@ -1053,8 +1070,9 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     thinking: runtimeSettings?.thinking === true, signal: options.signal
   })
   const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
+  const reasoning = { modelId: request.model.id, supported: reasoningSupported, used: runtimeSettings?.thinking === true }
   options.signal?.throwIfAborted()
-  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources, reasoning }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
@@ -1069,6 +1087,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
+    reasoning,
     followUpSuggestions,
     followUpError
   }

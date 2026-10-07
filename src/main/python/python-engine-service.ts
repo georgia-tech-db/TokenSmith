@@ -1,5 +1,6 @@
 import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
-import { normalizeEmbeddingGpuEnabled, type EmbeddingOptions } from '../../shared/embedding-settings'
+import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from '../../shared/study-scope'
+import { normalizeEmbeddingGpuEnabled } from '../../shared/embedding-settings'
 import { createEmbeddingDeviceManager } from '../engine/embedding-device'
 import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
@@ -18,6 +19,8 @@ interface PythonRequest {
     | 'index_material'
     | 'search'
     | 'starter_sources'
+    | 'study_documents'
+    | 'practice_sources'
     | 'list_materials'
     | 'set_material_enabled'
     | 'remove_material'
@@ -689,7 +692,7 @@ export async function searchLibraryWithPython(
   limit: number,
   embeddingModels?: LocalModel[],
   searchMode?: SearchMode,
-  options?: EmbeddingOptions
+  options?: LibrarySearchOptions
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
@@ -697,6 +700,7 @@ export async function searchLibraryWithPython(
   writeLog('library_search_request', {
     query,
     limit,
+    documents: options?.documents,
     searchMode,
     embeddingGpuEnabled,
     materials: materials.map((material) => ({
@@ -720,6 +724,7 @@ export async function searchLibraryWithPython(
     {
       query,
       materials,
+      ...(options?.documents !== undefined ? { documents: options.documents } : {}),
       limit,
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
@@ -740,11 +745,12 @@ export async function searchLibraryWithPython(
   return result.sources
 }
 
-export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4): Promise<ChatSource[]> {
+export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {
   const result = await requestPython<SearchResult>(
     'starter_sources',
     {
       materials,
+      ...(documents !== undefined ? { documents } : {}),
       limit,
       userDataPath: app.getPath('userData')
     },
@@ -764,6 +770,20 @@ export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]
   )
 
   return result.materials
+}
+
+export async function studyDocumentsWithPython(): Promise<StudyDocument[]> {
+  const result = await requestPython<{ documents: StudyDocument[] }>('study_documents', {
+    userDataPath: app.getPath('userData')
+  }, 30_000)
+  return result.documents
+}
+
+export async function practiceSourcesWithPython(documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number): Promise<ChatSource[]> {
+  const result = await requestPython<SearchResult>('practice_sources', {
+    userDataPath: app.getPath('userData'), documents, usedSourceKeys, questionIndex
+  }, 30_000)
+  return result.sources
 }
 
 export async function setMaterialEnabledWithPython(materialId: string, isActive: boolean): Promise<void> {

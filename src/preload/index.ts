@@ -35,14 +35,17 @@ const tokenSmithBridge: TokenSmithBridge = {
     >,
   cancelChatQuestionSuggestions: (requestId) =>
     ipcRenderer.invoke('engine:cancel-suggest-questions', requestId) as Promise<void>,
-  starterSources: (materials, limit) =>
-    ipcRenderer.invoke('library:starter-sources', materials, limit) as Promise<
+  starterSources: (materials, limit, documents) =>
+    ipcRenderer.invoke('library:starter-sources', materials, limit, documents) as Promise<
       Awaited<ReturnType<TokenSmithBridge['starterSources']>>
     >,
   searchLibrary: (query, materials, limit, embeddingModels, searchMode, options) =>
     ipcRenderer.invoke('library:search', query, materials, limit, embeddingModels, searchMode, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['searchLibrary']>>
     >,
+  studyDocuments: () => ipcRenderer.invoke('library:study-documents'),
+  practiceSources: (documents, usedSourceKeys, questionIndex) =>
+    ipcRenderer.invoke('library:practice-sources', documents, usedSourceKeys, questionIndex),
   getPdfForSource: (source) =>
     ipcRenderer.invoke('library:get-pdf-for-source', source) as Promise<
       Awaited<ReturnType<TokenSmithBridge['getPdfForSource']>>

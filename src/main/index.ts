@@ -11,6 +11,8 @@ import {
   indexMaterialWithPython,
   listIndexedMaterialsWithPython,
   previewCleaningWithPython,
+  studyDocumentsWithPython,
+  practiceSourcesWithPython,
   removeMaterialWithPython,
   readTokenSmithLogFile,
   resolveSourceDocumentWithPython,
@@ -40,7 +42,7 @@ import {
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
 import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
-import type { EmbeddingOptions } from '../shared/embedding-settings'
+import type { StudyDocumentRef, LibrarySearchOptions } from '../shared/study-scope'
 import { removeRetiredModelState } from '../shared/retired-model-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
@@ -520,10 +522,14 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
-  ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number) =>
-    starterSourcesWithPython(materials, limit)
+  ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) =>
+    starterSourcesWithPython(materials, limit, documents)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: EmbeddingOptions) =>
+  ipcMain.handle('library:study-documents', () => studyDocumentsWithPython())
+  ipcMain.handle('library:practice-sources', (_event, documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) =>
+    practiceSourcesWithPython(documents, usedSourceKeys, questionIndex)
+  )
+  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) =>
     searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options)
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))

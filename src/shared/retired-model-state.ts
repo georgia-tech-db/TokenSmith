@@ -11,7 +11,7 @@ export function removeRetiredModelState(state: AppStateSnapshot): AppStateSnapsh
     isRetiredKey(source.chunkEmbeddingModel) || retiredMaterials.has(source.materialId ?? '')
   const conversations = (state.conversations ?? []).filter(conversation => !conversation.messages.some(message =>
     [...(message.sources ?? []), ...(message.simplerExplanation?.sources ?? [])].some(isRetiredSource)
-  ) && !(conversation.quizState?.currentSources ?? []).some(isRetiredSource))
+  ))
   return {
     ...state,
     models: (state.models ?? []).filter(model => !retiredIds.has(model.id)),

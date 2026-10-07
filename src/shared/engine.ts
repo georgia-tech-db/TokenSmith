@@ -1,4 +1,5 @@
 import type {
+  AnswerReasoning,
   ApplicationSettings,
   ChatMessage,
   ChatSelectedPassage,
@@ -38,6 +39,7 @@ export interface EngineInfo {
 }
 
 export interface EngineChatRequest {
+  practiceTask?: import('./quiz').PracticeTask
   requestId?: string
   prompt: string
   selectedPassage?: ChatSelectedPassage
@@ -67,11 +69,13 @@ export interface EngineChatResponse {
   modelName: string
   text: string
   sources: ChatSource[]
+  reasoning?: AnswerReasoning
   followUpSuggestions?: string[]
   followUpError?: string
 }
 
 export interface EngineQuestionSuggestionRequest {
+  documents?: import('./study-scope').StudyDocumentRef[]
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel

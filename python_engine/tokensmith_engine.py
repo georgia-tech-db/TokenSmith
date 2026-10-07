@@ -11,6 +11,7 @@ import json
 import hashlib
 import math
 import os
+import random
 import re
 import sys
 import time
@@ -40,6 +41,9 @@ try:
         keyword_search,
         keyword_terms_for_query,
         list_materials,
+        study_documents,
+        validate_study_documents,
+        practice_source_rows,
         set_material_active,
         source_document_for_source,
         starter_source_rows,
@@ -63,6 +67,9 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         keyword_search,
         keyword_terms_for_query,
         list_materials,
+        study_documents,
+        validate_study_documents,
+        practice_source_rows,
         set_material_active,
         source_document_for_source,
         starter_source_rows,
@@ -1684,6 +1691,8 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     search_mode = normalize_search_mode(payload.get("searchMode"))
     candidate_limit = max(limit * 8, limit) if search_mode in ("keyword", "hybrid") else limit
     materials = payload.get("materials") or []
+    documents = validate_study_documents(user_data_path, payload["documents"]) if "documents" in payload else None
+    scope_args = {} if documents is None else {"documents": documents}
     embedding_specs = embedding_model_specs(payload)
     requested_active_materials = [
         material
@@ -1691,8 +1700,9 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
-    active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
-    if len(active_ids) != len(requested_active_ids):
+    active_ids = (list(dict.fromkeys(d["materialId"] for d in documents)) if documents is not None
+                  else enabled_material_ids_for_requests(user_data_path, requested_active_materials))
+    if documents is None and len(active_ids) != len(requested_active_ids):
         log_event(
             "search_ignored_inactive_or_unknown_materials",
             requested=len(requested_active_ids),
@@ -1701,7 +1711,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     query_tokens = sorted(set(tokenize(query)))
     if not active_ids:
-        return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
+        return {"sources": [], "reason": "no_selected_documents" if documents is not None else no_enabled_materials_reason(user_data_path)}
 
     if not has_chunks(user_data_path, active_ids):
         return {"sources": [], "reason": "no_indexed_chunks"}
@@ -1741,7 +1751,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
             continue
 
         for rowid, score in vector_search(
-            user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key
+            user_data_path, query_embedding, grouped_active_ids, candidate_limit, embedding_key, **scope_args
         ):
             current = vector_hits_by_rowid.get(rowid)
             if current is None or score > current[0]:
@@ -1750,8 +1760,8 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     keyword_terms: List[str] = []
     keyword_hits: List[Tuple[int, float]] = []
     if search_mode in ("keyword", "hybrid"):
-        keyword_terms = keyword_terms_for_query(user_data_path, query, active_ids)
-        keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms)
+        keyword_terms = keyword_terms_for_query(user_data_path, query, active_ids, **scope_args)
+        keyword_hits = keyword_search(user_data_path, query, active_ids, candidate_limit, keyword_terms, **scope_args)
 
     vector_hits = [(rowid, score) for rowid, (score, _key) in vector_hits_by_rowid.items()]
     ranked_limit = candidate_limit if search_mode in ("keyword", "hybrid") else limit
@@ -1772,10 +1782,10 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     row_embedding_models = {
         rowid: embedding_key for rowid, (_score, embedding_key) in vector_hits_by_rowid.items()
     }
-    rows = fetch_sources(user_data_path, ranked, active_ids)
+    rows = fetch_sources(user_data_path, ranked, active_ids, **scope_args)
     for row in rows:
         row["query_embedding_model"] = row_embedding_models.get(int(row["rowid"]))
-    rows = expand_source_units(user_data_path, rows, active_ids)
+    rows = expand_source_units(user_data_path, rows, active_ids, **scope_args)
     rows = select_source_rows(rows, query_tokens, keyword_terms, limit)
     for row in rows:
         row["retrieval_mode"] = search_mode
@@ -1804,18 +1814,64 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def list_study_documents(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {"documents": study_documents(payload["userDataPath"])}
+
+
+def practice_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
+    documents = payload.get("documents") or []
+    rows = practice_source_rows(payload["userDataPath"], documents)
+    used = set(payload.get("usedSourceKeys") or [])
+
+    def source_key(row):
+        return f'{row["material_id"]}:{row["document_id"]}:{row.get("parent_id") or row.get("stable_chunk_id") or row["rowid"]}'
+
+    candidates = [row for row in rows if source_key(row) not in used and not source_row_is_exercise(row)]
+    if not candidates:
+        return {"sources": [], "reason": "no_unused_passages"}
+    # Rotate documents without changing which collections are enabled for chat.
+    start = int(payload.get("questionIndex") or 0) % len(documents)
+    ordered = documents[start:] + documents[:start]
+    for document in ordered:
+        pool = [row for row in candidates if str(row["material_id"]) == str(document["materialId"])
+                and row["document_id"] == int(document["documentId"])]
+        if pool:
+            anchor = random.choice(pool)
+            break
+    section = anchor.get("section_header")
+    selected = [anchor]
+    if section:
+        selected += [row for row in pool if row["rowid"] != anchor["rowid"]
+                     and row.get("section_header") == section][:3]
+    rows = expand_source_units(payload["userDataPath"], selected, [str(item["materialId"]) for item in documents],
+                               documents=documents)
+    allowed = {(str(item["materialId"]), int(item["documentId"])) for item in documents}
+    sources = []
+    for row in rows:
+        if (str(row["material_id"]), row["document_id"]) not in allowed:
+            raise ValueError("A practice passage was outside the selected documents.")
+        row["retrieval_mode"] = "starter"
+        source = source_from_sqlite_chunk(row, [], strip_exercises=True)
+        if source.get("context") or source.get("excerpt"):
+            sources.append(source)
+    return {"sources": sources, "reason": None if sources else "no_unused_passages"}
+
+
 def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     limit = int(payload.get("limit") or 4)
     materials = payload.get("materials") or []
+    documents = validate_study_documents(user_data_path, payload["documents"]) if "documents" in payload else None
+    scope_args = {} if documents is None else {"documents": documents}
     requested_active_materials = [
         material
         for material in materials
         if material.get("id") and (material.get("status") == "ready" or material.get("indexedAt")) and material.get("isActive") is not False
     ]
     requested_active_ids = [material["id"] for material in requested_active_materials]
-    active_ids = enabled_material_ids_for_requests(user_data_path, requested_active_materials)
-    if len(active_ids) != len(requested_active_ids):
+    active_ids = (list(dict.fromkeys(d["materialId"] for d in documents)) if documents is not None
+                  else enabled_material_ids_for_requests(user_data_path, requested_active_materials))
+    if documents is None and len(active_ids) != len(requested_active_ids):
         log_event(
             "starter_sources_ignored_inactive_or_unknown_materials",
             requested=len(requested_active_ids),
@@ -1823,13 +1879,13 @@ def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     if not active_ids:
-        return {"sources": [], "reason": no_enabled_materials_reason(user_data_path)}
+        return {"sources": [], "reason": "no_selected_documents" if documents is not None else no_enabled_materials_reason(user_data_path)}
 
     if not has_chunks(user_data_path, active_ids):
         return {"sources": [], "reason": "no_indexed_chunks"}
 
-    rows = starter_source_rows(user_data_path, active_ids, limit)
-    rows = expand_source_units(user_data_path, rows, active_ids)
+    rows = starter_source_rows(user_data_path, active_ids, limit, **scope_args)
+    rows = expand_source_units(user_data_path, rows, active_ids, **scope_args)
     for row in rows:
         row["retrieval_mode"] = "starter"
         row["query_embedding_model"] = row.get("embedding_model")
@@ -1902,6 +1958,8 @@ COMMANDS = {
     "preparation_report": preparation_report,
     "search": search_library,
     "starter_sources": starter_sources,
+    "study_documents": list_study_documents,
+    "practice_sources": practice_sources,
     "list_materials": list_indexed_materials,
     "set_material_enabled": set_material_enabled,
     "remove_material": remove_material,

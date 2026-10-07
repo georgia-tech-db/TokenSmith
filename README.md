@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 1. Install and start [Ollama](https://ollama.com/download), then use TokenSmith's setup guide to download a local embedding model for searching your documents.
 2. Choose a local chat model, or select **Connect a cloud chat model** and use your own API key.
 3. Add your course materials in **Library**. PDF, Markdown, and text files are supported.
-4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or choose **Quiz me** to practice.
+4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or switch to **Practice** and choose the documents you want to review.
 
 ## Project Health
 

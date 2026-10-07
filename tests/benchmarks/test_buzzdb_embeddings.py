@@ -188,6 +188,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
             result = engine.search_library({
                 "userDataPath": self.user_data_path, "query": question, "searchMode": "hybrid", "limit": top_k,
                 "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
+                "documents": store.study_documents(self.user_data_path),
                 "embeddingModels": [MODEL_SPEC],
             })
         self.assertFalse(embedding_errors, "Query embedding failed: " + "; ".join(embedding_errors))

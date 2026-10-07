@@ -88,14 +88,6 @@ test('invalid, stale or empty edits never truncate a conversation', () => {
   assert.equal(history.length, 6)
 })
 
-test('resending a quiz turn as a study question removes stale quiz metadata', () => {
-  assert.deepEqual(replaceQuestion([
-    { id: 'quiz-answer', role: 'user', text: 'An answer', kind: 'quizAnswer', quiz: { questionNumber: 2 } }
-  ], 'quiz-answer', 'Explain my answer.'), [
-    { id: 'quiz-answer', role: 'user', text: 'Explain my answer.' }
-  ])
-})
-
 test('re-explaining an answer reuses the question that produced it, not a later one', () => {
   assert.equal(questionForAnswer(history, 'a2').id, 'q2')
   assert.equal(questionForAnswer(history, 'a1').id, 'q1')
@@ -128,7 +120,6 @@ test('manual simplification needs saved evidence, but does not depend on automat
   assert.equal(canExplainSimpler({ ...answer, sources: [] }), false)
   assert.equal(canExplainSimpler({ ...answer, text: ' ' }), false)
   assert.equal(canExplainSimpler({ ...answer, explanationDepth: 'simple' }), false)
-  for (const kind of ['quizQuestion', 'quizAnswer', 'quizFeedback']) assert.equal(canExplainSimpler({ ...answer, kind }), false)
   assert.equal(canExplainSimpler({ ...answer, conversationContextMode: 'clarify' }), false)
   assert.equal(canExplainSimpler({ ...answer, role: 'user' }), false)
   const request = simplerExplanationRequest(whyHistory, 'a2', {

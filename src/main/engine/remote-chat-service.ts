@@ -23,6 +23,7 @@ import {
   suggestionMaxTokens,
   shouldGenerateFollowUps,
   studyChatMessages,
+  prepareStudyChatMessages,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
@@ -295,6 +296,13 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     modelName,
     apiKey: request.model.apiKey,
     settings
+  }
+  if (request.practiceTask) {
+    const prepared = prepareStudyChatMessages(runtimeRequest)
+    const text = await runRemoteChatCompletion(config, prepared.messages, {
+      temperature: request.practiceTask === 'feedback' ? 0 : 0.3, requireComplete: true, signal: options.signal
+    })
+    return { engineId: 'tokensmith', modelName: request.model.name, text, sources: prepared.sources }
   }
   const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest), { signal: options.signal })
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])

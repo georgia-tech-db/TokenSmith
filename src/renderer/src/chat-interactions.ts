@@ -1,6 +1,7 @@
-import type { ApplicationSettings, ChatMessage, ChatSelectedPassage } from '@shared/app-state'
+import type { ApplicationSettings, ChatMessage, ChatSelectedPassage, LocalModel } from '@shared/app-state'
 import type { EngineChatRequest } from '@shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { answerReasoningSettings } from '../../shared/reasoning'
 
 export interface ChatDraft {
   text: string
@@ -17,7 +18,39 @@ export function questionForAnswer(messages: ChatMessage[], answerId: string): Ch
 export function canExplainSimpler(message: ChatMessage): boolean {
   return message.role === 'assistant' && Boolean(message.text.trim()) &&
     Boolean(message.sources?.length) && message.conversationContextMode !== 'clarify' &&
-    message.explanationDepth !== 'simple' && (!message.kind || message.kind === 'chat')
+    message.explanationDepth !== 'simple'
+}
+
+export function canRetryWithReasoning(message: ChatMessage, model?: LocalModel): boolean {
+  return message.role === 'assistant' && Boolean(message.text.trim()) &&
+    message.conversationContextMode !== 'clarify' &&
+    Boolean(message.answerContext) && !message.reasoningAnswer &&
+    message.reasoning?.used === false && message.reasoning.supported === true &&
+    model?.engine === 'ollama' && model.status === 'ready' && model.id === message.reasoning.modelId
+}
+
+export function reasoningRetryRequest(
+  messages: ChatMessage[], answerId: string,
+  context: Pick<EngineChatRequest, 'model' | 'materials' | 'settings' | 'modelSettings'>
+): EngineChatRequest | undefined {
+  const answerIndex = messages.findIndex(message => message.id === answerId)
+  const answer = messages[answerIndex]
+  const question = questionForAnswer(messages, answerId)
+  if (!answer || !question || !canRetryWithReasoning(answer, context.model)) return undefined
+  const saved = answer.answerContext!
+  const modelSettings = saved.modelSettings ?? context.modelSettings
+  if (!modelSettings) return undefined
+  // Re-answer the same task with its saved evidence, not the old answer or later turns.
+  return {
+    ...context, ...saved,
+    messages: messages.slice(0, messages.findIndex(message => message.id === question.id)),
+    retrievedSources: answer.sources ?? [],
+    reasoning: true,
+    modelSettings: answerReasoningSettings({ ...modelSettings, reasoningMode: 'on' }, true),
+    applicationSettings: { ...(saved.applicationSettings ?? context.settings.application),
+      suggestionMode: context.settings.application.suggestionMode,
+      followUpSuggestionCount: context.settings.application.followUpSuggestionCount }
+  }
 }
 
 export function simplerExplanationSettings(settings: ApplicationSettings): ApplicationSettings {
@@ -47,6 +80,7 @@ export function simplerExplanationRequest(
     ...context, selectedPassage: question.selectedPassage, ...saved, messages: messages.slice(0, answerIndex),
     answerToSimplify: answer.text,
     retrievedSources: answer.sources,
+    modelSettings: context.modelSettings,
     applicationSettings: simplerExplanationSettings(context.settings.application)
   }
 }
