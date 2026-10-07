@@ -215,3 +215,22 @@ export function formatLatencyTrace(trace: LatencyTrace, wallTimeMs?: number): st
     ...trace.spans.flatMap((span) => formatSpan(span, 0))
   ].join('\n')
 }
+
+/**
+ * Combine renderer-side spans with the engine's answer trace for one request.
+ * Tracing is best-effort metadata, so any failure yields no trace rather than an error.
+ */
+export function combineLatencyTrace(
+  requestId: string | undefined,
+  clientSpans: ReadonlyArray<LatencySpan> | undefined,
+  engineTrace?: LatencyTrace
+): LatencyTrace | undefined {
+  try {
+    const engineMatches = engineTrace
+      && (!engineTrace.requestId || !requestId || engineTrace.requestId === requestId)
+    const spans = mergeLatencySpans(clientSpans, engineMatches ? engineTrace.spans : undefined)
+    return spans.length > 0 ? createLatencyTrace(spans, requestId ?? engineTrace?.requestId) : undefined
+  } catch {
+    return undefined
+  }
+}

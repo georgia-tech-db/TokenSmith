@@ -150,3 +150,41 @@ test('measured total ignores invalid durations', () => {
     span('Generation', -5)
   ]), 10)
 })
+
+test('combines renderer spans with the engine trace for one request', () => {
+  const { combineLatencyTrace } = requireTranspiledTs('src/shared/latency-trace.ts')
+  const client = [span('Retrieval', 700), span('Rewriting', 150)]
+  const partial = { requestId: 'r1', totalDurationMs: 5050, spans: [span('Prompt preparation', 20), span('Generation', 5030)] }
+  const final = { ...partial, spans: [...partial.spans, span('Suggestions', 900)] }
+
+  const early = combineLatencyTrace('r1', client, partial)
+  assert.deepEqual(early.spans.map(s => s.stage), ['Rewriting', 'Retrieval', 'Prompt preparation', 'Generation'])
+  assert.equal(early.requestId, 'r1')
+  assert.equal(early.totalDurationMs, 150 + 700 + 20 + 5030)
+
+  const done = combineLatencyTrace('r1', client, final)
+  assert.deepEqual(done.spans.map(s => s.stage).at(-1), 'Suggestions')
+  assert.equal(done.spans.filter(s => s.stage === 'Generation').length, 1)
+})
+
+test('builds partial plans and ignores mismatched or missing engine traces', () => {
+  const { combineLatencyTrace } = requireTranspiledTs('src/shared/latency-trace.ts')
+  const rewrite = [span('Rewriting', 120)]
+  assert.deepEqual(combineLatencyTrace('r1', rewrite).spans.map(s => s.stage), ['Rewriting'])
+  const engineOnly = combineLatencyTrace('r1', undefined, {
+    requestId: 'r1', totalDurationMs: 30, spans: [span('Prompt preparation', 10), span('Generation', 20)]
+  })
+  assert.deepEqual(engineOnly.spans.map(s => s.stage), ['Prompt preparation', 'Generation'])
+  const stale = combineLatencyTrace('r2', rewrite, { requestId: 'r1', totalDurationMs: 5, spans: [span('Generation', 5)] })
+  assert.deepEqual(stale.spans.map(s => s.stage), ['Rewriting'])
+  assert.equal(combineLatencyTrace('r1', undefined, undefined), undefined)
+  assert.equal(combineLatencyTrace('r1', [null]), undefined)
+})
+
+test('traced messages round-trip through JSON and old messages need no trace', () => {
+  const { combineLatencyTrace } = requireTranspiledTs('src/shared/latency-trace.ts')
+  const trace = combineLatencyTrace('r1', [span('Rewriting', 10, { details: { mode: 'standalone' } })])
+  const saved = JSON.parse(JSON.stringify({ id: 'a1', role: 'assistant', text: 'x', latencyTrace: trace }))
+  assert.equal(formatLatencyTrace(saved.latencyTrace, 1234), formatLatencyTrace(trace, 1234))
+  assert.equal(JSON.parse(JSON.stringify({ id: 'a0', role: 'assistant', text: 'old' })).latencyTrace, undefined)
+})
