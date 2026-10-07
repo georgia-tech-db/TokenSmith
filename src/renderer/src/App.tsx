@@ -105,6 +105,7 @@ import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
+import { QueryPlanPanel } from './QueryPlanPanel'
 import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
@@ -4558,6 +4559,7 @@ function AssistantMessage({
             )}
           </>
         )}
+        <QueryPlanPanel trace={displayed.latencyTrace} wallTimeMs={displayed.responseDurationMs} />
       </div>
     </article>
   )
