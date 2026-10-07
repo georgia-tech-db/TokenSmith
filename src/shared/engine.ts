@@ -10,7 +10,7 @@ import type {
   TokenSmithSettings
 } from './app-state'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
-import type { LatencySpan } from './latency-trace'
+import type { LatencySpan, LatencyTrace } from './latency-trace'
 
 export type ConversationContextMode = 'standalone' | 'contextual'
 
@@ -71,6 +71,7 @@ export interface EngineChatResponse {
   text: string
   sources: ChatSource[]
   reasoning?: AnswerReasoning
+  latencyTrace?: LatencyTrace
   followUpSuggestions?: string[]
   followUpError?: string
 }

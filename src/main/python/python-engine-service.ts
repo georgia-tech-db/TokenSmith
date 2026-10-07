@@ -161,6 +161,7 @@ function localIsoTimestamp(date = new Date()): string {
 const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
+  'chat_latency_trace',
   'chat_runtime_context_budget',
   'chat_question_rewrite',
   'follow_up_suggestions',
