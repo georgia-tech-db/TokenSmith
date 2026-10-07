@@ -3767,7 +3767,9 @@ function ChatScreen({
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
             const reference = activeConversation.practiceReference
-            if (history.length === 0 && reference && passage?.messageId === reference.questionId) return Promise.resolve(sourcesInScope(reference.sources, documentScope))
+            if (history.length === 0 && reference && passage?.messageId === reference.questionId) {
+              return Promise.resolve({ sources: sourcesInScope(reference.sources, documentScope) })
+            }
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,

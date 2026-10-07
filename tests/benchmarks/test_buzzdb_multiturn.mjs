@@ -36,7 +36,7 @@ export async function runBuzzdbMultiturnBenchmark() {
           search: async (actualQuery) => {
             calls += 1
             assert.equal(actualQuery, messages.length ? query : turn.prompt)
-            return sources
+            return { sources }
           }
         })
         assert.equal(calls, 1, 'Exactly one retrieval, without a heuristic probing pass')
