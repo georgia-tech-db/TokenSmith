@@ -110,6 +110,7 @@ export interface ApplicationSettings {
   followUpSuggestionCount: number
   showSources: boolean
   embeddingGpuEnabled: boolean
+  javascriptInterpretEnabled: boolean
 }
 
 export interface ModelRuntimeSettings {

@@ -347,6 +347,11 @@ test('answerWithOrderedSources strips quoted context preambles', () => {
   assert.deepEqual(response.sources, [loggingSource, databaseSource])
 })
 
+test('source preamble cleanup preserves the word textbook', () => {
+  const answer = 'According to the textbook, SQL:2003 and SQL:2006 were published after 2000.'
+  assert.equal(answerWithOrderedSources(answer, [databaseSource]).text, answer)
+})
+
 test('question suggestion count and mode handling stay bounded', () => {
   assert.equal(questionSuggestionCount({ suggestionMode: 'off', followUpSuggestionCount: 4 }), 0)
   assert.equal(questionSuggestionCount({ suggestionMode: 'on', followUpSuggestionCount: 1 }), 2)
