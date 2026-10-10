@@ -6638,7 +6638,7 @@ function SettingsScreen({
                 <SettingsGroup title="Generation">
                   {selectedModel.engine === 'ollama' && (
                     <div className="settings-row">
-                      <span><strong>Reasoning</strong><small>On supported models. Reasoning reserves at least 4,096 output tokens.</small></span>
+                      <span><strong>Reasoning</strong><small>Auto saves reasoning for calculations and problems that need several steps.</small></span>
                       <fieldset className="reasoning-mode" aria-label="Reasoning">
                         {(['auto', 'off', 'on'] as const).map(mode => (
                           <label key={mode}>
