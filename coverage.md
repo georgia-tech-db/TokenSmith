@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 4827/16606 | 29.1% |
+| Frontend / Electron (TypeScript / TSX) | 4987/16822 | 29.6% |
 | Backend (Python) | 2174/2408 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -22,16 +22,17 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/cloud-generator-service.ts` | 211/211 | 100.0% |
 | `src/main/engine/embedding-device.ts` | 41/41 | 100.0% |
 | `src/main/engine/engine-service.ts` | 0/177 | 0.0% |
+| `src/main/engine/model-context-metadata.ts` | 90/90 | 100.0% |
 | `src/main/engine/ollama-library-search.ts` | 211/223 | 94.6% |
-| `src/main/engine/ollama-service.ts` | 523/1134 | 46.1% |
-| `src/main/engine/question-rewrite.ts` | 72/72 | 100.0% |
+| `src/main/engine/ollama-service.ts` | 542/1157 | 46.8% |
+| `src/main/engine/question-rewrite.ts` | 74/74 | 100.0% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
-| `src/main/engine/remote-chat-service.ts` | 314/367 | 85.6% |
+| `src/main/engine/remote-chat-service.ts` | 322/378 | 85.2% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
-| `src/main/engine/study-chat-format.ts` | 865/891 | 97.1% |
+| `src/main/engine/study-chat-format.ts` | 842/870 | 96.8% |
 | `src/main/engine/study-engine-core.ts` | 86/93 | 92.5% |
-| `src/main/index.ts` | 0/604 | 0.0% |
+| `src/main/index.ts` | 0/608 | 0.0% |
 | `src/main/python/python-engine-service.ts` | 207/824 | 25.1% |
 | `src/main/system/detect-device-capabilities.ts` | 26/73 | 35.6% |
 | `src/main/system/detectors/command.ts` | 2/23 | 8.7% |
@@ -41,10 +42,10 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/system/detectors/nvidia-gpu.ts` | 37/46 | 80.4% |
 | `src/main/system/detectors/portable-detector.ts` | 19/50 | 38.0% |
 | `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
-| `src/preload/index.ts` | 0/154 | 0.0% |
+| `src/preload/index.ts` | 0/155 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/54 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6897 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6931 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
@@ -75,8 +76,8 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/StudyMaterialsPane.tsx` | 0/32 | 0.0% |
 | `src/renderer/src/StudyModeTabs.tsx` | 0/10 | 0.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
-| `src/shared/app-state.ts` | 0/249 | 0.0% |
-| `src/shared/bridge.ts` | 0/96 | 0.0% |
+| `src/shared/app-state.ts` | 0/252 | 0.0% |
+| `src/shared/bridge.ts` | 0/97 | 0.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
 | `src/shared/cloud-generators.ts` | 51/52 | 98.1% |
@@ -85,8 +86,9 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/device-tier.ts` | 256/258 | 99.2% |
 | `src/shared/embedding-settings.ts` | 7/7 | 100.0% |
 | `src/shared/engine.ts` | 0/176 | 0.0% |
-| `src/shared/generation-estimate.ts` | 81/81 | 100.0% |
+| `src/shared/generation-estimate.ts` | 82/82 | 100.0% |
 | `src/shared/model-catalog.ts` | 29/34 | 85.3% |
+| `src/shared/model-context.ts` | 62/66 | 93.9% |
 | `src/shared/model-defaults.ts` | 87/87 | 100.0% |
 | `src/shared/model-providers.ts` | 52/52 | 100.0% |
 | `src/shared/model-recommendation.ts` | 58/60 | 96.7% |
@@ -96,13 +98,13 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/quiz.ts` | 145/145 | 100.0% |
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
 | `src/shared/retired-model-state.ts` | 32/32 | 100.0% |
-| `src/shared/retrieval-budget.ts` | 22/22 | 100.0% |
+| `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
 | `src/shared/study-chat-pipeline.ts` | 79/79 | 100.0% |
 | `src/shared/study-scope.ts` | 40/40 | 100.0% |
 | `src/shared/typography.ts` | 15/15 | 100.0% |
 
 </details>
 
-Measured commit: 96980bf3b6db375c08293b4d1f5c8702b95a2749
+Measured commit: 6bcd05f55b76d3b822c340c5d2733d1fcccdda64
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/37581601020)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38038771857)
