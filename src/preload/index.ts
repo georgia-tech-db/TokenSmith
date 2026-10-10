@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { TokenSmithBridge } from '../shared/bridge'
 
 const tokenSmithBridge: TokenSmithBridge = {
+  getModelContextMetadata: (model) => ipcRenderer.invoke('models:context-metadata', model),
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,
   getDeviceCapabilities: () =>

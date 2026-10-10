@@ -24,6 +24,8 @@ test('timing separates models, endpoints, task kinds and important runtime setti
     { ...context, settings: { ...context.settings, thinking: true } },
     { ...context, settings: { ...context.settings, reasoningMode: 'auto' } },
     { ...context, settings: { ...context.settings, contextLength: 16384 } },
+    { ...context, settings: { ...context.settings, contextLengthMode: 'auto' } },
+    { ...context, model: { ...context.model, contextLength: 262144 } },
     { ...context, settings: { ...context.settings, maxLength: 4096 } }
   ]) assert.equal(estimateWait(changed, history).samples, 0)
   const modes = ['auto', 'off', 'on'].map(reasoningMode => timingKeys({ ...context, settings: { ...context.settings, reasoningMode } }))

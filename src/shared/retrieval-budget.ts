@@ -1,4 +1,5 @@
 import type { LocalModel, ModelRuntimeSettings } from './app-state'
+import { answerTokenAllowance, effectiveContextLength, reportedContextLimit, usesAutomaticContext } from './model-context'
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numericValue = typeof value === 'number' ? value : Number(value)
@@ -11,12 +12,12 @@ export function modelAwareRetrievalLimit(
   model?: LocalModel,
   settings?: Partial<ModelRuntimeSettings>
 ): number {
-  const configured = clampNumber(settings?.contextLength, 2048, 512, 32768)
-  const discovered = clampNumber(model?.contextLength, 0, 0, 32768)
-  const contextTokens = discovered > 0 ? Math.min(discovered, Math.max(configured, 8192)) : configured
-  const isGemma4E4B = model?.engine === 'ollama' && /^gemma4:e4b(?:$|-)/i.test(model.ollamaModelName ?? '')
-  const answerReserve = clampNumber(settings?.maxLength, 768, 256, isGemma4E4B ? 8192 : 1024)
+  const contextTokens = effectiveContextLength(model, settings)
+  const answerReserve = answerTokenAllowance(model, settings)
   const baseLimit = clampNumber(configuredLimit, 4, 1, 8)
+  // Metadata can still be loading when retrieval starts. Fetch candidates now;
+  // the engine packs them against the discovered limit before generation.
+  if (usesAutomaticContext(settings) && !reportedContextLimit(model, settings)) return 8
   const budgetLimit = Math.floor(Math.max(0, contextTokens - answerReserve - 512) / 800)
   return Math.max(baseLimit, Math.min(8, budgetLimit))
 }

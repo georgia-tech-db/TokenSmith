@@ -103,6 +103,8 @@ import {
 import { DeviceRecommendationPanel } from './components/DeviceRecommendationPanel'
 import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
+import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
+  reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
@@ -202,6 +204,7 @@ const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
   starterQuestionPrompt: defaultStarterQuestionPrompt,
   contextLength: 8192,
+  contextLengthMode: 'auto',
   maxLength: 1536,
   reasoningMode: 'auto',
   temperature: 0.7,
@@ -740,6 +743,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           ollamaBaseUrl: model.ollamaBaseUrl ?? defaultOllamaBaseUrl,
           sizeBytes: model.sizeBytes,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           parameters: model.parameters,
           quant: model.quant,
           type: model.type ?? (role === 'embedder' ? 'Ollama embedder' : 'Ollama chat'),
@@ -766,6 +771,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           cloudCredentialStatus: model.cloudCredentialStatus,
           remoteModelName: model.remoteModelName,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           type: model.type ?? 'OpenAI-compatible',
           description: model.description,
           addedAt: model.addedAt ?? new Date(index).toISOString()
@@ -786,8 +793,7 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
 }
 
 function normalizeOptionalContextLength(value: unknown): number | undefined {
-  const contextLength = Math.round(clampNumber(value, 0, 0, 32768))
-  return contextLength > 0 ? contextLength : undefined
+  return normalizeTokenLimit(value)
 }
 
 function normalizeChoice<T extends string>(value: unknown, choices: readonly T[], defaultValue: T): T {
@@ -843,11 +849,12 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
     suggestedFollowUpPrompt,
     starterQuestionPrompt,
+    contextLengthMode: migratedContextMode(settings),
     contextLength: Math.round(clampNumber(
       settings?.contextLength,
       defaultModelRuntimeSettings.contextLength,
       512,
-      32768
+      Number.MAX_SAFE_INTEGER
     )),
     maxLength: Math.round(clampNumber(
       settings?.maxLength,
@@ -889,7 +896,9 @@ function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, mo
       modelId,
       normalizeModelRuntimeSettings({
         ...modelDefaults,
-        ...modelSettings
+        ...modelSettings,
+        contextLengthMode: modelSettings.contextLengthMode ?? (modelSettings.contextLength !== undefined
+          ? migratedContextMode(modelSettings) : modelDefaults.contextLengthMode)
       })
     ])
   )
@@ -1292,6 +1301,21 @@ export function App() {
   ])
   const [, setSaveStatus] = useState<'loading' | 'saved' | 'saving' | 'local' | 'error'>('loading')
   const [hasLoadedState, setHasLoadedState] = useState(false)
+  const metadataModelKey = appState.models.filter(modelCanGenerate).map(contextMetadataIdentity).join('\n')
+  useEffect(() => {
+    if (!hasLoadedState || !window.tokensmith?.getModelContextMetadata) return
+    let cancelled = false
+    for (const model of appState.models.filter(modelCanGenerate)) {
+      if (model.status !== 'ready') continue
+      const identity = contextMetadataIdentity(model)
+      void window.tokensmith.getModelContextMetadata(model).then(metadata => {
+        if (cancelled || Object.keys(metadata).length === 0) return
+        setAppState(current => ({ ...current, models: current.models.map(saved =>
+          contextMetadataIdentity(saved) === identity ? mergeModelContextMetadata(saved, metadata) : saved) }))
+      }).catch(() => undefined)
+    }
+    return () => { cancelled = true }
+  }, [hasLoadedState, metadataModelKey])
   const studyCatalog = useStudyDocuments(appState.materials, hasLoadedState)
   useEffect(() => {
     if (studyCatalog.status !== 'ready') return
@@ -6628,15 +6652,25 @@ function SettingsScreen({
                     </div>
                   )}
                   <div className="settings-two-column">
-                    <SettingsRow label="Context Length" description="Number of input and output tokens the model sees.">
-                      <NumberField
-                        ariaLabel="Context length"
-                        min={512}
-                        max={32768}
-                        step={256}
-                        value={activeModelSettings.contextLength}
-                        onChange={(contextLength) => updateModelSettings({ contextLength })}
-                      />
+                    <SettingsRow label="Context Length" description={selectedModel.inputTokenLimit
+                      ? `Input limit: ${selectedModel.inputTokenLimit.toLocaleString()} tokens.`
+                      : selectedModel.contextLength
+                        ? `Model limit: ${selectedModel.contextLength.toLocaleString()} tokens.`
+                        : `Model limit unavailable. Auto uses ${fallbackContextLength.toLocaleString()} tokens.`}>
+                      <div>
+                        <SelectField ariaLabel="Context size" value={usesAutomaticContext(activeModelSettings) ? 'auto' : 'manual'}
+                          options={[{ label: 'Auto', value: 'auto' }, { label: 'Custom', value: 'manual' }]}
+                          onChange={mode => updateModelSettings({ contextLengthMode: mode as 'auto' | 'manual' })} />
+                        {!usesAutomaticContext(activeModelSettings) && <NumberField
+                          ariaLabel="Context length"
+                          min={512}
+                          max={reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER}
+                          step={256}
+                          value={Math.min(activeModelSettings.contextLength, reportedContextLimit(selectedModel, activeModelSettings) ?? Infinity)}
+                          onChange={(contextLength) => updateModelSettings({ contextLengthMode: 'manual', contextLength: Math.min(
+                            Math.max(512, contextLength), reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER) })}
+                        />}
+                      </div>
                     </SettingsRow>
                     <SettingsRow label="Max Length" description={selectedModel.engine === 'ollama'
                       ? 'Output token allowance. Reasoning reserves at least 4,096 tokens.' : 'Maximum generated tokens.'}>

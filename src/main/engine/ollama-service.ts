@@ -13,6 +13,8 @@ import type {
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
+import { effectiveContextLength, localContextForTokens, usesAutomaticContext } from '../../shared/model-context'
+import { withModelContextMetadata } from './model-context-metadata'
 import { practiceResponseSchema } from '../../shared/quiz'
 import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
 import {
@@ -435,8 +437,10 @@ async function requestWithOllamaRuntimeContext<T extends Pick<EngineChatRequest,
   baseUrl: string,
   modelName: string
 ): Promise<T> {
-  const contextLength = request.model.contextLength ?? (await fetchOllamaModelContextLength(baseUrl, modelName))
-  const model = contextLength ? { ...request.model, contextLength } : request.model
+  const automatic = usesAutomaticContext(request.modelSettings)
+  const discovered = automatic ? await withModelContextMetadata(request.model) : request.model
+  const contextLength = discovered.contextLength ?? (automatic ? undefined : await fetchOllamaModelContextLength(baseUrl, modelName))
+  const model = contextLength ? { ...discovered, contextLength } : discovered
   const modelSettings = modelAwareRuntimeSettings({ ...request, model }) ?? request.modelSettings
 
   if (model === request.model && modelSettings === request.modelSettings) {
@@ -848,6 +852,11 @@ async function requestOllamaChatCompletion(
   settings?: ModelRuntimeSettings,
   overrides: OllamaCompletionOverrides = {}
 ): Promise<OllamaChatResponse> {
+  if (settings && usesAutomaticContext(settings)) {
+    const promptEstimate = Math.ceil(messages.reduce((sum, message) => sum + message.content.length, 0) / 2.5) + 64
+    settings = { ...settings, contextLength: localContextForTokens(promptEstimate + (overrides.maxTokens ?? settings.maxLength) + 512,
+      settings.contextLength) }
+  }
   // Keep cancellation and timeout active until the response body is consumed.
   const timeout = AbortSignal.timeout(overrides.thinking ? 300_000 : 180_000)
   const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
@@ -906,6 +915,14 @@ async function runOllamaChatCompletion(
 
 async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
   let candidate = request
+  const automatic = usesAutomaticContext(request.modelSettings)
+  const ceiling = effectiveContextLength(request.model, request.modelSettings)
+  if (automatic && request.modelSettings) {
+    const full = prepareStudyChatMessages(request)
+    const needed = full.budget.estimatedPromptTokens + full.budget.answerReserveTokens + full.budget.safetyMarginTokens
+    candidate = { ...request, modelSettings: { ...request.modelSettings, contextLengthMode: 'manual',
+      contextLength: localContextForTokens(needed, ceiling) } }
+  }
   for (;;) {
     signal?.throwIfAborted()
     const prepared = prepareStudyChatMessages(candidate)
@@ -924,6 +941,12 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
       modelName, promptTokens, fits, budget: prepared.budget, sourceCount: prepared.sources.length
     })
     if (fits) return { ...prepared, request: { ...candidate, retrievedSources: prepared.sources } }
+    if (automatic && candidate.modelSettings && prepared.budget.modelContextTokens < ceiling) {
+      candidate = { ...candidate, modelSettings: { ...candidate.modelSettings,
+        contextLength: localContextForTokens(Math.max(prepared.budget.modelContextTokens + 1,
+          Number(promptTokens) + prepared.budget.answerReserveTokens + prepared.budget.safetyMarginTokens), ceiling) } }
+      continue
+    }
     if (candidate.practiceTask === 'feedback' || prepared.sources.length <= 1) {
       throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
     }

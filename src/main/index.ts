@@ -21,6 +21,7 @@ import {
   starterSourcesWithPython
 } from './python/python-engine-service'
 import { listOpenAiCompatibleModels } from './engine/remote-chat-service'
+import { getModelContextMetadata } from './engine/model-context-metadata'
 import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
 import { remoteGeneratorFetch, setRemoteGeneratorTransport } from './engine/remote-generator-network'
 import type { CloudConnectionInput, CloudGeneratorInput } from '../shared/cloud-generators'
@@ -570,6 +571,9 @@ app.whenReady().then(async () => {
     removeMaterialWithPython(materialId, materialPath)
   )
   ipcMain.handle('ollama:status', () => getOllamaStatus())
+  ipcMain.handle('models:context-metadata', (_event, model: LocalModel) =>
+    getModelContextMetadata(model.engine === 'remote' ? modelWithRememberedRemoteApiKey(model) : model)
+  )
   ipcMain.handle('ollama:open-download-page', () => openOllamaDownloadPage())
   ipcMain.handle('ollama:open-app', () => openOllamaApp())
   ipcMain.handle('ollama:start-service', () => startOllamaService())
