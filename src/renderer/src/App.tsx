@@ -1694,7 +1694,7 @@ export function App() {
     }
 
     const preparation = options.preparation ?? indexingMaterial?.preparation ?? defaultPreparation()
-    const preparationModel = preparation.mode === 'ai'
+    const preparationModel = preparation.mode === 'ai' || preparation.plainLanguageTerms
       ? options.preparationModel ?? appState.models.find(model =>
         model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
       : undefined

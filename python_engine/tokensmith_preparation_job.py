@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
+    from tokensmith_preparation import (completion_client, digest, plain_language_terms, prepare_blocks,
+                                        read_json, source_blocks, write_json)
 except ImportError:
-    from python_engine.tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
+    from python_engine.tokensmith_preparation import (completion_client, digest, plain_language_terms, prepare_blocks,
+                                                      read_json, source_blocks, write_json)
 
 
 def job_directory(user_data_path: str, path: str) -> Path:
@@ -54,10 +56,12 @@ def index(payload: dict, engine: Any) -> dict:
                              'phase': phase, 'percent': percent, 'totalFiles': len(files), 'message': message, **extra})
 
     progress('parsing', 1, 'Reading documents')
-    complete = completion_client(model) if settings['mode'] == 'ai' else None
+    wants_terms = bool(settings.get('plainLanguageTerms'))
+    complete = completion_client(model) if settings['mode'] == 'ai' or wants_terms else None
     # Cache keys contain model identity and policy, never credentials.
     identity = {key: model.get(key) for key in ('engine', 'id', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
     model_cache = directory / 'boundaries' / digest(identity)
+    terms_cache = directory / 'terms' / digest(identity)
     documents, prepared, report_documents = [], [], []
     for file_index, file_path in enumerate(files):
         entry = {'title': file_path.stem, 'path': str(file_path), 'status': 'preparing', 'chunkCount': 0}
@@ -93,6 +97,10 @@ def index(payload: dict, engine: Any) -> dict:
                     warnings.append(f'{image_pages} pages contain images. Text inside images is not searchable yet; open the original for those details.')
                 if warnings:
                     entry['warning'] = ' '.join(warnings)
+            if wants_terms:
+                plain_language_terms(chunks, complete, terms_cache,
+                    lambda done, total, message: progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
+                        f'{message}: {file_path.name}', processedFiles=file_index))
             document['thumbnails'] = []
             entry.update(status='ready', pageCount=document.get('pageCount'), chunkCount=len(chunks),
                          chunksFile='documents/' + digest(str(file_path)) + '.json')
