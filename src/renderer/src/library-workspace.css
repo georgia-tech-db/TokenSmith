@@ -24,6 +24,8 @@
 .library-preparation-settings summary span { margin-left: auto; font-size: 0.8571rem; color: var(--muted); }
 .library-preparation-settings[open] > :not(summary) { margin-top: 16px; }
 .library-preparation-settings p { font-size: 0.9286rem; }
+.library-preparation-toggle { display: flex; gap: 7px; align-items: center; }
+.library-preparation-toggle input { width: auto; margin: 0; }
 .library-collection-row { display: flex; align-items: start; justify-content: space-between; gap: 22px; padding: 24px 0; border-bottom: 1px solid var(--line); }
 .library-collection-row > div:first-child { min-width: 0; }
 .library-title { text-align: left; font-size: 1.2857rem; font-weight: 600; color: inherit; background: none; border: 0; padding: 0; overflow-wrap: anywhere; }

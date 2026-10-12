@@ -82,8 +82,8 @@ export function LibraryWorkspace(props: Props) {
     const sourcePath = creating ? path.trim().replace(/^['"]|['"]$/g, '') : selected?.path
     if (!sourcePath) { setError('Choose a folder or enter a document path.'); return }
     if (!embedder) { setError('Add an embedding model in Models first.'); return }
-    if (next.mode === 'ai' && !generator) { setError('Choose an available preparation model, or start it in Models.'); return }
-    const preparationModel = next.mode === 'ai' ? generator : undefined
+    if ((next.mode === 'ai' || next.plainLanguageTerms) && !generator) { setError('Choose an available preparation model, or start it in Models.'); return }
+    const preparationModel = next.mode === 'ai' || next.plainLanguageTerms ? generator : undefined
     const configuration = { ...next, modelId: preparationModel?.id, modelName: preparationModel?.name }
     const id = selected?.id || `material-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const title = selected?.title || name.trim() || leaf(sourcePath)
@@ -116,6 +116,16 @@ export function LibraryWorkspace(props: Props) {
             placeholder="Describe what should stay together, where to split, or what context to retain…"
             onChange={e => setPreparation({ ...preparation, instructions: e.target.value })} /></label>
         </>}
+        <label className="library-preparation-toggle">
+          <input type="checkbox" checked={preparation.plainLanguageTerms === true}
+            onChange={e => setPreparation({ ...preparation, plainLanguageTerms: e.target.checked })} />
+          Plain-language search terms <span className="library-hint">Experimental</span>
+        </label>
+        <p className="library-hint">Writes one everyday-language sentence for each passage so questions asked in a student's own words can find it. The sentence is used for search only; passages are never changed. Preparing takes longer and needs a preparation model.</p>
+        {preparation.mode === 'basic' && preparation.plainLanguageTerms && <label>Preparation model<select value={modelId} onChange={e => setPreparation({ ...preparation, modelId: e.target.value })}>
+          {!generator && <option value={modelId}>Choose an available model</option>}
+          {generators.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select></label>}
         <label>Search model<select value={embedder?.id || ''} onChange={e => setEmbedderId(e.target.value)}>
           {!embedder && <option value="">Choose an embedding model</option>}
           {embedders.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -179,6 +189,7 @@ export function LibraryWorkspace(props: Props) {
                 <small>{chunk.tokensmithChunkKind}{(chunk.parts || 0) > 1 ? ` · Part ${chunk.part} of ${chunk.parts}` : ''}</small>
                 <div className="library-source-text"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{chunk.text}</ReactMarkdown></div>
                 {chunk.reason && <details><summary>Why this boundary?</summary><p>{chunk.reason}</p></details>}
+                {chunk.keywords && <details><summary>Plain-language search terms</summary><p>{chunk.keywords}</p></details>}
               </article>)}
             </>}
           </>}
