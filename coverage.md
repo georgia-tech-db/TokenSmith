@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 4987/16822 | 29.6% |
+| Frontend / Electron (TypeScript / TSX) | 5025/16843 | 29.8% |
 | Backend (Python) | 2174/2408 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -45,7 +45,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/preload/index.ts` | 0/155 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/54 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6931 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6914 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
@@ -78,6 +78,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
 | `src/shared/app-state.ts` | 0/252 | 0.0% |
 | `src/shared/bridge.ts` | 0/97 | 0.0% |
+| `src/shared/chat-model-selection.ts` | 38/38 | 100.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
 | `src/shared/cloud-generators.ts` | 51/52 | 98.1% |
@@ -93,11 +94,11 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/model-providers.ts` | 52/52 | 100.0% |
 | `src/shared/model-recommendation.ts` | 58/60 | 96.7% |
 | `src/shared/ollama.ts` | 66/66 | 100.0% |
-| `src/shared/practice.ts` | 118/121 | 97.5% |
+| `src/shared/practice.ts` | 119/122 | 97.5% |
 | `src/shared/preparation.ts` | 51/51 | 100.0% |
 | `src/shared/quiz.ts` | 145/145 | 100.0% |
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
-| `src/shared/retired-model-state.ts` | 32/32 | 100.0% |
+| `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
 | `src/shared/study-chat-pipeline.ts` | 79/79 | 100.0% |
 | `src/shared/study-scope.ts` | 40/40 | 100.0% |
@@ -105,6 +106,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 2cad61207ce7dcdebc52e1cd12684e27563fc54a
+Measured commit: c26d439db78b6934dd057d58c66233a61985bb9d
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38363812424)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38370515469)
