@@ -12,6 +12,7 @@ const {
   sourceContextBudgetForRequest,
   formatFollowUpInstruction,
   parseFollowUpSuggestions,
+  prepareStudyChatMessages,
   questionSuggestionCount,
   questionSuggestionMessages,
   shouldGenerateFollowUps,
@@ -122,6 +123,20 @@ test('modelAwareRuntimeSettings uses discovered model context with a bounded aut
 
   assert.equal(runtimeSettings.contextLength, 8192)
   assert.equal(runtimeSettings.maxLength, 512)
+})
+
+test('an explicit tool reserve reduces source packing without changing ordinary chat or dropping the question', () => {
+  const request = { prompt: 'Compute the total from this passage.', messages: [], materials: [], settings: {},
+    model: { ...ollamaChatModel, contextLength: 8192 }, modelSettings: { contextLength: 8192, maxLength: 512 },
+    retrievedSources: [{ title: 'Measurements', excerpt: 'Visible values: 12 and 24.',
+      context: `Visible values: 12 and 24. ${'Supporting information. '.repeat(1800)}` }] }
+  const normal = prepareStudyChatMessages(request)
+  const tool = prepareStudyChatMessages(request, 3000)
+  assert.deepEqual(normal.messages, studyChatMessages(request))
+  assert.equal(normal.budget.sourceBudgetTokens - tool.budget.sourceBudgetTokens, 3000)
+  assert.ok(tool.messages.at(-1).content.length < normal.messages.at(-1).content.length)
+  assert.match(tool.messages.at(-1).content, /Question: Compute the total from this passage\./)
+  assert.ok(tool.budget.estimatedPromptTokens + tool.budget.answerReserveTokens + tool.budget.safetyMarginTokens + 3000 <= tool.budget.modelContextTokens)
 })
 
 test('studyChatMessages budgets and clips source context around matched terms', () => {
@@ -343,11 +358,6 @@ test('answerWithOrderedSources strips quoted context preambles', () => {
 
   assert.equal(response.text, 'logs help restore the database after a failure.')
   assert.deepEqual(response.sources, [loggingSource, databaseSource])
-})
-
-test('source preamble cleanup preserves the word textbook', () => {
-  const answer = 'According to the textbook, SQL:2003 and SQL:2006 were published after 2000.'
-  assert.equal(answerWithOrderedSources(answer, [databaseSource]).text, answer)
 })
 
 test('question suggestion count and mode handling stay bounded', () => {

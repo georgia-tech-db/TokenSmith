@@ -82,6 +82,7 @@ export interface SourceContextBudget {
 }
 
 interface SourceContextOptions {
+  additionalReservedTokens?: number
   prompt?: string
   evidenceQuery?: string
   referenceText?: string
@@ -301,7 +302,8 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
     answerReserveTokens: answerReserve,
     safetyMarginTokens: safetyMargin,
     fixedPromptTokens,
-    sourceBudgetTokens: Math.max(0, modelContextTokens - answerReserve - safetyMargin - fixedPromptTokens),
+    sourceBudgetTokens: Math.max(0, modelContextTokens - answerReserve - safetyMargin - fixedPromptTokens -
+      Math.max(0, Math.min(modelContextTokens, options?.additionalReservedTokens ?? 0))),
     usedSourceTokens: 0,
     estimatedPromptTokens: fixedPromptTokens,
     includedSourceCount: 0,
@@ -445,9 +447,9 @@ function stripSourceNumberPhrases(text: string): string {
   const citationSubject = new RegExp(`^\\s*(?:the\\s+)?${citationLabelPattern}\\s+\\d+\\s+(?:states|says|notes|indicates|mentions|reports)\\s+(?:that\\s+)?`, 'i')
   const bracketCitation = new RegExp(`\\s*[([](?:${citationLabelPattern})\\s+\\d+[)\\]]`, 'gi')
   const inlineCitationPrefix = new RegExp(`\\b(?:according to|as (?:stated|noted|shown|reported) in|per|from)\\s+(?:the\\s+)?${citationLabelPattern}\\s+\\d+\\s*,?\\s*`, 'gi')
-  const genericContextPrefix = /^\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\b\s*,?\s*/i
-  const inlineGenericContextPrefix = /\b(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\b\s*,?\s*/gi
-  const quotedContextPreamble = /^\s*["“][^"”]{40,1000}["”]\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\b\s*,?\s*/i
+  const genericContextPrefix = /^\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/i
+  const inlineGenericContextPrefix = /\b(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/gi
+  const quotedContextPreamble = /^\s*["“][^"”]{40,1000}["”]\s*(?:so,\s*)?(?:according to|as (?:stated|noted|shown|reported) in|from|based on)\s+(?:this|the)\s+(?:excerpt|context|source|text)\s*,?\s*/i
   const leakedInstructionSentence = /\s*[^.!?]*(?:source numbers?|excerpt labels?|excerpts?\s+label(?:led|ed)|phrases like\s+["']?according to)[^.!?]*[.!?]/gi
 
   return text
@@ -506,7 +508,7 @@ function chatReferenceText(request: EngineChatRequest): string {
   return blocks.join('\n\n')
 }
 
-export function prepareStudyChatMessages(request: EngineChatRequest): {
+export function prepareStudyChatMessages(request: EngineChatRequest, additionalReservedTokens = 0): {
   messages: StudyChatMessage[]; budget: SourceContextBudget; sources: ChatSource[]
 } {
   const modelSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
@@ -523,6 +525,7 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     modelSettings,
     includeBudget: true,
     includeInstructions: false,
+    additionalReservedTokens,
     explanationDepth: requestExplanationDepth(request.applicationSettings)
   })
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {

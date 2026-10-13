@@ -107,7 +107,7 @@ export interface ApplicationSettings {
   followUpSuggestionCount: number
   showSources: boolean
   embeddingGpuEnabled: boolean
-  javascriptInterpretEnabled: boolean
+  advancedMathEnabled: boolean
 }
 
 export interface ModelRuntimeSettings {
@@ -172,6 +172,8 @@ export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
+  answerModelName?: string
+  advancedMathUsed?: boolean
   selectedPassage?: ChatSelectedPassage
   sources?: ChatSource[]
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'

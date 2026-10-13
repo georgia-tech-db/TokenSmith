@@ -12,7 +12,7 @@ import type {
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
-import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
+import { parseQuestionRewrite, questionRewriteMessages, questionResolutionSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -44,8 +44,7 @@ import {
 } from './study-chat-format'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import { executeIsolatedJavascript } from './javascript-executor'
-import { runJavascriptInterpret, type JavascriptInterpretTrace } from './javascript-interpret'
-import { javascriptRouteForQuestion } from './javascript-routing'
+import { javascriptContextReserveTokens, runJavascriptInterpret, type JavascriptInterpretTrace } from './javascript-interpret'
 
 interface OllamaTagsResponse {
   models?: Array<{
@@ -75,6 +74,10 @@ interface OllamaChatResponse {
   done_reason?: string
   prompt_eval_count?: number
   eval_count?: number
+  load_duration?: number
+  prompt_eval_duration?: number
+  eval_duration?: number
+  total_duration?: number
   message?: {
     content?: string
     thinking?: string
@@ -891,7 +894,11 @@ async function runOllamaChatCompletion(
   writeTokenSmithLog('ollama_completion_usage', {
     modelName, thinking: overrides.thinking ?? false, doneReason: payload.done_reason,
     promptTokens: payload.prompt_eval_count, generatedTokens: payload.eval_count,
-    hasFinalAnswer: Boolean(payload.message?.content?.trim())
+    hasFinalAnswer: Boolean(payload.message?.content?.trim()),
+    loadMs: payload.load_duration === undefined ? undefined : payload.load_duration / 1e6,
+    promptEvalMs: payload.prompt_eval_duration === undefined ? undefined : payload.prompt_eval_duration / 1e6,
+    generationMs: payload.eval_duration === undefined ? undefined : payload.eval_duration / 1e6,
+    totalMs: payload.total_duration === undefined ? undefined : payload.total_duration / 1e6
   })
   if (payload.done_reason === 'length') {
     throw new Error(overrides.format
@@ -943,7 +950,7 @@ async function verifiedGemmaChat(request: EngineChatRequest, baseUrl: string, mo
 
 export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertOllamaModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) {
+  if (!request.classifyAdvancedMath && !request.selectedPassage && !lastChatExchange(request.messages)) {
     return { mode: 'standalone', query: request.prompt, clarification: '' }
   }
   const started = performance.now()
@@ -953,10 +960,10 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   )
   const messages = questionRewriteMessages(runtime)
   const text = await runOllamaChatCompletion(baseUrl, request.model.ollamaModelName, messages, runtime.modelSettings, {
-    maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
+    maxTokens: 512, temperature: 0, format: questionResolutionSchema(request.classifyAdvancedMath), signal
   })
   try {
-    const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage), request.classifyAdvancedMath)
     writeTokenSmithLog('chat_question_rewrite', {
       modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
       rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
@@ -1018,6 +1025,8 @@ export interface OllamaStudyEngineOptions extends EngineRunOptions {
   onJavascriptInterpretTrace?: (trace: JavascriptInterpretTrace) => void
 }
 
+const advancedMathContexts = new Map<string, { until: number; contextLength: number }>()
+
 export async function runOllamaStudyEngine(
   request: EngineChatRequest,
   options: OllamaStudyEngineOptions = {}
@@ -1026,7 +1035,18 @@ export async function runOllamaStudyEngine(
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
-  let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  const mathRequested = request.advancedMathPlan?.route === 'math' &&
+    (request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) === true && !request.answerToSimplify
+  const contextKey = mathRequested ? `${baseUrl}|${modelName}|${request.model.addedAt}` : undefined
+  const cachedContext = contextKey ? advancedMathContexts.get(contextKey) : undefined
+  const contextRequest = cachedContext && cachedContext.until > Date.now() && !request.model.contextLength
+    ? { ...request, model: { ...request.model, contextLength: cachedContext.contextLength } } : request
+  let runtimeRequest = await requestWithOllamaRuntimeContext(contextRequest, baseUrl, modelName)
+  if (contextKey && runtimeRequest.model.contextLength) {
+    for (const [key, value] of advancedMathContexts) if (value.until <= Date.now()) advancedMathContexts.delete(key)
+    if (advancedMathContexts.size >= 8) advancedMathContexts.delete(advancedMathContexts.keys().next().value!)
+    advancedMathContexts.set(contextKey, { until: Date.now() + 300_000, contextLength: runtimeRequest.model.contextLength })
+  }
   let messages: StudyChatMessage[]
   if (usesGemma4E4BBudget(runtimeRequest.model)) {
     const verified = await verifiedGemmaChat(runtimeRequest, baseUrl, modelName, options.signal)
@@ -1037,44 +1057,29 @@ export async function runOllamaStudyEngine(
   }
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
-  const javascriptRoute = request.javascriptInterpret
-    ? javascriptRouteForQuestion(request.prompt, (runtimeRequest.retrievedSources ?? []).length > 0)
-    : 'direct'
-  if (request.javascriptInterpret) {
-    writeTokenSmithLog('javascript_interpret_route', {
-      modelName, prompt: request.prompt, route: javascriptRoute
-    })
-  }
-  if (request.javascriptInterpret && javascriptRoute !== 'direct') {
+  if (mathRequested) {
+    const packed = prepareStudyChatMessages(runtimeRequest, javascriptContextReserveTokens)
+    const javascriptMessages = packed.messages
     const text = await runJavascriptInterpret(
-      messages,
-      request.prompt,
-      (conversation, format, maxTokens) => runOllamaChatCompletion(baseUrl, modelName, conversation, runtimeSettings,
-        { maxTokens, temperature: 0, signal: options.signal, ...(format ? { format } : { allowEmpty: true }) }),
+      javascriptMessages,
+      (conversation, maxTokens) => {
+        const contextLength = runtimeSettings?.contextLength ?? runtimeRequest.model.contextLength ?? 4096
+        const estimatedPrompt = Math.ceil((conversation.reduce((size, message) => size + message.content.length, 0) + 2) / 4)
+        const available = contextLength - estimatedPrompt - 256
+        if (available < 1024) throw new Error('JavaScript reasoning needs more context for its execution feedback and explanation. Increase Context Length or use a shorter passage.')
+        return runOllamaChatCompletion(baseUrl, modelName, conversation, runtimeSettings,
+          { maxTokens: Math.min(maxTokens, available), temperature: 0, signal: options.signal, allowEmpty: true })
+      },
       executeIsolatedJavascript,
       (trace) => {
         options.onJavascriptInterpretTrace?.(trace)
         writeTokenSmithLog('javascript_interpret', {
-          modelName, prompt: request.prompt, modelMessages: messages,
-          attempts: trace.attempts, retryCount: trace.retryCount,
-          inferenceCount: trace.inferenceCount, inferenceLatenciesMs: trace.inferenceLatenciesMs,
-          latencyMs: trace.latencyMs, directAnswer: trace.directAnswer,
-          rejectedFinalAnswer: trace.rejectedFinalAnswer,
-          unsupportedFinalNumbers: trace.unsupportedFinalNumbers,
-          emptyFinalAnswer: trace.emptyFinalAnswer,
-          finalMissingRequestedList: trace.finalMissingRequestedList,
-          finalMissingComputedList: trace.finalMissingComputedList,
-          finalOutputMismatch: trace.finalOutputMismatch,
-          verifiedSeriesOperation: trace.verifiedSeriesOperation,
-          verifiedSeriesFallback: trace.verifiedSeriesFallback,
-          verifiedCalculationOperation: trace.verifiedCalculationOperation,
-          verifiedCalculationFallback: trace.verifiedCalculationFallback
+          modelName, prompt: request.prompt, modelMessages: javascriptMessages,
+          ...trace
         })
-      },
-      (runtimeRequest.retrievedSources ?? []).map((source) => source.excerpt),
-      javascriptRoute === 'tool' ? 'tool' : 'choice'
+      }
     )
-    const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
+    const answer = answerWithOrderedSources(text, packed.sources)
     options.signal?.throwIfAborted()
     const response = { engineId: 'tokensmith' as const, modelName: request.model.name, text: answer.text, sources: answer.sources }
     options.onAnswer?.(response, false)

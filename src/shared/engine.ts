@@ -24,11 +24,24 @@ export interface EngineQuestionRewriteRequest {
   messages: ChatMessage[]
   model: LocalModel
   modelSettings?: ModelRuntimeSettings
+  advancedMathEnabled?: boolean
+  classifyAdvancedMath?: boolean
+  resolveContext?: boolean
+  settings?: TokenSmithSettings
 }
 
-export type QuestionRewrite =
+export interface AdvancedMathPlan {
+  prompt: string
+  route: 'chat' | 'math'
+  reason: string
+  model?: LocalModel
+  modelSettings?: ModelRuntimeSettings
+}
+
+export type QuestionRewrite = (
   | { mode: ConversationContextMode; query: string; clarification: '' }
   | { mode: 'clarify'; query: ''; clarification: string }
+) & { answerRoute?: 'chat' | 'math'; routeReason?: string; advancedMathPlan?: AdvancedMathPlan }
 
 export interface EngineInfo {
   id: 'tokensmith'
@@ -41,7 +54,9 @@ export interface EngineChatRequest {
   requestId?: string
   prompt: string
   selectedPassage?: ChatSelectedPassage
-  javascriptInterpret?: boolean
+  advancedMathEnabled?: boolean
+  advancedMathPlan?: AdvancedMathPlan
+  preparationTiming?: { contextAndRoutingMs: number; retrievalMs: number }
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
@@ -65,6 +80,7 @@ export interface EngineRunOptions {
 export interface EngineChatResponse {
   engineId: EngineInfo['id']
   modelName: string
+  advancedMathUsed?: boolean
   text: string
   sources: ChatSource[]
   followUpSuggestions?: string[]

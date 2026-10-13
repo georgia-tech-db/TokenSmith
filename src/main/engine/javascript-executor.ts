@@ -17,6 +17,19 @@ function boundedError(error: unknown): string {
   return Buffer.from(message, 'utf8').subarray(0, javascriptLimits.outputBytes).toString('utf8')
 }
 
+function executionDiagnostic(error: unknown, code: string): string {
+  const details = error && typeof error === 'object' ? error as Record<string, unknown> : {}
+  const name = typeof details.name === 'string' ? details.name.slice(0, 120) : 'Error'
+  const message = boundedError(details.message ?? error).slice(0, 2000)
+  const stack = typeof details.stack === 'string' ? details.stack.slice(0, javascriptLimits.outputBytes) : ''
+  const location = stack.match(/javascript_interpret\.js:(\d+)(?::(\d+))?/)
+  const line = location ? Number(location[1]) : typeof details.lineNumber === 'number' ? details.lineNumber : undefined
+  const column = location?.[2] ? Number(location[2]) : undefined
+  const lines = code.split(/\r?\n/)
+  if (!line || !Number.isInteger(line) || line < 1 || line > lines.length) return boundedError(`${name}: ${message}`)
+  return boundedError(`${name} at line ${line}${column ? `, column ${column}` : ''}: ${message}\n${line}: ${lines[line - 1].slice(0, 400)}`)
+}
+
 export async function executeIsolatedJavascript(code: string): Promise<JavascriptExecution> {
   const started = performance.now()
   if (Buffer.byteLength(code, 'utf8') > javascriptLimits.codeBytes) {
@@ -58,13 +71,13 @@ export async function executeIsolatedJavascript(code: string): Promise<Javascrip
     logFunction.dispose()
     consoleObject.dispose()
 
-    const evaluation = context.evalCode(code)
+    const evaluation = context.evalCode(code, 'javascript_interpret.js')
     if (evaluation.error) {
       const error = context.dump(evaluation.error)
       evaluation.error.dispose()
       return {
         ok: false,
-        error: performance.now() > deadline ? 'JavaScript execution timed out.' : boundedError(error?.message ?? error),
+        error: performance.now() > deadline ? 'JavaScript execution timed out.' : executionDiagnostic(error, code),
         latencyMs: performance.now() - started
       }
     }

@@ -59,161 +59,91 @@ test('follow-ups use the actual new answer and do not drop complete questions so
   } finally { globalThis.fetch = original }
 })
 
-test('JavaScript reasoning publishes an answer and forwards the cancellation signal', async () => {
+test('Advanced Math uses raw code and a stable prompt with existing publication and cancellation', async () => {
   const original = globalThis.fetch
   const controller = new AbortController()
   const published = []
-  let trace
   let calls = 0
+  let trace
+  let systemPrompt
   try {
     globalThis.fetch = async (_url, options) => {
-      calls += 1
+      calls++
       assert.ok(options.signal instanceof AbortSignal)
       const body = JSON.parse(options.body)
+      assert.equal(body.model, request.model.ollamaModelName)
+      assert.equal(body.options.temperature, 0)
       assert.equal(body.think, false)
-      if (calls === 1) {
-        assert.equal(body.format.type, 'object')
-      } else {
-        assert.equal(body.format, undefined)
+      assert.equal(body.format, undefined)
+      if (calls === 1) systemPrompt = body.messages[0].content
+      else {
+        assert.equal(body.messages[0].content, systemPrompt)
+        assert.match(body.messages.at(-1).content, /javascript_interpret result:\n42/)
       }
-      return { ok: true, json: async () => ({ done_reason: 'stop', message: {
-        content: calls === 1
-          ? JSON.stringify({ tool: 'javascript_interpret', code: 'console.log(6 * 7)' })
-          : '42'
-      } }) }
+      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: calls === 1
+        ? 'I will calculate the product and subtract the specified amount.\n<javascript_interpret>\nlet total=0; for(let i=0;i<6;i++){total+=7;} console.log(total);\n</javascript_interpret>'
+        : 'Multiply 6 by 7, then subtract 0: the result is **42**.' } }) }
     }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt: 'Calculate the product of 6 and 7, then subtract 0.', retrievedSources: [], javascriptInterpret: true
-    }, {
-      signal: controller.signal,
-      onAnswer: (answer, hasFollowUps) => published.push({ answer, hasFollowUps }),
+    const result = await runOllamaStudyEngine({ ...request, prompt: 'Calculate the product of 6 and 7, then subtract 0.', retrievedSources: [],
+      advancedMathEnabled: true, advancedMathPlan: { route: 'math' } }, {
+      signal: controller.signal, onAnswer: (answer, followUps) => published.push({ answer, followUps }),
       onJavascriptInterpretTrace: value => { trace = value }
     })
     assert.equal(calls, 2)
     assert.equal(trace.attempts[0].execution.result, '42')
     assert.equal(published.length, 1)
-    assert.equal(published[0].hasFollowUps, false)
+    assert.equal(published[0].followUps, false)
     assert.deepEqual(published[0].answer, result)
     assert.match(result.text, /42/)
   } finally { globalThis.fetch = original }
 })
 
-test('JavaScript toggle allows one direct source answer without tool execution', async () => {
+test('Advanced Math source calculations use the existing packed retrieval context and return sources', async () => {
   const original = globalThis.fetch
   let calls = 0
-  let trace
-  const prompt = 'According to the textbook, which SQL standards were published after 2000, and how many are there?'
-  const excerpt = 'The SQL-92 standard was followed by SQL: 1999, SQL: 2003, SQL: 2006, SQL: 2008, SQL: 2011, and SQL: 2016.'
   try {
     globalThis.fetch = async (_url, options) => {
-      calls += 1
       const body = JSON.parse(options.body)
-      assert.equal(body.format, undefined)
-      assert.match(body.messages.at(-1).content, /SQL: 2003/)
-      return { ok: true, json: async () => ({ done_reason: 'stop', message: {
-        content: 'SQL:2003, SQL:2006, SQL:2008, SQL:2011, and SQL:2016 were published after 2000. There are five.'
-      } }) }
-    }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt, javascriptInterpret: true,
-      retrievedSources: [{ title: 'Textbook', excerpt }],
-      applicationSettings: { suggestionMode: 'off', followUpSuggestionCount: 0 }
-    }, { onJavascriptInterpretTrace: value => { trace = value } })
-    assert.equal(calls, 1)
-    assert.equal(trace, undefined)
-    assert.match(result.text, /SQL:2003.*SQL:2016/s)
-    assert.match(result.text, /five/)
-    assert.doesNotMatch(result.text, /executed JavaScript/)
-  } finally { globalThis.fetch = original }
-})
-
-test('a greeting uses normal chat even when JavaScript reasoning is enabled', async () => {
-  const original = globalThis.fetch
-  let calls = 0
-  let trace
-  try {
-    globalThis.fetch = async (_url, options) => {
-      calls += 1
-      const body = JSON.parse(options.body)
-      assert.equal(body.format, undefined)
-      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: 'Hello!' } }) }
-    }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt: 'hi', javascriptInterpret: true, retrievedSources: [],
-      applicationSettings: { suggestionMode: 'off', followUpSuggestionCount: 0 }
-    }, { onJavascriptInterpretTrace: value => { trace = value } })
-    assert.equal(calls, 1)
-    assert.equal(trace, undefined)
-    assert.equal(result.text, 'Hello!')
-  } finally { globalThis.fetch = original }
-})
-
-test('disabled JavaScript setting keeps the normal chat request for a calculation', async () => {
-  const original = globalThis.fetch
-  let calls = 0
-  let trace
-  try {
-    globalThis.fetch = async (_url, options) => {
-      calls += 1
-      const body = JSON.parse(options.body)
-      assert.equal(body.format, undefined)
-      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: '6 × 7 = 42.' } }) }
-    }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt: 'Calculate the product of 6 and 7, then subtract 0.', javascriptInterpret: false,
-      applicationSettings: { suggestionMode: 'off', followUpSuggestionCount: 0 }, retrievedSources: []
-    }, { onJavascriptInterpretTrace: value => { trace = value } })
-    assert.equal(calls, 1)
-    assert.equal(trace, undefined)
-    assert.equal(result.text, '6 × 7 = 42.')
-  } finally { globalThis.fetch = original }
-})
-
-test('JavaScript toggle still computes when a retrieved quantitative operation is verified', async () => {
-  const original = globalThis.fetch
-  let calls = 0
-  let trace
-  const prompt = 'From the section results, state the section sizes and scores, list each weighted contribution, and calculate the overall weighted average score.'
-  const excerpt = 'Section A has 30 students with an average score of 80. Section B has 45 students with an average score of 70. Section C has 25 students with an average score of 90.'
-  try {
-    globalThis.fetch = async (_url, options) => {
-      calls += 1
-      const body = JSON.parse(options.body)
-      if (calls === 1) assert.equal(body.format?.type, 'object')
-      else assert.equal(body.format, undefined)
+      calls++
+      const context = body.messages.filter(message => message.role === 'user').map(message => message.content).join('\n')
+      assert.match(context, /Capacity is 12 per batch; there are 5 batches/)
+      assert.doesNotMatch(context, /Hidden value/)
       return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: calls === 1
-        ? JSON.stringify({ tool: 'javascript_interpret', code: 'console.log("2400, 3150, 2250, 78")' })
-        : 'Section A: 30 × 80 = 2400; section B: 45 × 70 = 3150; section C: 25 × 90 = 2250. Add the contributions and divide by 100 students for an overall weighted average of 78.'
-      } }) }
+        ? 'I will multiply capacity by the number of batches.\n<javascript_interpret>\nconsole.log("Total capacity: "+12*5);\n</javascript_interpret>'
+        : 'Multiply 12 units per batch by 5 batches: total capacity is 60 units.' } }) }
     }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt, javascriptInterpret: true,
-      retrievedSources: [{ title: 'Section results', excerpt }],
-      applicationSettings: { suggestionMode: 'off', followUpSuggestionCount: 0 }
-    }, { onJavascriptInterpretTrace: value => { trace = value } })
+    const result = await runOllamaStudyEngine({ ...request, prompt: 'Using the textbook, calculate total capacity.',
+      advancedMathEnabled: true, advancedMathPlan: { route: 'math' },
+      retrievedSources: [{ title: 'Capacity', excerpt: 'Hidden value: 999.', context: 'Capacity is 12 per batch; there are 5 batches.' }] })
     assert.equal(calls, 2)
-    assert.equal(trace?.inferenceCount, 2)
-    assert.match(result.text, /weighted average of 78/)
+    assert.match(result.text, /60 units/)
+    assert.equal(result.sources.length, 1)
   } finally { globalThis.fetch = original }
 })
 
-test('ambiguous requests leave the direct-or-tool choice to the model', async () => {
+test('Advanced Math sends line-specific errors back with the same prompt and no JSON schema', async () => {
   const original = globalThis.fetch
-  let trace
+  let calls = 0
+  let systemPrompt
   try {
     globalThis.fetch = async (_url, options) => {
       const body = JSON.parse(options.body)
-      assert.deepEqual(body.format.properties.route.enum, ['answer', 'javascript_interpret'])
-      return { ok: true, json: async () => ({ done_reason: 'stop', message: {
-        content: JSON.stringify({ route: 'answer', content: 'Enrollment changed over time.' })
-      } }) }
+      calls++
+      assert.equal(body.format, undefined)
+      if (calls === 1) systemPrompt = body.messages[0].content
+      else assert.equal(body.messages[0].content, systemPrompt)
+      if (calls === 2) {
+        assert.match(body.messages.at(-1).content, /ReferenceError at line 2, column \d+/)
+        assert.match(body.messages.at(-1).content, /2: console.log\(value\+missing\);/)
+      }
+      const content = calls === 1
+        ? '<javascript_interpret>\nconst value=6*7;\nconsole.log(value+missing);\n</javascript_interpret>'
+        : calls === 2 ? '<javascript_interpret>\nconsole.log(6*7-0);\n</javascript_interpret>' : 'Multiply 6 by 7 and subtract 0 to get 42.'
+      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content } }) }
     }
-    const result = await runOllamaStudyEngine({
-      ...request, prompt: 'How has enrollment changed?', javascriptInterpret: true,
-      applicationSettings: { suggestionMode: 'off', followUpSuggestionCount: 0 }
-    }, { onJavascriptInterpretTrace: value => { trace = value } })
-    assert.equal(result.text, 'Enrollment changed over time.')
-    assert.equal(trace?.directAnswer, true)
-    assert.deepEqual(trace?.attempts, [])
+    const result = await runOllamaStudyEngine({ ...request, prompt: 'Calculate the product of 6 and 7, then subtract 0.',
+      retrievedSources: [], advancedMathEnabled: true, advancedMathPlan: { route: 'math' } })
+    assert.equal(calls, 3)
+    assert.match(result.text, /42/)
   } finally { globalThis.fetch = original }
 })

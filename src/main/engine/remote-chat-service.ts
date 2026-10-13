@@ -227,7 +227,7 @@ async function runRemoteChatCompletion(
 
 export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
+  if (!request.classifyAdvancedMath && !request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
   const started = performance.now()
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const messages = questionRewriteMessages({ ...request, modelSettings: settings })
@@ -236,7 +236,7 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName, apiKey: request.model.apiKey, settings
   }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
-  const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+  const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage), request.classifyAdvancedMath)
   writeTokenSmithLog('chat_question_rewrite', {
     modelName, prompt: request.prompt, modelMessages: messages,
     rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
