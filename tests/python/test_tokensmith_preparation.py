@@ -39,22 +39,20 @@ class PreparationJsonTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, non_utf8_locale():
             path = Path(root) / 'chunks.json'
             path.write_bytes(json.dumps(value, ensure_ascii=False).encode('utf-8'))
-            with patch('locale.getencoding', side_effect=AssertionError('UTF-8 must take precedence')):
-                self.assertEqual(prep.read_json(path), value)
+            self.assertEqual(prep.read_json(path), value)
 
-    def test_legacy_locale_encoded_report_and_chunks_remain_readable(self):
+    def test_non_utf8_json_is_a_cache_miss_until_regenerated(self):
         with tempfile.TemporaryDirectory() as root, non_utf8_locale():
-            document_path = str(Path(root) / 'café.txt')
-            directory = job.job_directory(root, document_path)
-            directory.mkdir(parents=True)
-            chunks = [{'text': 'Un café coûte 2 €.', 'sectionHeader': 'Résumé'}]
-            document = {'title': 'café', 'path': document_path, 'chunksFile': 'chunks.json'}
-            for name, value in [('report.json', {'documents': [document]}), ('chunks.json', chunks)]:
-                (directory / name).write_bytes(json.dumps(value, ensure_ascii=False).encode('cp1252'))
-            summary = job.report({'userDataPath': root, 'path': document_path, 'documentPath': document_path})
-            self.assertEqual(summary['documents'], [{**document, 'chunks': chunks}])
-            prep.write_json(directory / 'chunks.json', chunks)
-            self.assertEqual(json.loads((directory / 'chunks.json').read_bytes().decode('utf-8')), chunks)
+            path = Path(root) / 'chunks.json'
+            value = [{'text': 'Un café coûte 2 €.', 'sectionHeader': 'Résumé'}]
+            data = json.dumps(value, ensure_ascii=False).encode('cp1252')
+            path.write_bytes(data)
+            sentinel = object()
+            self.assertIs(prep.read_json(path, sentinel), sentinel)
+            self.assertEqual(path.read_bytes(), data)
+            prep.write_json(path, value)
+            self.assertEqual(json.loads(path.read_bytes().decode('utf-8')), value)
+            self.assertEqual(prep.read_json(path), value)
 
     def test_missing_malformed_and_undecodable_json_keep_the_default(self):
         with tempfile.TemporaryDirectory() as root, non_utf8_locale('ascii'):

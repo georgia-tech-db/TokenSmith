@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import locale
 import re
 import urllib.error
 import urllib.request
@@ -38,13 +37,7 @@ def digest(value: Any) -> str:
 
 def read_json(path: Path, default: Any = None) -> Any:
     try:
-        data = path.read_bytes()
-        try:
-            text = data.decode('utf-8')
-        except UnicodeDecodeError:
-            # Older preparation files used the device's locale encoding.
-            text = data.decode(locale.getencoding())
-        return json.loads(text)
+        return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return default
 
