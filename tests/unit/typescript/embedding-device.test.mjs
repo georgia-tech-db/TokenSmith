@@ -86,9 +86,9 @@ test('retired GGUF records are discarded without removing Ollama GGUF models or 
     conversations: [
       { id: 'old-chat', messages: [{ role: 'assistant', sources: [{ materialId: 'old-book' }] }] },
       { id: 'detached-old-chat', messages: [{ sources: [{ chunkEmbeddingModel: 'llama-cpp:456' }] }] },
-      { id: 'chat', messages: [{ text: 'What is GGUF?', sources: [{ materialId: 'book' }] }] }
+      { id: 'chat', modelId: 'ollama', messages: [{ text: 'What is GGUF?', sources: [{ materialId: 'book' }] }] }
     ],
-    activeConversationId: 'old-chat', selectedModelId: 'old', selectedEmbeddingModelId: 'ollama',
+    activeConversationId: 'old-chat', selectedEmbeddingModelId: 'ollama',
     settings: { application: { defaultModelId: 'old' }, modelSettingsById: { old: {}, ollama: { temperature: 0.5 } } }
   }
   const result = removeRetiredModelState(state)
@@ -96,7 +96,7 @@ test('retired GGUF records are discarded without removing Ollama GGUF models or 
   assert.deepEqual(result.materials.map(item => item.id), ['book'])
   assert.deepEqual(result.conversations.map(item => item.id), ['chat'])
   assert.equal(result.activeConversationId, 'chat')
-  assert.equal(result.selectedModelId, '')
+  assert.equal(result.conversations[0].modelId, 'ollama')
   assert.deepEqual(result.settings.modelSettingsById, { ollama: { temperature: 0.5 } })
   assert.deepEqual(removeRetiredModelState(result), result)
   assert.equal(state.models.length, 2)

@@ -54,6 +54,7 @@ const ollamaChatModel = {
   status: 'ready',
   source: 'ollama',
   ollamaModelName: 'llama3',
+  contextLength: 8192,
   addedAt
 }
 
@@ -109,43 +110,48 @@ test('sourceContext prefers full chunk context over the short excerpt', () => {
   assert.doesNotMatch(context, /Short excerpt only/)
 })
 
-test('modelAwareRuntimeSettings uses discovered model context with a bounded automatic cap', () => {
+test('modelAwareRuntimeSettings uses the full discovered limit in Auto mode', () => {
   const runtimeSettings = modelAwareRuntimeSettings({
     model: {
       ...ollamaChatModel,
       contextLength: 16384
     },
     modelSettings: {
+      contextLengthMode: 'auto',
       contextLength: 2048,
       maxLength: 512
     }
   })
 
-  assert.equal(runtimeSettings.contextLength, 8192)
+  assert.equal(runtimeSettings.contextLength, 16384)
   assert.equal(runtimeSettings.maxLength, 512)
 })
 
 test('an explicit tool reserve reduces source packing without changing ordinary chat or dropping the question', () => {
   const request = { prompt: 'Compute the total from this passage.', messages: [], materials: [], settings: {},
     model: { ...ollamaChatModel, contextLength: 8192 }, modelSettings: { contextLength: 8192, maxLength: 512 },
-    retrievedSources: [{ title: 'Measurements', excerpt: 'Visible values: 12 and 24.',
-      context: `Visible values: 12 and 24. ${'Supporting information. '.repeat(1800)}` }] }
+    retrievedSources: [12,24].map(value => ({ title: `Measurements ${value}`, excerpt: `Visible value: ${value}.`,
+      context: `Visible value: ${value}. ${'Supporting information. '.repeat(300)}` })) }
   const normal = prepareStudyChatMessages(request)
   const tool = prepareStudyChatMessages(request, 3000)
   assert.deepEqual(normal.messages, studyChatMessages(request))
   assert.equal(normal.budget.sourceBudgetTokens - tool.budget.sourceBudgetTokens, 3000)
+  assert.equal(normal.sources.length,2)
+  assert.equal(tool.sources.length,1)
+  assert.equal(tool.sources[0].context,request.retrievedSources[0].context)
   assert.ok(tool.messages.at(-1).content.length < normal.messages.at(-1).content.length)
   assert.match(tool.messages.at(-1).content, /Question: Compute the total from this passage\./)
   assert.ok(tool.budget.estimatedPromptTokens + tool.budget.answerReserveTokens + tool.budget.safetyMarginTokens + 3000 <= tool.budget.modelContextTokens)
 })
 
-test('studyChatMessages budgets and clips source context around matched terms', () => {
+test('remote studyChatMessages budgets and clips source context around matched terms', () => {
   const request = {
     prompt: 'Why is pinning needed?',
     messages: [],
     materials: [],
     model: {
       ...ollamaChatModel,
+      engine: 'remote',
       contextLength: 2048
     },
     settings: {},

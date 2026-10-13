@@ -1434,14 +1434,17 @@ def source_row_select() -> str:
 
 def expand_source_units(
     user_data_path: str, rows: List[Dict[str, Any]], active_material_ids: Sequence[str],
-    max_chars: int = 12000,
+    max_chars: int = 12000, *, documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Expand bounded source units, scoped by collection and document, before selection."""
     expanded, seen = [], set()
     active_ids = {str(value) for value in active_material_ids}
+    allowed = None if documents is None else {(str(d['materialId']), int(d['documentId'])) for d in documents}
     with connect(user_data_path) as conn:
         for hit in rows:
             if str(hit['material_id']) not in active_ids:
+                continue
+            if allowed is not None and (str(hit['material_id']), hit['document_id']) not in allowed:
                 continue
             parent = hit.get('parent_id')
             key = (hit['material_id'], hit['document_id'], parent)
@@ -1458,10 +1461,11 @@ def expand_source_units(
                 # Large units stay as matching parts; prompt packing has the final token budget.
                 expanded.append({**hit, 'unit_complete': False})
                 continue
+            active_filter = "AND s.is_active = 1" if documents is None else ""
             parts = [dict(row) for row in conn.execute(
                 f"""{source_row_select()}
                     WHERE CAST(col.id AS TEXT) = ? AND d.id = ? AND ch.parent_id = ?
-                    AND s.status = 'ready' AND s.is_active = 1 ORDER BY ch.unit_part, ch.id""",
+                    AND s.status = 'ready' {active_filter} ORDER BY ch.unit_part, ch.id""",
                 key,
             ).fetchall()]
             if not parts or [p['unit_part'] for p in parts] != list(range(1, len(parts) + 1)) or any(
@@ -1483,23 +1487,22 @@ def get_chunks_by_rowids(
     user_data_path: str,
     rowids: List[int],
     active_material_ids: Sequence[str],
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     if not rowids or not active_material_ids:
         return []
 
     row_placeholders = ",".join("?" for _ in rowids)
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
 
     with connect(user_data_path) as conn:
         rows = conn.execute(
             f"""
             {source_row_select()}
             WHERE ch.id IN ({row_placeholders})
-              AND CAST(col.id AS TEXT) IN ({active_placeholders})
-              AND s.status = 'ready'
-              AND s.is_active = 1
+              AND {scope_filter}
             """,
-            [*rowids, *active_material_ids],
+            [*rowids, *scope_params],
         ).fetchall()
 
     by_id = {int(row["rowid"]): dict(row) for row in rows}
@@ -1512,6 +1515,7 @@ def vector_search(
     active_material_ids: Sequence[str],
     limit: int,
     embedding_model: str,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Tuple[int, float]]:
     if not active_material_ids:
         return []
@@ -1523,10 +1527,21 @@ def vector_search(
     q = np.asarray([list(query_embedding)], dtype=np.float32)
     q = normalize_matrix(q)
 
-    try:
-        distances, labels = index.search(q, max(limit * 8, limit))
-    except Exception:
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
+    with connect(user_data_path) as conn:
+        rows = conn.execute(f"""
+            SELECT DISTINCT ch.id FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN collection_items ci ON ci.folder_id = d.folder_id
+            JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+            WHERE {scope_filter}
+        """, scope_params).fetchall()
+    if not rows:
         return []
+    # FAISS applies the allow-list before top-k, so excluded documents cannot crowd out hits.
+    ids = np.asarray([row['id'] for row in rows], dtype=np.int64)
+    params = faiss.SearchParameters(sel=faiss.IDSelectorBatch(ids))
+    distances, labels = index.search(q, limit, params=params)
 
     raw = [
         (int(label), float(score))
@@ -1535,14 +1550,30 @@ def vector_search(
     ]
 
     rowids = [rowid for rowid, _score in raw]
-    allowed_chunks = get_chunks_by_rowids(user_data_path, rowids, active_material_ids)
+    allowed_chunks = get_chunks_by_rowids(user_data_path, rowids, active_material_ids, documents)
     allowed = {int(chunk["rowid"]) for chunk in allowed_chunks}
 
     return [(rowid, score) for rowid, score in raw if rowid in allowed][:limit]
 
 
-def _active_chunks_filter(active_material_ids: Sequence[str]) -> Tuple[str, List[str]]:
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+def _study_rows_filter(active_material_ids: Sequence[str], documents=None) -> Tuple[str, List[Any]]:
+    """One scope predicate for queries joining d (document), ci (membership), and s (state)."""
+    if documents is not None:
+        pairs = sorted({(str(d['materialId']), int(d['documentId'])) for d in documents
+                        if str(d['materialId']) in active_material_ids})
+        if not pairs:
+            return '0', []
+        conditions = ' OR '.join('(CAST(ci.collection_id AS TEXT) = ? AND d.id = ?)' for _ in pairs)
+        return f"s.status = 'ready' AND ({conditions})", [value for pair in pairs for value in pair]
+    if not active_material_ids:
+        return '0', []
+    placeholders = ','.join('?' for _ in active_material_ids)
+    return (f"s.status = 'ready' AND s.is_active = 1 AND CAST(ci.collection_id AS TEXT) IN ({placeholders})",
+            list(active_material_ids))
+
+
+def _active_chunks_filter(active_material_ids: Sequence[str], documents=None) -> Tuple[str, List[Any]]:
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
     return (
         f"""
         EXISTS (
@@ -1552,12 +1583,10 @@ def _active_chunks_filter(active_material_ids: Sequence[str]) -> Tuple[str, List
             JOIN collection_items ci ON ci.folder_id = d.folder_id
             JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
             WHERE ch.id = chunks_fts.rowid
-              AND CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
-              AND s.status = 'ready'
-              AND s.is_active = 1
+              AND {scope_filter}
         )
         """,
-        [str(material_id) for material_id in active_material_ids],
+        scope_params,
     )
 
 
@@ -1614,11 +1643,12 @@ def _keyword_term_document_frequency(
 def ensure_chunk_terms_for_active_materials(
     conn: sqlite3.Connection,
     active_material_ids: Sequence[str],
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     if not active_material_ids:
         return
 
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
     rows = conn.execute(
         f"""
         SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
@@ -1626,16 +1656,14 @@ def ensure_chunk_terms_for_active_materials(
         JOIN documents d ON d.id = ch.document_id
         JOIN collection_items ci ON ci.folder_id = d.folder_id
         JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
-        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
-          AND s.status = 'ready'
-          AND s.is_active = 1
+        WHERE {scope_filter}
           AND NOT EXISTS (
               SELECT 1
               FROM chunk_terms ct
               WHERE ct.chunk_id = ch.id
           )
         """,
-        [str(material_id) for material_id in active_material_ids],
+        scope_params,
     ).fetchall()
 
     for row in rows:
@@ -1645,11 +1673,12 @@ def ensure_chunk_terms_for_active_materials(
 def ensure_chunk_aliases_for_active_materials(
     conn: sqlite3.Connection,
     active_material_ids: Sequence[str],
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     if not active_material_ids:
         return
 
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
     rows = conn.execute(
         f"""
         SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
@@ -1658,12 +1687,10 @@ def ensure_chunk_aliases_for_active_materials(
         JOIN collection_items ci ON ci.folder_id = d.folder_id
         JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
         LEFT JOIN chunk_search_index_state sis ON sis.chunk_id = ch.id
-        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
-          AND s.status = 'ready'
-          AND s.is_active = 1
+        WHERE {scope_filter}
           AND COALESCE(sis.alias_version, 0) < ?
         """,
-        [*[str(material_id) for material_id in active_material_ids], ALIAS_EXTRACTION_VERSION],
+        [*scope_params, ALIAS_EXTRACTION_VERSION],
     ).fetchall()
 
     for row in rows:
@@ -1684,6 +1711,7 @@ def active_vocabulary_terms_near(
     conn: sqlite3.Connection,
     term: str,
     active_material_ids: Sequence[str],
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[str]:
     if (
         len(term) < MIN_KEYWORD_CORRECTION_LENGTH
@@ -1692,7 +1720,7 @@ def active_vocabulary_terms_near(
     ):
         return []
 
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
     min_length = max(MIN_KEYWORD_CORRECTION_LENGTH, len(term) - KEYWORD_CORRECTION_LENGTH_WINDOW)
     max_length = len(term) + KEYWORD_CORRECTION_LENGTH_WINDOW
     rows = conn.execute(
@@ -1703,12 +1731,10 @@ def active_vocabulary_terms_near(
         JOIN documents d ON d.id = ch.document_id
         JOIN collection_items ci ON ci.folder_id = d.folder_id
         JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
-        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
-          AND s.status = 'ready'
-          AND s.is_active = 1
+        WHERE {scope_filter}
           AND length(ct.term) BETWEEN ? AND ?
         """,
-        [*[str(material_id) for material_id in active_material_ids], min_length, max_length],
+        [*scope_params, min_length, max_length],
     ).fetchall()
     return [
         str(row["term"])
@@ -1756,8 +1782,9 @@ def corrected_keyword_term(
     conn: sqlite3.Connection,
     term: str,
     active_material_ids: Sequence[str],
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[str]:
-    candidates = active_vocabulary_terms_near(conn, term, active_material_ids)
+    candidates = active_vocabulary_terms_near(conn, term, active_material_ids, documents)
     edit_matches = [candidate for candidate in candidates if is_single_edit_or_transposition(term, candidate)]
     if edit_matches:
         return difflib.get_close_matches(term, edit_matches, n=1, cutoff=0.0)[0]
@@ -1773,11 +1800,12 @@ def collection_alias_terms_for_query_terms(
     active_filter: str,
     active_params: Sequence[str],
     max_terms: int = MAX_KEYWORD_ALIAS_TERMS,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[str]:
     if not terms or not active_material_ids or max_terms <= 0:
         return []
 
-    active_placeholders = ",".join("?" for _ in active_material_ids)
+    scope_filter, scope_params = _study_rows_filter(active_material_ids, documents)
     term_placeholders = ",".join("?" for _ in terms)
     rows = conn.execute(
         f"""
@@ -1787,14 +1815,12 @@ def collection_alias_terms_for_query_terms(
         JOIN documents d ON d.id = ch.document_id
         JOIN collection_items ci ON ci.folder_id = d.folder_id
         JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
-        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
-          AND s.status = 'ready'
-          AND s.is_active = 1
+        WHERE {scope_filter}
           AND cta.term IN ({term_placeholders})
         GROUP BY cta.term, cta.alias_term
         ORDER BY alias_hits DESC, cta.alias_term ASC
         """,
-        [*[str(material_id) for material_id in active_material_ids], *terms],
+        [*scope_params, *terms],
     ).fetchall()
 
     aliases_by_term: Dict[str, List[sqlite3.Row]] = {}
@@ -1827,15 +1853,16 @@ def keyword_terms_for_query(
     query: str,
     active_material_ids: Sequence[str],
     max_terms: int = MAX_KEYWORD_QUERY_TERMS,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[str]:
     terms = keyword_query_terms(query)
     if not terms or not active_material_ids or max_terms <= 0:
         return []
 
-    active_filter, active_params = _active_chunks_filter(active_material_ids)
+    active_filter, active_params = _active_chunks_filter(active_material_ids, documents)
     with connect(user_data_path) as conn:
-        ensure_chunk_terms_for_active_materials(conn, active_material_ids)
-        ensure_chunk_aliases_for_active_materials(conn, active_material_ids)
+        ensure_chunk_terms_for_active_materials(conn, active_material_ids, documents)
+        ensure_chunk_aliases_for_active_materials(conn, active_material_ids, documents)
         total_chunks = conn.execute(
             f"""
             SELECT COUNT(DISTINCT chunks_fts.rowid)
@@ -1855,7 +1882,7 @@ def keyword_terms_for_query(
             df = _keyword_term_document_frequency(conn, term, active_filter, active_params)
             chosen_term = term
             if df <= 0:
-                corrected_term = corrected_keyword_term(conn, term, active_material_ids)
+                corrected_term = corrected_keyword_term(conn, term, active_material_ids, documents)
                 if corrected_term:
                     corrected_df = _keyword_term_document_frequency(conn, corrected_term, active_filter, active_params)
                     if corrected_df > 0:
@@ -1889,6 +1916,7 @@ def keyword_terms_for_query(
             active_filter,
             active_params,
             max_terms=max(0, min(MAX_KEYWORD_ALIAS_TERMS, max_terms - len(base_terms))),
+            documents=documents,
         )
 
     return list(dict.fromkeys([*base_terms, *(term for term in alias_terms if term not in base_terms)]))
@@ -1899,11 +1927,12 @@ def keyword_search_with_match_query(
     match_query: str,
     active_material_ids: Sequence[str],
     limit: int,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Tuple[int, float]]:
     if not active_material_ids or not match_query:
         return []
 
-    active_filter, active_params = _active_chunks_filter(active_material_ids)
+    active_filter, active_params = _active_chunks_filter(active_material_ids, documents)
 
     with connect(user_data_path) as conn:
         try:
@@ -1931,12 +1960,13 @@ def keyword_search(
     active_material_ids: Sequence[str],
     limit: int,
     terms: Optional[Sequence[str]] = None,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Tuple[int, float]]:
     """Rank chunks by BM25 relevance over the chunks_fts index."""
     if not active_material_ids:
         return []
 
-    match_terms = list(terms) if terms is not None else keyword_terms_for_query(user_data_path, query, active_material_ids)
+    match_terms = list(terms) if terms is not None else keyword_terms_for_query(user_data_path, query, active_material_ids, documents=documents)
     if not match_terms:
         return []
 
@@ -1948,7 +1978,7 @@ def keyword_search(
     seen: Set[int] = set()
     hits: List[Tuple[int, float]] = []
     for match_query in match_queries:
-        for rowid, score in keyword_search_with_match_query(user_data_path, match_query, active_material_ids, limit):
+        for rowid, score in keyword_search_with_match_query(user_data_path, match_query, active_material_ids, limit, documents):
             if rowid in seen:
                 continue
             hits.append((rowid, score))
@@ -1963,6 +1993,7 @@ def fetch_sources(
     user_data_path: str,
     scored_rowids: List[Tuple[int, float]],
     active_material_ids: Optional[Sequence[str]] = None,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     if not scored_rowids:
         return []
@@ -1975,6 +2006,11 @@ def fetch_sources(
         active_placeholders = ",".join("?" for _ in active_material_ids)
         active_filter = f" AND CAST(col.id AS TEXT) IN ({active_placeholders})"
         params.extend(active_material_ids)
+
+    if documents is not None:
+        scope_filter, scope_params = _study_rows_filter(active_material_ids or [], documents)
+        active_filter += f" AND {scope_filter}"
+        params.extend(scope_params)
 
     with connect(user_data_path) as conn:
         rows = conn.execute(
@@ -2002,15 +2038,76 @@ def fetch_sources(
     return result
 
 
+def study_documents(user_data_path: str) -> List[Dict[str, Any]]:
+    init_db(user_data_path)
+    with connect(user_data_path) as conn:
+        rows = conn.execute("""
+            SELECT CAST(col.id AS TEXT) AS material_id, col.name AS collection_name,
+                   d.id AS document_id, d.document_path AS path, COUNT(ch.id) AS chunk_count
+            FROM documents d
+            JOIN chunks ch ON ch.document_id = d.id
+            JOIN collection_items ci ON ci.folder_id = d.folder_id
+            JOIN collections col ON col.id = ci.collection_id
+            JOIN tokensmith_collection_state s ON s.collection_id = col.id
+            WHERE s.status = 'ready'
+            GROUP BY col.id, d.id
+            ORDER BY col.name COLLATE NOCASE, d.document_path COLLATE NOCASE
+        """).fetchall()
+    return [{"materialId": row["material_id"], "documentId": row["document_id"],
+             "collectionName": row["collection_name"], "path": row["path"],
+             "title": Path(row["path"]).name, "chunkCount": row["chunk_count"]} for row in rows]
+
+
+def validate_study_documents(user_data_path: str, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(documents, list):
+        raise ValueError('Invalid document selection.')
+    available = {(item["materialId"], item["documentId"]) for item in study_documents(user_data_path)}
+    requested = {(str(item["materialId"]), int(item["documentId"])) for item in documents}
+    if not requested.issubset(available):
+        raise ValueError("Some selected documents are no longer indexed. Choose the documents again.")
+    return [{"materialId": material_id, "documentId": document_id} for material_id, document_id in sorted(requested)]
+
+
+def practice_source_rows(user_data_path: str, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    requested = {(item['materialId'], item['documentId']) for item in validate_study_documents(user_data_path, documents)}
+    if not requested:
+        raise ValueError('Choose at least one document.')
+    clauses = " OR ".join("(CAST(col.id AS TEXT) = ? AND d.id = ?)" for _ in requested)
+    params = [value for pair in sorted(requested) for value in pair]
+    with connect(user_data_path) as conn:
+        rows = conn.execute(f"""
+            {source_row_select()}
+            WHERE ({clauses}) AND s.status = 'ready'
+            ORDER BY col.id, d.id, COALESCE(ch.page, 0), ch.id
+        """, params).fetchall()
+    return [dict(row) for row in rows]
+
+
 def starter_source_rows(
     user_data_path: str,
     active_material_ids: Sequence[str],
     limit: int = 4,
+    documents: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     init_db(user_data_path)
 
     if limit <= 0 or not active_material_ids:
         return []
+
+    if documents is not None:
+        rows = practice_source_rows(user_data_path, documents)
+        # Round-robin across selected documents, not just the first collection's first file.
+        pools: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+        for row in rows:
+            pools.setdefault((row['material_id'], row['document_id']), []).append(row)
+        for pool in pools.values():
+            random.shuffle(pool)
+        result = []
+        while len(result) < limit and any(pools.values()):
+            for pool in pools.values():
+                if pool and len(result) < limit:
+                    result.append(pool.pop())
+        return result
 
     material_ids = [str(material_id) for material_id in active_material_ids if str(material_id).strip()]
     if not material_ids:

@@ -38,8 +38,9 @@ The setting enables three-bucket answer planning:
   call. Otherwise an ambiguous request adds one call. Unclear tasks can return a
   clarification before retrieval or calculation.
 
-The answer plan is reused at dispatch. Normal chat, quizzes, suggested questions
-and simpler retellings keep their existing paths; quizzes disable Advanced Math.
+The answer plan is reused at dispatch. Normal chat, practice tasks, suggested questions and simpler retellings keep
+their existing paths. Practice tasks bypass Advanced Math. The shared rewrite
+preserves main's separate native-reasoning decision alongside math routing.
 Disabling the setting bypasses the JavaScript loop, even with a stale math-plan hint.
 
 ## Computation and explanation
@@ -86,7 +87,8 @@ host `eval` or `Function`. Every attempt disposes its runtime and context.
 | Repairs | 2 (3 total execution attempts) |
 
 A normal successful calculation uses two Qwen inferences: code and explanation.
-There is no extra review inference. The dedicated profile uses an 8192-token
+There is no extra review inference. Normal chat retains main's native reasoning
+and prompt-preflight flow; these do not add calls to the Advanced Math loop. The dedicated profile uses an 8192-token
 context, a 1536-token per-call output allowance, temperature 0, top-p 0.4, top-k 40,
 min-p 0 and repeat penalty 1.18. Explicit settings for Qwen's model ID can customize
 its profile; the loop retains its output allowance and temperature-zero override.

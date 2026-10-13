@@ -4,6 +4,7 @@ import type { OllamaStatus } from '../../shared/ollama'
 import { defaultOllamaBaseUrl } from '../../shared/ollama'
 import { advancedMathBucket, advancedMathModelName, advancedMathModelLabel, advancedMathModelInstalled } from '../../shared/advanced-math'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { reasoningMode } from '../../shared/reasoning'
 
 interface Dependencies {
   resolve: (request: EngineQuestionRewriteRequest, signal?: AbortSignal) => Promise<QuestionRewrite>
@@ -34,7 +35,7 @@ export function createAdvancedMathService(dependencies: Dependencies) {
     // endpoint or credentials. Preserve the tested loop's sampling overrides.
     const overrides = settings?.modelSettingsById?.[model.id]
     const modelSettings: ModelRuntimeSettings = {
-      systemMessage: '', suggestedFollowUpPrompt: '', contextLength: 8192, maxLength: 1536,
+      systemMessage: '', suggestedFollowUpPrompt: '', contextLength: 8192, contextLengthMode: 'manual', reasoningMode: 'off', thinking: false, maxLength: 1536,
       temperature: 0, topP: 0.4, topK: 40, minP: 0, repeatPenalty: 1.18, ...overrides
     }
     return { model, modelSettings }
@@ -50,9 +51,10 @@ export function createAdvancedMathService(dependencies: Dependencies) {
       suppliedNumbers < 2 && /\b(?:this|these)\b/i.test(request.prompt)
     const needsContext = hasContext && (bucket === 'ambiguous' || bucket === 'math' && suppliedNumbers === 0 ||
       request.resolveContext === true || Boolean(request.selectedPassage) || referencesContext)
-    const resolution: QuestionRewrite = needsContext || bucket === 'ambiguous'
+    const resolveReasoning = bucket === 'chat' && reasoningMode(request.modelSettings) === 'auto'
+    const resolution: QuestionRewrite = needsContext || bucket === 'ambiguous' || resolveReasoning
       ? await dependencies.resolve({ ...request, messages: needsContext ? request.messages : [], classifyAdvancedMath: bucket === 'ambiguous' }, signal)
-      : { mode: 'standalone', query: request.prompt, clarification: '' }
+      : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
     signal?.throwIfAborted()
     if (resolution.mode === 'clarify') {
       dependencies.log?.('advanced_math_route', { requestId: request.requestId, prompt: request.prompt, bucket, route: 'clarify',
@@ -75,13 +77,13 @@ export function createAdvancedMathService(dependencies: Dependencies) {
   }
 
   async function prepare(request: EngineChatRequest, signal?: AbortSignal): Promise<EngineChatRequest | QuestionRewrite> {
-    if (!(request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) || request.answerToSimplify) return request
+    if (!(request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) || request.answerToSimplify || request.practiceTask) return request
     let plan = request.advancedMathPlan
     if (!plan || plan.prompt !== request.prompt) {
       const resolution = await resolve({ ...request, advancedMathEnabled: true }, signal)
       if (resolution.mode === 'clarify') return resolution
       plan = resolution.advancedMathPlan!
-      request = { ...request, advancedMathPlan: plan, conversationContextMode: resolution.mode,
+      request = { ...request, advancedMathPlan: plan, conversationContextMode: resolution.mode, reasoning: resolution.reasoning,
         referenceExchange: resolution.mode === 'contextual' ? request.referenceExchange ?? lastChatExchange(request.messages) : undefined }
     }
     if (plan.route === 'chat') return { ...request, advancedMathPlan: plan }

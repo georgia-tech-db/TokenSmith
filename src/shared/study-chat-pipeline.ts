@@ -1,10 +1,12 @@
 import type { ChatMessage, ChatSource } from './app-state'
 import { questionWithSelection } from './chat-selection'
+import { reasoningMode } from './reasoning'
 import type {
   AdvancedMathPlan, ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
 } from './engine'
 
 export function answerForDisplay(message: ChatMessage) {
+  if (message.explanationView === 'reasoning' && message.reasoningAnswer) return message.reasoningAnswer
   return message.explanationView === 'simple' && message.simplerExplanation
     ? message.simplerExplanation
     : message
@@ -42,12 +44,13 @@ export async function prepareRewrittenStudyChat(
   searchMs: number
 }> {
   const previous = lastChatExchange(request.messages)
-  const needsRewrite = Boolean(previous || request.selectedPassage)
+  const needsRewrite = Boolean(previous || request.selectedPassage ||
+    (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
   const rewriteStart = performance.now()
   const advancedMathEnabled = request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled ?? false
   const resolution: QuestionRewrite = needsRewrite || advancedMathEnabled
     ? await dependencies.resolve({ ...request, advancedMathEnabled, resolveContext: needsRewrite })
-    : { mode: 'standalone', query: request.prompt, clarification: '' }
+    : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
   const rewriteMs = needsRewrite || advancedMathEnabled ? performance.now() - rewriteStart : 0
   if (resolution.mode === 'clarify') {
     return { resolution, rewriteMs, searchMs: 0 }
@@ -72,6 +75,7 @@ export async function prepareRewrittenStudyChat(
       answerPrompt: request.prompt,
       retrievalQuery: query,
       conversationContextMode: mode,
+      reasoning: resolution.reasoning,
       referenceExchange: mode === 'contextual' && !request.selectedPassage ? previous : undefined,
       retrievedSources
     }

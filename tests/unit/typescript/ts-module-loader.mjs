@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
+// Node runs test files in parallel processes, so each process needs its own generated modules.
 const runtimeDir = join(process.cwd(), '.coverage-ts-runtime', String(process.pid))
 
 export function requireTranspiledTs(sourcePath) {

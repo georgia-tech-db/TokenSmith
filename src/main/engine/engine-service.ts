@@ -29,10 +29,10 @@ async function withStarterSources(
   }
 
   signal?.throwIfAborted()
-  const starterSources = await starterSourcesWithPython(request.materials, 4)
+  const starterSources = await starterSourcesWithPython(request.materials, 4, request.documents)
   signal?.throwIfAborted()
   if (starterSources.length === 0) {
-    throw new Error('No indexed PDF text was available for starter questions.')
+    throw new Error('No indexed text was available in the selected documents for starter questions.')
   }
 
   return { ...request, retrievedSources: starterSources }
@@ -55,7 +55,7 @@ export async function sendChatMessage(request: EngineChatRequest, options: Engin
   }
   request = planned
   const mathUsed = request.advancedMathPlan?.route === 'math' &&
-    (request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) === true && !request.answerToSimplify
+    (request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) === true && !request.answerToSimplify && !request.practiceTask
   const annotate = (response: EngineChatResponse): EngineChatResponse => mathUsed ? { ...response, advancedMathUsed: true } : response
   writeTokenSmithLog('chat_request_context', chatRequestLogDetails(request))
 

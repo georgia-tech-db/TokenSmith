@@ -17,13 +17,13 @@ Local models run through Ollama. You can also connect a cloud model with an API 
 
 ## Download
 
-[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.14](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.14)
+[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.15](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.15)
 
-| Platform | Download v0.1.14 |
+| Platform | Download v0.1.15 |
 | --- | --- |
-| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.14/TokenSmith-0.1.14-mac-arm64.dmg) |
-| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.14/TokenSmith-0.1.14-win-x64.zip) |
-| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.14/TokenSmith-0.1.14-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.14/tokensmith_0.1.14_amd64.deb) |
+| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-mac-arm64.dmg) |
+| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-win-x64.zip) |
+| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/tokensmith_0.1.15_amd64.deb) |
 
 ## Demo
 
@@ -34,7 +34,9 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 1. Install and start [Ollama](https://ollama.com/download), then use TokenSmith's setup guide to download a local embedding model for searching your documents.
 2. Choose a local chat model, or select **Connect a cloud chat model** and use your own API key.
 3. Add your course materials in **Library**. PDF, Markdown, and text files are supported.
-4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or choose **Quiz me** to practice.
+4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or switch to **Practice** and choose the documents you want to review.
+
+GPU acceleration for document indexing and search is on by default. Ollama uses a compatible GPU when available and otherwise runs on the CPU. Turn off **GPU Acceleration for Document Search** in Settings to use only the CPU for these tasks. This setting does not change chat models.
 
 ## Project Health
 

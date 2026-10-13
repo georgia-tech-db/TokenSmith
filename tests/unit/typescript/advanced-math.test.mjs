@@ -14,7 +14,7 @@ const request = { prompt:'Compute 9 times 4, then subtract 2.',messages:[],mater
   modelSettings:defaults,settings:{maxSources:4,modelSettingsById:{},application:{advancedMathEnabled:true}},
   applicationSettings:{advancedMathEnabled:true,suggestionMode:'off',followUpSuggestionCount:0},advancedMathEnabled:true }
 const installed = {running:true,baseUrl:'http://127.0.0.1:11434',models:[{name:advancedMathModelName,details:{contextLength:8192}}]}
-const standalone = {mode:'standalone',query:request.prompt,clarification:''}
+const standalone = {mode:'standalone',query:request.prompt,clarification:'',reasoning:false}
 function service(overrides={}) {
   let resolves=0, inventories=0
   const router=createAdvancedMathService({resolve:async input=>{resolves++;return {...standalone,query:input.prompt,answerRoute:'chat',routeReason:'Conceptual question.'}},
@@ -107,6 +107,29 @@ test('clear math uses a dedicated local profile, preserving source/context field
   assert.deepEqual(s.counts(),{resolves:0,inventories:1})
 })
 
+test('practice tasks bypass Advanced Math while ordinary auto-reasoning retains its shared rewrite decision',async()=>{
+  let decisions=0
+  const s=service({resolve:async input=>{
+    decisions++
+    assert.equal(input.classifyAdvancedMath,false)
+    return {...standalone,query:input.prompt,reasoning:true}
+  }})
+  const practice={...request,practiceTask:'feedback'}
+  assert.equal(await s.router.prepare(practice),practice)
+  assert.equal(decisions,0)
+  assert.equal(s.counts().inventories,0)
+  const ordinary=await s.router.prepare({...request,prompt:'What is normalization?',modelSettings:{...defaults,reasoningMode:'auto'}})
+  assert.equal(ordinary.model,defaultModel)
+  assert.equal(ordinary.advancedMathPlan.route,'chat')
+  assert.equal(ordinary.reasoning,true)
+  assert.equal(decisions,1)
+  const math=await s.router.prepare({...request,modelSettings:{...defaults,reasoningMode:'auto'}})
+  assert.equal(math.advancedMathPlan.route,'math')
+  assert.equal(math.modelSettings.reasoningMode,'off')
+  assert.equal(math.modelSettings.contextLengthMode,'manual')
+  assert.equal(decisions,1)
+})
+
 test('local references to supplied numeric data do not trigger a standalone context rewrite',async()=>{
   const s=service()
   const prepared=await s.router.prepare({...request,prompt:'For these values 2, 8 and 14, calculate the average.',
@@ -177,7 +200,7 @@ test('RAG selects the math retrieval budget before searching, preserving the ori
 })
 
 test('combined routing schema is opt-in and does not alter ordinary rewrite validation',()=>{
-  const classified={mode:'standalone',query:'Paraphrase',clarification:'',answer_route:'math',route_reason:'Multiple derived results.'}
+  const classified={mode:'standalone',query:'Paraphrase',clarification:'',reasoning:false,answer_route:'math',route_reason:'Multiple derived results.'}
   const result=parseQuestionRewrite(JSON.stringify(classified),'Original?',false,true)
   assert.equal(result.query,'Original?')
   assert.equal(result.answerRoute,'math')
@@ -233,20 +256,23 @@ test('end-to-end cloud default dispatches math to local Qwen for two calls, with
   } finally {globalThis.fetch=originalFetch}
 })
 
-test('end-to-end ordinary questions keep the default model and one answer call when Advanced Math is on or off',async()=>{
+test('end-to-end ordinary questions keep the default model and their normal context preflight when Advanced Math is on or off',async()=>{
   const originalFetch=globalThis.fetch
   try {
     for(const enabled of [true,false]){
-      let calls=0
-      globalThis.fetch=async(_url,options)=>{
-        calls++
+      let calls=0, probes=0
+      globalThis.fetch=async(url,options)=>{
+        if(url.endsWith('/show'))return {ok:true,json:async()=>({model_info:{'test.context_length':8192},capabilities:[]})}
         const body=JSON.parse(options.body)
+        if(body.options.num_predict===1){probes++;return {ok:true,json:async()=>({prompt_eval_count:100,message:{content:'token'}})}}
+        calls++
         assert.equal(body.model,'default')
         assert.equal(body.format,undefined)
         return {ok:true,json:async()=>({message:{content:'Normalization organizes related data.'}})}
       }
       const result=await engine.sendChatMessage({...request,prompt:'What is normalization?',advancedMathEnabled:enabled,retrievedSources:[]})
       assert.equal(calls,1)
+      assert.equal(probes,1)
       assert.equal(result.modelName,defaultModel.name)
       assert.equal(result.advancedMathUsed,undefined)
     }
@@ -263,7 +289,7 @@ test('an ambiguous standalone request adds only one default-model classification
       models.push(body.model)
       if(body.model==='default'){
         assert.ok(body.format.required.includes('answer_route'))
-        return {ok:true,json:async()=>({message:{content:JSON.stringify({mode:'standalone',query:prompt,clarification:'',answer_route:'math',route_reason:'Derive the two costs before comparing them.'})}})}
+        return {ok:true,json:async()=>({message:{content:JSON.stringify({mode:'standalone',query:prompt,clarification:'',reasoning:false,answer_route:'math',route_reason:'Derive the two costs before comparing them.'})}})}
       }
       assert.equal(body.format,undefined)
       return {ok:true,json:async()=>({message:{content:models.length===2
@@ -287,7 +313,7 @@ test('contextual RAG rewriting shares classification and does not repeat it at a
       models.push(body.model)
       if(body.model==='default'){
         assert.equal(JSON.parse(body.messages[1].content).previous_exchange.answer,'The two observations are 9 and 4.')
-        return {ok:true,json:async()=>({message:{content:JSON.stringify({mode:'contextual',query:'Average of the two observations in the measurement table.',clarification:'',answer_route:'math',route_reason:'Compute a mean from the resolved population.'})}})}
+        return {ok:true,json:async()=>({message:{content:JSON.stringify({mode:'contextual',query:'Average of the two observations in the measurement table.',clarification:'',reasoning:false,answer_route:'math',route_reason:'Compute a mean from the resolved population.'})}})}
       }
       assert.match(body.messages.map(m=>m.content).join('\n'),/Measurement table values: 9 and 4/)
       return {ok:true,json:async()=>({message:{content:models.length===2

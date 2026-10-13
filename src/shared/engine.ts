@@ -1,4 +1,5 @@
 import type {
+  AnswerReasoning,
   ApplicationSettings,
   ChatMessage,
   ChatSelectedPassage,
@@ -39,8 +40,8 @@ export interface AdvancedMathPlan {
 }
 
 export type QuestionRewrite = (
-  | { mode: ConversationContextMode; query: string; clarification: '' }
-  | { mode: 'clarify'; query: ''; clarification: string }
+  | { mode: ConversationContextMode; query: string; clarification: ''; reasoning: boolean }
+  | { mode: 'clarify'; query: ''; clarification: string; reasoning: false }
 ) & { answerRoute?: 'chat' | 'math'; routeReason?: string; advancedMathPlan?: AdvancedMathPlan }
 
 export interface EngineInfo {
@@ -51,6 +52,7 @@ export interface EngineInfo {
 }
 
 export interface EngineChatRequest {
+  practiceTask?: import('./quiz').PracticeTask
   requestId?: string
   prompt: string
   selectedPassage?: ChatSelectedPassage
@@ -60,6 +62,7 @@ export interface EngineChatRequest {
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
+  reasoning?: boolean
   referenceExchange?: ChatReferenceExchange
   answerToSimplify?: string
   messages: ChatMessage[]
@@ -83,11 +86,13 @@ export interface EngineChatResponse {
   advancedMathUsed?: boolean
   text: string
   sources: ChatSource[]
+  reasoning?: AnswerReasoning
   followUpSuggestions?: string[]
   followUpError?: string
 }
 
 export interface EngineQuestionSuggestionRequest {
+  documents?: import('./study-scope').StudyDocumentRef[]
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel

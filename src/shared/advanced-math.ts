@@ -46,5 +46,5 @@ export const advancedMathRoutingInstruction = [
   'Use chat for factual lookup, listing or counting source facts, a single arithmetic operation, or explaining a mathematical concept/formula without calculating a result.',
   'Use math for multi-step computation, derived aggregates, percentages, formulas applied to data, or repeated calculations. Numbers or mathematical words alone do not establish a computation request.',
   'Resolve referents using the supplied conversation or selected passage. If the student task remains genuinely ambiguous, use mode clarify and ask a short question about the task, not which model to use. Do not manufacture problem data.',
-  'Return only JSON containing mode, query, clarification, answer_route, and route_reason.'
+  'Preserve the separate reasoning classification. Return only JSON containing mode, query, clarification, reasoning, answer_route, and route_reason.'
 ].join('\n')
