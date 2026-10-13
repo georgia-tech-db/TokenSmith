@@ -57,6 +57,7 @@ export interface PracticeState {
   sessions: PracticeSession[]
   activeSessionId?: string
   draftScope?: StudyDocumentRef[]
+  draftModelId?: string
 }
 
 export interface PracticeReference {
@@ -116,6 +117,6 @@ export function normalizePracticeState(value?: PracticeState): PracticeState {
   if (!value || !Array.isArray(value.sessions)) return emptyPracticeState()
   const sessions = value.sessions.filter(session => session && typeof session.id === 'string' &&
     Array.isArray(session.documents) && Array.isArray(session.questions) && session.modelSettings)
-  return { mode: value.mode === 'practice' ? 'practice' : 'chat', sessions, ...(value.draftScope ? { draftScope: value.draftScope } : {}),
+  return { mode: value.mode === 'practice' ? 'practice' : 'chat', sessions, draftModelId: value.draftModelId, ...(value.draftScope ? { draftScope: value.draftScope } : {}),
     activeSessionId: sessions.some(session => session.id === value.activeSessionId) ? value.activeSessionId : undefined }
 }
