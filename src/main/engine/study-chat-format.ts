@@ -4,6 +4,8 @@ import { practiceSystemPrompt } from '../../shared/quiz'
 import { practiceSourceKey } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { questionWithSelection, selectedPassageReference } from '../../shared/chat-selection'
+import { answerTokenAllowance, effectiveContextLength } from '../../shared/model-context'
+export { effectiveContextLength } from '../../shared/model-context'
 import {
   defaultFollowUpSuggestionCount,
   normalizeStarterQuestionPrompt,
@@ -15,13 +17,6 @@ import {
 export type StudyChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 const estimatedCharsPerToken = 4
-const defaultModelContextTokens = 2048
-const defaultAutoContextCapTokens = 8192
-const minModelContextTokens = 512
-const maxModelContextTokens = 32768
-const defaultAnswerReserveTokens = 768
-const minAnswerReserveTokens = 256
-const maxAnswerReserveTokens = 8192
 const minSourceTextTokens = 80
 const sourceContextInstructions = [
   'You are a tutor helping an undergraduate understand the current question. Open with a direct answer or the condition needed to make a judgment. Do not narrate your evidence handling: avoid phrases such as "the context does not say", "the provided material shows", or "based on the context". Discuss the subject itself.',
@@ -120,20 +115,6 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.max(min, Math.min(max, Math.round(numericValue)))
 }
 
-function configuredContextLength(settings?: Partial<ModelRuntimeSettings>): number {
-  return clampNumber(settings?.contextLength, defaultModelContextTokens, minModelContextTokens, maxModelContextTokens)
-}
-
-export function effectiveContextLength(model?: LocalModel, settings?: Partial<ModelRuntimeSettings>): number {
-  const configured = configuredContextLength(settings)
-  const discovered = clampNumber(model?.contextLength, 0, 0, maxModelContextTokens)
-  if (discovered > 0) {
-    return Math.min(discovered, Math.max(configured, defaultAutoContextCapTokens))
-  }
-
-  return configured
-}
-
 export function modelAwareRuntimeSettings(
   request: Pick<EngineChatRequest | EngineQuestionSuggestionRequest, 'model' | 'modelSettings'>
 ): ModelRuntimeSettings | undefined {
@@ -143,12 +124,9 @@ export function modelAwareRuntimeSettings(
 
   return {
     ...request.modelSettings,
-    contextLength: effectiveContextLength(request.model, request.modelSettings)
+    contextLength: effectiveContextLength(request.model, request.modelSettings),
+    maxLength: answerTokenAllowance(request.model, request.modelSettings)
   }
-}
-
-function answerReserveTokens(settings?: Partial<ModelRuntimeSettings>): number {
-  return clampNumber(settings?.maxLength, defaultAnswerReserveTokens, minAnswerReserveTokens, maxAnswerReserveTokens)
 }
 
 function safetyMarginTokens(modelContextTokens: number): number {
@@ -288,7 +266,7 @@ function sourcePrefix(source: ChatSource): string {
 
 function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
   const modelContextTokens = effectiveContextLength(options?.model, options?.modelSettings)
-  const answerReserve = answerReserveTokens(options?.modelSettings)
+  const answerReserve = answerTokenAllowance(options?.model, options?.modelSettings)
   const safetyMargin = safetyMarginTokens(modelContextTokens)
   const fixedPromptText = [
     options?.modelSettings?.systemMessage,
@@ -305,7 +283,8 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
     answerReserveTokens: answerReserve,
     safetyMarginTokens: safetyMargin,
     fixedPromptTokens,
-    sourceBudgetTokens: Math.max(0, modelContextTokens - answerReserve - safetyMargin - fixedPromptTokens),
+    sourceBudgetTokens: Math.max(0, Math.min(modelContextTokens - answerReserve,
+      options?.model?.inputTokenLimit ?? Infinity) - safetyMargin - fixedPromptTokens),
     usedSourceTokens: 0,
     estimatedPromptTokens: fixedPromptTokens,
     includedSourceCount: 0,

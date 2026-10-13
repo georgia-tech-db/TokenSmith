@@ -25,7 +25,8 @@ export function timingKeys(context: TimingContext) {
   const { model, settings, kind } = context
   let endpoint = model.ollamaBaseUrl || model.baseUrl || 'local'
   try { const url = new URL(endpoint); endpoint = url.origin + url.pathname } catch { endpoint = 'local' }
-  const family = fingerprint(JSON.stringify([model.engine, endpoint, model.ollamaModelName || model.remoteModelName || model.id, model.quant, kind, settings?.contextLength, settings?.maxLength, settings?.thinking, settings?.reasoningMode]))
+  const family = fingerprint(JSON.stringify([model.engine, endpoint, model.ollamaModelName || model.remoteModelName || model.id, model.quant, kind, settings?.contextLength, settings?.contextLengthMode,
+    model.contextLength, model.inputTokenLimit, settings?.maxLength, settings?.thinking, settings?.reasoningMode]))
   const key = fingerprint(JSON.stringify([family, settings?.contextLength, settings?.maxLength, settings?.thinking, settings?.reasoningMode,
     (context.inputChars ?? 0) < 4000 ? 'short' : (context.inputChars ?? 0) < 16000 ? 'medium' : 'long',
     Boolean(context.contextual), context.count, context.depth]))

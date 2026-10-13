@@ -84,6 +84,8 @@ export interface LocalModel {
   sizeBytes?: number
   ramRequiredGb?: number
   contextLength?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
   parameters?: string
   quant?: string
   type?: string
@@ -117,6 +119,7 @@ export interface ModelRuntimeSettings {
   suggestedFollowUpPrompt: string
   starterQuestionPrompt?: string
   contextLength: number
+  contextLengthMode?: 'auto' | 'manual'
   maxLength: number
   thinking?: boolean
   reasoningMode?: ReasoningMode

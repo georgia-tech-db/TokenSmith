@@ -38,6 +38,7 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
   getAppVersion: () => Promise<string>
   getDeviceCapabilities: () => Promise<DeviceCapabilities>
