@@ -353,7 +353,7 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     prepared.budget
   )
   let generationPayload: OpenAiCompatibleChatResponse | undefined
-  const generationTimer = startLatencySpan('Generation')
+  const generationTimer = startLatencySpan('Answer generation')
   const text = await runRemoteChatCompletion(config, prepared.messages, {
     signal: options.signal,
     onComplete: (payload) => { generationPayload = payload }
@@ -375,7 +375,7 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   let suggestionPayload: OpenAiCompatibleChatResponse | undefined
-  const suggestionTimer = startLatencySpan('Suggestions')
+  const suggestionTimer = startLatencySpan('Follow-up suggestions')
   let suggestionSpan: LatencySpan
   try {
     followUpSuggestions = hasFollowUps

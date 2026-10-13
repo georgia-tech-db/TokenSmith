@@ -35,12 +35,12 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
       assert.match(observed.answer.text, /atomic transaction/)
       assert.deepEqual(observed.answer.sources, sources)
       assert.equal(observed.hasFollowUps, true)
-      assert.deepEqual(observed.answer.latencyTrace.spans.map(({stage})=>stage), ['Prompt preparation','Generation'])
+      assert.deepEqual(observed.answer.latencyTrace.spans.map(({stage})=>stage), ['Context packing','Answer generation'])
       assert.equal(observed.answer.latencyTrace.requestId, 'generation-test')
       assert.equal(observed.answer.latencyTrace.spans[1].details.prompt_tokens, 120)
       if (engine === 'ollama') {
         assert.deepEqual(observed.answer.latencyTrace.spans[1].children.map(({stage})=>stage),
-          ['Prompt preflight','Model load','Prompt evaluation','Token generation'])
+          ['Context check','Model loading','Reading context','Writing answer'])
         assert.equal(observed.answer.latencyTrace.spans[1].children[1].durationMs, 20)
       }
       followUps.resolve({ok:true,json:async()=>payload(JSON.stringify({questions:['What happens during a rollback?','How does durability differ?']}))})
@@ -49,7 +49,7 @@ for (const [engine, run] of [['ollama', runOllamaStudyEngine], ['remote', runRem
       assert.equal(calls, 2)
       assert.equal(probes, engine === 'ollama' ? 1 : 0)
       assert.deepEqual(result.latencyTrace.spans.map(({stage})=>stage),
-        ['Prompt preparation','Generation','Suggestions'])
+        ['Context packing','Answer generation','Follow-up suggestions'])
       assert.equal(result.latencyTrace.spans[2].outCount, 2)
     } finally {globalThis.fetch=saved}
   })

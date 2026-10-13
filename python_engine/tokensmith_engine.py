@@ -1802,7 +1802,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
     if search_mode in ("vector", "hybrid"):
         latency_spans.append(
             {
-                "stage": "Query embedding",
+                "stage": "Query encoding",
                 "startedAt": query_embedding_started_at or time.time() * 1000.0,
                 "durationMs": query_embedding_duration_ms,
                 "outCount": len(active_ids_by_embedding_model) - len(skipped_embedding_models),
@@ -1814,7 +1814,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         latency_spans.append(
             {
-                "stage": "Vector search",
+                "stage": "Semantic search",
                 "startedAt": vector_search_started_at or time.time() * 1000.0,
                 "durationMs": vector_search_duration_ms,
                 "outCount": len(vector_hits_by_rowid),
@@ -1877,7 +1877,7 @@ def search_library(payload: Dict[str, Any]) -> Dict[str, Any]:
         source["keywordTerms"] = list(keyword_terms)
     latency_spans.append(
         retrieval_latency_span(
-            "Fusion and selection",
+            "Passage ranking",
             fusion_started_at,
             fusion_started,
             in_count=len(vector_hits) + len(keyword_hits),

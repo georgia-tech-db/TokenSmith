@@ -557,7 +557,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIn(str(note_path.resolve()), search["sources"][0]["sourceId"])
             self.assertEqual(
                 [span["stage"] for span in search["latencySpans"]],
-                ["Query embedding", "Vector search", "Fusion and selection"],
+                ["Query encoding", "Semantic search", "Passage ranking"],
             )
             self.assertTrue(all(span["durationMs"] >= 0 for span in search["latencySpans"]))
             self.assertEqual(search["latencySpans"][-1]["outCount"], len(search["sources"]))
@@ -704,7 +704,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertIn("hashing", search["sources"][0]["queryTerms"])
             self.assertEqual(
                 [span["stage"] for span in search["latencySpans"]],
-                ["Keyword search", "Fusion and selection"],
+                ["Keyword search", "Passage ranking"],
             )
 
     def test_source_selection_demotes_exercises_for_concept_questions(self):
@@ -770,7 +770,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             self.assertEqual(search["sources"][0]["chunkId"], "ch06.002")
             self.assertEqual(
                 [span["stage"] for span in search["latencySpans"]],
-                ["Query embedding", "Vector search", "Keyword search", "Fusion and selection"],
+                ["Query encoding", "Semantic search", "Keyword search", "Passage ranking"],
             )
             combined_context = "\n".join(source["context"] for source in search["sources"])
             self.assertNotIn("Check Your Understanding", combined_context)

@@ -26,7 +26,7 @@ export function promptPreparationSpan(
   budget: SourceContextBudget
 ): LatencySpan {
   return {
-    stage: 'Prompt preparation',
+    stage: 'Context packing',
     startedAt,
     durationMs: Math.max(0, durationMs),
     inCount: Math.max(0, inputSourceCount),
@@ -55,9 +55,9 @@ export function ollamaCompletionDetails(payload?: OllamaTimingPayload): Record<s
 export function ollamaTimingChildren(payload: OllamaTimingPayload | undefined, startedAt: number): LatencySpan[] {
   if (!payload) return []
   const timings = [
-    ['Model load', nanosecondsToMilliseconds(payload.load_duration)],
-    ['Prompt evaluation', nanosecondsToMilliseconds(payload.prompt_eval_duration)],
-    ['Token generation', nanosecondsToMilliseconds(payload.eval_duration)]
+    ['Model loading', nanosecondsToMilliseconds(payload.load_duration)],
+    ['Reading context', nanosecondsToMilliseconds(payload.prompt_eval_duration)],
+    ['Writing answer', nanosecondsToMilliseconds(payload.eval_duration)]
   ] as const
   return timings.flatMap(([stage, durationMs]) => durationMs === undefined
     ? []

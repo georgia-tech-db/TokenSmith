@@ -57,7 +57,7 @@ test('first turns without Auto skip the rewriter and still retrieve normally', a
   assert.deepEqual(queries, [base.prompt])
   assert.equal(result.rewriteMs, 0)
   assert.equal(result.latencySpans[0].status, 'skipped')
-  assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Rewriting', 'Retrieval'])
+  assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Question understanding', 'Library search'])
   assert.equal(result.request.referenceExchange, undefined)
 })
 
@@ -78,7 +78,7 @@ test('contextual rewrites affect retrieval but never replace the student task', 
   assert.match(prompt, /records A and B/)
   assert.doesNotMatch(prompt, /checkpoint record A example/)
   assert.equal(prompt.split('\n\nQuestion:').at(-1).trim(), base.prompt)
-  assert.equal(result.latencySpans[1].children[0].stage, 'Vector search')
+  assert.equal(result.latencySpans[1].children[0].stage, 'Semantic search')
 })
 
 test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {

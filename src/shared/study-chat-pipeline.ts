@@ -48,7 +48,7 @@ export async function prepareRewrittenStudyChat(
   const previous = lastChatExchange(request.messages)
   const needsRewrite = Boolean(previous || request.selectedPassage ||
     (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
-  const rewriteTimer = startLatencySpan('Rewriting')
+  const rewriteTimer = startLatencySpan('Question understanding')
   const resolution: QuestionRewrite = needsRewrite
     ? await dependencies.resolve(request)
     : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
@@ -70,7 +70,7 @@ export async function prepareRewrittenStudyChat(
   const mode = request.selectedPassage ? 'contextual' : resolution.mode
   const query = mode === 'standalone' ? request.prompt : resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
-  const searchTimer = startLatencySpan('Retrieval')
+  const searchTimer = startLatencySpan('Library search')
   const searchResult = await dependencies.search(query)
   const retrievedSources = searchResult.sources
   const retrievalSpan = searchTimer.finish({

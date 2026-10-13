@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
-import { sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
+import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
 
 interface PythonRequest {
   id: string
@@ -83,9 +83,12 @@ interface ResolveSourceDocumentResult {
 }
 
 const retrievalStageNames = new Set([
+  'Query encoding',
+  'Semantic search',
+  'Keyword search',
+  'Passage ranking',
   'Query embedding',
   'Vector search',
-  'Keyword search',
   'Fusion and selection'
 ])
 
@@ -108,7 +111,7 @@ function pythonLatencySpan(value: unknown): LatencySpan | undefined {
     ? sanitizeLatencyDetails(candidate.details as Record<string, unknown>)
     : undefined
   return {
-    stage: candidate.stage,
+    stage: normalizeLatencyStageName(candidate.stage),
     startedAt: candidate.startedAt,
     durationMs: candidate.durationMs,
     ...(status ? { status } : {}),

@@ -948,7 +948,7 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
     // Ollama has no public tokenizer endpoint. A one-token probe measures the
     // actual rendered prompt, including chat-template and thinking markers.
     // Its generated token is discarded; it is never reused as answer/history.
-    const preflightTimer = startLatencySpan('Prompt preflight')
+    const preflightTimer = startLatencySpan('Context check')
     const measured = await requestOllamaChatCompletion(baseUrl, modelName, prepared.messages, candidate.modelSettings, {
       maxTokens: 1, temperature: 0, thinking: candidate.modelSettings?.thinking === true, signal
     })
@@ -1128,7 +1128,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
   let generationPayload: OllamaChatResponse | undefined
   const generationStartedAt = Date.now()
-  const generationTimer = startLatencySpan('Generation')
+  const generationTimer = startLatencySpan('Answer generation')
   const text = await runOllamaChatCompletion(baseUrl, modelName, messages, runtimeSettings, {
     maxTokens: runtimeSettings?.maxLength ?? sourceContextBudgetForRequest(runtimeRequest).answerReserveTokens,
     thinking: runtimeSettings?.thinking === true,
@@ -1165,7 +1165,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   let suggestionPayload: OllamaChatResponse | undefined
-  const suggestionTimer = startLatencySpan('Suggestions')
+  const suggestionTimer = startLatencySpan('Follow-up suggestions')
   let suggestionSpan: LatencySpan
   try {
     followUpSuggestions = hasFollowUps
