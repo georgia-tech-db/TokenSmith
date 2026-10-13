@@ -3,7 +3,7 @@
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
 | Frontend / Electron (TypeScript / TSX) | 4987/16822 | 29.6% |
-| Backend (Python) | 2180/2414 | 90.3% |
+| Backend (Python) | 2174/2408 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
 TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.
@@ -17,7 +17,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `python_engine/tokensmith_cleaning.py` | 145/159 | 91.2% |
 | `python_engine/tokensmith_engine.py` | 890/988 | 90.1% |
 | `python_engine/tokensmith_preparation_job.py` | 98/112 | 87.5% |
-| `python_engine/tokensmith_preparation.py` | 152/168 | 90.5% |
+| `python_engine/tokensmith_preparation.py` | 146/162 | 90.1% |
 | `python_engine/tokensmith_store.py` | 895/987 | 90.7% |
 | `src/main/engine/cloud-generator-service.ts` | 211/211 | 100.0% |
 | `src/main/engine/embedding-device.ts` | 41/41 | 100.0% |
@@ -105,6 +105,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 14ebe84b46680f92d230fac1383c5bede060cab2
+Measured commit: 2cad61207ce7dcdebc52e1cd12684e27563fc54a
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38363474161)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38363812424)
