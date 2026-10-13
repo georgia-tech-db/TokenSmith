@@ -6,6 +6,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { ChatSource, CourseMaterial, LocalModel } from '../../shared/app-state'
 import { defaultPreparation, type IndexMaterialOptions, type PreparationReport, type PreparationSettings } from '../../shared/preparation'
+import { collectionDocumentSources } from './source-navigation'
 import './library-workspace.css'
 
 interface Props {
@@ -19,8 +20,7 @@ interface Props {
   onRemoveMaterial: (id: string) => void
   onResumeMaterialIndexing: (id: string) => void
   onPauseMaterialIndexing: (id: string) => void
-  onToggleMaterialActive: (id: string) => void
-  onOpenSource: (source: ChatSource) => void
+  onOpenSource: (source: ChatSource, sources: ChatSource[]) => void
 }
 
 const leaf = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'Documents'
@@ -168,11 +168,14 @@ export function LibraryWorkspace(props: Props) {
               <div className="library-chunk-navigation"><span>Passages {document.chunks.length ? chunkPage * 10 + 1 : 0}–{Math.min((chunkPage + 1) * 10, document.chunks.length)} of {document.chunks.length}</span>
                 <button disabled={chunkPage === 0} onClick={() => setChunkPage(v => v - 1)}>Previous</button><button disabled={(chunkPage + 1) * 10 >= document.chunks.length} onClick={() => setChunkPage(v => v + 1)}>Next</button></div>
               {document.chunks.slice(chunkPage * 10, (chunkPage + 1) * 10).map((chunk, i) => <article className="library-source-chunk" key={chunkPage * 10 + i}>
-                <header><strong>{chunk.sectionHeader || `Passage ${chunkPage * 10 + i + 1}`}</strong><button onClick={() => props.onOpenSource({
-                  title: document.title, path: document.path, materialId: selected.id, documentTitle: document.title,
-                  excerpt: chunk.text, locator: chunk.pageStart ? `Page ${chunk.pageStart}` : `Lines ${chunk.lineFrom}–${chunk.lineTo}`,
-                  pageStart: chunk.pageStart, pageEnd: chunk.pageEnd, lineFrom: chunk.lineFrom, lineTo: chunk.lineTo
-                })}>{chunk.pageStart ? `Page ${chunk.pageStart}${chunk.pageEnd !== chunk.pageStart ? `–${chunk.pageEnd}` : ''}` : `Lines ${chunk.lineFrom}–${chunk.lineTo}`} ↗</button></header>
+                <header><strong>{chunk.sectionHeader || `Passage ${chunkPage * 10 + i + 1}`}</strong><button onClick={() => {
+                  const source: ChatSource = {
+                    title: document.title, path: document.path, materialId: selected.id, documentTitle: document.title,
+                    excerpt: chunk.text, locator: chunk.pageStart ? `Page ${chunk.pageStart}` : `Lines ${chunk.lineFrom}–${chunk.lineTo}`,
+                    pageStart: chunk.pageStart, pageEnd: chunk.pageEnd, lineFrom: chunk.lineFrom, lineTo: chunk.lineTo
+                  }
+                  props.onOpenSource(source, collectionDocumentSources(source, report?.documents ?? []))
+                }}>{chunk.pageStart ? `Page ${chunk.pageStart}${chunk.pageEnd !== chunk.pageStart ? `–${chunk.pageEnd}` : ''}` : `Lines ${chunk.lineFrom}–${chunk.lineTo}`} ↗</button></header>
                 <small>{chunk.tokensmithChunkKind}{(chunk.parts || 0) > 1 ? ` · Part ${chunk.part} of ${chunk.parts}` : ''}</small>
                 <div className="library-source-text"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{chunk.text}</ReactMarkdown></div>
                 {chunk.reason && <details><summary>Why this boundary?</summary><p>{chunk.reason}</p></details>}
@@ -192,7 +195,7 @@ export function LibraryWorkspace(props: Props) {
           <div><button onClick={() => inspect(item)}>Details</button>
             {item.status === 'indexing' ? <button onClick={() => props.onPauseMaterialIndexing(item.id)}><Pause size={14} /> Pause</button> : <button onClick={() => props.onResumeMaterialIndexing(item.id)}><RefreshCw size={14} /> {item.status === 'ready' ? 'Update' : 'Resume'}</button>}
             <button aria-label={`Remove ${item.title}`} onClick={() => props.onRemoveMaterial(item.id)}><Trash2 size={14} /></button>
-          </div><label><input type="checkbox" checked={item.isActive !== false} disabled={item.status !== 'ready' && !item.indexedAt} onChange={() => props.onToggleMaterialActive(item.id)} /> Use in chat</label>
+          </div>
         </div>
       </article>)}
     </div>}

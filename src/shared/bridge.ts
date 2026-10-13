@@ -1,4 +1,5 @@
 import type { IndexMaterialOptions, PreparationReport } from './preparation'
+import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from './study-scope'
 import type {
   AppStateSnapshot,
   ChatSource,
@@ -25,6 +26,7 @@ import type {
   TokenSmithLogFile
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { DeviceCapabilities } from './device-capabilities'
 import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult } from './cloud-generators'
 import type {
   OllamaDeleteResult,
@@ -36,17 +38,23 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
   getAppVersion: () => Promise<string>
+  getDeviceCapabilities: () => Promise<DeviceCapabilities>
   getLogFile: () => Promise<TokenSmithLogFile>
   loadAppState: () => Promise<AppStateSnapshot | null>
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>
-  sendChatMessage: (request: EngineChatRequest) => Promise<EngineChatResponse>
+  sendChatMessage: (request: EngineChatRequest, onAnswer?: (answer: EngineChatResponse, hasFollowUps: boolean) => void) => Promise<EngineChatResponse>
+  cancelChatRequest: (requestId: string) => Promise<void>
   resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
-  suggestChatQuestions: (request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
-  starterSources: (materials: CourseMaterial[], limit?: number) => Promise<ChatSource[]>
-  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode) => Promise<ChatSource[]>
+  suggestChatQuestions: (requestId: string, request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>
+  cancelChatQuestionSuggestions: (requestId: string) => Promise<void>
+  starterSources: (materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) => Promise<ChatSource[]>
+  studyDocuments: () => Promise<StudyDocument[]>
+  practiceSources: (documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) => Promise<ChatSource[]>
+  searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) => Promise<ChatSource[]>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
   getMarkdownForSource: (source: ChatSource) => Promise<MarkdownSourceDocument>

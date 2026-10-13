@@ -1,7 +1,16 @@
 import type { ChatMessage, ChatSource } from './app-state'
+import { questionWithSelection } from './chat-selection'
+import { reasoningMode } from './reasoning'
 import type {
   ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
 } from './engine'
+
+export function answerForDisplay(message: ChatMessage) {
+  if (message.explanationView === 'reasoning' && message.reasoningAnswer) return message.reasoningAnswer
+  return message.explanationView === 'simple' && message.simplerExplanation
+    ? message.simplerExplanation
+    : message
+}
 
 export function lastChatExchange(messages: ChatMessage[]): ChatReferenceExchange | undefined {
   // Do not skip an unanswered student turn or replay an older, unrelated answer.
@@ -9,7 +18,7 @@ export function lastChatExchange(messages: ChatMessage[]): ChatReferenceExchange
   if (answer?.role !== 'assistant') return undefined
   const question = messages.at(-2)
   if (question?.role !== 'user' || !question.text.trim() || !answer.text.trim()) return undefined
-  return { question: question.text, answer: answer.text }
+  return { question: questionWithSelection(question.text, question.selectedPassage), answer: answerForDisplay(answer).text }
 }
 
 export function trimReferenceExchange(exchange: ChatReferenceExchange, maxChars: number): ChatReferenceExchange {
@@ -35,21 +44,25 @@ export async function prepareRewrittenStudyChat(
   searchMs: number
 }> {
   const previous = lastChatExchange(request.messages)
+  const needsRewrite = Boolean(previous || request.selectedPassage ||
+    (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
   const rewriteStart = performance.now()
-  const resolution: QuestionRewrite = previous
+  const resolution: QuestionRewrite = needsRewrite
     ? await dependencies.resolve(request)
-    : { mode: 'standalone', query: request.prompt, clarification: '' }
-  const rewriteMs = previous ? performance.now() - rewriteStart : 0
+    : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  const rewriteMs = needsRewrite ? performance.now() - rewriteStart : 0
   if (resolution.mode === 'clarify') {
     return { resolution, rewriteMs, searchMs: 0 }
   }
 
-  const query = resolution.mode === 'standalone' ? request.prompt : resolution.query
+  // A selected passage is explicit context, even if the model labels its query standalone.
+  const mode = request.selectedPassage ? 'contextual' : resolution.mode
+  const query = mode === 'standalone' ? request.prompt : resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
   const searchStart = performance.now()
   const retrievedSources = await dependencies.search(query)
   return {
-    resolution: { ...resolution, query },
+    resolution: { ...resolution, mode, query },
     rewriteMs,
     searchMs: performance.now() - searchStart,
     request: {
@@ -57,8 +70,9 @@ export async function prepareRewrittenStudyChat(
       // A rewrite is a retrieval aid, never the student's replacement task.
       answerPrompt: request.prompt,
       retrievalQuery: query,
-      conversationContextMode: resolution.mode,
-      referenceExchange: resolution.mode === 'contextual' ? previous : undefined,
+      conversationContextMode: mode,
+      reasoning: resolution.reasoning,
+      referenceExchange: mode === 'contextual' && !request.selectedPassage ? previous : undefined,
       retrievedSources
     }
   }

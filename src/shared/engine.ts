@@ -1,6 +1,8 @@
 import type {
+  AnswerReasoning,
   ApplicationSettings,
   ChatMessage,
+  ChatSelectedPassage,
   ChatSource,
   CourseMaterial,
   LocalModel,
@@ -17,15 +19,17 @@ export interface ChatReferenceExchange {
 }
 
 export interface EngineQuestionRewriteRequest {
+  requestId?: string
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   messages: ChatMessage[]
   model: LocalModel
   modelSettings?: ModelRuntimeSettings
 }
 
 export type QuestionRewrite =
-  | { mode: ConversationContextMode; query: string; clarification: '' }
-  | { mode: 'clarify'; query: ''; clarification: string }
+  | { mode: ConversationContextMode; query: string; clarification: ''; reasoning: boolean }
+  | { mode: 'clarify'; query: ''; clarification: string; reasoning: false }
 
 export interface EngineInfo {
   id: 'tokensmith'
@@ -35,11 +39,16 @@ export interface EngineInfo {
 }
 
 export interface EngineChatRequest {
+  practiceTask?: import('./quiz').PracticeTask
+  requestId?: string
   prompt: string
+  selectedPassage?: ChatSelectedPassage
   answerPrompt?: string
   retrievalQuery?: string
   conversationContextMode?: ConversationContextMode
+  reasoning?: boolean
   referenceExchange?: ChatReferenceExchange
+  answerToSimplify?: string
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel
@@ -49,16 +58,24 @@ export interface EngineChatRequest {
   retrievedSources?: ChatSource[]
 }
 
+// Runtime callbacks stay in the main process; only answer payloads cross IPC.
+export interface EngineRunOptions {
+  signal?: AbortSignal
+  onAnswer?: (answer: EngineChatResponse, hasFollowUps: boolean) => void
+}
+
 export interface EngineChatResponse {
   engineId: EngineInfo['id']
   modelName: string
   text: string
   sources: ChatSource[]
+  reasoning?: AnswerReasoning
   followUpSuggestions?: string[]
   followUpError?: string
 }
 
 export interface EngineQuestionSuggestionRequest {
+  documents?: import('./study-scope').StudyDocumentRef[]
   messages: ChatMessage[]
   materials: CourseMaterial[]
   model: LocalModel

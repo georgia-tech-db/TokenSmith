@@ -1,6 +1,7 @@
 import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
+  EngineRunOptions,
   EngineChatRequest,
   EngineChatResponse,
   EngineQuestionSuggestionRequest,
@@ -10,6 +11,7 @@ import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
+import { withModelContextMetadata } from './model-context-metadata'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
@@ -22,6 +24,7 @@ import {
   suggestionMaxTokens,
   shouldGenerateFollowUps,
   studyChatMessages,
+  prepareStudyChatMessages,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
@@ -45,6 +48,7 @@ interface RemoteCompletionConfig {
   modelName: string
   apiKey: string
   settings?: ModelRuntimeSettings
+  maxOutputTokens?: number
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -184,8 +188,10 @@ export async function listOpenAiCompatibleModels(
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
   messages: StudyChatMessage[],
-  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean } = {}
+  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean; signal?: AbortSignal } = {}
 ): Promise<string> {
+  const requestedTokens = overrides.maxTokens ?? config.settings?.maxLength
+  const maxTokens = config.maxOutputTokens ? Math.min(requestedTokens ?? config.maxOutputTokens, config.maxOutputTokens) : requestedTokens
   const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
     headers: {
@@ -193,12 +199,14 @@ async function runRemoteChatCompletion(
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
-    signal: AbortSignal.timeout(180_000),
+    signal: overrides.signal
+      ? AbortSignal.any([overrides.signal, AbortSignal.timeout(180_000)])
+      : AbortSignal.timeout(180_000),
     body: JSON.stringify({
       model: config.modelName,
       messages,
       ...remoteChatParameters(config.endpoint, config.modelName,
-        overrides.maxTokens ?? config.settings?.maxLength,
+        maxTokens,
         overrides.temperature ?? config.settings?.temperature, config.settings?.topP)
     })
   })
@@ -222,18 +230,20 @@ async function runRemoteChatCompletion(
   return text.trim()
 }
 
-export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest): Promise<QuestionRewrite> {
+export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
-  if (!lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '' }
+  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
+  assertRemoteModel(request.model)
   const started = performance.now()
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const messages = questionRewriteMessages({ ...request, modelSettings: settings })
   const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
   const text = await runRemoteChatCompletion({
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
-    modelName, apiKey: request.model.apiKey, settings
-  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true })
-  const resolution = parseQuestionRewrite(text, request.prompt)
+    modelName, apiKey: request.model.apiKey, settings, maxOutputTokens: request.model.maxOutputTokens
+  }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
+  const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
   writeTokenSmithLog('chat_question_rewrite', {
     modelName, prompt: request.prompt, modelMessages: messages,
     rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
@@ -245,7 +255,8 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
 async function generateRemoteFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
-  config: RemoteCompletionConfig
+  config: RemoteCompletionConfig,
+  signal?: AbortSignal
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
     return []
@@ -261,7 +272,7 @@ async function generateRemoteFollowUpSuggestions(
   const text = await runRemoteChatCompletion(
     config,
     followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true }
+    { maxTokens, temperature, requireComplete: true, signal }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -279,7 +290,8 @@ async function generateRemoteFollowUpSuggestions(
   return suggestions
 }
 
-export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<EngineChatResponse> {
+export async function runRemoteStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
   assertRemoteModel(request.model)
 
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
@@ -290,15 +302,26 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
     endpoint,
     modelName,
     apiKey: request.model.apiKey,
-    settings
+    settings,
+    maxOutputTokens: request.model.maxOutputTokens
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest))
+  if (request.practiceTask) {
+    const prepared = prepareStudyChatMessages(runtimeRequest)
+    const text = await runRemoteChatCompletion(config, prepared.messages, {
+      temperature: request.practiceTask === 'feedback' ? 0 : 0.3, requireComplete: true, signal: options.signal
+    })
+    return { engineId: 'tokensmith', modelName: request.model.name, text, sources: prepared.sources }
+  }
+  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest), { signal: options.signal })
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
+  options.signal?.throwIfAborted()
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config)
+    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config, options.signal)
   } catch (error) {
+    options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
   }
 
@@ -313,7 +336,8 @@ export async function runRemoteStudyEngine(request: EngineChatRequest): Promise<
 }
 
 export async function generateRemoteStudyQuestionSuggestions(
-  request: EngineQuestionSuggestionRequest
+  request: EngineQuestionSuggestionRequest,
+  signal?: AbortSignal
 ): Promise<EngineQuestionSuggestionResponse> {
   assertRemoteModel(request.model)
 
@@ -322,18 +346,23 @@ export async function generateRemoteStudyQuestionSuggestions(
     return { suggestions: [] }
   }
 
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
+  assertRemoteModel(request.model)
   const config = {
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
     apiKey: request.model.apiKey,
-    settings
+    settings,
+    maxOutputTokens: request.model.maxOutputTokens
   }
   const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
 
-  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), { maxTokens, temperature, requireComplete: true })
+  const text = await runRemoteChatCompletion(config, questionSuggestionMessages(runtimeRequest), {
+    maxTokens, temperature, requireComplete: true, signal
+  })
   const referenceQuestions = runtimeRequest.messages
     .filter((message) => message.role === 'user')
     .map((message) => message.text)

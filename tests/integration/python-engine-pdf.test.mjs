@@ -15,10 +15,7 @@ if (!existsSync(bundledPythonPath)) {
   throw new Error('TokenSmith app_runtime/python was not found. Run npm run setup:python-runtime first.')
 }
 const pythonPath = bundledPythonPath
-const embeddingPath = process.env.TOKENSMITH_TEST_EMBEDDING_MODEL_PATH
-const chatModelPath = process.env.TOKENSMITH_TEST_CHAT_MODEL_PATH
-const requireGgufIntegration = process.argv.includes('--require-gguf')
-const configuredTimeoutMs = Number(process.env.TOKENSMITH_TEST_WORKER_TIMEOUT_MS ?? (requireGgufIntegration ? 900_000 : 180_000))
+const configuredTimeoutMs = Number(process.env.TOKENSMITH_TEST_WORKER_TIMEOUT_MS ?? 180_000)
 const workerTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0 ? configuredTimeoutMs : 180_000
 
 function appPythonEnv() {
@@ -166,7 +163,6 @@ class PythonWorker {
 
 const tempDir = await mkdtemp(join(tmpdir(), 'tokensmith-pdf-integration-'))
 const pdfPath = join(tempDir, 'database-systems-toy.pdf')
-const userDataPath = join(tempDir, 'user-data')
 const pdfText = [
   'Database Systems Study Note.',
   'A primary key uniquely identifies each row in a relational table.',
@@ -195,82 +191,9 @@ try {
   assert.match(preview.rawPages.map((page) => page.text).join('\n'), /Third normal form/i)
   assert.match(preview.cleanedPages.map((page) => page.text).join('\n'), /transitive dependencies/i)
 
-  if (!embeddingPath || !existsSync(embeddingPath)) {
-    if (requireGgufIntegration) {
-      throw new Error('TOKENSMITH_TEST_EMBEDDING_MODEL_PATH must point to a GGUF embedder for GGUF integration tests.')
-    }
-    console.log('Python PDF preview integration test passed. Skipping GGUF indexing; set TOKENSMITH_TEST_EMBEDDING_MODEL_PATH to run it.')
-    process.exitCode = 0
-    return
-  }
-
-  const embedder = {
-    id: 'test-embedder',
-    name: 'Test Embedder',
-    role: 'embedder',
-    engine: 'python',
-    status: 'ready',
-    path: embeddingPath,
-    embeddingPath
-  }
-
-  const indexResult = await worker.request('index_material', {
-    path: pdfPath,
-    userDataPath,
-    model: embedder
-  })
-  const material = indexResult.material
-
-  assert.equal(material.status, 'ready')
-  assert.equal(material.kind, 'pdf')
-  assert.ok(material.wordCount >= 30, `expected PDF text extraction, got ${material.wordCount} words`)
-  assert.ok(material.chunkCount >= 1, `expected chunks, got ${material.chunkCount}`)
-
-  const question = 'What does third normal form remove?'
-  const searchResult = await worker.request('search', {
-    query: question,
-    materials: [material],
-    limit: 2,
-    userDataPath,
-    embeddingModels: [embedder]
-  })
-
-  assert.ok(searchResult.sources.length >= 1, 'expected at least one retrieved source')
-  assert.match(searchResult.sources[0].excerpt, /transitive dependencies/i)
-
-  if (!chatModelPath || !existsSync(chatModelPath)) {
-    if (requireGgufIntegration) {
-      throw new Error('TOKENSMITH_TEST_CHAT_MODEL_PATH must point to a GGUF chat model for GGUF integration tests.')
-    }
-    console.log('Python PDF GGUF indexing/search integration test passed.')
-    process.exitCode = 0
-    return
-  }
-
-  const chatResult = await worker.request('chat', {
-    prompt: question,
-    messages: [],
-    materials: [material],
-    model: {
-      id: 'test-chat-model',
-      name: 'Test Chat Model',
-      role: 'chat',
-      engine: 'python',
-      status: 'ready',
-      path: chatModelPath
-    },
-    settings: {
-      maxSources: 2
-    },
-    userDataPath,
-    embeddingModels: [embedder]
-  })
-
-  assert.equal(chatResult.engineId, 'tokensmith')
-  assert.ok(chatResult.sources.length >= 1, 'expected chat sources')
-  assert.match(`${chatResult.text}\n${chatResult.sources[0].excerpt}`, /transitive dependencies/i)
-
-  console.log('Python PDF integration test passed.')
+  assert.equal(health.supports.some(value => value.includes('gguf')), false)
+  await assert.rejects(worker.request('chat', {}), /Unknown command/)
+  console.log('Python PDF preview and worker integration test passed.')
 } finally {
   await worker.close()
 }

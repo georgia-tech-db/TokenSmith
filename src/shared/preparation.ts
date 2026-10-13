@@ -1,4 +1,5 @@
 import type { LocalModel } from './app-state'
+import type { EmbeddingOptions } from './embedding-settings'
 
 export interface PreparationSettings {
   mode: 'ai' | 'basic'
@@ -8,14 +9,13 @@ export interface PreparationSettings {
   documentInstructions: Record<string, string>
 }
 
-export interface IndexMaterialOptions {
+export interface IndexMaterialOptions extends EmbeddingOptions {
   resume?: boolean
   title?: string
   cleaningProfileId?: import('./cleaning').CleaningProfileId
   cleaningRuleIds?: import('./cleaning').CleaningRuleId[]
   preparation?: PreparationSettings
   preparationModel?: LocalModel
-  embeddingGpuEnabled?: boolean
 }
 
 export interface PreparedChunk {

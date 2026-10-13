@@ -59,7 +59,7 @@ needs further evaluation before treating automatic results as consistently corre
 Current verification: production build, 128 TypeScript unit tests, and 111 Python unit
 tests pass. Isolated UI checks cover default Basic, explicit AI, saved AI settings,
 new-form reset, no-generator Basic submission, missing-generator AI errors, and narrow
-and desktop layouts. Cloud/GGUF request plumbing is stub-tested, not live-provider
+and desktop layouts. Cloud request plumbing is stub-tested, not live-provider
 certification. GUI trials used separate local profiles and existing Ollama models;
 the normal profile and model downloads were not removed or reset. No cloud uploads
 were used in those trials.

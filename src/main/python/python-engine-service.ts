@@ -1,4 +1,7 @@
 import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
+import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from '../../shared/study-scope'
+import { normalizeEmbeddingGpuEnabled } from '../../shared/embedding-settings'
+import { createEmbeddingDeviceManager } from '../engine/embedding-device'
 import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -16,6 +19,8 @@ interface PythonRequest {
     | 'index_material'
     | 'search'
     | 'starter_sources'
+    | 'study_documents'
+    | 'practice_sources'
     | 'list_materials'
     | 'set_material_enabled'
     | 'remove_material'
@@ -36,7 +41,6 @@ interface PythonResponse<T> {
 interface HealthResult {
   ok: boolean
   engine: 'python'
-  llamaCppAvailable: boolean
   supports: string[]
 }
 
@@ -76,6 +80,7 @@ interface ResolveSourceDocumentResult {
 }
 
 let worker: ChildProcessWithoutNullStreams | null = null
+const prepareEmbeddingDevice = createEmbeddingDeviceManager()
 let workerBuffer = ''
 const pendingRequests = new Map<
   string,
@@ -255,16 +260,7 @@ function resolveEmbeddingModel(model?: LocalModel): LocalModel | undefined {
     return model
   }
 
-  const embeddingPath = model.path ?? model.embeddingPath
-  if (!embeddingPath) {
-    return undefined
-  }
-
-  return {
-    ...model,
-    role: model.role ?? 'embedder',
-    embeddingPath
-  }
+  return undefined
 }
 
 function resolveEmbeddingModels(models?: LocalModel[]): LocalModel[] {
@@ -557,19 +553,13 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
   indexingJobs.set(materialId, stop)
   const run = async (): Promise<T> => {
     if (cancelled) throw new Error('Indexing was cancelled.')
+    if (payload.model) await prepareEmbeddingDevice([payload.model as LocalModel], normalizeEmbeddingGpuEnabled(payload.embeddingGpuEnabled))
+    if (cancelled) throw new Error('Indexing was cancelled.')
     return new Promise<T>((resolve, reject) => {
       const python = getPythonExecutable()
-      const embeddingGpuEnabled = payload.embeddingGpuEnabled === true
       child = spawn(python, [getWorkerPath()], {
         detached: process.platform !== 'win32',
-        env: {
-          ...process.env,
-          ...appPythonEnv(python),
-          TOKENSMITH_LOG_FILE: getLogFilePath(),
-          PYTHONIOENCODING: 'utf-8',
-          // -1 offloads all embedding layers to the GPU; 0 keeps embedding on the CPU.
-          TOKENSMITH_EMBED_N_GPU_LAYERS: embeddingGpuEnabled ? '-1' : '0'
-        },
+        env: { ...process.env, ...appPythonEnv(python), TOKENSMITH_LOG_FILE: getLogFilePath(), PYTHONIOENCODING: 'utf-8' },
         stdio: 'pipe'
       })
       let buffer = ''
@@ -634,7 +624,7 @@ export async function indexMaterialWithPython(
       model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
-      embeddingGpuEnabled: options?.embeddingGpuEnabled === true,
+      embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
       userDataPath: app.getPath('userData')
     },
     180_000,
@@ -701,13 +691,18 @@ export async function searchLibraryWithPython(
   materials: CourseMaterial[],
   limit: number,
   embeddingModels?: LocalModel[],
-  searchMode?: SearchMode
+  searchMode?: SearchMode,
+  options?: LibrarySearchOptions
 ): Promise<ChatSource[]> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
+  const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
+  if (searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
   writeLog('library_search_request', {
     query,
     limit,
+    documents: options?.documents,
     searchMode,
+    embeddingGpuEnabled,
     materials: materials.map((material) => ({
       id: material.id,
       title: material.title,
@@ -729,9 +724,11 @@ export async function searchLibraryWithPython(
     {
       query,
       materials,
+      ...(options?.documents !== undefined ? { documents: options.documents } : {}),
       limit,
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
+      embeddingGpuEnabled,
       userDataPath: app.getPath('userData')
     },
     30_000
@@ -748,11 +745,12 @@ export async function searchLibraryWithPython(
   return result.sources
 }
 
-export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4): Promise<ChatSource[]> {
+export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {
   const result = await requestPython<SearchResult>(
     'starter_sources',
     {
       materials,
+      ...(documents !== undefined ? { documents } : {}),
       limit,
       userDataPath: app.getPath('userData')
     },
@@ -772,6 +770,20 @@ export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]
   )
 
   return result.materials
+}
+
+export async function studyDocumentsWithPython(): Promise<StudyDocument[]> {
+  const result = await requestPython<{ documents: StudyDocument[] }>('study_documents', {
+    userDataPath: app.getPath('userData')
+  }, 30_000)
+  return result.documents
+}
+
+export async function practiceSourcesWithPython(documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number): Promise<ChatSource[]> {
+  const result = await requestPython<SearchResult>('practice_sources', {
+    userDataPath: app.getPath('userData'), documents, usedSourceKeys, questionIndex
+  }, 30_000)
+  return result.sources
 }
 
 export async function setMaterialEnabledWithPython(materialId: string, isActive: boolean): Promise<void> {

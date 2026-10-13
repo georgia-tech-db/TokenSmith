@@ -1,14 +1,18 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { SendHorizontal, X } from 'lucide-react'
+import type { ChatSelectedPassage } from '@shared/app-state'
+import { SelectedPassagePreview } from './SelectedPassagePreview'
 
-export function QuestionEditor({ text, laterQuestions, disabled, onCancel, onSave }: {
+export function QuestionEditor({ text, selectedPassage, laterQuestions, disabled, onCancel, onSave }: {
   text: string
+  selectedPassage?: ChatSelectedPassage
   laterQuestions: number
   disabled: boolean
   onCancel: () => void
-  onSave: (text: string) => void
+  onSave: (text: string, selectedPassage?: ChatSelectedPassage) => void
 }) {
   const [draft, setDraft] = useState(text)
+  const [passage, setPassage] = useState(selectedPassage)
   const [confirmReplacement, setConfirmReplacement] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   useLayoutEffect(() => {
@@ -30,8 +34,13 @@ export function QuestionEditor({ text, laterQuestions, disabled, onCancel, onSav
         setConfirmReplacement(true)
         return
       }
-      onSave(draft)
+      onSave(draft, passage)
     }}>
+      {passage && <SelectedPassagePreview passage={passage} disabled={disabled} onRemove={() => {
+        setPassage(undefined)
+        setConfirmReplacement(false)
+        inputRef.current?.focus()
+      }} />}
       <textarea ref={inputRef} aria-label="Edit question text" value={draft} disabled={disabled}
         onChange={(event) => { setDraft(event.target.value); setConfirmReplacement(false) }}
         onKeyDown={(event) => {

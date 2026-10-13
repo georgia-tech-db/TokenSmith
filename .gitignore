@@ -18,6 +18,3 @@ htmlcov/
 tests/benchmarks/*.npz
 app_runtime/python/
 bundled_models/**/*.gguf
-
-.devcontainer/
-venv/

@@ -105,10 +105,12 @@ export function formatBenchmarkSummary(suites) {
   const details = (item) => {
     const parts = []
     if (item.referenceExchange) {
-      parts.push(`**Prior question (fixture):** ${escapeCell(item.referenceExchange.question)}`,
-        `**Prior answer (fixture):** ${escapeCell(item.referenceExchange.answer)}`)
+      const origin = item.reviewStatus ? 'live conversation' : 'fixture'
+      parts.push(`**Prior question (${origin}):** ${escapeCell(item.referenceExchange.question)}`,
+        `**Prior answer (${origin}):** ${escapeCell(item.referenceExchange.answer)}`)
     }
     if (item.question) parts.push(`**Question:** ${escapeCell(item.question)}`)
+    if (item.answer) parts.push(`**Actual model answer (ungraded):** ${escapeCell(item.answer.text)}`)
     if (item.referenceAnswer) parts.push(`**Reference answer (not generated):** ${escapeCell(item.referenceAnswer)}`)
     if (item.evidence) {
       parts.push(`**${escapeCell(item.evidenceLabel)}:**`)
@@ -126,14 +128,14 @@ export function formatBenchmarkSummary(suites) {
     '## BuzzDB Benchmark', '',
     '**Scope:** app-matched Ollama Nomic embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
     'Reference answers are authored expectations, not model output or automatically graded answers. Evidence excerpts are shortened for display; the JSON report retains full selected context.', '',
-    '| Suite | Passed | Rate |', '| --- | --- | --- |',
+    '| Suite | Passed / Completed | Rate |', '| --- | --- | --- |',
     ...suites.map((suite) => `| ${escapeCell(suite.label)} | ${suite.passed}/${suite.total} | ${suite.total ? (100 * suite.passed / suite.total).toFixed(1) : '0.0'}% |`),
-    '', ...suites.filter((suite) => suite.model).map((suite) =>
+    '', ...suites.filter((suite) => suite.model && suite.name !== 'reasoning_answers').map((suite) =>
       `Embedder: \`${escapeCell(suite.model)}\`, digest \`${escapeCell(suite.modelDigest)}\`, Ollama \`${escapeCell(suite.ollamaVersion)}\`. Fresh query embedding time: ${(suite.measurements?.fresh_query_embedding_seconds ?? 0).toFixed(2)}s.`
     ),
     '', '| Case | Result | Details |', '| --- | --- | --- |',
     ...suites.flatMap((suite) => (suite.cases ?? []).map((item) =>
-      `| ${escapeCell(item.id)} | ${item.passed ? 'PASS' : 'FAIL'} | ${details(item)} |`
+      `| ${escapeCell(item.id)} | ${suite.name === 'reasoning_answers' ? (item.passed ? 'COMPLETED (ungraded)' : 'ERROR / BLOCKED') : item.passed ? 'PASS' : 'FAIL'} | ${details(item)} |`
     )), ''
   ]
   return lines.join('\n')
@@ -152,6 +154,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     suites.push(await runBuzzdbMultiturnBenchmark())
   } catch (error) {
     suites.push(failureSuite('multi_turn', 'multi-turn', error))
+  }
+
+  if (process.argv.includes('--live')) {
+    try {
+      const { runBuzzdbReasoningBenchmark } = await import('./buzzdb_reasoning.mjs')
+      suites.push(await runBuzzdbReasoningBenchmark())
+    } catch (error) {
+      suites.push(failureSuite('reasoning_answers', 'live reasoning execution', error))
+    }
   }
 
   const passed = printSummary(suites)
