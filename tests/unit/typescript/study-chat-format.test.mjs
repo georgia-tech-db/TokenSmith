@@ -53,6 +53,7 @@ const ollamaChatModel = {
   status: 'ready',
   source: 'ollama',
   ollamaModelName: 'llama3',
+  contextLength: 8192,
   addedAt
 }
 
@@ -108,29 +109,31 @@ test('sourceContext prefers full chunk context over the short excerpt', () => {
   assert.doesNotMatch(context, /Short excerpt only/)
 })
 
-test('modelAwareRuntimeSettings uses discovered model context with a bounded automatic cap', () => {
+test('modelAwareRuntimeSettings uses the full discovered limit in Auto mode', () => {
   const runtimeSettings = modelAwareRuntimeSettings({
     model: {
       ...ollamaChatModel,
       contextLength: 16384
     },
     modelSettings: {
+      contextLengthMode: 'auto',
       contextLength: 2048,
       maxLength: 512
     }
   })
 
-  assert.equal(runtimeSettings.contextLength, 8192)
+  assert.equal(runtimeSettings.contextLength, 16384)
   assert.equal(runtimeSettings.maxLength, 512)
 })
 
-test('studyChatMessages budgets and clips source context around matched terms', () => {
+test('remote studyChatMessages budgets and clips source context around matched terms', () => {
   const request = {
     prompt: 'Why is pinning needed?',
     messages: [],
     materials: [],
     model: {
       ...ollamaChatModel,
+      engine: 'remote',
       contextLength: 2048
     },
     settings: {},

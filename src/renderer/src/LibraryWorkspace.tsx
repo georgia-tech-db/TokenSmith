@@ -20,7 +20,6 @@ interface Props {
   onRemoveMaterial: (id: string) => void
   onResumeMaterialIndexing: (id: string) => void
   onPauseMaterialIndexing: (id: string) => void
-  onToggleMaterialActive: (id: string) => void
   onOpenSource: (source: ChatSource, sources: ChatSource[]) => void
 }
 
@@ -196,7 +195,7 @@ export function LibraryWorkspace(props: Props) {
           <div><button onClick={() => inspect(item)}>Details</button>
             {item.status === 'indexing' ? <button onClick={() => props.onPauseMaterialIndexing(item.id)}><Pause size={14} /> Pause</button> : <button onClick={() => props.onResumeMaterialIndexing(item.id)}><RefreshCw size={14} /> {item.status === 'ready' ? 'Update' : 'Resume'}</button>}
             <button aria-label={`Remove ${item.title}`} onClick={() => props.onRemoveMaterial(item.id)}><Trash2 size={14} /></button>
-          </div><label><input type="checkbox" checked={item.isActive !== false} disabled={item.status !== 'ready' && !item.indexedAt} onChange={() => props.onToggleMaterialActive(item.id)} /> Use in chat</label>
+          </div>
         </div>
       </article>)}
     </div>}

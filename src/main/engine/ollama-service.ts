@@ -12,6 +12,10 @@ import type {
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
+import { effectiveContextLength, localContextForTokens, usesAutomaticContext } from '../../shared/model-context'
+import { withModelContextMetadata } from './model-context-metadata'
+import { practiceResponseSchema } from '../../shared/quiz'
 import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
@@ -36,9 +40,7 @@ import {
   suggestionMaxTokens,
   shouldGenerateFollowUps,
   sourceContextBudgetForRequest,
-  studyChatMessages,
   prepareStudyChatMessages,
-  usesGemma4E4BBudget,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
@@ -61,6 +63,8 @@ interface OllamaTagsResponse {
 }
 
 interface OllamaShowResponse {
+  capabilities?: string[]
+  thinking?: { values?: Array<boolean | string> }
   details?: {
     context_length?: number | string
   }
@@ -433,8 +437,10 @@ async function requestWithOllamaRuntimeContext<T extends Pick<EngineChatRequest,
   baseUrl: string,
   modelName: string
 ): Promise<T> {
-  const contextLength = request.model.contextLength ?? (await fetchOllamaModelContextLength(baseUrl, modelName))
-  const model = contextLength ? { ...request.model, contextLength } : request.model
+  const automatic = usesAutomaticContext(request.modelSettings)
+  const discovered = automatic ? await withModelContextMetadata(request.model) : request.model
+  const contextLength = discovered.contextLength ?? (automatic ? undefined : await fetchOllamaModelContextLength(baseUrl, modelName))
+  const model = contextLength ? { ...discovered, contextLength } : discovered
   const modelSettings = modelAwareRuntimeSettings({ ...request, model }) ?? request.modelSettings
 
   if (model === request.model && modelSettings === request.modelSettings) {
@@ -846,6 +852,11 @@ async function requestOllamaChatCompletion(
   settings?: ModelRuntimeSettings,
   overrides: OllamaCompletionOverrides = {}
 ): Promise<OllamaChatResponse> {
+  if (settings && usesAutomaticContext(settings)) {
+    const promptEstimate = Math.ceil(messages.reduce((sum, message) => sum + message.content.length, 0) / 2.5) + 64
+    settings = { ...settings, contextLength: localContextForTokens(promptEstimate + (overrides.maxTokens ?? settings.maxLength) + 512,
+      settings.contextLength) }
+  }
   // Keep cancellation and timeout active until the response body is consumed.
   const timeout = AbortSignal.timeout(overrides.thinking ? 300_000 : 180_000)
   const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
@@ -902,8 +913,16 @@ async function runOllamaChatCompletion(
   return text.trim()
 }
 
-async function verifiedGemmaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
+async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, modelName: string, signal?: AbortSignal) {
   let candidate = request
+  const automatic = usesAutomaticContext(request.modelSettings)
+  const ceiling = effectiveContextLength(request.model, request.modelSettings)
+  if (automatic && request.modelSettings) {
+    const full = prepareStudyChatMessages(request)
+    const needed = full.budget.estimatedPromptTokens + full.budget.answerReserveTokens + full.budget.safetyMarginTokens
+    candidate = { ...request, modelSettings: { ...request.modelSettings, contextLengthMode: 'manual',
+      contextLength: localContextForTokens(needed, ceiling) } }
+  }
   for (;;) {
     signal?.throwIfAborted()
     const prepared = prepareStudyChatMessages(candidate)
@@ -922,20 +941,42 @@ async function verifiedGemmaChat(request: EngineChatRequest, baseUrl: string, mo
       modelName, promptTokens, fits, budget: prepared.budget, sourceCount: prepared.sources.length
     })
     if (fits) return { ...prepared, request: { ...candidate, retrievedSources: prepared.sources } }
-    if (prepared.sources.length <= 1) {
+    if (automatic && candidate.modelSettings && prepared.budget.modelContextTokens < ceiling) {
+      candidate = { ...candidate, modelSettings: { ...candidate.modelSettings,
+        contextLength: localContextForTokens(Math.max(prepared.budget.modelContextTokens + 1,
+          Number(promptTokens) + prepared.budget.answerReserveTokens + prepared.budget.safetyMarginTokens), ceiling) } }
+      continue
+    }
+    if (candidate.practiceTask === 'feedback' || prepared.sources.length <= 1) {
       throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
     }
     candidate = { ...candidate, retrievedSources: prepared.sources.slice(0, -1) }
   }
 }
 
+async function supportsSwitchableThinking(baseUrl: string, modelName: string, signal?: AbortSignal): Promise<boolean> {
+  const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/show`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelName }), signal
+  })
+  if (!response.ok) throw new Error(`Could not check model reasoning support: HTTP ${response.status}.`)
+  const metadata = await response.json() as OllamaShowResponse
+  const supported = metadata.thinking?.values
+    ? metadata.thinking.values.includes(true) && metadata.thinking.values.includes(false)
+    : metadata.capabilities?.includes('thinking') === true
+  writeTokenSmithLog('ollama_reasoning_support', { modelName, supported })
+  return supported
+}
+
 export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertOllamaModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) {
-    return { mode: 'standalone', query: request.prompt, clarification: '' }
-  }
   const started = performance.now()
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
+  const automatic = reasoningMode(request.modelSettings) === 'auto'
+  const canReason = automatic && await supportsSwitchableThinking(baseUrl, request.model.ollamaModelName, signal)
+  if (!request.selectedPassage && !lastChatExchange(request.messages) && !canReason) {
+    return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  }
   const runtime = await requestWithOllamaRuntimeContext(
     request, baseUrl, request.model.ollamaModelName
   )
@@ -944,7 +985,8 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
     maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
   })
   try {
-    const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const parsed = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const resolution: QuestionRewrite = automatic && !canReason ? { ...parsed, reasoning: false } : parsed
     writeTokenSmithLog('chat_question_rewrite', {
       modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
       rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
@@ -1008,14 +1050,42 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
-  let messages: StudyChatMessage[]
-  if (usesGemma4E4BBudget(runtimeRequest.model)) {
-    const verified = await verifiedGemmaChat(runtimeRequest, baseUrl, modelName, options.signal)
-    runtimeRequest = verified.request
-    messages = verified.messages
-  } else {
-    messages = studyChatMessages(runtimeRequest)
+  if (request.practiceTask) {
+    const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
+    const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, runtimeRequest.modelSettings, {
+      format: practiceResponseSchema(request.practiceTask), temperature: request.practiceTask === 'feedback' ? 0 : 0.3,
+      thinking: false, signal: options.signal
+    })
+    return { engineId: 'tokensmith', modelName: request.model.name, text, sources: verified.sources }
   }
+  const mode = reasoningMode(runtimeRequest.modelSettings)
+  let selected = request.reasoning === true
+  if (mode === 'auto' && request.reasoning === undefined) {
+    const resolution = await resolveOllamaChatQuestion(runtimeRequest, options.signal)
+    if (resolution.mode === 'clarify') {
+      return { engineId: 'tokensmith', modelName: request.model.name, text: resolution.clarification, sources: [], followUpSuggestions: [] }
+    }
+    selected = resolution.reasoning
+  }
+  const modelSettings = answerReasoningSettings(runtimeRequest.modelSettings, selected)
+  let reasoningSupported: boolean | undefined
+  try {
+    reasoningSupported = await supportsSwitchableThinking(baseUrl, modelName, options.signal)
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (modelSettings?.thinking) throw error
+    writeTokenSmithLog('ollama_reasoning_support_unavailable', { modelName, error: errorMessage(error, 'Unavailable') })
+  }
+  if (modelSettings?.thinking && !reasoningSupported) {
+    throw new Error('This model does not advertise switchable reasoning. Choose Auto or Off, or select a model that supports it.')
+  }
+  runtimeRequest = { ...runtimeRequest, modelSettings }
+  writeTokenSmithLog('chat_reasoning_selection', {
+    modelName, mode, selected, thinking: modelSettings?.thinking === true, maxLength: modelSettings?.maxLength
+  })
+  const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
+  runtimeRequest = verified.request
+  const messages = verified.messages
   const runtimeSettings = runtimeRequest.modelSettings
   logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
   const text = await runOllamaChatCompletion(baseUrl, modelName, messages, runtimeSettings, {
@@ -1023,8 +1093,9 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     thinking: runtimeSettings?.thinking === true, signal: options.signal
   })
   const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
+  const reasoning = { modelId: request.model.id, supported: reasoningSupported, used: runtimeSettings?.thinking === true }
   options.signal?.throwIfAborted()
-  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
+  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources, reasoning }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
   try {
@@ -1039,6 +1110,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
+    reasoning,
     followUpSuggestions,
     followUpError
   }

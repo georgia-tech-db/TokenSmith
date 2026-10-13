@@ -26,7 +26,7 @@ const applicationSettings = {
 const modelSettings = {
   systemMessage: '',
   suggestedFollowUpPrompt: '',
-  contextLength: 2048,
+  contextLength: 8192,
   maxLength: 4096,
   temperature: 0.7,
   topP: 0.4,
