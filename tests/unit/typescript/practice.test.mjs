@@ -33,7 +33,7 @@ function harness(overrides = {}) {
 test('practice state preserves saved attempts, scopes, and old transcripts across reloads', () => {
   assert.deepEqual(normalizePracticeState(), emptyPracticeState())
   assert.deepEqual(normalizePracticeState({ sessions: null }), emptyPracticeState())
-  const saved = { mode: 'practice', activeSessionId: session.id, sessions: [session] }
+  const saved = { mode: 'practice', activeSessionId: session.id, draftModelId: model.id, sessions: [session] }
   assert.deepEqual(normalizePracticeState(JSON.parse(JSON.stringify(saved))), saved)
   assert.equal(normalizePracticeState({ ...saved, activeSessionId: 'missing' }).activeSessionId, undefined)
 })

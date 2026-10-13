@@ -85,6 +85,8 @@ export interface LocalModel {
   sizeBytes?: number
   ramRequiredGb?: number
   contextLength?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
   parameters?: string
   quant?: string
   type?: string
@@ -118,6 +120,7 @@ export interface ModelRuntimeSettings {
   suggestedFollowUpPrompt: string
   starterQuestionPrompt?: string
   contextLength: number
+  contextLengthMode?: 'auto' | 'manual'
   maxLength: number
   thinking?: boolean
   reasoningMode?: ReasoningMode
@@ -221,6 +224,7 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string
+  modelId: string
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
@@ -245,7 +249,6 @@ export interface AppStateSnapshot {
   studyScope?: StudyDocumentRef[]
   materials: CourseMaterial[]
   models: LocalModel[]
-  selectedModelId: string
   selectedEmbeddingModelId: string
   settings: TokenSmithSettings
   updatedAt: string

@@ -13,10 +13,11 @@ let state = {
     { id: 'nomic', name: 'Nomic', engine: 'ollama', role: 'embedder', status: 'ready', ollamaModelName: 'nomic-embed-text', addedAt: '' },
     { id: 'expired', name: 'Saved Gemini', engine: 'remote', role: 'generator', status: 'needsRuntime', providerId: 'gemini', remoteModelName: 'gemini-2.5-flash', addedAt: '' }
   ],
-  selectedModelId: 'gemma', selectedEmbeddingModelId: 'nomic', materials,
+  selectedModelId: params.has('empty') ? '' : 'gemma', selectedEmbeddingModelId: 'nomic', materials,
   settings: { application: { suggestionMode: 'off' } }
 }
 const connections = []
+window.cloudTest = { state: () => state }
 const canceled = new Set()
 const error = (code, message) => ({ ok: false, error: { code, message } })
 const modelNames = { gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'], openai: ['gpt-4.1-mini', 'gpt-4.1'], groq: ['llama-3.3-70b-versatile'], mistral: ['mistral-small-latest'], custom: ['study-chat', 'study-chat-large'] }

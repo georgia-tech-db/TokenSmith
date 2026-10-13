@@ -30,6 +30,7 @@ import { AnswerExplanation } from './AnswerExplanation'
 import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import { answerModel, isAnswerModel, migrateConversationModels, selectStudyModel, studyModelTarget, type ModelSelectionTarget } from '@shared/chat-model-selection'
 import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
@@ -103,6 +104,8 @@ import {
 import { DeviceRecommendationPanel } from './components/DeviceRecommendationPanel'
 import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
+import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
+  reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
 import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
 import { QueryPlanPanel } from './QueryPlanPanel'
@@ -204,6 +207,7 @@ const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
   starterQuestionPrompt: defaultStarterQuestionPrompt,
   contextLength: 8192,
+  contextLengthMode: 'auto',
   maxLength: 1536,
   reasoningMode: 'auto',
   temperature: 0.7,
@@ -238,6 +242,7 @@ const defaultModels: LocalModel[] = []
 const starterConversations: Conversation[] = [
   {
     id: 'starter-study-chat',
+    modelId: '',
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -252,15 +257,15 @@ const defaultAppState: AppStateSnapshot = {
   conversations: starterConversations,
   materials: defaultMaterials,
   models: defaultModels,
-  selectedModelId: '',
   selectedEmbeddingModelId: '',
   settings: defaultSettings,
   updatedAt: new Date(0).toISOString()
 }
 
-function createFreshConversation(): Conversation {
+function createFreshConversation(modelId: string): Conversation {
   return {
     id: createId('conversation'),
+    modelId,
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -512,10 +517,6 @@ function modelCanEmbed(model: LocalModel) {
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
 }
 
-function firstGeneratorModel(models: LocalModel[]) {
-  return models.find(modelCanGenerate)
-}
-
 function firstEmbeddingModel(models: LocalModel[]) {
   return models.find(modelCanEmbed)
 }
@@ -742,6 +743,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           ollamaBaseUrl: model.ollamaBaseUrl ?? defaultOllamaBaseUrl,
           sizeBytes: model.sizeBytes,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           parameters: model.parameters,
           quant: model.quant,
           type: model.type ?? (role === 'embedder' ? 'Ollama embedder' : 'Ollama chat'),
@@ -768,6 +771,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           cloudCredentialStatus: model.cloudCredentialStatus,
           remoteModelName: model.remoteModelName,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           type: model.type ?? 'OpenAI-compatible',
           description: model.description,
           addedAt: model.addedAt ?? new Date(index).toISOString()
@@ -788,8 +793,7 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
 }
 
 function normalizeOptionalContextLength(value: unknown): number | undefined {
-  const contextLength = Math.round(clampNumber(value, 0, 0, 32768))
-  return contextLength > 0 ? contextLength : undefined
+  return normalizeTokenLimit(value)
 }
 
 function normalizeChoice<T extends string>(value: unknown, choices: readonly T[], defaultValue: T): T {
@@ -813,13 +817,8 @@ function normalizeFollowUpSuggestionCount(value: unknown, suggestionMode: Sugges
   return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
 }
 
-function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, models: LocalModel[] = defaultModels): ApplicationSettings {
-  const generatorModels = models.filter(modelCanGenerate)
-  const firstAvailableModel = firstGeneratorModel(models)
-  const defaultModelId =
-    typeof settings?.defaultModelId === 'string' && generatorModels.some((model) => model.id === settings.defaultModelId)
-      ? settings.defaultModelId
-      : firstAvailableModel?.id ?? ''
+function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): ApplicationSettings {
+  const defaultModelId = typeof settings?.defaultModelId === 'string' ? settings.defaultModelId : ''
   const suggestionMode = normalizeSuggestionMode(settings?.suggestionMode)
 
   return {
@@ -845,11 +844,12 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
     suggestedFollowUpPrompt,
     starterQuestionPrompt,
+    contextLengthMode: migratedContextMode(settings),
     contextLength: Math.round(clampNumber(
       settings?.contextLength,
       defaultModelRuntimeSettings.contextLength,
       512,
-      32768
+      Number.MAX_SAFE_INTEGER
     )),
     maxLength: Math.round(clampNumber(
       settings?.maxLength,
@@ -883,7 +883,7 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
   }
 }
 
-function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, models: LocalModel[]): TokenSmithSettings {
+function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined): TokenSmithSettings {
   const incomingSettings = settings ?? {}
   const modelDefaults = normalizeModelRuntimeSettings(incomingSettings.modelDefaults)
   const modelSettingsById = Object.fromEntries(
@@ -891,14 +891,16 @@ function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, mo
       modelId,
       normalizeModelRuntimeSettings({
         ...modelDefaults,
-        ...modelSettings
+        ...modelSettings,
+        contextLengthMode: modelSettings.contextLengthMode ?? (modelSettings.contextLength !== undefined
+          ? migratedContextMode(modelSettings) : modelDefaults.contextLengthMode)
       })
     ])
   )
 
   return {
     maxSources: Math.round(clampNumber(incomingSettings.maxSources, defaultSettings.maxSources, 1, 10)),
-    application: normalizeApplicationSettings(incomingSettings.application, models),
+    application: normalizeApplicationSettings(incomingSettings.application),
     modelDefaults,
     modelSettingsById
   }
@@ -915,8 +917,8 @@ function isFreshConversation(conversation: Conversation) {
   return conversation.messages.length === 0 && conversation.title === 'New Study Chat'
 }
 
-function startWithFreshConversation(conversations: Conversation[]) {
-  const savedConversations = conversations.length > 0 ? conversations : structuredClone(starterConversations)
+function startWithFreshConversation(conversations: Conversation[], defaultModelId: string) {
+  const savedConversations = conversations.length > 0 ? conversations : [createFreshConversation(defaultModelId)]
   const existingFresh = savedConversations.find(isFreshConversation)
 
   if (existingFresh) {
@@ -929,7 +931,7 @@ function startWithFreshConversation(conversations: Conversation[]) {
     }
   }
 
-  const freshConversation = createFreshConversation()
+  const freshConversation = createFreshConversation(defaultModelId)
 
   return {
     activeConversationId: freshConversation.id,
@@ -942,19 +944,28 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     return createDefaultAppState(appVersion)
   }
 
+  const { selectedModelId: legacyModelId, ...saved } = savedState as AppStateSnapshot & { selectedModelId?: string }
+  const models = normalizeModels(saved.models)
+  const settings = normalizeSettings(saved.settings)
+  if (saved.settings?.application?.defaultModelId === undefined && typeof legacyModelId === 'string') {
+    settings.application.defaultModelId = legacyModelId
+  }
+  const practice = normalizePracticeState(saved.practice)
+  if (practice.mode === 'practice' && practice.draftModelId === undefined) {
+    practice.draftModelId = settings.application.defaultModelId
+  }
   const conversations = Array.isArray(savedState.conversations)
-    ? savedState.conversations.map(({ id, title, period, messages, practiceReference, documentScope }) => ({
-        id, title, period, practiceReference, documentScope,
+    ? savedState.conversations.map(({ id, modelId, title, period, messages, practiceReference, documentScope }) => ({
+        id, modelId, title, period, practiceReference, documentScope,
         messages: messages.filter(message => !('quiz' in message) && !('kind' in message && String(message.kind).startsWith('quiz')))
       }))
     : structuredClone(starterConversations)
-  const freshChatState = startWithFreshConversation(conversations)
+  const freshChatState = startWithFreshConversation(migrateConversationModels(conversations,
+    typeof legacyModelId === 'string' ? legacyModelId : ''), settings.application.defaultModelId)
   const materials = normalizeMaterials(savedState.materials).map((material) =>
     material.status === 'indexing' && material.preparation
       ? { ...material, status: 'paused' as const, detail: 'Preparation paused. Resume to continue from saved progress.' }
       : material)
-  const models = normalizeModels(savedState.models)
-  const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model)))
   const selectedEmbeddingModelId = (savedState as Partial<AppStateSnapshot>).selectedEmbeddingModelId
   const selectedEmbeddingModelExists =
     typeof selectedEmbeddingModelId === 'string' &&
@@ -962,17 +973,16 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
 
   return {
     ...createDefaultAppState(appVersion),
-    ...savedState,
+    ...saved,
     appVersion,
     activeScreen: 'chat',
     activeConversationId: freshChatState.activeConversationId,
     conversations: freshChatState.conversations,
-    practice: normalizePracticeState(savedState.practice),
+    practice,
     materials,
     models,
-    selectedModelId: selectedModelExists ? savedState.selectedModelId : firstGeneratorModel(models)?.id ?? '',
     selectedEmbeddingModelId: selectedEmbeddingModelExists ? selectedEmbeddingModelId : firstEmbeddingModel(models)?.id ?? '',
-    settings: normalizeSettings(savedState.settings, models),
+    settings,
     version: 1
   }
 }
@@ -1275,11 +1285,14 @@ export function App() {
     updateAppState(current => {
       const practice = current.practice ?? emptyPracticeState()
       return { ...current, practice: { ...practice, mode,
+        ...(mode === 'practice' && practice.draftModelId === undefined ? { draftModelId: current.settings.application.defaultModelId } : {}),
         ...(mode === 'practice' && !practice.activeSessionId && current.studyScope !== undefined ? { draftScope: current.studyScope } : {}) } }
     })
   }
   function discussPractice(reference: PracticeReference) {
-    const conversation: Conversation = { id: createId('discussion'), title: 'Practice discussion', period: 'Today', messages: [], practiceReference: reference, documentScope: reference.documents }
+    const session = practiceState.sessions.find(item => item.id === reference.sessionId)
+    if (!session) return
+    const conversation: Conversation = { id: createId('discussion'), modelId: session.modelId, title: 'Practice discussion', period: 'Today', messages: [], practiceReference: reference, documentScope: reference.documents }
     updateAppState(current => ({ ...current, activeScreen: 'chat', activeConversationId: conversation.id,
       conversations: [conversation, ...current.conversations], practice: { ...(current.practice ?? emptyPracticeState()), mode: 'chat' } }))
   }
@@ -1294,6 +1307,21 @@ export function App() {
   ])
   const [, setSaveStatus] = useState<'loading' | 'saved' | 'saving' | 'local' | 'error'>('loading')
   const [hasLoadedState, setHasLoadedState] = useState(false)
+  const metadataModelKey = appState.models.filter(modelCanGenerate).map(contextMetadataIdentity).join('\n')
+  useEffect(() => {
+    if (!hasLoadedState || !window.tokensmith?.getModelContextMetadata) return
+    let cancelled = false
+    for (const model of appState.models.filter(modelCanGenerate)) {
+      if (model.status !== 'ready') continue
+      const identity = contextMetadataIdentity(model)
+      void window.tokensmith.getModelContextMetadata(model).then(metadata => {
+        if (cancelled || Object.keys(metadata).length === 0) return
+        setAppState(current => ({ ...current, models: current.models.map(saved =>
+          contextMetadataIdentity(saved) === identity ? mergeModelContextMetadata(saved, metadata) : saved) }))
+      }).catch(() => undefined)
+    }
+    return () => { cancelled = true }
+  }, [hasLoadedState, metadataModelKey])
   const studyCatalog = useStudyDocuments(appState.materials, hasLoadedState)
   useEffect(() => {
     if (studyCatalog.status !== 'ready') return
@@ -1301,7 +1329,7 @@ export function App() {
   }, [studyCatalog.status, studyCatalog.documents])
   const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
   const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
-  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel } | null>(null)
+  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel; target: ModelSelectionTarget } | null>(null)
   const [cloudNotice, setCloudNotice] = useState('')
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
@@ -1316,12 +1344,14 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [cloudNotice])
 
-  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model }) }
+  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model, target: studyModelTarget(appState) }) }
 
   function connectedCloudGenerator(model: LocalModel) {
+    if (!cloudSetup) return
+    const target = cloudSetup.target
     updateAppState(current => {
       const models = mergeCloudGenerator(current.models, model)
-      return { ...current, models, selectedModelId: models[0].id }
+      return selectStudyModel({ ...current, models }, models[0].id, target)
     })
     setCloudSetup(null)
     setCloudNotice(`Connected · ${model.remoteModelName}`)
@@ -1507,16 +1537,12 @@ export function App() {
       const download = ollamaProgressToModelDownloadProgress(progress)
       updateAppState((current) => {
         if (download.status === 'removed') {
-          const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
           const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
           const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, download))
 
           return {
             ...current,
             models: remainingModels,
-            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, download)
-              ? firstGeneratorModel(remainingModels)?.id ?? ''
-              : current.selectedModelId,
             selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, download)
               ? firstEmbeddingModel(remainingModels)?.id ?? ''
               : current.selectedEmbeddingModelId
@@ -1587,16 +1613,10 @@ export function App() {
       const nextSettings = normalizeSettings({
         ...current.settings,
         ...settings
-      }, current.models)
-      const requestedDefaultModelId = settings.application?.defaultModelId
-      const selectedModelId =
-        requestedDefaultModelId && current.models.some((model) => model.id === requestedDefaultModelId && modelCanGenerate(model))
-          ? requestedDefaultModelId
-          : current.selectedModelId
+      })
 
       return {
         ...current,
-        selectedModelId,
         settings: nextSettings
       }
     })
@@ -1674,7 +1694,7 @@ export function App() {
     const preparation = options.preparation ?? indexingMaterial?.preparation ?? defaultPreparation()
     const preparationModel = preparation.mode === 'ai'
       ? options.preparationModel ?? appState.models.find(model =>
-        model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+        model.id === (preparation.modelId || appState.settings.application.defaultModelId) && model.role !== 'embedder')
       : undefined
     updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === materialId ? {
       ...item, preparation, status: 'indexing', error: undefined,
@@ -1784,7 +1804,7 @@ export function App() {
     upsertModel(model, true)
   }
 
-  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models') {
+  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models', target = studyModelTarget(appState)) {
     updateAppState((current) => {
       const modelFile = normalizeModelFilename(modelFilename(model))
       const isSameModel = (existingModel: LocalModel) => {
@@ -1823,13 +1843,13 @@ export function App() {
         return !isSameModel(existingModel)
       })
 
-      return {
+      const next = {
         ...current,
         activeScreen: nextScreen ?? current.activeScreen,
         models: [model, ...existingModels],
-        selectedModelId: shouldSelect && model.status === 'ready' && modelCanGenerate(model) ? model.id : current.selectedModelId,
         selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
       }
+      return shouldSelect && model.status === 'ready' && isAnswerModel(model) ? selectStudyModel(next, model.id, target) : next
     })
   }
 
@@ -1863,6 +1883,7 @@ export function App() {
   }
 
   function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl) {
+    const target = studyModelTarget(appState)
     const normalizedModelName = modelName.trim()
     if (!normalizedModelName || !window.tokensmith?.pullOllamaModel) {
       return
@@ -1941,7 +1962,7 @@ export function App() {
             id: modelId,
             addedAt: existingModel?.addedAt ?? new Date().toISOString()
           },
-          true
+          true, 'models', target
         )
       })
       .catch((error) => {
@@ -1976,16 +1997,7 @@ export function App() {
   }
 
   function selectModel(modelId: string) {
-    updateAppState((current) => {
-      if (!current.models.some((model) => model.id === modelId && modelCanGenerate(model))) {
-        return current
-      }
-
-      return {
-        ...current,
-        selectedModelId: modelId
-      }
-    })
+    updateAppState(current => selectStudyModel(current, modelId, studyModelTarget(current)))
   }
 
   function selectEmbeddingModel(modelId: string) {
@@ -2002,7 +2014,6 @@ export function App() {
   }
 
   function removeModel(model: LocalModel) {
-    const selectedModelWillBeRemoved = appState.selectedModelId === model.id
     const selectedEmbeddingModelWillBeRemoved = appState.selectedEmbeddingModelId === model.id
     const shouldRestoreOnRemoveFailure = !(model.engine === 'ollama' && model.status !== 'ready')
 
@@ -2011,7 +2022,6 @@ export function App() {
       return {
         ...current,
         models: remainingModels,
-        selectedModelId: selectedModelWillBeRemoved ? firstGeneratorModel(remainingModels)?.id ?? '' : current.selectedModelId,
         selectedEmbeddingModelId: selectedEmbeddingModelWillBeRemoved
           ? firstEmbeddingModel(remainingModels)?.id ?? ''
           : current.selectedEmbeddingModelId
@@ -2021,7 +2031,8 @@ export function App() {
     void window.tokensmith?.removeModel(model).catch(() => {
       setSaveStatus('error')
       if (shouldRestoreOnRemoveFailure) {
-        upsertModel(model, selectedModelWillBeRemoved || selectedEmbeddingModelWillBeRemoved)
+        upsertModel(model, false, null)
+        if (selectedEmbeddingModelWillBeRemoved) updateAppState(current => ({ ...current, selectedEmbeddingModelId: model.id }))
       }
     })
   }
@@ -2165,9 +2176,10 @@ export function App() {
   }
 
   const activeScreen = appState.activeScreen
-  const selectedModel =
-    appState.models.find((model) => model.id === appState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model))) ??
-    firstGeneratorModel(appState.models)
+  const activeConversation = appState.conversations.find(chat => chat.id === appState.activeConversationId)
+  const selectedModel = answerModel(appState.models, activeConversation?.modelId)
+  const practiceModelId = practiceState.activeSessionId
+    ? practiceState.sessions.find(session => session.id === practiceState.activeSessionId)?.modelId : practiceState.draftModelId
   const embeddingModels = appState.models.filter(modelCanEmbed)
   const activeTitle = useMemo(
     () => navItems.find((item) => item.id === activeScreen)?.label ?? 'Chat',
@@ -2247,7 +2259,7 @@ export function App() {
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
           state={practiceState} onChange={updatePractice} onModeChange={setStudyMode}
-          catalog={studyCatalog} inheritScope={appState.studyScope ?? []} models={appState.models} selectedModel={selectedModel} settings={appState.settings}
+          catalog={studyCatalog} inheritScope={appState.studyScope ?? []} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
           onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
@@ -2259,7 +2271,7 @@ export function App() {
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
             models={appState.models}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={appState.settings.application.defaultModelId}
             createRequest={libraryCreateRequest}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
@@ -2281,7 +2293,8 @@ export function App() {
             onSelectEmbeddingModel={selectEmbeddingModel}
             onSelectModel={selectModel}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={(practiceState.mode === 'practice' ? practiceModelId : activeConversation?.modelId) ?? ''}
+            modelSelectionLocked={practiceState.mode === 'practice' && Boolean(practiceState.activeSessionId)}
             onConnectCloud={openCloudSetup}
           />
         )}
@@ -2658,6 +2671,7 @@ function ChatScreen({
 
     const newConversation: Conversation = {
       id: createId('conversation'),
+      modelId: settings.application.defaultModelId,
       title: 'New Study Chat',
       period: 'Today',
       messages: [],
@@ -2768,7 +2782,7 @@ function ChatScreen({
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
-      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }]
+      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(inheritScope) }]
       const nextActiveConversationId =
         current.activeConversationId === conversationId ? nextConversations[0].id : current.activeConversationId
 
@@ -2801,7 +2815,7 @@ function ChatScreen({
       return
     }
 
-    const freshConversation = { ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }
+    const freshConversation = { ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(inheritScope) }
     cancelForeground()
     requestSequenceRef.current += 1
 
@@ -3967,7 +3981,7 @@ function ChatScreen({
       <section className="chat-main" aria-label="Study chat">
         <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(value => !value)}
           materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(value => !value)} count={documentScope.length}>
-          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+          <ChatModelPicker models={models} selectedModel={selectedModel} selectedModelId={activeConversation.modelId} disabled={isPending}
             onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
           {settings.application.explanationDepthEnabled && <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending} onSelect={onExplanationDepthChange} />}
         </StudyHeader>
@@ -4027,6 +4041,9 @@ function ChatScreen({
             </div>}
             {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
               <div className="chat-error-banner"><p>Enter an API key for {selectedModel.providerName || 'your online service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Enter API key</button></div>}
+            {activeConversation.modelId && (!selectedModel || (selectedModel.engine === 'ollama' && selectedModel.status !== 'ready')) &&
+              <div className="chat-error-banner" role="status"><p>This chat's model is unavailable. Choose another model or restore it in Models.</p>
+                <button className="secondary-action" type="button" onClick={onManageModels}>Manage models</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
@@ -5312,6 +5329,7 @@ function ModelsScreen({
   onSelectModel,
   selectedEmbeddingModelId,
   selectedModelId,
+  modelSelectionLocked,
   onConnectCloud
 }: {
   engines: EngineInfo[]
@@ -5324,6 +5342,7 @@ function ModelsScreen({
   onSelectModel: (modelId: string) => void
   selectedEmbeddingModelId: string
   selectedModelId: string
+  modelSelectionLocked: boolean
   onConnectCloud: (model?: LocalModel) => void
 }) {
   type RemoteProviderDraft = {
@@ -5814,7 +5833,7 @@ function ModelsScreen({
             className={`model-action-button ${isSelected ? 'is-selected' : ''}`}
             type="button"
             onClick={() => isEmbedderOnly ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}
-            disabled={isSelected}
+            disabled={isSelected || (!isEmbedderOnly && modelSelectionLocked)}
           >
             <Check size={17} aria-hidden="true" />
             <span>{selectedLabel}</span>
@@ -5857,7 +5876,7 @@ function ModelsScreen({
       return <section className="cloud-generator-entry" key={model.id}>
         <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Online'} · {model.status === 'ready' ? 'Ready' : 'API key required'}</p></div>
         <div className="model-header-actions">
-          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
+          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={modelSelectionLocked || model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use model'}</button>}
           <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'API key settings' : 'Enter API key'}</button>
           <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
         </div>
@@ -6340,17 +6359,12 @@ function SettingsScreen({
   isIndexing: boolean
 }) {
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
-  const generatorModels = useMemo(() => models.filter(modelCanGenerate), [models])
-  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId || generatorModels[0]?.id || '')
-  const selectedModel =
-    generatorModels.find((model) => model.id === selectedModelId) ?? firstGeneratorModel(generatorModels)
+  const generatorModels = useMemo(() => models.filter(isAnswerModel), [models])
+  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId)
+  const selectedModel = answerModel(generatorModels, selectedModelId)
   const activeModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-
-  useEffect(() => {
-    if (!generatorModels.some((model) => model.id === selectedModelId)) {
-      setSelectedModelId(firstGeneratorModel(generatorModels)?.id ?? '')
-    }
-  }, [generatorModels, selectedModelId])
+  const modelOptions = [{ label: 'Choose a model', value: '' }, ...generatorModels.map(model => ({
+    label: `${displayModelName(model)}${model.status === 'ready' ? '' : ' (unavailable)'}`, value: model.id }))]
 
   function updateApplicationSettings(application: Partial<ApplicationSettings>, root: Partial<TokenSmithSettings> = {}) {
     onSettingsChange({
@@ -6382,7 +6396,7 @@ function SettingsScreen({
     updateApplicationSettings(
       {
         ...defaultApplicationSettings,
-        defaultModelId: firstGeneratorModel(generatorModels)?.id ?? ''
+        defaultModelId: settings.application.defaultModelId
       },
       { maxSources: defaultSettings.maxSources }
     )
@@ -6439,17 +6453,14 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="General">
-              <SettingsRow label="Default Model" description="The preferred model for new chats.">
+              <SettingsRow label="Default Model" description="The model for new chats and practice sessions. Existing sessions keep their model.">
                 <SelectField
                   ariaLabel="Default model"
                   value={settings.application.defaultModelId}
                   onChange={(defaultModelId) => updateApplicationSettings({ defaultModelId })}
                   disabled={generatorModels.length === 0}
-                  options={
-                    generatorModels.length > 0
-                      ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                      : [{ label: 'No chat model configured', value: '' }]
-                  }
+                  options={settings.application.defaultModelId && !answerModel(generatorModels, settings.application.defaultModelId)
+                    ? [{ label: 'Selected model unavailable', value: settings.application.defaultModelId }, ...modelOptions] : modelOptions}
                 />
               </SettingsRow>
               <SettingsRow
@@ -6561,11 +6572,7 @@ function SettingsScreen({
                 value={selectedModel?.id ?? ''}
                 onChange={setSelectedModelId}
                 disabled={generatorModels.length === 0}
-                options={
-                  generatorModels.length > 0
-                    ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                    : [{ label: 'No chat model configured', value: '' }]
-                }
+                options={modelOptions}
               />
             </div>
 
@@ -6625,7 +6632,7 @@ function SettingsScreen({
                 <SettingsGroup title="Generation">
                   {selectedModel.engine === 'ollama' && (
                     <div className="settings-row">
-                      <span><strong>Reasoning</strong><small>On supported models. Reasoning reserves at least 4,096 output tokens.</small></span>
+                      <span><strong>Reasoning</strong><small>Auto saves reasoning for calculations and problems that need several steps.</small></span>
                       <fieldset className="reasoning-mode" aria-label="Reasoning">
                         {(['auto', 'off', 'on'] as const).map(mode => (
                           <label key={mode}>
@@ -6639,15 +6646,25 @@ function SettingsScreen({
                     </div>
                   )}
                   <div className="settings-two-column">
-                    <SettingsRow label="Context Length" description="Number of input and output tokens the model sees.">
-                      <NumberField
-                        ariaLabel="Context length"
-                        min={512}
-                        max={32768}
-                        step={256}
-                        value={activeModelSettings.contextLength}
-                        onChange={(contextLength) => updateModelSettings({ contextLength })}
-                      />
+                    <SettingsRow label="Context Length" description={selectedModel.inputTokenLimit
+                      ? `Input limit: ${selectedModel.inputTokenLimit.toLocaleString()} tokens.`
+                      : selectedModel.contextLength
+                        ? `Model limit: ${selectedModel.contextLength.toLocaleString()} tokens.`
+                        : `Model limit unavailable. Auto uses ${fallbackContextLength.toLocaleString()} tokens.`}>
+                      <div>
+                        <SelectField ariaLabel="Context size" value={usesAutomaticContext(activeModelSettings) ? 'auto' : 'manual'}
+                          options={[{ label: 'Auto', value: 'auto' }, { label: 'Custom', value: 'manual' }]}
+                          onChange={mode => updateModelSettings({ contextLengthMode: mode as 'auto' | 'manual' })} />
+                        {!usesAutomaticContext(activeModelSettings) && <NumberField
+                          ariaLabel="Context length"
+                          min={512}
+                          max={reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER}
+                          step={256}
+                          value={Math.min(activeModelSettings.contextLength, reportedContextLimit(selectedModel, activeModelSettings) ?? Infinity)}
+                          onChange={(contextLength) => updateModelSettings({ contextLengthMode: 'manual', contextLength: Math.min(
+                            Math.max(512, contextLength), reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER) })}
+                        />}
+                      </div>
                     </SettingsRow>
                     <SettingsRow label="Max Length" description={selectedModel.engine === 'ollama'
                       ? 'Output token allowance. Reasoning reserves at least 4,096 tokens.' : 'Maximum generated tokens.'}>

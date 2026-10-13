@@ -88,6 +88,10 @@ jobs:
         run: tmp/ollama/bin/ollama pull "$MODEL_NAME"
       - name: Verify model digest and runtime version
         run: app_runtime/python/bin/python -c 'from tests.benchmarks.test_buzzdb_embeddings import verify_ollama; verify_ollama()'
+      - name: Verify embedding defaults and CPU fallback
+        env:
+          TOKENSMITH_TEST_EXPECT_DEVICE: cpu
+        run: npm run test:integration:ollama
       - name: Calculate book cache identity
         id: book-key
         run: echo "key=$(app_runtime/python/bin/python tests/benchmarks/build_buzzdb_embedding_cache.py --cache-key)" >> "$GITHUB_OUTPUT"

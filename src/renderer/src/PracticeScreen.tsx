@@ -125,7 +125,7 @@ export function PracticeScreen(props: Props) {
   function chooseSession(id?: string) {
     stop(); setError('')
     if (window.innerWidth <= 800) setSidebarOpen(false)
-    onChange(current => ({ ...current, activeSessionId: id, ...(id ? {} : { draftScope: scopeRefs(scope) }) }))
+    onChange(current => ({ ...current, activeSessionId: id, ...(id ? {} : { draftScope: scopeRefs(scope), draftModelId: settings.application.defaultModelId }) }))
   }
   function checkAnswer() {
     if (!session || !question || !question.rubric || !question.draft.trim() || pending) return
@@ -171,7 +171,7 @@ export function PracticeScreen(props: Props) {
     <section className="practice-main">
       <StudyHeader mode="practice" onModeChange={props.onModeChange} historyOpen={sidebarOpen} onHistoryToggle={() => setSidebarOpen(value => !value)}
         materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(value => !value)} count={scope.length}>
-        <ChatModelPicker models={models} selectedModel={model} disabled={Boolean(pending) || Boolean(session)}
+        <ChatModelPicker models={models} selectedModel={model} selectedModelId={session ? session.modelId : state.draftModelId} disabled={Boolean(pending) || Boolean(session)}
           onSelect={props.onSelectModel} onConnect={props.onConnectCloud} onManage={props.onManageModels} />
       </StudyHeader>
       <div className="practice-scroll" ref={scroll}><div className="practice-content">

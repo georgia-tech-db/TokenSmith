@@ -12,6 +12,7 @@ import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../shared/latency-trace'
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
+import { withModelContextMetadata } from './model-context-metadata'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
@@ -60,6 +61,7 @@ interface RemoteCompletionConfig {
   modelName: string
   apiKey: string
   settings?: ModelRuntimeSettings
+  maxOutputTokens?: number
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -217,6 +219,8 @@ async function runRemoteChatCompletion(
   messages: StudyChatMessage[],
   overrides: RemoteCompletionOverrides = {}
 ): Promise<string> {
+  const requestedTokens = overrides.maxTokens ?? config.settings?.maxLength
+  const maxTokens = config.maxOutputTokens ? Math.min(requestedTokens ?? config.maxOutputTokens, config.maxOutputTokens) : requestedTokens
   const response = await remoteGeneratorFetch(config.endpoint, {
     method: 'POST',
     headers: {
@@ -231,7 +235,7 @@ async function runRemoteChatCompletion(
       model: config.modelName,
       messages,
       ...remoteChatParameters(config.endpoint, config.modelName,
-        overrides.maxTokens ?? config.settings?.maxLength,
+        maxTokens,
         overrides.temperature ?? config.settings?.temperature, config.settings?.topP)
     })
   })
@@ -259,13 +263,15 @@ async function runRemoteChatCompletion(
 export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
   if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
+  assertRemoteModel(request.model)
   const started = performance.now()
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const messages = questionRewriteMessages({ ...request, modelSettings: settings })
   const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
   const text = await runRemoteChatCompletion({
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
-    modelName, apiKey: request.model.apiKey, settings
+    modelName, apiKey: request.model.apiKey, settings, maxOutputTokens: request.model.maxOutputTokens
   }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
   const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
   writeTokenSmithLog('chat_question_rewrite', {
@@ -316,6 +322,7 @@ async function generateRemoteFollowUpSuggestions(
 }
 
 export async function runRemoteStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
   assertRemoteModel(request.model)
 
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
@@ -326,7 +333,8 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     endpoint,
     modelName,
     apiKey: request.model.apiKey,
-    settings
+    settings,
+    maxOutputTokens: request.model.maxOutputTokens
   }
   if (request.practiceTask) {
     const prepared = prepareStudyChatMessages(runtimeRequest)
@@ -418,13 +426,16 @@ export async function generateRemoteStudyQuestionSuggestions(
     return { suggestions: [] }
   }
 
+  if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
   const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
+  assertRemoteModel(request.model)
   const config = {
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName: normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl),
     apiKey: request.model.apiKey,
-    settings
+    settings,
+    maxOutputTokens: request.model.maxOutputTokens
   }
   const maxTokens = suggestionMaxTokens
   const temperature = Math.min(Math.max(config.settings?.temperature ?? 0.2, 0.2), 0.8)
