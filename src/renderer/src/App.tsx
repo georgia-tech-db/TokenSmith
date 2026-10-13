@@ -1,9 +1,12 @@
 import { PracticeScreen } from './PracticeScreen'
-import { StudyHeader } from './StudyHeader'
+import { StudyHeader, type StudyPanels } from './StudyHeader'
+import { StudySidebar } from './StudySidebar'
 import { StudyMaterialsPane } from './StudyMaterialsPane'
+import { SourceTray, maxSourceTrayCards } from './SourceTray'
+import { canOpenSource, cleanMaterialTitle, isMarkdownSource, isPdfSource } from './source-display'
 import { useStudyDocuments, type StudyCatalog } from './hooks/useStudyDocuments'
-import { currentStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
-import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, type PracticeReference, type PracticeState, type StudyMode } from '@shared/practice'
+import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
+import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, type PracticeState, type StudyMode } from '@shared/practice'
 import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
 import { sourceEntryKey, sourceNavigationList } from './source-navigation'
 import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
@@ -16,6 +19,8 @@ import { defaultPreparation, type IndexMaterialOptions } from '../../shared/prep
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
+import { MessageAvatar } from './MessageAvatar'
+import { MessageComposer } from './MessageComposer'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
@@ -60,7 +65,6 @@ import type {
   EngineChatResponse,
   MarkdownSourceDocument,
   PdfSourceDocument,
-  PdfSourceThumbnail,
   TokenSmithLogFile
 } from '@shared/engine'
 import {
@@ -106,13 +110,11 @@ import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
   reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
-import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
   BookOpen,
   Check,
   ChevronDown,
-  CircleUserRound,
   Copy,
   Database,
   Download as DownloadIcon,
@@ -125,7 +127,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  SendHorizonal,
   Settings,
   Sparkles,
   Trash2,
@@ -146,7 +147,6 @@ interface NavItem {
 }
 
 type PdfViewerState = PdfSourceDocument & { searchTerm?: string }
-type SourceThumbnailState = Record<string, PdfSourceThumbnail>
 type PdfRenderedTextItem = {
   index: number
   text: string
@@ -182,7 +182,6 @@ const navItems: NavItem[] = [
 ]
 
 const stateStorageKey = 'tokensmith-app-state-v1'
-const maxSourceTrayCards = 5
 const defaultCollectionChunkSize = 1000
 const pdfViewerRenderScale = 1.45
 // React Strict Mode immediately runs an effect setup/cleanup cycle in development.
@@ -1096,13 +1095,6 @@ function readableOllamaError(error: unknown, fallback = 'Could not reach Ollama.
   return message
 }
 
-function cleanMaterialTitle(title?: string) {
-  return (title ?? '')
-    .replace(/\.(pdf|md|markdown|txt)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 function compactModelToken(label?: string) {
   const normalized = modelNameFromPath(label) ?? label?.trim()
   const token = normalized
@@ -1136,53 +1128,8 @@ function materialEmbedderLabel(material: CourseMaterial) {
   return `${collectionName}-${embedderName}`
 }
 
-function isPdfSource(source: ChatSource) {
-  return Boolean(source.path?.toLowerCase().endsWith('.pdf'))
-}
-
-function isMarkdownSource(source: ChatSource) {
-  const path = source.path?.toLowerCase() ?? ''
-  return path.endsWith('.md') || path.endsWith('.markdown') || path.endsWith('.txt')
-}
-
-function canOpenSource(source: ChatSource) {
-  return isPdfSource(source) || isMarkdownSource(source)
-}
-
-function sourceFileTypeLabel(source: ChatSource) {
-  if (isMarkdownSource(source)) {
-    return 'MD'
-  }
-
-  if (isPdfSource(source)) {
-    return 'PDF'
-  }
-
-  return 'TXT'
-}
-
 function sourceDisplayText(source: ChatSource) {
   return isMarkdownSource(source) ? source.context || source.excerpt : source.excerpt
-}
-
-function sourcePageLabel(source: ChatSource) {
-  if (source.pageStart && source.pageEnd && source.pageEnd > source.pageStart) {
-    return `Pages ${source.pageStart}-${source.pageEnd}`
-  }
-
-  if (source.pageStart) {
-    return `Page ${source.pageStart}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom && source.lineTo && source.lineTo > source.lineFrom) {
-    return `Lines ${source.lineFrom}-${source.lineTo}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom) {
-    return `Line ${source.lineFrom}`
-  }
-
-  return source.locator
 }
 
 function compactChunkSizeLabel(chunkSize?: number) {
@@ -1222,15 +1169,6 @@ function SourceDocumentReader({ state, navigation, onClose }: {
     ? <PdfSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
     : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
   return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
-}
-
-function sourceDocumentTitle(source: ChatSource) {
-  const rawTitle = source.documentTitle || source.title
-  return cleanMaterialTitle(rawTitle) || 'Source'
-}
-
-function sourceTrayKey(source: ChatSource, index: number) {
-  return `${source.sourceId ?? source.chunkId ?? source.chunkRowid ?? source.path ?? source.title}-${index}`
 }
 
 function modelStatusFromDownload(progress: ModelDownloadProgress): LocalModel['status'] {
@@ -1273,22 +1211,49 @@ export function App() {
   const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
   const practiceState = appState.practice ?? emptyPracticeState()
+  const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 800)
+  const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
+  const [collectionExpansion, setCollectionExpansion] = useState<Record<string, boolean>>({})
+  const studyPanels: StudyPanels = { historyOpen, onHistoryOpenChange: setHistoryOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen,
+    collectionExpansion, onCollectionExpansionChange: (id, expanded) => setCollectionExpansion(current =>
+      (current[id] ?? true) === expanded ? current : { ...current, [id]: expanded }) }
+  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
+  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
+  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [logError, setLogError] = useState<string | null>(null)
+  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
+  async function refreshLogFile() {
+    if (!window.tokensmith?.getLogFile) {
+      setLogStatus('error')
+      setLogError('TokenSmith log is not available in this build.')
+      return
+    }
+    setLogStatus('loading')
+    setLogError(null)
+    try {
+      setLogFile(await window.tokensmith.getLogFile())
+      setLogStatus('idle')
+    } catch (error) {
+      setLogStatus('error')
+      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
+    }
+  }
+  function openLog() { setIsLogCardOpen(true); void refreshLogFile() }
   const practiceReader = useSourceReader(readSourceDocument)
-  useEffect(() => { practiceReader.close() }, [practiceState.mode, appState.activeScreen, practiceReader.close])
+  const activePracticeSession = practiceState.sessions.find(item => item.id === practiceState.activeSessionId)
+  const activePracticeQuestionId = activePracticeSession?.questions[activePracticeSession.currentIndex]?.id
+  useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
   }
   function setStudyMode(mode: StudyMode) {
     updateAppState(current => {
       const practice = current.practice ?? emptyPracticeState()
-      return { ...current, practice: { ...practice, mode,
-        ...(mode === 'practice' && !practice.activeSessionId && current.studyScope !== undefined ? { draftScope: current.studyScope } : {}) } }
+      return { ...current, practice: { ...practice, mode } }
     })
   }
-  function discussPractice(reference: PracticeReference) {
-    const conversation: Conversation = { id: createId('discussion'), title: 'Practice discussion', period: 'Today', messages: [], practiceReference: reference, documentScope: reference.documents }
-    updateAppState(current => ({ ...current, activeScreen: 'chat', activeConversationId: conversation.id,
-      conversations: [conversation, ...current.conversations], practice: { ...(current.practice ?? emptyPracticeState()), mode: 'chat' } }))
+  function setStudyScope(scope: StudyDocumentRef[]) {
+    updateAppState(current => changeStudyScope(current, scope))
   }
   const [appVersion, setAppVersion] = useState<string>('dev')
   const [engines, setEngines] = useState<EngineInfo[]>([
@@ -1585,7 +1550,7 @@ export function App() {
   function updateAppState(updater: (current: AppStateSnapshot) => AppStateSnapshot) {
     setAppState(current => {
       const next = updater(current)
-      return { ...next, studyScope: currentStudyScope(next) ?? next.studyScope, updatedAt: new Date().toISOString() }
+      return { ...next, updatedAt: new Date().toISOString() }
     })
   }
 
@@ -2235,10 +2200,11 @@ export function App() {
         {!hasLoadedState && <LoadingScreen />}
         {hasLoadedState && (
           <ChatScreen
+            {...studyPanels} onViewLog={openLog}
             progress={generation.api}
             isActive={activeScreen === 'chat' && practiceState.mode === 'chat'}
             onModeChange={setStudyMode}
-            catalog={studyCatalog} inheritScope={appState.studyScope ?? []}
+            catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope}
             activeConversationId={appState.activeConversationId}
             conversations={appState.conversations}
             materials={appState.materials}
@@ -2268,13 +2234,14 @@ export function App() {
           />
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
+          {...studyPanels} onViewLog={openLog}
           state={practiceState} onChange={updatePractice} onModeChange={setStudyMode}
-          catalog={studyCatalog} inheritScope={appState.studyScope ?? []} models={appState.models} selectedModel={selectedModel} settings={appState.settings}
+          catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={selectedModel} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
           onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
           onOpenLibrary={() => updateAppState(current => ({ ...current, activeScreen: 'library' }))}
-          onDiscuss={discussPractice} onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
+          onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
           sourceError={practiceReader.error} progress={generation.api} />}
         {activeScreen === 'chat' && practiceState.mode === 'practice' && practiceReader.state &&
           <SourceDocumentReader state={practiceReader.state} navigation={practiceReader.navigation} onClose={practiceReader.close} />}
@@ -2311,12 +2278,16 @@ export function App() {
           <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} isIndexing={appState.materials.some(material => material.status === 'indexing')} />
         )}
       </section>
-      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => ({
-        ...current, activeScreen: 'chat', activeConversationId: current.conversations.some(c => c.id === conversationId) ? conversationId : current.activeConversationId,
-        practice: { ...(current.practice ?? emptyPracticeState()),
-          mode: current.practice?.sessions.some(session => session.id === conversationId) ? 'practice' : 'chat',
-          activeSessionId: current.practice?.sessions.some(session => session.id === conversationId) ? conversationId : current.practice?.activeSessionId }
-      }))} />
+      {isLogCardOpen && <TokenSmithLogCard entries={logEntries} error={logError} logFile={logFile} status={logStatus}
+        onClose={() => setIsLogCardOpen(false)} onRefresh={refreshLogFile} />}
+      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => {
+        const session = current.practice?.sessions.find(item => item.id === conversationId)
+        const next = session ? changeStudyScope(current, session.documents) : current
+        return { ...next, activeScreen: 'chat',
+          activeConversationId: next.conversations.some(c => c.id === conversationId) ? conversationId : next.activeConversationId,
+          practice: { ...(next.practice ?? emptyPracticeState()), mode: session ? 'practice' : 'chat',
+            activeSessionId: session?.id ?? next.practice?.activeSessionId } }
+      })} />
       {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
         localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
         onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
@@ -2338,11 +2309,19 @@ function LoadingScreen() {
 }
 
 function ChatScreen({
+  historyOpen: isSidebarOpen,
+  onHistoryOpenChange: setIsSidebarOpen,
+  materialsOpen,
+  onMaterialsOpenChange: setMaterialsOpen,
+  collectionExpansion,
+  onCollectionExpansionChange,
+  onViewLog,
   progress,
   isActive,
   onModeChange,
   catalog,
-  inheritScope,
+  scope: documentScope,
+  onScopeChange,
   activeConversationId,
   conversations,
   embeddingModels,
@@ -2364,9 +2343,11 @@ function ChatScreen({
 }: {
   progress: GenerationProgressApi
   isActive: boolean
+  onViewLog: () => void
   onModeChange: (mode: StudyMode) => void
   catalog: StudyCatalog
-  inheritScope: StudyDocumentRef[]
+  scope: StudyDocumentRef[]
+  onScopeChange: (scope: StudyDocumentRef[]) => void
   activeConversationId: string
   conversations: Conversation[]
   embeddingModels: LocalModel[]
@@ -2390,11 +2371,9 @@ function ChatScreen({
       'activeConversationId' | 'conversations'
     >
   ) => void
-}) {
+} & StudyPanels) {
   const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({})
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 800)
-  const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [isPreparingFollowUps, setIsPreparingFollowUps] = useState(false)
   const foregroundRequestRef = useRef<string | null>(null)
@@ -2441,8 +2420,6 @@ function ChatScreen({
     reader.close()
   }, [isActive, activeConversationId, sourcePreview, reader.close])
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
-  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaSetupPhase, setOllamaSetupPhase] = useState<'idle' | 'checking' | 'opening' | 'starting' | 'error'>('idle')
   const [ollamaPullingModel, setOllamaPullingModel] = useState<'chat' | 'embedder' | null>(null)
@@ -2451,10 +2428,6 @@ function ChatScreen({
   const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
   const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [starterQuestionError, setStarterQuestionError] = useState<string | null>(null)
-  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
-  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
-  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
   const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -2473,13 +2446,12 @@ function ChatScreen({
   function clearDraft() {
     setDrafts((current) => ({ ...current, [activeConversation.id]: { text: '' } }))
   }
-  const documentScope = activeConversation.documentScope ?? inheritScope
   const scopeMaterialIds = new Set(documentScope.map(item => item.materialId))
   const activeMaterials = materials.filter(material => scopeMaterialIds.has(material.id)).map(material => ({ ...material, isActive: true }))
   function changeDocumentScope(documentScope: StudyDocumentRef[]) {
+    handleStopResponse()
     stopStarterRef.current?.()
-    onChatStateChange(current => ({ ...current, conversations: current.conversations.map(chat =>
-      chat.id === activeConversation.id ? { ...chat, documentScope } : chat) }))
+    onScopeChange(documentScope)
   }
   const selectedModelLabel = selectedModel ? displayModelName(selectedModel) : 'Choose a model'
   const sourceMessages = activeConversation.messages.filter(
@@ -2495,8 +2467,16 @@ function ChatScreen({
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = studyScopeKey(documentScope)
+  const previousScopeKey = useRef(activeMaterialKey)
+  useLayoutEffect(() => {
+    if (previousScopeKey.current === activeMaterialKey) return
+    previousScopeKey.current = activeMaterialKey
+    handleStopResponse()
+    sourcePreview.dismiss()
+    reader.close()
+    setChatError(null)
+  }, [activeMaterialKey])
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
   const canSuggestStarterQuestions =
     isActive &&
     !activeConversation.practiceReference &&
@@ -2544,14 +2524,6 @@ function ChatScreen({
     setEditingQuestionId(null)
     setFocusedAnswerId(null)
   }, [activeConversation.id])
-
-  useLayoutEffect(() => {
-    if (!isActive) return
-    const input = composerInputRef.current
-    if (!input) return
-    input.style.height = 'auto'
-    input.style.height = `${Math.min(input.scrollHeight, 180)}px`
-  }, [draft, isActive])
 
   useEffect(() => {
     if (!isActive || (!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
@@ -2675,6 +2647,7 @@ function ChatScreen({
   ])
 
   function handleNewChat() {
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
     cancelForeground()
     requestSequenceRef.current += 1
 
@@ -2683,7 +2656,7 @@ function ChatScreen({
       title: 'New Study Chat',
       period: 'Today',
       messages: [],
-      documentScope: scopeRefs(inheritScope)
+      documentScope: scopeRefs(documentScope)
     }
 
     onChatStateChange((current) => ({
@@ -2700,8 +2673,6 @@ function ChatScreen({
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleStopResponse() {
@@ -2715,8 +2686,7 @@ function ChatScreen({
   }
 
   function handleSelectConversation(conversationId: string) {
-    setRenamingConversationId(null)
-    setRenameDraft('')
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
     reader.close()
     setSourceTrayError(null)
     setPendingSources([])
@@ -2727,47 +2697,13 @@ function ChatScreen({
     }))
   }
 
-  function handleStartRenameConversation(conversationId: string) {
-    const conversation = conversations.find((item) => item.id === conversationId)
-    if (!conversation) {
-      return
-    }
-
-    setRenamingConversationId(conversationId)
-    setRenameDraft(conversation.title)
-  }
-
-  function handleCommitRenameConversation() {
-    if (!renamingConversationId) {
-      return
-    }
-
-    const conversation = conversations.find((item) => item.id === renamingConversationId)
-    const nextTitle = renameDraft.trim()
-    const conversationId = renamingConversationId
-
-    setRenamingConversationId(null)
-    setRenameDraft('')
-
-    if (!conversation) {
-      return
-    }
-
-    if (!nextTitle || nextTitle === conversation.title) {
-      return
-    }
-
+  function handleRenameConversation(conversationId: string, title: string) {
     onChatStateChange((current) => ({
       ...current,
       conversations: current.conversations.map((item) =>
-        item.id === conversationId ? { ...item, title: nextTitle } : item
+        item.id === conversationId ? { ...item, title } : item
       )
     }))
-  }
-
-  function handleCancelRenameConversation() {
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleDeleteConversation(conversationId: string) {
@@ -2790,7 +2726,7 @@ function ChatScreen({
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
-      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }]
+      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(), documentScope: scopeRefs(documentScope) }]
       const nextActiveConversationId =
         current.activeConversationId === conversationId ? nextConversations[0].id : current.activeConversationId
 
@@ -2807,10 +2743,6 @@ function ChatScreen({
       setPendingStatusText(null)
       setPendingSources([])
     }
-    if (renamingConversationId === conversationId) {
-      setRenamingConversationId(null)
-      setRenameDraft('')
-    }
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
@@ -2823,7 +2755,7 @@ function ChatScreen({
       return
     }
 
-    const freshConversation = { ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }
+    const freshConversation = { ...createFreshConversation(), documentScope: scopeRefs(documentScope) }
     cancelForeground()
     requestSequenceRef.current += 1
 
@@ -2843,8 +2775,6 @@ function ChatScreen({
     reader.close()
     setSourceTrayError(null)
     setChatError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleCopyQuestion(text: string) {
@@ -2870,31 +2800,6 @@ function ChatScreen({
 
   function handleUseStarterQuestion(question: string) {
     void submitPrompt(question)
-  }
-
-  async function refreshLogFile() {
-    if (!window.tokensmith?.getLogFile) {
-      setLogStatus('error')
-      setLogError('TokenSmith log is not available in this build.')
-      return
-    }
-
-    setLogStatus('loading')
-    setLogError(null)
-
-    try {
-      const nextLogFile = await window.tokensmith.getLogFile()
-      setLogFile(nextLogFile)
-      setLogStatus('idle')
-    } catch (error) {
-      setLogStatus('error')
-      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
-    }
-  }
-
-  function handleOpenLogCard() {
-    setIsLogCardOpen(true)
-    void refreshLogFile()
   }
 
   async function refreshOllamaStatus() {
@@ -3749,6 +3654,7 @@ function ChatScreen({
         return {
           ...conversation,
           title: history.length === 0 ? getConversationTitle(prompt) : conversation.title,
+          documentScope: scopeRefs(documentScope),
           messages: editedMessages ?? [...conversation.messages, userMessage],
         }
       })
@@ -3931,56 +3837,14 @@ function ChatScreen({
 
   return (
     <div hidden={!isActive} className={`view-frame study-frame chat-frame ${isSidebarOpen ? 'has-history' : ''} ${materialsOpen ? 'has-materials' : ''}`}>
-      {isSidebarOpen && (
-        <aside className="chat-sidebar" aria-label="Conversation list">
-          <button className="new-chat-button" type="button" onClick={handleNewChat}>
-            <Plus size={17} aria-hidden="true" />
-            <span>New Chat</span>
-          </button>
-          <div className="conversation-groups">
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="Today"
-              items={conversations.filter((chat) => chat.period === 'Today')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="This week"
-              items={conversations.filter((chat) => chat.period === 'This week')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-          </div>
-          <div className="chat-sidebar-footer">
-            <button className="view-log-button" type="button" onClick={handleOpenLogCard}>
-              <FileText size={15} aria-hidden="true" />
-              <span>View Log</span>
-            </button>
-            <button className="clear-chats-button" type="button" onClick={handleClearConversations}>
-              <Trash2 size={15} aria-hidden="true" />
-              <span>Clear All Chats</span>
-            </button>
-          </div>
-        </aside>
-      )}
+      {isSidebarOpen && <StudySidebar mode="chat" activeId={activeConversation.id}
+        groups={['Today', 'This week'].map(label => ({ label, items: conversations.filter(chat => chat.period === label) }))}
+        onNew={handleNewChat} onSelect={handleSelectConversation} onRename={handleRenameConversation}
+        onDelete={handleDeleteConversation} onClear={handleClearConversations} onViewLog={onViewLog} />}
 
       <section className="chat-main" aria-label="Study chat">
-        <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(value => !value)}
-          materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(value => !value)} count={documentScope.length}>
+        <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(!materialsOpen)} count={documentScope.length}>
           <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
             onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
           {settings.application.explanationDepthEnabled && <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending} onSelect={onExplanationDepthChange} />}
@@ -4047,54 +3911,24 @@ function ChatScreen({
             {selectedModel && !isPending && !isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' && (
               <span className="reload-chip"><RefreshCw size={15} aria-hidden="true" />Load - {selectedModelLabel}</span>
             )}
-            <div className="composer">
+            <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
+              label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
+              disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
+              submitDisabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
                 onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
-              <textarea
-                aria-label="Message"
-                rows={1}
-                disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
-                ref={composerInputRef}
-                onChange={(event) => updateDraft({ text: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
-                  }
-                }}
-                placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder}
-                value={draft}
-              />
-              <button
-                className="send-button"
-                disabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}
-                type="submit"
-                aria-label="Send message"
-                title="Send message"
-              >
-                <SendHorizonal size={21} aria-hidden="true" />
-              </button>
-            </div>
+            </MessageComposer>
           </form>
         </div>
       </section>
 
       <StudyMaterialsPane catalog={catalog} scope={documentScope} open={materialsOpen}
-        disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} onChange={changeDocumentScope}
+        collectionExpansion={collectionExpansion} onCollectionExpansionChange={onCollectionExpansionChange}
+        disabled={Boolean(editingQuestionId)} onChange={changeDocumentScope}
         onClose={() => setMaterialsOpen(false)} onManage={onOpenLibrary}>
         {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />}
       </StudyMaterialsPane>
-      {isLogCardOpen && (
-        <TokenSmithLogCard
-          entries={logEntries}
-          error={logError}
-          logFile={logFile}
-          status={logStatus}
-          onClose={() => setIsLogCardOpen(false)}
-          onRefresh={refreshLogFile}
-        />
-      )}
       {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={sourcePreview.dismiss}
         navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
           onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
@@ -4313,102 +4147,6 @@ function LogObjectList({ items, title }: { items: Record<string, unknown>[]; tit
   )
 }
 
-function ConversationGroup({
-  activeConversationId,
-  label,
-  items,
-  renameDraft,
-  renamingConversationId,
-  onCancelRename,
-  onCommitRename,
-  onDelete,
-  onRenameDraftChange,
-  onRenameStart,
-  onSelect,
-}: {
-  activeConversationId: string
-  label: string
-  items: Conversation[]
-  renameDraft: string
-  renamingConversationId: string | null
-  onCancelRename: () => void
-  onCommitRename: () => void
-  onDelete: (id: string) => void
-  onRenameDraftChange: (value: string) => void
-  onRenameStart: (id: string) => void
-  onSelect: (id: string) => void
-}) {
-  if (items.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="conversation-group" aria-label={label}>
-      <h2>{label}</h2>
-      <div className="conversation-list">
-        {items.map((item) => {
-          const isSelected = item.id === activeConversationId
-          const isRenaming = item.id === renamingConversationId
-
-          return (
-            <div className={`conversation-item ${isSelected ? 'is-selected' : ''}`} key={item.id}>
-              {isRenaming ? (
-                <form
-                  className="conversation-rename-form"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    onCommitRename()
-                  }}
-                >
-                  <input
-                    aria-label="Chat name"
-                    autoFocus
-                    value={renameDraft}
-                    onBlur={onCommitRename}
-                    onChange={(event) => onRenameDraftChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        onCancelRename()
-                      }
-                    }}
-                  />
-                </form>
-              ) : (
-                <button className="conversation-select" type="button" onClick={() => onSelect(item.id)}>
-                  <span>{item.title}</span>
-                </button>
-              )}
-              {isSelected && !isRenaming && (
-                <div className="conversation-actions" aria-label={`${item.title} actions`}>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Rename ${item.title}`}
-                    title="Rename chat"
-                    onClick={() => onRenameStart(item.id)}
-                  >
-                    <Pencil size={17} aria-hidden="true" />
-                  </button>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Delete ${item.title}`}
-                    title="Delete chat"
-                    onClick={() => onDelete(item.id)}
-                  >
-                    <Trash2 size={18} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
 function contextModeLabel(mode?: ChatMessage['conversationContextMode']): string | undefined {
   if (mode === 'clarify') {
     return 'Clarification'
@@ -4444,7 +4182,7 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
 
   return (
     <article className="message-row" data-question-id={message.id} tabIndex={-1} aria-label="Your question">
-      <CircleUserRound className="message-avatar user" size={26} aria-hidden="true" />
+      <MessageAvatar role="user" />
       <div>
         <h3>
           You
@@ -4504,7 +4242,7 @@ function AssistantMessage({
 
   return (
     <article className="message-row">
-      <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
+      <MessageAvatar role="assistant" />
       <div>
         <h3>
           TokenSmith
@@ -4578,108 +4316,6 @@ function AssistantMessage({
   )
 }
 
-function SourceTray({
-  error,
-  sources,
-  onOpenSource
-}: {
-  error: string | null
-  sources: ChatSource[]
-  onOpenSource: (source: ChatSource) => void
-}) {
-  const [thumbnails, setThumbnails] = useState<SourceThumbnailState>({})
-
-  useEffect(() => {
-    let canceled = false
-
-    setThumbnails({})
-
-    const bridge = window.tokensmith
-    if (!bridge?.getPdfThumbnailForSource) {
-      return () => {
-        canceled = true
-      }
-    }
-
-    sources.forEach((source, index) => {
-      if (!isPdfSource(source)) {
-        return
-      }
-
-      const key = sourceTrayKey(source, index)
-      void bridge
-        .getPdfThumbnailForSource(source)
-        .then((thumbnail) => {
-          if (canceled) {
-            return
-          }
-          setThumbnails((current) => ({ ...current, [key]: thumbnail }))
-        })
-        .catch(() => {
-          // Thumbnail rendering is best-effort; the source card still opens the PDF.
-        })
-    })
-
-    return () => {
-      canceled = true
-    }
-  }, [sources])
-
-  if (sources.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="source-tray" aria-label="Top answer sources">
-      <div className="source-tray-header">
-        <BookOpen size={15} aria-hidden="true" />
-        <span>Top sources</span>
-      </div>
-      <div className="source-tray-list">
-        {sources.map((source, index) => {
-          const canOpen = canOpenSource(source)
-          const pageLabel = sourcePageLabel(source)
-          const sourceKey = sourceTrayKey(source, index)
-          const thumbnail = thumbnails[sourceKey]
-          const sourceContextLabel = [source.collectionName, source.sectionHeader].filter(Boolean).join(' · ')
-          const sourceTypeLabel = sourceFileTypeLabel(source)
-
-          return (
-            <button
-              className={`source-tray-card ${canOpen ? '' : 'is-text-only'}`}
-              disabled={!canOpen}
-              key={sourceKey}
-              type="button"
-              onClick={() => onOpenSource(source)}
-            >
-              <span className="source-media" aria-hidden="true">
-                <span className={`source-thumbnail ${thumbnail ? 'has-image' : ''}`}>
-                  {thumbnail ? (
-                    <img src={thumbnail.dataUrl} alt="" />
-                  ) : (
-                    <>
-                      <FileText size={17} />
-                      <strong>{sourceTypeLabel}</strong>
-                    </>
-                  )}
-                </span>
-              </span>
-              <span className="source-tray-copy">
-                <strong>{sourceDocumentTitle(source)}</strong>
-                {sourceContextLabel && <small>{sourceContextLabel}</small>}
-                <span>{source.excerpt}</span>
-              </span>
-              <span className="source-card-badges">
-                <small className="source-page-label">{pageLabel}</small>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      {error && <p className="source-tray-error">{error}</p>}
-    </section>
-  )
-}
 
 function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)

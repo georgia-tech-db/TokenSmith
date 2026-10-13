@@ -1,8 +1,8 @@
 import type { ChatSource } from './app-state'
-import { practiceSourceKey, type PracticeAttempt, type PracticeFeedback, type PracticeRubric } from './practice'
+import { practiceSourceKey, type PracticeAttempt, type PracticeFeedback, type PracticeRubric,
+  type PracticeQuestion, type PracticeQuestionFormat, type PracticeTrueFalseFeedback } from './practice'
 
-export const quizTotalQuestions = 5
-export type PracticeTask = 'question' | 'feedback'
+export type PracticeTask = 'question' | 'true_false_question' | 'feedback'
 
 const string = { type: 'string' }
 const object = (properties: Record<string, unknown>) => ({ type: 'object', properties,
@@ -15,6 +15,11 @@ const questionSchema = object({
     evidence: list(object({ sourceKey: string, quote: string }), 1, 2) }), 1, 3),
   explanation: string, hint: string
 })
+const trueFalseSchema = object({ ...questionSchema.properties,
+  correctAnswer: { type: 'boolean', description: 'Whether the statement is true under its stated conditions, based only on the evidence.' },
+  questionAssessment: { ...string, description: 'Check that the statement has a single defensible truth value and the evidence supports the answer key.' },
+  questionIssue: { ...string, description: 'Empty only if the statement is unambiguous and its truth value is supported. Otherwise explain the problem.' }
+})
 const feedbackSchema = object({
   questionAssessment: { ...string, description: 'One sentence checking whether the actual question has a supported premise and includes the assumptions necessary for a fair answer.' },
   questionIssue: { ...string, description: 'Check the actual question for an unfair or false premise first. Explain any issue, otherwise empty.' },
@@ -24,17 +29,24 @@ const feedbackSchema = object({
 })
 
 export function practiceResponseSchema(task: PracticeTask): Record<string, unknown> {
-  return task === 'question' ? questionSchema : feedbackSchema
+  return task === 'feedback' ? feedbackSchema : task === 'true_false_question' ? trueFalseSchema : questionSchema
 }
 
 export function practiceSystemPrompt(task: PracticeTask): string {
-  const instructions = task === 'question' ? [
-    'Prepare one short-answer practice question and its hidden grading guide for an undergraduate.',
+  const instructions = task !== 'feedback' ? [
+    task === 'true_false_question'
+      ? 'Prepare one True/False practice statement and its hidden answer key for an undergraduate. Put only the statement in question, not the answer or a True/False prefix.'
+      : 'Prepare one short-answer practice question and its hidden grading guide for an undergraduate.',
     'Use only the supplied passages. Choose one concrete learning objective worth understanding, not document metadata or trivia. Avoid repeating previous questions. Vary concepts and tasks across the session without forcing an unsupported task.',
     'State the assumptions needed for a fair answer in the question itself. Do not turn conditional, typical, or worst-case claims into absolute guarantees. Ask about the particular procedure or situation the passage describes, not an unrestricted universal claim. Avoid false premises and questions requiring facts absent from the passages.',
     'Define 1 to 3 essential criteria, with unique ids c1, c2, c3. Criteria must match what the question actually asks, not demand unasked examples or details. Accept equivalent reasoning, wording, and valid qualifications.',
     'For each criterion, cite an Evidence ID as sourceKey and a short exact quote supporting it. Copy a continuous span including its punctuation, capitalization, backticks and Markdown; do not paraphrase or insert ellipses. Evidence may support an inference; the explanation must make that reasoning explicit.',
     'Give a concise worked explanation connecting the essential ideas, with an example only when useful and supported. The hint should point to a reasoning step without revealing the solution. Keep answers and hints out of the question text.',
+    ...(task === 'true_false_question' ? [
+      'Use one factual proposition with explicit scope, not a compound claim, double negative, subjective judgment, or trick wording. Vary true and false statements. Preserve necessary qualifications.',
+      'Set correctAnswer to a JSON boolean, never a string. For a true statement, the cited passages must support it. For a false statement, they must contradict it; absence of evidence is not evidence of falsity. Explain the correction clearly.',
+      'Before finalizing, use questionAssessment to check the statement, answer key, explanation and cited evidence agree. If its truth depends on unstated conditions or the evidence is insufficient, put the issue in questionIssue rather than inventing a definite answer. Otherwise set questionIssue to an empty string.'
+    ] : []),
     'Keep the question, objective, explanation and hint free of source identifiers and page references. Return only the JSON question package.'
   ] : [
     'You give formative feedback on an undergraduate practice answer. Assess the supplied answer, not an imaginary ideal student.',
@@ -46,15 +58,15 @@ export function practiceSystemPrompt(task: PracticeTask): string {
     'Address the learner as you. In each check, identify what their actual answer got right or the specific gap or error. Do not fabricate quotations, award generic praise, or disclose the full reference explanation.',
     'For a gap, nextStep must be one concrete revision instruction starting with an action such as explain, connect, compare, or correct. Do not substitute another quiz question or a vague suggestion to add detail. Correct a misconception sufficiently to help, without dumping the entire solution.',
     'If all criteria are met, leave nextStep empty. If previousAttempt is supplied, use improvement to describe the actual change (or remaining same gap), without assuming every revision improved. Otherwise leave improvement empty.',
-    'Keep feedback compact and specific to this answer. Return only JSON; never append an expected answer.'
+    'Keep feedback compact and specific to this answer. Do not include an overall grade or generic encouragement. Return only JSON; never append an expected answer.'
   ]
   return [...instructions, 'JSON schema: ' + JSON.stringify(practiceResponseSchema(task))].join('\n')
 }
 
-export function quizQuestionPrompt({ questionNumber, previousQuestions = [], totalQuestions }: {
-  questionNumber: number; previousQuestions?: string[]; totalQuestions: number
+export function quizQuestionPrompt({ questionNumber, previousQuestions = [] }: {
+  questionNumber: number; previousQuestions?: string[]
 }): string {
-  return JSON.stringify({ task: 'Prepare a source-backed question package', questionNumber, totalQuestions, previousQuestions })
+  return JSON.stringify({ task: 'Prepare a source-backed question package', questionNumber, previousQuestions })
 }
 
 export function quizFeedbackPrompt({ answer, question, rubric, explanation, previousAttempt }: {
@@ -85,11 +97,15 @@ function array(value: unknown, min: number, max: number): unknown[] {
 }
 const normalizedQuote = (value: string) => value.replace(/\s+/g, ' ').trim()
 
-export function parsePracticeQuestion(raw: string, sources: ChatSource[]): {
-  text: string; rubric: PracticeRubric; referenceAnswer: string; hint: string; sources: ChatSource[]
+export function parsePracticeQuestion(raw: string, sources: ChatSource[], format: PracticeQuestionFormat = 'short_answer'): {
+  text: string; format: PracticeQuestionFormat; correctAnswer?: boolean; rubric: PracticeRubric; referenceAnswer: string; hint: string; sources: ChatSource[]
 } {
   try {
     const value = record(JSON.parse(raw))
+    if (format === 'true_false') {
+      text(value.questionAssessment)
+      if (typeof value.correctAnswer !== 'boolean' || text(value.questionIssue, false)) throw new Error('No supported, unambiguous answer key.')
+    }
     const cited = new Set<string>()
     const criteria = array(value.criteria, 1, 3).map(item => {
       const criterion = record(item)
@@ -106,13 +122,22 @@ export function parsePracticeQuestion(raw: string, sources: ChatSource[]): {
       return { id: text(criterion.id), description: text(criterion.description), evidence }
     })
     if (new Set(criteria.map(criterion => criterion.id)).size !== criteria.length) throw new Error('Duplicate criteria.')
-    return { text: text(value.question), rubric: { objective: text(value.objective), criteria,
+    return { text: text(value.question), format, ...(format === 'true_false' ? { correctAnswer: value.correctAnswer as boolean } : {}),
+      rubric: { objective: text(value.objective), criteria,
       assumptions: array(value.assumptions, 0, 3).map(item => text(item)) },
       referenceAnswer: text(value.explanation), hint: text(value.hint),
       sources: sources.filter(source => cited.has(practiceSourceKey(source))) }
   } catch {
     throw new Error('The model did not return a valid question with verifiable supporting passages. Try preparing the question again.')
   }
+}
+
+export function gradeTrueFalse(question: PracticeQuestion, answer: string): PracticeTrueFalseFeedback {
+  if (question.format !== 'true_false' || typeof question.correctAnswer !== 'boolean' || !question.referenceAnswer?.trim() || !question.sources.length) {
+    throw new Error('This question has no usable True/False answer key. Prepare another question.')
+  }
+  if (answer !== 'True' && answer !== 'False') throw new Error('Choose True or False before checking your answer.')
+  return { kind: 'true_false', correct: (answer === 'True') === question.correctAnswer, explanation: question.referenceAnswer }
 }
 
 export function parsePracticeFeedback(raw: string, rubric: PracticeRubric, hasPreviousAttempt: boolean): PracticeFeedback {

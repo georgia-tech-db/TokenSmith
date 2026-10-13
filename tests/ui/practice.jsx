@@ -2,6 +2,7 @@
 const params = new URLSearchParams(location.search)
 const storageKey = `practice-ui-test:${params.get('run') || 'default'}`
 const model = { id: 'test', name: 'Practice test model', engine: 'ollama', role: 'both', status: 'ready', ollamaModelName: 'ui-test', addedAt: '', contextLength: 8192 }
+if (params.has('model-unavailable')) model.status = 'missing'
 const materials = [
   { id: 'c1', title: 'Database Systems', status: 'ready', kind: 'folder', isActive: true, path: '/fixture/db', indexedAt: '2026-10-06' },
   { id: 'c2', title: 'Poems', status: 'ready', kind: 'folder', isActive: false, path: '/fixture/poems', indexedAt: '2026-10-06' }
@@ -11,11 +12,21 @@ const documents = [
   { materialId: 'c1', documentId: 2, title: 'Buffer pool.txt', collectionName: 'Database Systems', path: '/fixture/db/Buffer pool.txt', chunkCount: 9 },
   { materialId: 'c2', documentId: 3, title: 'Poems.md', collectionName: 'Poems', path: '/fixture/poems/Poems.md', chunkCount: 6 }
 ]
+if (params.has('long-catalog')) {
+  for (const collection of materials) {
+    for (let index = 1; index <= 24; index++) {
+      documents.push({ materialId: collection.id, documentId: documents.length + 1,
+        title: `Lecture notes ${index}.md`, collectionName: collection.title,
+        path: `${collection.path}/Lecture notes ${index}.md`, chunkCount: 8 })
+    }
+  }
+}
 let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   appVersion: 'UI test', activeScreen: 'chat', activeConversationId: 'chat-test',
   conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }],
+  practice: { mode: params.has('practice') ? 'practice' : 'chat', sessions: [] },
   models: [model], selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials,
-  settings: { application: { suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: false }, modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 } } }
+  settings: { application: { suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources') }, modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 } } }
 }
 const calls = []
 let questionCalls = 0
@@ -30,6 +41,13 @@ window.tokensmith = {
   getAppVersion: async () => params.has('new-version') ? 'UI test next' : 'UI test',
   loadAppState: async () => state,
   saveAppState: async next => { state = next; sessionStorage.setItem(storageKey, JSON.stringify(next)); return next },
+  getLogFile: async () => {
+    calls.push({ kind: 'log' })
+    if (params.has('log-error') && calls.filter(call => call.kind === 'log').length === 1) throw new Error('Test log read failed.')
+    const text = JSON.stringify({ event: 'practice_question', prompt: 'Fixture practice question', text: 'Fixture model reply',
+      modelMessages: [{ role: 'user', content: 'Fixture question prompt' }] })
+    return { path: '/fixture/logs/tokensmith.log', text, sizeBytes: text.length, maxBytes: 10000, truncated: false }
+  },
   listEngines: async () => [], listMaterials: async () => state.materials,
   onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: () => () => {},
   cancelChatRequest: async id => { calls.push({ kind: 'cancel', id }); return true },
@@ -49,27 +67,40 @@ window.tokensmith = {
   practiceSources: async (selected, used, index) => {
     calls.push({ kind: 'sources', selected, used, index })
     if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))
-    return [sourceFor(selected[index % selected.length], index)]
+    if (params.has('no-passages') || (params.has('exhausted') && index >= 1)) return []
+    return Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, i) => sourceFor(selected[index % selected.length], index * 10 + i))
   },
   resolveChatQuestion: async () => ({ mode: 'contextual', query: 'Explain ancestor paths during insertion.', clarification: '', reasoning: false }),
   sendChatMessage: async request => {
     const kind = request.practiceTask || 'discussion'
+    const preparing = kind === 'question' || kind === 'true_false_question'
     calls.push({ kind, request })
-    if (kind === 'question') questionCalls++
+    if (preparing) questionCalls++
     await new Promise(resolve => setTimeout(resolve, params.has('slow-model') ? 2000 : 100))
-    if (kind === 'question' && questionCalls === 2 && params.has('error-next')) throw new Error('Test model disconnected. Try preparing the next question again.')
+    if (preparing && questionCalls === 1 && params.has('error-first')) throw new Error('Test first question failed.')
+    if (preparing && questionCalls === 2 && params.has('error-next')) throw new Error('Test model disconnected. Try preparing the next question again.')
     if (kind === 'feedback' && params.has('error-feedback') && calls.filter(call => call.kind === 'feedback').length === 1) throw new Error('Test grading failed. Your answer is saved.')
-    const source = request.retrievedSources?.[0]
-    const evidence = source && [{ sourceKey: `${source.materialId}:${source.documentId}:${source.chunkId}`, quote: source.context }]
+    if (kind === 'discussion' && params.has('error-help') && calls.filter(call => call.kind === 'discussion').length === 1) throw new Error('Test explanation failed. Your question is saved.')
+    const evidence = request.retrievedSources?.map(source => ({ sourceKey: `${source.materialId}:${source.documentId}:${source.chunkId}`, quote: source.context })) || []
     const data = kind === 'feedback' ? JSON.parse(request.prompt) : null
     const complete = data?.answer.includes('split')
-    const text = kind === 'question' ? JSON.stringify({
-      question: `Why does insertion keep track of ancestor nodes${questionCalls > 1 ? ` (question ${questionCalls})` : ''}?`,
+    const binary = kind === 'true_false_question'
+    const correctAnswer = preparing && JSON.parse(request.prompt).questionNumber % 2 === 1
+    const text = preparing ? JSON.stringify({
+      question: binary ? correctAnswer ? 'The ancestor path lets insertion propagate a split to its parent.'
+        : 'Insertion never uses the ancestor path to propagate a split to its parent.'
+        : `Why does insertion keep track of ancestor nodes${questionCalls > 1 ? ` (question ${questionCalls})` : ''}?`,
+      ...(binary ? { correctAnswer: params.has('bad-true-false-key') ? 'true' : correctAnswer,
+        questionAssessment: 'The passage directly supports or contradicts this statement.',
+        questionIssue: params.has('ambiguous-true-false') ? 'The statement is ambiguous.' : '' } : {}),
       objective: 'Explain how a split propagates through ancestors.', assumptions: [],
-      criteria: [{ id: 'c1', description: 'The path enables backtracking.', evidence },
-        { id: 'c2', description: 'A split may need to update the parent.', evidence }],
+      criteria: [
+        { id: 'c1', description: 'The path enables backtracking.', evidence: evidence.slice(0, 2) },
+        { id: 'c2', description: 'A split may need to update the parent.', evidence: params.has('many-sources') ? evidence.slice(2, 4) : evidence },
+        ...(params.has('many-sources') ? [{ id: 'c3', description: 'Splits may propagate upward.', evidence: evidence.slice(4, 6) }] : [])
+      ],
       hint: 'Think about which node must change after a leaf splits.',
-      explanation: 'Record each internal node while descending. If a leaf splits, use this path to update its parent and continue upward if necessary.'
+      explanation: Array(params.has('long-explanation') ? 12 : 1).fill('Record each internal node while descending. If a leaf splits, use this path to update its parent and continue upward if necessary.').join('\n\n')
     }) : kind === 'feedback' ? JSON.stringify({
       questionAssessment: 'The question is supported and answerable.',
       checks: [{ criterionId: 'c1', status: 'met', feedback: 'You identified that the path lets insertion backtrack.' },
@@ -80,8 +111,13 @@ window.tokensmith = {
     }) : 'The path tells insertion where to propagate a split without searching from the root again.'
     return { text, sources: request.retrievedSources || [] }
   },
-  getMarkdownForSource: async source => ({ title: source.title, path: source.path,
-    text: '# Ancestor paths\n\nThe ancestor path allows a split to propagate to parent nodes.\n', chunkText: source.excerpt,
-    lineFrom: source.lineFrom, lineTo: source.lineTo })
+  getMarkdownForSource: async source => {
+    calls.push({ kind: 'read-source', source })
+    if (params.has('slow-reader')) await new Promise(resolve => setTimeout(resolve, 1500))
+    if (params.has('source-error') && calls.filter(call => call.kind === 'read-source').length === 1) throw new Error('Test source read failed.')
+    return { title: source.title, path: source.path,
+      text: '# Ancestor paths\n\nThe ancestor path allows a split to propagate to parent nodes.\n', chunkText: source.excerpt,
+      lineFrom: source.lineFrom, lineTo: source.lineTo }
+  }
 }
 await import('../../src/renderer/src/main.tsx')

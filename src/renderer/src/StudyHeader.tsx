@@ -2,7 +2,15 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Library, PanelLeft } from 'lucide-react'
 import type { StudyMode } from '@shared/practice'
 import { StudyModeTabs } from './StudyModeTabs'
+import type { StudyDocumentExpansion } from './StudyDocumentPicker'
 import './study-workspace.css'
+
+export interface StudyPanels extends StudyDocumentExpansion {
+  historyOpen: boolean
+  onHistoryOpenChange: (open: boolean) => void
+  materialsOpen: boolean
+  onMaterialsOpenChange: (open: boolean) => void
+}
 
 export function StudyHeader({ mode, onModeChange, historyOpen, onHistoryToggle, materialsOpen, onMaterialsToggle, count, children }: {
   mode: StudyMode; onModeChange: (mode: StudyMode) => void; historyOpen: boolean; onHistoryToggle: () => void

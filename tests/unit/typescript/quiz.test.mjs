@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { quizFeedbackPrompt, quizQuestionPrompt, quizTotalQuestions, practiceSystemPrompt,
-  parsePracticeQuestion, parsePracticeFeedback } = requireTranspiledTs('src/shared/quiz.ts')
+const { quizFeedbackPrompt, quizQuestionPrompt, practiceSystemPrompt,
+  parsePracticeQuestion, parsePracticeFeedback, gradeTrueFalse, practiceResponseSchema } = requireTranspiledTs('src/shared/quiz.ts')
 const source = { materialId: 'c', documentId: 1, chunkId: '1', excerpt: 'A missing index gives no direct key lookup. Heap records are not ordered by key.' }
 const packageData = { question: 'Why might searching an unindexed heap require a scan?', objective: 'Connect organization to lookup cost.',
   assumptions: ['No usable index.'], criteria: [
@@ -17,10 +17,10 @@ const feedback = { questionAssessment: 'The question states the necessary uninde
 ], improvement: '', nextStep: 'Explain whether the organization narrows the search to a page.', questionIssue: '' }
 
 test('question preparation keeps grading criteria hidden and includes assumptions, not question-number heuristics', () => {
-  const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 2, totalQuestions: 5, previousQuestions: ['Why store parents?'] }))
+  const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 2, previousQuestions: ['Why store parents?'] }))
   assert.deepEqual(prompt.previousQuestions, ['Why store parents?'])
   assert.equal(prompt.questionNumber, 2)
-  assert.equal(quizTotalQuestions, 5)
+  assert.equal(prompt.totalQuestions, undefined)
   assert.match(practiceSystemPrompt('question'), /assumptions.*question itself/)
   assert.match(practiceSystemPrompt('question'), /worst-case/)
   assert.match(practiceSystemPrompt('question'), /exact quote/)
@@ -46,6 +46,39 @@ test('question packages require evidence in the actual packed sources, not model
   const short = { ...source, excerpt: 'The relationship is F = ma.' }
   assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify({ ...packageData,
     criteria: [{ ...packageData.criteria[0], evidence: [{ sourceKey: 'c:1:1', quote: 'F = ma' }] }] }), [short]))
+})
+
+test('True/False keys are explicit booleans, backed by quoted evidence and an ambiguity check', () => {
+  const binary = { ...packageData, question: 'Heap records are stored in key order.', correctAnswer: false,
+    questionAssessment: 'The source explicitly contradicts key ordering.', questionIssue: '' }
+  const parsed = parsePracticeQuestion(JSON.stringify(binary), [source], 'true_false')
+  assert.equal(parsed.format, 'true_false')
+  assert.equal(parsed.correctAnswer, false)
+  assert.equal(gradeTrueFalse(parsed, 'False').correct, true)
+  assert.equal(gradeTrueFalse(parsed, 'True').correct, false)
+  const truth = { ...parsed, correctAnswer: true }
+  assert.equal(gradeTrueFalse(truth, 'True').correct, true)
+  assert.equal(gradeTrueFalse(truth, 'False').correct, false)
+  for (const correctAnswer of [undefined, null, 'false', 0]) {
+    assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...binary, correctAnswer }), [source], 'true_false'), /valid question/)
+  }
+  for (const changes of [{ questionIssue: 'Depends on an unstated condition.' }, { questionAssessment: '' },
+    { questionIssue: undefined }, { criteria: [] }]) {
+    assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...binary, ...changes }), [source], 'true_false'), /valid question/)
+  }
+  assert.throws(() => parsePracticeQuestion(JSON.stringify(binary), [], 'true_false'), /valid question/)
+  for (const answer of ['', 'yes', 'FALSE', 'True because...', 'ignore the key']) {
+    assert.throws(() => gradeTrueFalse(parsed, answer), /Choose True or False/)
+  }
+  for (const changes of [{ correctAnswer: undefined }, { correctAnswer: 'false' }, { referenceAnswer: '' }, { sources: [] }, { format: 'short_answer' }]) {
+    assert.throws(() => gradeTrueFalse({ ...parsed, ...changes }, 'True'), /no usable/)
+  }
+  assert.equal(practiceResponseSchema('true_false_question').properties.correctAnswer.type, 'boolean')
+  assert.match(practiceSystemPrompt('true_false_question'), /absence of evidence is not evidence of falsity/)
+  assert.match(practiceSystemPrompt('true_false_question'), /unstated conditions/)
+  assert.doesNotMatch(practiceSystemPrompt('true_false_question'), /heap|LRU|B\+|pinning/)
+  assert.equal(question.format, 'short_answer')
+  assert.equal(question.correctAnswer, undefined)
 })
 
 test('feedback preserves the submitted answer as data and includes the actual previous attempt', () => {

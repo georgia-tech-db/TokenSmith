@@ -20,21 +20,27 @@ export function sourcesInScope(sources: ChatSource[], scope: StudyDocumentRef[])
     keys.has(studyDocumentKey({ materialId: source.materialId, documentId: Number(source.documentId) })))
 }
 
-export function currentStudyScope(state: AppStateSnapshot): StudyDocumentRef[] | undefined {
-  if (state.practice?.mode === 'practice') {
-    const session = state.practice.sessions.find(item => item.id === state.practice?.activeSessionId)
-    return session ? scopeRefs(session.documents) : state.practice.draftScope
-  }
-  return state.conversations.find(item => item.id === state.activeConversationId)?.documentScope
+export function changeStudyScope(state: AppStateSnapshot, documents: StudyDocumentRef[]): AppStateSnapshot {
+  const scope = scopeRefs(documents)
+  const key = studyScopeKey(scope)
+  const practice = state.practice
+  const session = practice?.sessions.find(item => item.id === practice.activeSessionId)
+  // Saved exercises retain their original evidence; a different selection needs a new session.
+  const activeSessionId = session && studyScopeKey(session.documents) === key ? session.id : undefined
+  return { ...state, studyScope: scope,
+    conversations: state.conversations.map(chat => chat.id === state.activeConversationId ? { ...chat, documentScope: scope } : chat),
+    practice: practice ? { ...practice, draftScope: scope, activeSessionId } : practice }
 }
 
 // Older chats inherit the former collection selection once; an explicit empty scope stays empty.
 export function initializeStudyScopes(state: AppStateSnapshot, documents: StudyDocument[]): AppStateSnapshot {
   const initial = state.studyScope ?? scopeRefs(documents.filter(document =>
     state.materials.some(material => material.id === document.materialId && material.isActive !== false)))
+  const session = state.practice?.sessions.find(item => item.id === state.practice?.activeSessionId)
   if (state.studyScope && state.conversations.every(chat => chat.documentScope !== undefined) &&
-      (!state.practice || state.practice.draftScope !== undefined)) return state
-  return { ...state, studyScope: initial,
+      (!state.practice || state.practice.draftScope !== undefined) &&
+      (!session || studyScopeKey(session.documents) === studyScopeKey(initial))) return state
+  return changeStudyScope({ ...state,
     conversations: state.conversations.map(chat => chat.documentScope === undefined ? { ...chat, documentScope: initial } : chat),
-    practice: state.practice ? { ...state.practice, draftScope: state.practice.draftScope ?? initial } : state.practice }
+  }, initial)
 }
