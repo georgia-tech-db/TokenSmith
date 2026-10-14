@@ -35,6 +35,24 @@ test('three intent buckets distinguish computation from definitions, lookups and
     'Assess plans A at 9 credits and B at 4 credits when each has a fee of 2 credits.']) assert.equal(advancedMathBucket(question),'ambiguous',question)
 })
 
+test('teaching instructions do not override applied computation intent',async()=>{
+  for(const question of [
+    'For counts 50, 65, 52, list consecutive percentage changes and their mean. Explain the formula and substitutions.',
+    'For values 7, 13 and 10, list the changes, total and average. Explain each step.',
+    'Explain each substitution when calculating the average of 17, 21 and 25.',
+    'Explain the method, then calculate the weighted average using the table.'
+  ]) {
+    assert.equal(advancedMathBucket(question),'math',question)
+    const s=service()
+    const result=await s.router.prepare({...request,prompt:question})
+    assert.equal(result.advancedMathPlan.route,'math')
+    assert.deepEqual(s.counts(),{resolves:0,inventories:1})
+  }
+  for(const question of ['Explain how to calculate a percentage change.',
+    'Describe why a weighted mean differs from an ordinary mean.',
+    'What is the mean formula? Explain its meaning.']) assert.equal(advancedMathBucket(question),'chat',question)
+})
+
 test('new setting defaults off, persists true, and does not migrate legacy JavaScript opt-in',()=>{
   for(const value of [undefined,null,'true',1,{},false]) assert.equal(normalizeAdvancedMathEnabled(value),false)
   assert.equal(normalizeAdvancedMathEnabled(JSON.parse(JSON.stringify({advancedMathEnabled:true})).advancedMathEnabled),true)
@@ -333,5 +351,26 @@ test('contextual RAG rewriting shares classification and does not repeat it at a
     assert.equal(result.sources.length,1)
     assert.equal(prepared.request.prompt,prompt)
     assert.equal(prepared.request.referenceExchange.answer,'The two observations are 9 and 4.')
+  } finally {globalThis.fetch=originalFetch}
+})
+
+test('Advanced Math publishes a missing-evidence clarification with citations in one Qwen call',async()=>{
+  const originalFetch=globalThis.fetch
+  let calls=0
+  try {
+    globalThis.fetch=async(_url,options)=>{
+      const body=JSON.parse(options.body)
+      assert.equal(body.model,advancedMathModelName)
+      assert.match(body.messages.map(m=>m.content).join('\n'),/Measurements have not been recorded/)
+      calls++
+      return {ok:true,json:async()=>({message:{content:'<needs_information>Please provide the measurements and their units.</needs_information>'}})}
+    }
+    const result=await engine.sendChatMessage({...request,prompt:'Calculate the mean of the measurements.',
+      retrievedSources:[{title:'Measurement record',excerpt:'Measurements have not been recorded.'}]})
+    assert.equal(calls,1)
+    assert.equal(result.text,'Please provide the measurements and their units.')
+    assert.equal(result.sources.length,1)
+    assert.equal(result.sources[0].title,'Measurement record')
+    assert.equal(result.advancedMathUsed,true)
   } finally {globalThis.fetch=originalFetch}
 })

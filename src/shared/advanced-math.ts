@@ -27,16 +27,20 @@ export function advancedMathBucket(question: string): AdvancedMathBucket {
   if (new RegExp(String.raw`^(?:(?:what(?:'s| is)|calculate|compute|evaluate)\s+)?${number}\s*(?:[+×*÷/−-]|plus|minus|times|multiplied by|divided by)\s*${number}\s*[?.!]?\s*$`, 'i').test(text)) return 'chat'
   const computation = /\b(?:calculate|compute|evaluate|solve|derive|convert)\b/i.test(text)
   const numbers = text.match(/\d+(?:,\d{3})*(?:\.\d+)?/g) ?? []
-  if (/\b(?:explain|describe|define|meaning|definition|formula)\b/i.test(text) &&
-    (!computation || /^(?:explain|describe|define)\b/i.test(text) && numbers.length < 2 && !/\b(?:using|from)\b.*\b(?:data|values|table|measurements)\b/i.test(text))) return 'chat'
   const metric = /\b(?:mean|average|median|weighted|percentage|percent|consecutive|adjacent|variance|standard deviation|subtotal|tax|sum|total|ratio|rate of change)\b/i.test(text)
+  const appliedCalculation = metric && (computation || numbers.length >= 2 || /\b(?:consecutive|adjacent)\b/i.test(text))
+  const additionalCalculation = /\b(?:then|and)\s+(?:calculate|compute|evaluate|solve|derive|convert)\b/i.test(text)
+  // An explanation can accompany a calculation. Concept-only requests still
+  // stay on chat; adding teaching instructions must not override data/task intent.
+  if (/\b(?:explain|describe|define|meaning|definition|formula)\b/i.test(text) &&
+    (!computation && !appliedCalculation || /^(?:explain|describe|define)\b/i.test(text) && numbers.length < 2 && !additionalCalculation && !/\b(?:using|from)\b.*\b(?:data|values|table|measurements)\b/i.test(text))) return 'chat'
   const lookup = /\baccording to\b/i.test(text) || /(?:^|[,;]\s*)(?:which|who|when|where|identify|name|list|how many|count)\b/i.test(text)
   if (lookup && !metric && !computation) return 'chat'
   if (!metric && !computation && numbers.length < 2 && /^what (?:is|are)\b/i.test(text)) return 'chat'
   if (!metric && !computation && numbers.length < 2 && /^(?:why|how (?:does|do|can))\b/i.test(text)) return 'chat'
   if (!computation && numbers.length === 0 && /^what(?:'s| is) (?:a|an)\b/i.test(text)) return 'chat'
   if (new RegExp(String.raw`^(?:(?:what(?:'s| is)|calculate|compute|evaluate)\s+)?${number}(?:\s*[+×*÷/−-]\s*${number}){2,}\s*[?.!]?\s*$`, 'i').test(text)) return 'math'
-  if (metric && (computation || numbers.length >= 2 || /\b(?:consecutive|adjacent)\b/i.test(text))) return 'math'
+  if (appliedCalculation) return 'math'
   if (computation && /\b(?:then|and then|followed by)\b/i.test(text)) return 'math'
   return 'ambiguous'
 }

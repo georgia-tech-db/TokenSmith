@@ -4580,8 +4580,8 @@ function AssistantMessage({
         {(modeLabel || durationLabel || message.advancedMathUsed || displayed.reasoning?.used) && (
           <div className="message-meta-labels" aria-label="Response details">
             {modeLabel && <span>{modeLabel}</span>}
+            {message.advancedMathUsed && <span title={message.answerModelName}>Advanced Math</span>}
             {durationLabel && <span>{durationLabel}</span>}
-            {message.advancedMathUsed && <span title={message.answerModelName}>Advanced Math · {message.answerModelName ?? 'Qwen2.5-Coder 7B'}</span>}
             {displayed.reasoning?.used && <span>Reasoning used</span>}
           </div>
         )}

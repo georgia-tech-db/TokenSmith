@@ -1119,7 +1119,8 @@ export async function runOllamaStudyEngine(
           modelName, prompt: request.prompt, modelMessages: javascriptMessages,
           ...trace
         })
-      }
+      },
+      request.prompt
     )
     const answer = answerWithOrderedSources(text, packed.sources)
     options.signal?.throwIfAborted()
