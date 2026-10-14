@@ -2,8 +2,8 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 5346/17116 | 31.2% |
-| Backend (Python) | 2174/2408 | 90.3% |
+| Frontend / Electron (TypeScript / TSX) | 6215/18320 | 33.9% |
+| Backend (Python) | 2205/2441 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
 TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.
@@ -15,25 +15,26 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | File | Covered / total lines | Coverage |
 | --- | ---: | ---: |
 | `python_engine/tokensmith_cleaning.py` | 145/159 | 91.2% |
-| `python_engine/tokensmith_engine.py` | 890/988 | 90.1% |
+| `python_engine/tokensmith_engine.py` | 921/1021 | 90.2% |
 | `python_engine/tokensmith_preparation_job.py` | 98/112 | 87.5% |
 | `python_engine/tokensmith_preparation.py` | 146/162 | 90.1% |
 | `python_engine/tokensmith_store.py` | 895/987 | 90.7% |
 | `src/main/engine/cloud-generator-service.ts` | 262/262 | 100.0% |
 | `src/main/engine/embedding-device.ts` | 41/41 | 100.0% |
-| `src/main/engine/engine-service.ts` | 0/177 | 0.0% |
+| `src/main/engine/engine-service.ts` | 0/187 | 0.0% |
 | `src/main/engine/model-context-metadata.ts` | 90/90 | 100.0% |
 | `src/main/engine/ollama-library-search.ts` | 211/223 | 94.6% |
-| `src/main/engine/ollama-service.ts` | 542/1157 | 46.8% |
+| `src/main/engine/ollama-service.ts` | 631/1248 | 50.6% |
 | `src/main/engine/question-rewrite.ts` | 74/74 | 100.0% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
-| `src/main/engine/remote-chat-service.ts` | 241/291 | 82.8% |
+| `src/main/engine/remote-chat-service.ts` | 319/371 | 86.0% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
 | `src/main/engine/study-chat-format.ts` | 880/904 | 97.3% |
 | `src/main/engine/study-engine-core.ts` | 86/93 | 92.5% |
+| `src/main/engine/study-engine-latency.ts` | 65/65 | 100.0% |
 | `src/main/index.ts` | 0/605 | 0.0% |
-| `src/main/python/python-engine-service.ts` | 207/824 | 25.1% |
+| `src/main/python/python-engine-service.ts` | 222/873 | 25.4% |
 | `src/main/system/detect-device-capabilities.ts` | 26/73 | 35.6% |
 | `src/main/system/detectors/command.ts` | 2/23 | 8.7% |
 | `src/main/system/detectors/electron-gpu.ts` | 32/34 | 94.1% |
@@ -44,8 +45,8 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
 | `src/preload/index.ts` | 0/152 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
-| `src/renderer/src/AnswerExplanation.tsx` | 0/60 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6369 | 0.0% |
+| `src/renderer/src/AnswerExplanation.tsx` | 0/73 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6378 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
@@ -57,6 +58,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/hooks/useGenerationProgress.ts` | 0/83 | 0.0% |
 | `src/renderer/src/hooks/useSourceReader.ts` | 0/52 | 0.0% |
 | `src/renderer/src/hooks/useStudyDocuments.ts` | 0/35 | 0.0% |
+| `src/renderer/src/latency-plan.ts` | 243/247 | 98.4% |
 | `src/renderer/src/LibraryWorkspace.tsx` | 0/203 | 0.0% |
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 107/107 | 100.0% |
@@ -71,6 +73,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/PracticeQuestionView.tsx` | 0/79 | 0.0% |
 | `src/renderer/src/PracticeScreen.tsx` | 0/266 | 0.0% |
 | `src/renderer/src/PracticeTopicPicker.tsx` | 0/68 | 0.0% |
+| `src/renderer/src/QueryPlanPanel.tsx` | 0/245 | 0.0% |
 | `src/renderer/src/QuestionEditor.tsx` | 0/63 | 0.0% |
 | `src/renderer/src/remark-model-math.ts` | 128/128 | 100.0% |
 | `src/renderer/src/SelectedPassagePreview.tsx` | 0/22 | 0.0% |
@@ -84,8 +87,8 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/StudyModeTabs.tsx` | 0/10 | 0.0% |
 | `src/renderer/src/StudySidebar.tsx` | 0/59 | 0.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
-| `src/shared/app-state.ts` | 0/253 | 0.0% |
-| `src/shared/bridge.ts` | 0/97 | 0.0% |
+| `src/shared/app-state.ts` | 0/256 | 0.0% |
+| `src/shared/bridge.ts` | 0/98 | 0.0% |
 | `src/shared/chat-model-selection.ts` | 38/38 | 100.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
@@ -94,8 +97,9 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/device-tier-policy.ts` | 69/69 | 100.0% |
 | `src/shared/device-tier.ts` | 256/258 | 99.2% |
 | `src/shared/embedding-settings.ts` | 7/7 | 100.0% |
-| `src/shared/engine.ts` | 0/176 | 0.0% |
+| `src/shared/engine.ts` | 0/184 | 0.0% |
 | `src/shared/generation-estimate.ts` | 82/82 | 100.0% |
+| `src/shared/latency-trace.ts` | 358/362 | 98.9% |
 | `src/shared/model-catalog.ts` | 29/34 | 85.3% |
 | `src/shared/model-context.ts` | 62/66 | 93.9% |
 | `src/shared/model-defaults.ts` | 100/100 | 100.0% |
@@ -109,12 +113,12 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
 | `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
-| `src/shared/study-chat-pipeline.ts` | 79/79 | 100.0% |
+| `src/shared/study-chat-pipeline.ts` | 100/100 | 100.0% |
 | `src/shared/study-scope.ts` | 47/47 | 100.0% |
 | `src/shared/typography.ts` | 15/15 | 100.0% |
 
 </details>
 
-Measured commit: 83a0f51f1d6249d47f6bf8dac6ca2d231eb2511e
+Measured commit: c7fa02f879eda6cd352c906993f44df7758ef0a7
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38523339027)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38546096586)
