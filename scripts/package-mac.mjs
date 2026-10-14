@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
 import { copyFile, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 const execFileAsync = promisify(execFile)
-const rootDir = resolve(new URL('..', import.meta.url).pathname)
+const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const packageJson = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'))
 const appName = 'TokenSmith'
 const appVersion = packageJson.version
@@ -246,7 +247,8 @@ async function prepareAppBundle() {
     CFBundleName: appName,
     CFBundleShortVersionString: appVersion,
     CFBundleVersion: appVersion,
-    LSApplicationCategoryType: 'public.app-category.education'
+    LSApplicationCategoryType: 'public.app-category.education',
+    ...(arch === 'x64' ? { LSMinimumSystemVersion: '15.0' } : {})
   })
 
   await prepareAppPayload(resourcesPath)

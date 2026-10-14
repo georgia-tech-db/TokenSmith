@@ -8,6 +8,10 @@ const runtimes = {
     filename: 'cpython-3.12.14+20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz',
     sha256: '72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c'
   },
+  'darwin-x64': {
+    filename: 'cpython-3.12.14+20260901-x86_64-apple-darwin-install_only_stripped.tar.gz',
+    sha256: '65b195c9cedc1fef6767f044f9822069adbd1bd9204d424ece4628776fdc04bb'
+  },
   'darwin-arm64': {
     filename: 'cpython-3.12.14+20260901-aarch64-apple-darwin-install_only_stripped.tar.gz',
     sha256: '81a359f1cfadd4da11766534c5913791cea55f26e1bb902cacd2a531bb1e4b2b'

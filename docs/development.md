@@ -23,8 +23,10 @@ npm run setup:python-runtime
 
 This creates `app_runtime/python` inside the repository. It does not require,
 modify, or install packages into your system Python. The download is selected
-for Linux x64, Windows x64, or macOS ARM64 and verified with SHA-256 before it
-is used.
+for Linux x64, Windows x64, macOS Apple Silicon (ARM64), or macOS Intel (x64),
+and verified with SHA-256 before it is used. Intel Macs require macOS 15 or
+newer because of the pinned native Python dependencies. Both Mac architectures
+use the same setup commands and dependency versions.
 
 The runtime comes from Astral's
 [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
@@ -54,6 +56,16 @@ Create a macOS DMG:
 ```sh
 npm run package:mac
 ```
+
+Mac packaging uses the architecture of Node.js. Run the same command on an
+Intel Mac to create
+`release/TokenSmith-<version>-mac-x64.dmg`, or on Apple Silicon to create
+`release/TokenSmith-<version>-mac-arm64.dmg`. The Intel application declares
+macOS 15.0 as its minimum version.
+
+The macOS release workflow builds both architectures on native GitHub
+runners, verifies the packaged runtime, and keeps their artifacts separate.
+It runs manually or when a `v*` release tag is pushed.
 
 Create a Windows portable ZIP:
 

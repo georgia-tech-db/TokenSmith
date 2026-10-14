@@ -11,8 +11,16 @@ permissions:
 
 jobs:
   package-macos:
-    name: Package macOS App
-    runs-on: macos-latest
+    name: Package macOS App (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
 
     steps:
@@ -22,7 +30,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install Node dependencies
@@ -45,7 +53,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: TokenSmith-macos-${{ github.run_number }}
+          name: TokenSmith-macos-${{ matrix.arch }}-${{ github.run_number }}
           path: release/TokenSmith-*-mac-*.dmg
           if-no-files-found: error
           retention-days: 7

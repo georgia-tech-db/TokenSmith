@@ -25,6 +25,10 @@ Local models run through Ollama. You can also connect a cloud model with an API 
 | Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-win-x64.zip) |
 | Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/tokensmith_0.1.15_amd64.deb) |
 
+Intel Macs running macOS 15 or newer can use the same
+[setup and packaging commands](docs/development.md). An Intel installer has
+not yet been published for the listed v0.1.15 release.
+
 ## Demo
 
 https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
