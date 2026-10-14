@@ -1,4 +1,4 @@
-import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
+import type { LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
   EngineRunOptions,
@@ -28,10 +28,6 @@ import {
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
-
-interface OpenAiCompatibleModelList {
-  data?: Array<{ id?: string }>
-}
 
 interface OpenAiCompatibleChatResponse {
   choices?: Array<{
@@ -100,89 +96,6 @@ async function responseErrorDetail(response: Response, secret?: string): Promise
   } catch {
     return ''
   }
-}
-
-function numericGroups(value: string): number[] {
-  return [...value.matchAll(/\d+(?:\.\d+)*/g)].flatMap((match) => match[0].split('.').map(Number))
-}
-
-function compareNumberListsDescending(left: number[], right: number[]): number {
-  const length = Math.max(left.length, right.length)
-
-  for (let index = 0; index < length; index += 1) {
-    const leftValue = left[index] ?? -1
-    const rightValue = right[index] ?? -1
-
-    if (leftValue !== rightValue) {
-      return rightValue - leftValue
-    }
-  }
-
-  return 0
-}
-
-function compareModelIds(left: string, right: string, preferredPrefix?: string): number {
-  if (preferredPrefix) {
-    const leftPreferred = left.startsWith(preferredPrefix)
-    const rightPreferred = right.startsWith(preferredPrefix)
-
-    if (leftPreferred !== rightPreferred) {
-      return leftPreferred ? -1 : 1
-    }
-  }
-
-  return compareNumberListsDescending(numericGroups(left), numericGroups(right)) || left.localeCompare(right)
-}
-
-function isLikelyEmbeddingModelId(modelId: string): boolean {
-  const lower = modelId.toLowerCase()
-  return lower.includes('embedding') || lower.includes('embed')
-}
-
-function listedModelMatchesRole(modelId: string, baseUrl: string, role: LocalModelRole): boolean {
-  if (!isGeminiOpenAiBaseUrl(baseUrl)) {
-    return true
-  }
-
-  if (role === 'both') {
-    return true
-  }
-
-  const embeddingModel = isLikelyEmbeddingModelId(modelId)
-  return role === 'embedder' ? embeddingModel : !embeddingModel
-}
-
-export async function listOpenAiCompatibleModels(
-  apiKey: string,
-  baseUrl: string,
-  role: LocalModelRole = 'generator'
-): Promise<string[]> {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
-  if (!apiKey.trim() || !normalizedBaseUrl) {
-    return []
-  }
-
-  const response = await fetch(`${normalizedBaseUrl}/models`, {
-    headers: {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      Accept: 'application/json'
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error(`Model list failed with HTTP ${response.status}${await responseErrorDetail(response, apiKey)}.`)
-  }
-
-  const payload = (await response.json()) as OpenAiCompatibleModelList
-  const modelIds = (payload.data ?? [])
-    .map((model) => model.id)
-    .filter((id): id is string => Boolean(id))
-    .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
-    .filter((id) => Boolean(id))
-    .filter((id) => listedModelMatchesRole(id, normalizedBaseUrl, role))
-
-  return Array.from(new Set(modelIds))
-    .sort((left, right) => compareModelIds(left, right, isGeminiOpenAiBaseUrl(normalizedBaseUrl) ? 'gemini-' : undefined))
 }
 
 async function runRemoteChatCompletion(
