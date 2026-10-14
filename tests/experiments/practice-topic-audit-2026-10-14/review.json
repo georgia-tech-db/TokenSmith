@@ -1,0 +1,128 @@
+{
+  "reviewer": "Codex, reading the generated statements, answer keys, explanations, cited passages, and relevant surrounding book text. This is a small qualitative audit, not an independently human-labeled accuracy benchmark.",
+  "summary": "12 requested questions: 11 accepted by the app, 1 blocked after two invalid citation attempts. Of the 11 accepted questions, 8 are sound as written in the course context and 3 should be qualified before being used for strict grading. No clearly inverted answer key was found. All 22 cited quotations across the accepted questions match their cited locations in the original book after presentation normalization. A matching quotation does not prove that the whole statement is entailed.",
+  "limitations": "One run, six topics, two consecutive questions each, one book, Gemma E4B. The test exercises the production retrieval and generation path, not UI clicks. Questions are mostly recall/comprehension; it does not establish reliability on harder applications or all future generations.",
+  "questions": [
+    {
+      "topic": "B+ trees",
+      "number": 1,
+      "verdict": "Sound",
+      "note": "False is correct: data-record pointers belong in leaves, whereas internal nodes route searches. The explanation follows the cited passage. Small improvement: say record pointers explicitly, and mention child pointers in the explanation so 'only separator keys' is not read literally.",
+      "bookLines": [
+        12947,
+        12972
+      ]
+    },
+    {
+      "topic": "B+ trees",
+      "number": 2,
+      "verdict": "Sound",
+      "note": "True is correct. The cited passage explicitly explains linked leaves and following next pointers during range scans. The statement says the structure allows this operation, rather than promising a particular latency.",
+      "bookLines": [
+        12972
+      ]
+    },
+    {
+      "topic": "Volcano iterator model",
+      "number": 1,
+      "verdict": "Qualify",
+      "note": "The True key captures the intended upward data flow, but 'after each tuple is processed at every stage' suggests every input tuple proceeds through every operator to the root. The book also shows filters discarding tuples and blocking operators consuming input before producing output. The quoted overview is genuine but too simplified to justify this unqualified wording.",
+      "rewrite": "In the Volcano model, next() requests propagate from parent operators to their children, while produced result tuples move back toward the parent.",
+      "rewriteKey": true,
+      "bookLines": [
+        21223,
+        15542,
+        15608
+      ]
+    },
+    {
+      "topic": "Volcano iterator model",
+      "number": 2,
+      "verdict": "Blocked",
+      "note": "Both generation attempts assigned quotations to ch15.074 that are absent from that passage. Some wording belongs to ch11.019 instead; the first attempt also inserted an ellipsis. The app correctly rejected both and displayed no second question. The automatic retry did not repair the citation mapping. Both candidates also largely repeated question 1.",
+      "bookLines": [
+        15466,
+        22544
+      ]
+    },
+    {
+      "topic": "Heap files",
+      "number": 1,
+      "verdict": "Qualify",
+      "note": "False is correct under the book's page-read I/O cost model for a full scan of a fixed B-page table. The question says only 'cost', and the explanation calls it constant without naming the metric or fixed table size. CPU work, result processing, and elapsed time are not established as constant by this passage. Include the cost metric in the visible statement.",
+      "rewrite": "For a full scan of a fixed B-page heap file, the number of page reads changes with the number of matching records.",
+      "rewriteKey": false,
+      "bookLines": [
+        9014,
+        9026
+      ]
+    },
+    {
+      "topic": "Heap files",
+      "number": 2,
+      "verdict": "Sound",
+      "note": "True is correct for the explicitly named full table scan described in the book. It does not claim every possible heap lookup must scan all pages. Learning-quality issue: it repeats the same fixed scan-cost idea as question 1, so it adds little variety.",
+      "bookLines": [
+        9026
+      ]
+    },
+    {
+      "topic": "LRU replacement",
+      "number": 1,
+      "verdict": "Sound",
+      "note": "False is supported by the sequential-flooding counterexample. The model correctly rejects a universal optimality claim instead of converting the heuristic into a guarantee. The statement's absolute wording makes this a fairly easy question.",
+      "bookLines": [
+        8176,
+        7328
+      ]
+    },
+    {
+      "topic": "LRU replacement",
+      "number": 2,
+      "verdict": "Sound",
+      "note": "True describes LRU's recency heuristic, not a guarantee that recent pages really will be reused. This distinction is preserved by the word assumes and explained by the cited passage. More precise wording could replace important with likely to be reused.",
+      "bookLines": [
+        8176
+      ]
+    },
+    {
+      "topic": "Extendible hashing",
+      "number": 1,
+      "verdict": "Sound",
+      "note": "True for the leading-bit convention used in this book. The full supporting passage explicitly states how global depth selects hash bits. The selected quote and explanation discuss only directory size, so they should also include the adjacent bit-selection sentence to make the justification direct. The topic supplies the extendible-hashing context.",
+      "bookLines": [
+        11215
+      ]
+    },
+    {
+      "topic": "Extendible hashing",
+      "number": 2,
+      "verdict": "Sound",
+      "note": "False is directly contradicted by the cited invariant: a bucket's local depth cannot exceed global depth. No incorrect answer-key inversion or unsupported inference.",
+      "bookLines": [
+        11215
+      ]
+    },
+    {
+      "topic": "Vectorized execution",
+      "number": 1,
+      "verdict": "Sound",
+      "note": "True: the question specifically asks about SIMD's role within vectorized processing, and the passage describes specialized instructions operating on multiple data values simultaneously. It does not assert that all vectorized execution necessarily uses SIMD.",
+      "bookLines": [
+        22833
+      ]
+    },
+    {
+      "topic": "Vectorized execution",
+      "number": 2,
+      "verdict": "Qualify",
+      "note": "True for BuzzDB's illustrated page-scan implementation, which gathers one-byte keys into a temporary contiguous keys array before NEON comparisons. The question turns that procedure into a requirement of the gather-process-scatter pattern generally. The supplied passage demonstrates this code; it does not establish a universal requirement. Scope the claim to the book's implementation.",
+      "rewrite": "In BuzzDB's illustrated SIMD page scan, the gather phase copies scattered one-byte keys into a contiguous temporary array before the NEON comparison loops.",
+      "rewriteKey": true,
+      "bookLines": [
+        23030
+      ]
+    }
+  ],
+  "reviewedResultsSha256": "042c42f1b78e7f9acd092e995283ab62d5c30a06b5c6c3e74dc0e581c8242aed"
+}
