@@ -57,12 +57,24 @@ window.tokensmith = {
   },
   searchLibrary: async (query, materials, limit, models, mode, options) => {
     calls.push({ kind: 'search', query, mode, options })
-    return options.documents.map(ref => sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), 0))
+    if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))
+    if (params.has('no-passages')) return []
+    return Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, index) => {
+      const ref = options.documents[index % options.documents.length]
+      return sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), index)
+    })
+  },
+  starterSources: async (_materials, limit, selected) => {
+    calls.push({ kind: 'topic-sources', selected, limit })
+    if (params.has('no-passages')) return []
+    return selected.map((ref, index) => sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), index))
   },
   cancelChatQuestionSuggestions: async id => { calls.push({ kind: 'cancel-suggestions', id }) },
   suggestChatQuestions: async (id, request) => {
     calls.push({ kind: 'suggestions', request })
-    return { suggestions: ['Why record ancestors during insertion?'], sources: [] }
+    if (params.has('slow-suggestions')) await new Promise(resolve => setTimeout(resolve, 2000))
+    if (params.has('error-suggestions') && calls.filter(call => call.kind === 'suggestions').length === 1) throw new Error('Suggestions unavailable')
+    return { suggestions: ['Why record ancestors during insertion?', 'How can a split reach the root?', 'What changes in the parent when a leaf splits?'], sources: [] }
   },
   practiceSources: async (selected, used, index) => {
     calls.push({ kind: 'sources', selected, used, index })
@@ -73,22 +85,26 @@ window.tokensmith = {
   resolveChatQuestion: async () => ({ mode: 'contextual', query: 'Explain ancestor paths during insertion.', clarification: '', reasoning: false }),
   sendChatMessage: async request => {
     const kind = request.practiceTask || 'discussion'
-    const preparing = kind === 'question' || kind === 'true_false_question'
+    if (kind === 'question' || kind === 'feedback') throw new Error('Short-answer practice is retired.')
+    const preparing = kind === 'true_false_question'
     calls.push({ kind, request })
     if (preparing) questionCalls++
     await new Promise(resolve => setTimeout(resolve, params.has('slow-model') ? 2000 : 100))
     if (preparing && questionCalls === 1 && params.has('error-first')) throw new Error('Test first question failed.')
     if (preparing && questionCalls === 2 && params.has('error-next')) throw new Error('Test model disconnected. Try preparing the next question again.')
-    if (kind === 'feedback' && params.has('error-feedback') && calls.filter(call => call.kind === 'feedback').length === 1) throw new Error('Test grading failed. Your answer is saved.')
     if (kind === 'discussion' && params.has('error-help') && calls.filter(call => call.kind === 'discussion').length === 1) throw new Error('Test explanation failed. Your question is saved.')
-    const evidence = request.retrievedSources?.map(source => ({ sourceKey: `${source.materialId}:${source.documentId}:${source.chunkId}`, quote: source.context })) || []
-    const data = kind === 'feedback' ? JSON.parse(request.prompt) : null
-    const complete = data?.answer.includes('split')
+    if (kind === 'topics') return { text: JSON.stringify({ topics: [
+      { title: 'B+ trees', sourceKeys: request.retrievedSources.slice(0, 1).map(source => `${source.materialId}:${source.documentId}:${source.sourceUnitId || source.chunkId}`) },
+      ...(request.retrievedSources.length > 1 ? [{ title: 'Buffer pools', sourceKeys: request.retrievedSources.slice(1, 2).map(source => `${source.materialId}:${source.documentId}:${source.sourceUnitId || source.chunkId}`) }] : [])
+    ] }), sources: request.retrievedSources }
+    const evidence = request.retrievedSources?.map(source => ({ sourceKey: `${source.materialId}:${source.documentId}:${source.sourceUnitId || source.chunkId}`, quote: source.context || source.excerpt })) || []
     const binary = kind === 'true_false_question'
-    const correctAnswer = preparing && JSON.parse(request.prompt).questionNumber % 2 === 1
+    const questionNumber = preparing ? JSON.parse(request.prompt).questionNumber : 0
+    const correctAnswer = preparing && questionNumber % 2 === 1
     const text = preparing ? JSON.stringify({
-      question: binary ? correctAnswer ? 'The ancestor path lets insertion propagate a split to its parent.'
-        : 'Insertion never uses the ancestor path to propagate a split to its parent.'
+      question: binary ? (params.has('duplicate-question') ? true : correctAnswer)
+        ? `The ancestor path lets insertion propagate a split to its parent${questionNumber > 2 && !params.has('duplicate-question') ? ` in insertion example ${questionNumber}` : ''}.`
+        : `Insertion never uses the ancestor path to propagate a split to its parent${questionNumber > 2 ? ` in insertion example ${questionNumber}` : ''}.`
         : `Why does insertion keep track of ancestor nodes${questionCalls > 1 ? ` (question ${questionCalls})` : ''}?`,
       ...(binary ? { correctAnswer: params.has('bad-true-false-key') ? 'true' : correctAnswer,
         questionAssessment: 'The passage directly supports or contradicts this statement.',
@@ -97,17 +113,10 @@ window.tokensmith = {
       criteria: [
         { id: 'c1', description: 'The path enables backtracking.', evidence: evidence.slice(0, 2) },
         { id: 'c2', description: 'A split may need to update the parent.', evidence: params.has('many-sources') ? evidence.slice(2, 4) : evidence },
-        ...(params.has('many-sources') ? [{ id: 'c3', description: 'Splits may propagate upward.', evidence: evidence.slice(4, 6) }] : [])
+        ...(evidence.length > 4 ? [{ id: 'c3', description: 'Splits may propagate upward.', evidence: evidence.slice(4, 6) }] : [])
       ],
       hint: 'Think about which node must change after a leaf splits.',
       explanation: Array(params.has('long-explanation') ? 12 : 1).fill('Record each internal node while descending. If a leaf splits, use this path to update its parent and continue upward if necessary.').join('\n\n')
-    }) : kind === 'feedback' ? JSON.stringify({
-      questionAssessment: 'The question is supported and answerable.',
-      checks: [{ criterionId: 'c1', status: 'met', feedback: 'You identified that the path lets insertion backtrack.' },
-        { criterionId: 'c2', status: complete ? 'met' : 'missing', feedback: complete ? 'You connected backtracking to updating a parent after a split.' : 'You have not explained which event makes backtracking necessary.' }],
-      improvement: data.previousAttempt ? 'You now connect the path to propagating a split.' : '',
-      nextStep: complete ? '' : 'Explain when insertion needs to return to a parent and what changes there.',
-      questionIssue: params.has('question-issue') ? 'This question assumes a condition that it did not state.' : ''
     }) : 'The path tells insertion where to propagate a split without searching from the root again.'
     return { text, sources: request.retrievedSources || [] }
   },

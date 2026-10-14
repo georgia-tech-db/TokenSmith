@@ -1,5 +1,6 @@
-import type { ChatMessage, ChatSelectedPassage, ChatSource, ModelRuntimeSettings } from './app-state'
+import type { ChatMessage, ChatSelectedPassage, ChatSource, Conversation, ModelRuntimeSettings } from './app-state'
 import type { StudyDocument, StudyDocumentRef } from './study-scope'
+import { migratedContextMode } from './model-context'
 
 export type StudyMode = 'chat' | 'practice'
 export type PracticeQuestionFormat = 'short_answer' | 'true_false'
@@ -51,6 +52,7 @@ export interface PracticeQuestion {
   composerMode?: 'answer' | 'help'
   helpDraft?: string
   helpPassage?: ChatSelectedPassage
+  chatOpened?: boolean
   discussions?: PracticeDiscussion[]
   timeline?: PracticeActivity[]
 }
@@ -66,6 +68,16 @@ export interface PracticeDiscussion {
 
 export type PracticeActivity = { kind: 'attempt' | 'discussion'; id: string } | { kind: 'hint' | 'explanation' }
 
+export interface PracticeTopic {
+  title: string
+  sources?: ChatSource[]
+  prepared?: boolean
+  conversationId?: string
+  answerId?: string
+  question?: string
+  answer?: string
+}
+
 export interface PracticeSession {
   id: string
   title: string
@@ -76,6 +88,7 @@ export interface PracticeSession {
   questions: PracticeQuestion[]
   currentIndex: number
   sourcesExhausted?: boolean
+  topic?: PracticeTopic
 }
 
 export interface PracticeState {
@@ -83,6 +96,8 @@ export interface PracticeState {
   sessions: PracticeSession[]
   activeSessionId?: string
   draftScope?: StudyDocumentRef[]
+  draftTopic?: PracticeTopic
+  topicSuggestions?: { key: string; topics: PracticeTopic[] }
 }
 
 export interface PracticeReference {
@@ -102,7 +117,7 @@ export function practiceSourceKey(source: ChatSource): string {
 }
 
 export function practiceAssisted(question: PracticeQuestion): boolean {
-  return Boolean(question.hintUsed || question.answerRevealed || question.attempts.length || question.discussions?.length)
+  return Boolean(question.hintUsed || question.answerRevealed || question.chatOpened || question.attempts.length || question.discussions?.length)
 }
 
 // Older saved questions have no timeline. Preserve their attempts when adding new activity.
@@ -177,10 +192,25 @@ export function practiceDiscussionPassage(reference: PracticeReference) {
   }
 }
 
+export function practiceChatConversation(id: string, session: PracticeSession, question: PracticeQuestion): Conversation {
+  const reference = practiceReference(session, question)
+  const messages: ChatMessage[] = [{ id: `${id}:question`, role: 'user',
+    text: `${reference.question}${reference.answer ? `\n\n${question.attempts.length ? 'My answer' : 'My selected answer'}: ${reference.answer}` : ''}` }]
+  // Copy only feedback the student has already seen, never the hidden answer guide.
+  if (reference.feedback) messages.push({ id: `${id}:feedback`, role: 'assistant',
+    text: reference.feedback, sources: reference.sources })
+  return { id, title: `Practice: ${question.text.slice(0, 65)}`, period: 'Today', messages,
+    practiceReference: reference, documentScope: reference.documents }
+}
+
 export function normalizePracticeState(value?: PracticeState): PracticeState {
   if (!value || !Array.isArray(value.sessions)) return emptyPracticeState()
   const sessions = value.sessions.filter(session => session && typeof session.id === 'string' &&
     Array.isArray(session.documents) && Array.isArray(session.questions) && session.modelSettings)
+    .map(session => ({ ...session, modelSettings: { ...session.modelSettings,
+      contextLengthMode: migratedContextMode(session.modelSettings) } }))
   return { mode: value.mode === 'practice' ? 'practice' : 'chat', sessions, ...(value.draftScope ? { draftScope: value.draftScope } : {}),
+    ...(value.draftTopic?.title?.trim() ? { draftTopic: value.draftTopic } : {}),
+    ...(value.topicSuggestions ? { topicSuggestions: value.topicSuggestions } : {}),
     activeSessionId: sessions.some(session => session.id === value.activeSessionId) ? value.activeSessionId : undefined }
 }

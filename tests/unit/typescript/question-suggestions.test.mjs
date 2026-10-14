@@ -47,9 +47,13 @@ test('follow-ups use the actual new answer and do not drop complete questions so
         return { ok: true, json: async () => ({ prompt_eval_count: 1800 }) }
       }
       if (++calls === 2) {
+        assert.equal(body.model, request.model.ollamaModelName)
         assert.equal(body.format.type, 'array')
         assert.equal(body.options.num_predict, 384)
+        assert.equal(body.think, false)
         assert.match(body.messages.at(-1).content, /Latest answer:\nRange queries return records within an interval/)
+        assert.match(body.messages.at(-1).content, /Ordered indexes support range queries/)
+        assert.match(body.messages.at(-1).content, /may contain mistakes/)
         assert.match(body.messages.at(-1).content, /after the latest answer/)
         assert.doesNotMatch(body.messages.at(-1).content, /short opening questions/)
       }

@@ -3,7 +3,7 @@ import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const { quizFeedbackPrompt, quizQuestionPrompt, practiceSystemPrompt,
-  parsePracticeQuestion, parsePracticeFeedback, gradeTrueFalse, practiceResponseSchema } = requireTranspiledTs('src/shared/quiz.ts')
+  parsePracticeQuestion, parsePracticeTopics, parsePracticeFeedback, gradeTrueFalse, practiceResponseSchema } = requireTranspiledTs('src/shared/quiz.ts')
 const source = { materialId: 'c', documentId: 1, chunkId: '1', excerpt: 'A missing index gives no direct key lookup. Heap records are not ordered by key.' }
 const packageData = { question: 'Why might searching an unindexed heap require a scan?', objective: 'Connect organization to lookup cost.',
   assumptions: ['No usable index.'], criteria: [
@@ -15,6 +15,25 @@ const feedback = { questionAssessment: 'The question states the necessary uninde
   { criterionId: 'c1', status: 'met', feedback: 'You identified the missing direct lookup.' },
   { criterionId: 'c2', status: 'missing', feedback: 'You have not connected the file organization to the search.' }
 ], improvement: '', nextStep: 'Explain whether the organization narrows the search to a page.', questionIssue: '' }
+
+test('topic suggestions require evidence from the packed documents and short concept names', () => {
+  const raw = topics => JSON.stringify({ topics })
+  const topic = { title: 'Heap files', sourceKeys: ['c:1:1'] }
+  assert.deepEqual(parsePracticeTopics(raw([topic, { ...topic, title: 'heap files' }]), [source]), [{ title: 'heap files', sources: [source] }])
+  for (const invalid of [{ ...topic, sourceKeys: ['other:1:1'] }, { ...topic, sourceKeys: [] }, { ...topic, title: '' }, { ...topic, title: 'A question?' }]) {
+    assert.throws(() => parsePracticeTopics(raw([invalid]), [source]), /usable topic suggestions/)
+  }
+  assert.match(practiceSystemPrompt('topics'), /B\+ trees or Volcano model/)
+  assert.match(practiceSystemPrompt('topics'), /do not suggest them unless the documents cover them/)
+})
+
+test('topic prompts preserve the chosen concept and bound the copied Chat exchange', () => {
+  const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 4, previousQuestions: ['Earlier statement'],
+    topic: { title: 'Heap files', question: 'A question '.repeat(500), answer: 'An answer '.repeat(1000) } }))
+  assert.equal(prompt.topic, 'Heap files')
+  assert.deepEqual(prompt.previousQuestions, ['Earlier statement'])
+  assert.ok(prompt.chatReference.question.length + prompt.chatReference.answer.length <= 3100)
+})
 
 test('question preparation keeps grading criteria hidden and includes assumptions, not question-number heuristics', () => {
   const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 2, previousQuestions: ['Why store parents?'] }))

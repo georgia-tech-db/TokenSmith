@@ -6,7 +6,8 @@ import { SourceTray, maxSourceTrayCards } from './SourceTray'
 import { canOpenSource, cleanMaterialTitle, isMarkdownSource, isPdfSource } from './source-display'
 import { useStudyDocuments, type StudyCatalog } from './hooks/useStudyDocuments'
 import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
-import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, type PracticeState, type StudyMode } from '@shared/practice'
+import { PracticeChatSuggestions } from './PracticeChatSuggestions'
+import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, practiceChatConversation, type PracticeTopic, type PracticeSession, type PracticeQuestion, type PracticeState, type StudyMode } from '@shared/practice'
 import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
 import { sourceEntryKey, sourceNavigationList } from './source-navigation'
 import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
@@ -602,7 +603,7 @@ function createOllamaEmbedderModel(
       'Local embedding model served by Ollama',
       'Prepares PDFs for search',
       'Embeds questions before source retrieval',
-      'Collections record the embedder used during indexing'
+      'Folders record the embedder used during indexing'
     ],
     download,
     addedAt: new Date().toISOString()
@@ -949,8 +950,8 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
   }
 
   const conversations = Array.isArray(savedState.conversations)
-    ? savedState.conversations.map(({ id, title, period, messages, practiceReference, documentScope }) => ({
-        id, title, period, practiceReference, documentScope,
+    ? savedState.conversations.map(({ id, title, period, messages, practiceReference, practiceSuggestions, documentScope }) => ({
+        id, title, period, practiceReference, practiceSuggestions, documentScope,
         messages: messages.filter(message => !('quiz' in message) && !('kind' in message && String(message.kind).startsWith('quiz')))
       }))
     : structuredClone(starterConversations)
@@ -1245,6 +1246,25 @@ export function App() {
   useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
+  }
+  const [practiceChatDraft, setPracticeChatDraft] = useState<{ conversationId: string; draft: ChatDraft }>()
+  function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
+    const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
+    setPracticeChatDraft({ conversationId: conversation.id,
+      draft: { text: question.helpDraft ?? '', selectedPassage: passage ?? question.helpPassage } })
+    updateAppState(current => {
+      const next = changeStudyScope(current, session.documents)
+      const practice = next.practice ?? emptyPracticeState()
+      return { ...next, activeScreen: 'chat', activeConversationId: conversation.id,
+        conversations: [conversation, ...next.conversations],
+        practice: { ...practice, mode: 'chat', activeSessionId: session.id,
+          sessions: practice.sessions.map(item => item.id !== session.id ? item : { ...item,
+            currentIndex: item.questions.findIndex(value => value.id === question.id),
+            questions: item.questions.map(value => value.id === question.id ? { ...value, chatOpened: true } : value) }) } }
+    })
+  }
+  function practiceTopic(topic: PracticeTopic) {
+    updatePractice(current => ({ ...current, mode: 'practice', activeSessionId: undefined, draftTopic: topic }))
   }
   function setStudyMode(mode: StudyMode) {
     updateAppState(current => {
@@ -2203,7 +2223,7 @@ export function App() {
             {...studyPanels} onViewLog={openLog}
             progress={generation.api}
             isActive={activeScreen === 'chat' && practiceState.mode === 'chat'}
-            onModeChange={setStudyMode}
+            onModeChange={setStudyMode} onPracticeTopic={practiceTopic} practiceChatDraft={practiceChatDraft}
             catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope}
             activeConversationId={appState.activeConversationId}
             conversations={appState.conversations}
@@ -2235,7 +2255,8 @@ export function App() {
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
           {...studyPanels} onViewLog={openLog}
-          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode}
+          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
+          materials={appState.materials} embeddingModels={embeddingModels}
           catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={selectedModel} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
@@ -2281,6 +2302,8 @@ export function App() {
       {isLogCardOpen && <TokenSmithLogCard entries={logEntries} error={logError} logFile={logFile} status={logStatus}
         onClose={() => setIsLogCardOpen(false)} onRefresh={refreshLogFile} />}
       <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => {
+        if (conversationId === 'practice-topics') return { ...current, activeScreen: 'chat',
+          practice: { ...(current.practice ?? emptyPracticeState()), mode: 'practice', activeSessionId: undefined } }
         const session = current.practice?.sessions.find(item => item.id === conversationId)
         const next = session ? changeStudyScope(current, session.documents) : current
         return { ...next, activeScreen: 'chat',
@@ -2319,6 +2342,8 @@ function ChatScreen({
   progress,
   isActive,
   onModeChange,
+  onPracticeTopic,
+  practiceChatDraft,
   catalog,
   scope: documentScope,
   onScopeChange,
@@ -2345,6 +2370,8 @@ function ChatScreen({
   isActive: boolean
   onViewLog: () => void
   onModeChange: (mode: StudyMode) => void
+  onPracticeTopic: (topic: PracticeTopic) => void
+  practiceChatDraft?: { conversationId: string; draft: ChatDraft }
   catalog: StudyCatalog
   scope: StudyDocumentRef[]
   onScopeChange: (scope: StudyDocumentRef[]) => void
@@ -2446,6 +2473,23 @@ function ChatScreen({
   function clearDraft() {
     setDrafts((current) => ({ ...current, [activeConversation.id]: { text: '' } }))
   }
+  useEffect(() => {
+    if (!practiceChatDraft) return
+    setDrafts(current => ({ ...current, [practiceChatDraft.conversationId]: practiceChatDraft.draft }))
+    composerInputRef.current?.focus()
+  }, [practiceChatDraft])
+  const readyDocuments = new Set(catalog.documents.map(item => `${item.materialId}:${item.documentId}`))
+  const practiceScopeReady = catalog.status === 'ready' && documentScope.length > 0 &&
+    documentScope.every(item => readyDocuments.has(`${item.materialId}:${item.documentId}`))
+  function practiceAnswer(message: ChatMessage) {
+    if (!practiceScopeReady) return
+    const index = activeConversation.messages.findIndex(item => item.id === message.id)
+    const question = activeConversation.messages.slice(0, index).reverse().find(item => item.role === 'user')
+    if (!question) return
+    const answer = answerForDisplay(message)
+    onPracticeTopic({ title: question.text.slice(0, 120), question: question.text, answer: answer.text,
+      conversationId: activeConversation.id, answerId: message.id, sources: sourcesInScope(answer.sources ?? [], documentScope) })
+  }
   const scopeMaterialIds = new Set(documentScope.map(item => item.materialId))
   const activeMaterials = materials.filter(material => scopeMaterialIds.has(material.id)).map(material => ({ ...material, isActive: true }))
   function changeDocumentScope(documentScope: StudyDocumentRef[]) {
@@ -2515,9 +2559,9 @@ function ChatScreen({
     ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
     : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
   const composerPlaceholder = selectedModel
-      ? 'Ask about your materials...'
+      ? 'Ask about your documents...'
       : needsDocumentSetup
-        ? 'Add your materials, then choose a chat model...'
+        ? 'Add documents to Library, then choose a chat model...'
         : 'Choose a recommended model to ask questions...'
 
   useEffect(() => {
@@ -3885,6 +3929,8 @@ function ChatScreen({
                         ? () => void improveAnswer(message.id, 'simple')
                         : undefined
                     }
+                    onPractice={message.text.trim() && message.conversationContextMode !== 'clarify' ? () => practiceAnswer(message) : undefined}
+                    practiceDisabled={!practiceScopeReady}
                     onTryReasoning={canRetryWithReasoning(message, selectedModel)
                       ? () => void improveAnswer(message.id, 'reasoning') : undefined}
                     explanationPending={isPending && pendingExplanationId === message.id}
@@ -3900,6 +3946,13 @@ function ChatScreen({
                 )
               )
             )}
+            {activeConversation.practiceReference && activeConversation.messages.filter(message => message.role === 'user').length === 1 &&
+              <PracticeChatSuggestions key={activeConversation.id} conversation={activeConversation} model={selectedModel}
+                settings={settings} modelSettings={selectedModelSettings} isActive={isActive}
+                disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} progress={progress}
+                onUse={handleUseFollowUpSuggestion} onSave={questions => onChatStateChange(current => ({ ...current,
+                  conversations: current.conversations.map(conversation => conversation.id === activeConversation.id
+                    ? { ...conversation, practiceSuggestions: questions } : conversation) }))} />}
             {chatError && <div className="chat-error-banner"><p>{chatError}</p>
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
@@ -4040,7 +4093,7 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
       {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
       {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
       {sources.length > 0 && <LogSources sources={sources} />}
-      {materials.length > 0 && <LogObjectList title="Materials" items={materials} />}
+      {materials.length > 0 && <LogObjectList title="Library folders" items={materials} />}
       {embeddingModels.length > 0 && <LogObjectList title="Embedding Models" items={embeddingModels} />}
 
       <details className="log-raw-details">
@@ -4212,6 +4265,8 @@ function AssistantMessage({
   showSources,
   suggestionsDisabled,
   onExplainSimpler,
+  onPractice,
+  practiceDisabled,
   onTryReasoning,
   explanationPending,
   explanationError,
@@ -4225,6 +4280,8 @@ function AssistantMessage({
   showSources: boolean
   suggestionsDisabled: boolean
   onExplainSimpler?: () => void
+  onPractice?: () => void
+  practiceDisabled: boolean
   onTryReasoning?: () => void
   explanationPending: boolean
   explanationError?: string
@@ -4256,7 +4313,7 @@ function AssistantMessage({
         )}
         <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
           errorView={explanationErrorView} disabled={suggestionsDisabled} onSimplify={onExplainSimpler}
-          onReasoning={onTryReasoning} onSelectView={onSelectExplanationView} />
+          onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -5257,7 +5314,7 @@ function ModelsScreen({
           ? 'Uses an OpenAI-compatible embeddings endpoint'
           : 'Uses an OpenAI-compatible chat completions endpoint',
         isEmbedder
-          ? 'Builds collection vectors and embeds questions for retrieval'
+          ? 'Builds document vectors and embeds questions for retrieval'
           : 'Uses TokenSmith retrieval before sending source-backed prompts',
         'API key is kept for this app session and redacted from saved state'
       ],
@@ -5484,7 +5541,7 @@ function ModelsScreen({
                   ? 'Used for PDF search'
                   : 'Used for local chat answers'
               : isEmbedderOnly
-                ? 'Used for collection and question embeddings'
+                ? 'Used for document and question embeddings'
                 : runtimeDetail}
           </small>
         </aside>
@@ -5952,7 +6009,7 @@ function ModelsScreen({
         <div>
           <p className="section-kicker">Models</p>
           <h1>Your models</h1>
-          <p>Chat models answer questions. Embedder models build and search collection vectors.</p>
+          <p>Chat models answer questions. Embedder models build and search document vectors.</p>
         </div>
         <div className="model-header-actions">
           <button className="primary-action" type="button" onClick={() => onConnectCloud()}><Plus size={18} /><span>Connect cloud model</span></button>
@@ -5970,7 +6027,7 @@ function ModelsScreen({
       {installedModels.length === 0 && (
         <div className="model-empty-state">
           <h2>No Models Installed</h2>
-          <p>Add or connect a chat model for answers and an embedder model for collection search.</p>
+          <p>Add or connect a chat model for answers and an embedder model for Library search.</p>
         </div>
       )}
     </div>

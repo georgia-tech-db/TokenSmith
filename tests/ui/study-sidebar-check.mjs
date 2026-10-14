@@ -1,3 +1,4 @@
+import { choosePracticeTopic, idlePractice, reviewPracticeQuestion, answerThenReview, advancePractice } from './practice-topic-helpers.mjs'
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 
@@ -20,8 +21,9 @@ const initial = async (flags = '') => {
   await page.waitForFunction(() => window.practiceTest.state().studyScope !== undefined)
 }
 const ready = async () => {
+  if (await practice.getByLabel('Your topic', { exact: true }).isVisible()) await choosePracticeTopic(page)
   await practice.getByLabel('Your answer', { exact: true }).waitFor()
-  await practice.locator('.practice-pending').waitFor({ state: 'hidden' })
+  await idlePractice(page)
 }
 const state = () => page.evaluate(() => window.practiceTest.state())
 const activeSession = async () => { const { practice } = await state(); return practice.sessions.find(s => s.id === practice.activeSessionId) }
@@ -72,24 +74,24 @@ try {
   const titleBounds = await sidebar(practice).locator('.conversation-select > span').boundingBox()
   const actionBounds = await sidebar(practice).locator('.conversation-actions').boundingBox()
   assert.ok(titleBounds.x + titleBounds.width <= actionBounds.x, 'Session titles must not overlap rename/delete controls')
-  await practice.getByLabel('Your answer', { exact: true }).fill('Keep this draft while using the sidebar.')
+  await answerThenReview(page, 'False')
   await page.screenshot({ path: `${output}/practice-desktop.png` })
 
   // Open/closed panels are one shared preference, not separate per-mode layouts.
-  await button(practice, 'Toggle materials').click()
+  await button(practice, 'Toggle Library').click()
   await button(practice, 'Toggle history').click()
   await button(practice, 'Chat').click()
   assert.notEqual(await chatPoems.locator('details').getAttribute('open'), null)
   assert.equal(await sidebar(chat).count(), 0)
-  assert.equal(await chat.getByRole('complementary', { name: 'Study materials' }).isVisible(), false)
+  assert.equal(await chat.getByRole('complementary', { name: 'Library' }).isVisible(), false)
   await button(chat, 'Toggle history').click()
   await button(chat, 'Practice').click()
   assert.equal(await sidebar(practice).isVisible(), true)
-  assert.equal(await practice.getByRole('complementary', { name: 'Study materials' }).isVisible(), false)
-  assert.equal(await practice.getByLabel('Your answer', { exact: true }).inputValue(), 'Keep this draft while using the sidebar.')
-  await button(practice, 'Toggle materials').click()
+  assert.equal(await practice.getByRole('complementary', { name: 'Library' }).isVisible(), false)
+  assert.equal(await practice.getByRole('button', { name: 'False', exact: true }).evaluate(el => el.getAttribute('aria-pressed') === 'true'), true)
+  await button(practice, 'Toggle Library').click()
   await button(practice, 'Chat').click()
-  assert.equal(await chat.getByRole('complementary', { name: 'Study materials' }).isVisible(), true)
+  assert.equal(await chat.getByRole('complementary', { name: 'Library' }).isVisible(), true)
   await button(chat, 'Rename New Study Chat').click()
   await chat.getByLabel('Chat name').fill('Saved chat')
   await chat.getByLabel('Chat name').press('Enter')
@@ -130,7 +132,8 @@ try {
   // Clearing a pending Practice request must not resurrect its deleted session.
   await initial('&slow-model')
   await button(chat, 'Practice').click()
-  await page.waitForFunction(() => window.practiceTest.calls.some(c => c.kind === 'question'))
+  await choosePracticeTopic(page)
+  await page.waitForFunction(() => window.practiceTest.calls.some(c => c.kind === 'true_false_question'))
   const pendingId = (await activeSession()).id
   respondToDialog(true, /Clear all practice/)
   await button(practice, 'Clear Practice History').click()

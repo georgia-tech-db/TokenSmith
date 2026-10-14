@@ -187,10 +187,11 @@ test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat comp
   })
 })
 
-test('runRemoteStudyEngine asks the selected remote model for follow-up suggestions when enabled', async () => {
+test('runRemoteStudyEngine keeps grounded follow-ups on the selected cloud model without local inference', async () => {
   const requestBodies = []
 
-  await withMockFetch(async (_url, options) => {
+  await withMockFetch(async (url, options) => {
+    assert.match(String(url), /^https:\/\/generativelanguage\.googleapis\.com\//)
     const body = JSON.parse(String(options.body))
     requestBodies.push(body)
 
@@ -228,7 +229,8 @@ test('runRemoteStudyEngine asks the selected remote model for follow-up suggesti
     assert.match(requestBodies[1].messages.at(-1).content, /Current question:\nWhat is atomicity\?/)
     assert.match(requestBodies[1].messages.at(-1).content, /Latest answer:\nAtomicity makes a transaction all-or-nothing/)
     assert.match(requestBodies[1].messages.at(-1).content, /Generate 2 suggested follow-up questions\.\nSuggest follow-up questions\./)
-    assert.doesNotMatch(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
+    assert.match(requestBodies[1].messages.at(-1).content, /Transactions preserve atomicity and durability/)
+    assert.equal(requestBodies[1].model, requestBodies[0].model)
     assert.deepEqual(response.followUpSuggestions, [
       'How does durability differ from atomicity?',
       'Why does rollback matter for atomicity?'

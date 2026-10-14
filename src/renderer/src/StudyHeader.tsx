@@ -30,6 +30,6 @@ export function StudyHeader({ mode, onModeChange, historyOpen, onHistoryToggle, 
     <button className="icon-button subtle" type="button" aria-label="Toggle history" title="Toggle history" aria-expanded={historyOpen} onClick={onHistoryToggle}><PanelLeft size={19} /></button>
     <StudyModeTabs mode={mode} onChange={onModeChange} />
     <div className="study-model-controls">{children}</div>
-    <button className="study-materials-toggle" type="button" aria-label="Toggle materials" title="Choose study documents" aria-expanded={materialsOpen} onClick={onMaterialsToggle}><Library size={17} /><span>Materials</span><span>{count}</span></button>
+    <button className="study-materials-toggle" type="button" aria-label="Toggle Library" title="Choose documents from Library" aria-expanded={materialsOpen} onClick={onMaterialsToggle}><Library size={17} /><span>Library</span><span>{count}</span></button>
   </header>
 }

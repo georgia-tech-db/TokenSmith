@@ -128,13 +128,13 @@ export function LibraryWorkspace(props: Props) {
   return <div className="view-frame standard-frame library-workspace">
     <header className="screen-header"><div>
       {(creating || selected) && <button className="library-back" onClick={() => { setCreating(false); setSelectedId(null); setError('') }}><ArrowLeft size={16} /> Library</button>}
-      <h1>{creating ? 'Add documents' : selected ? selected.title : 'Document library'}</h1>
-      <p>{creating ? 'PDF, Markdown, or text documents' : selected ? label(selected) : `${materials.length} ${materials.length === 1 ? 'collection' : 'collections'}`}</p>
-    </div>{!creating && !selected && <button className="primary-action" onClick={openCreate}><Plus size={16} /> Add documents</button>}</header>
+      <h1>{creating ? 'Add folder' : selected ? selected.title : 'Library'}</h1>
+      <p>{creating ? 'PDF, Markdown, or text documents' : selected ? label(selected) : `${materials.length} ${materials.length === 1 ? 'folder' : 'folders'}`}</p>
+    </div>{!creating && !selected && <button className="primary-action" onClick={openCreate}><Plus size={16} /> Add folder</button>}</header>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {creating ? <form className="library-import" onSubmit={(event: FormEvent) => { event.preventDefault(); start() }}>
       <label>Folder or document<div className="library-path-field"><input value={path} onChange={e => setPath(e.target.value)} placeholder="Folder or file path" /><button type="button" onClick={browse}><FolderOpen size={16} /> Browse folder</button></div></label>
-      <label>Collection name <span className="library-hint">Optional</span><input value={name} onChange={e => setName(e.target.value)} placeholder={leaf(path)} /></label>
+      <label>Folder name <span className="library-hint">Optional</span><input value={name} onChange={e => setName(e.target.value)} placeholder={leaf(path)} /></label>
       {settings()}
       {preparation.mode === 'ai' && <p className="library-hint">{generator
         ? `AI preparation: ${generator.name}.${generator.engine === 'remote' ? ' Document text will be sent to the selected cloud provider.' : ''}`
@@ -149,15 +149,15 @@ export function LibraryWorkspace(props: Props) {
           {report?.documents.map(d => <button key={d.path} className={d.path === documentPath ? 'selected' : ''} onClick={() => chooseDocument(d.path)}>
             <FileText size={16} /><span>{d.title}<small>{d.status === 'ready' ? `${d.chunkCount} ${d.chunkCount === 1 ? 'chunk' : 'chunks'}` : 'Needs attention'}{d.warning ? ' · Check extraction' : ''}</small></span>
           </button>)}
-          {!report?.documents.length && <p className="library-hint">{reportLoading ? 'Loading documents…' : 'Document details appear as preparation finishes. Older collections can be prepared with AI using Customize.'}</p>}
+          {!report?.documents.length && <p className="library-hint">{reportLoading ? 'Loading documents…' : 'Document details appear as preparation finishes. Older folders can be prepared with AI using Customize.'}</p>}
         </aside>
         <section className="library-document-reader" aria-label="Prepared document">
           {!document ? <div className="library-reader-empty"><FileText size={24} /><p>Select a document to inspect its passages or add specific instructions.</p><small>No review is required to use successfully prepared documents.</small></div> : <>
             <header><h2>{document.title}</h2><p>{document.pageCount ? `${document.pageCount} pages · ` : ''}{document.chunkCount} {document.chunkCount === 1 ? 'chunk' : 'chunks'}</p></header>
             {document.error && <p className="inline-error">{document.error}</p>}
             {document.warning && <p className="library-notice">{document.warning}</p>}
-            {preparation.mode === 'ai' && <details className="library-document-instructions"><summary>{Object.hasOwn(preparation.documentInstructions, document.path) ? 'Document instructions' : 'Using collection instructions'} · Customize</summary>
-              <label>Instructions for this document<textarea rows={3} value={documentOverride} onChange={e => setDocumentOverride(e.target.value)} placeholder="Leave blank to use the collection’s instructions." /></label>
+            {preparation.mode === 'ai' && <details className="library-document-instructions"><summary>{Object.hasOwn(preparation.documentInstructions, document.path) ? 'Document instructions' : 'Using folder instructions'} · Customize</summary>
+              <label>Instructions for this document<textarea rows={3} value={documentOverride} onChange={e => setDocumentOverride(e.target.value)} placeholder="Leave blank to use the folder’s instructions." /></label>
               <button disabled={selected.status === 'indexing'} onClick={() => {
                 const overrides = { ...preparation.documentInstructions }
                 if (documentOverride.trim()) overrides[document.path] = documentOverride.trim(); else delete overrides[document.path]
@@ -185,7 +185,7 @@ export function LibraryWorkspace(props: Props) {
         </section>
       </div>
     </> : <div className="library-collections">
-      {!materials.length && <div className="library-reader-empty"><FolderOpen size={30} /><h2>No collections yet</h2></div>}
+      {!materials.length && <div className="library-reader-empty"><FolderOpen size={30} /><h2>No folders yet</h2></div>}
       {materials.map(item => <article key={item.id} className="library-collection-row">
         <div><button className="library-title" onClick={() => inspect(item)}>{item.title}</button><p>{item.fileCount || 0} documents · {item.chunkCount || 0} searchable chunks · {item.preparation?.mode === 'ai' ? 'AI preparation' : item.preparation?.mode === 'basic' ? 'Basic preparation' : 'Previous preparation'}</p>
           {item.preparationIssueCount ? <button className="library-issue" onClick={() => inspect(item)}>{item.preparationIssueCount} items need attention</button> : null}

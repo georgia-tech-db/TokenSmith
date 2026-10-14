@@ -1,3 +1,4 @@
+import { choosePracticeTopic, idlePractice, reviewPracticeQuestion, answerThenReview, advancePractice } from './practice-topic-helpers.mjs'
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 
@@ -12,36 +13,32 @@ await mkdir(output, { recursive: true })
 const errors = []
 page.on('pageerror', error => errors.push(error.message))
 const practice = page.locator('.practice-frame')
-const materials = practice.getByRole('complementary', { name: 'Study materials' })
+const materials = practice.getByRole('complementary', { name: 'Library' })
 const cards = materials.locator('.source-tray-card')
-const button = name => (['Hint', 'Explanation'].includes(name) ? practice.locator('.practice-thread-question.is-active') : practice).getByRole('button', { name, exact: true })
+const button = name => practice.getByRole('button', { name, exact: true })
 const reader = page.getByRole('dialog', { name: 'Source Markdown viewer' })
 const state = () => page.evaluate(() => window.practiceTest.state().practice)
 const current = async () => { const value = await state(); const session = value.sessions.find(s => s.id === value.activeSessionId); return session.questions[session.currentIndex] }
 const open = async (flags = '&show-sources') => {
   await page.goto(`${base}?run=${crypto.randomUUID()}&practice${flags}`)
+  await choosePracticeTopic(page)
   await practice.getByLabel('Your answer', { exact: true }).waitFor()
 }
 const reveal = async () => {
-  await button('Explanation').click()
-  await practice.getByRole('region', { name: 'Worked explanation' }).last().waitFor()
+  await answerThenReview(page, 'True')
+  await practice.getByRole('region', { name: 'Practice feedback' }).last().waitFor()
 }
 const next = async () => {
-  const id = (await current()).id
-  await button('Next question').click()
-  await page.waitForFunction(id => {
-    const { sessions, activeSessionId } = window.practiceTest.state().practice
-    const session = sessions.find(s => s.id === activeSessionId)
-    return session.questions[session.currentIndex]?.id !== id
-  }, id)
+  const value = await state()
+  const session = value.sessions.find(s => s.id === value.activeSessionId)
+  await advancePractice(page, session.currentIndex + 2)
 }
 try {
-  // No early answer leak; a hint alone still does not expose the passages.
+  // Sources appear after a submitted choice, without a reveal button.
   await open()
   assert.equal(await cards.count(), 0)
   assert.equal(await practice.locator('.source-chip').count(), 0)
-  await button('Hint').click()
-  assert.equal(await cards.count(), 0)
+  assert.equal(await practice.getByRole('button', { name: /^(Hint|Explanation|Try again)$/ }).count(), 0)
   await reveal()
   await cards.first().waitFor()
   assert.equal(await cards.count(), 1)
@@ -57,10 +54,10 @@ try {
   assert.equal(await cards.count(), 0)
   await reveal()
   await cards.first().waitFor()
-  assert.match(await cards.innerText(), /TXT[\s\S]*Buffer pool/)
+  assert.match(await cards.innerText(), /Trees/)
   await cards.click()
   await reader.waitFor()
-  assert.equal(await page.evaluate(() => window.practiceTest.calls.at(-1).source.documentId), 2)
+  assert.equal(await page.evaluate(() => window.practiceTest.calls.at(-1).source.documentId), 1)
   await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
   await practice.locator('.practice-thread-question').first().getByRole('button', { name: '1 Source', exact: true }).click()
   assert.equal((await state()).sessions[0].currentIndex, 0)
@@ -75,7 +72,7 @@ try {
   await cards.click()
   await materials.getByRole('alert').waitFor()
   assert.match(await materials.getByRole('alert').innerText(), /Test source read failed/)
-  assert.equal((await current()).attempts.length, 0)
+  assert.equal((await current()).attempts.length, 1)
   await next()
   await reveal()
   assert.equal(await materials.getByRole('alert').count(), 0)
@@ -83,16 +80,16 @@ try {
   await reader.waitFor()
   await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
 
-  // Top-five cards, like Chat, but the reader still navigates every source for the question.
+  // The reader navigates every passage in the topic question.
   await open('&show-sources&many-sources')
   await reveal()
-  assert.equal(await cards.count(), 5)
-  await button('6 Sources').click()
+  assert.equal(await cards.count(), 4)
+  await button('4 Sources').click()
   await cards.first().click()
   await reader.waitFor()
-  for (let i = 2; i <= 6; i++) {
+  for (let i = 2; i <= 4; i++) {
     await page.getByRole('button', { name: 'Next source', exact: true }).click()
-    await reader.getByText(`Source ${i} of 6`, { exact: true }).waitFor()
+    await reader.getByText(`Source ${i} of 4`, { exact: true }).waitFor()
   }
   assert.equal(await page.getByRole('button', { name: 'Next source', exact: true }).isDisabled(), true)
   await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
@@ -128,12 +125,10 @@ try {
   assert.equal(await cards.count(), 1)
   assert.match(await cards.innerText(), /Trees/)
 
-  // Mobile source button opens the shared pane without losing the help draft.
+  // Mobile source button opens Library without changing the checked answer.
   await page.setViewportSize({ width: 390, height: 844 })
   await open()
   await reveal()
-  await button('Ask for help').click()
-  await practice.getByLabel('Question about this exercise').fill('Keep my help question.')
   await button('1 Source').click()
   await materials.waitFor({ state: 'visible' })
   await cards.click()
@@ -141,8 +136,8 @@ try {
   await page.screenshot({ path: `${output}/reader-mobile.png` })
   await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
   await page.screenshot({ path: `${output}/sources-mobile.png` })
-  await materials.getByRole('button', { name: 'Close materials' }).click()
-  assert.equal(await practice.getByLabel('Question about this exercise').inputValue(), 'Keep my help question.')
+  await materials.getByRole('button', { name: 'Close Library' }).click()
+  assert.equal((await current()).attempts[0].answer, 'True')
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   assert.deepEqual(errors, [])
   console.log('Practice sources passed: shared cards, MD/TXT reader, source gating, question navigation, reload, errors, full source navigation, stale-response cancellation, settings and mobile.')

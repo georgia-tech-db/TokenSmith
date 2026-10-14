@@ -1,3 +1,4 @@
+import { choosePracticeTopic, idlePractice, reviewPracticeQuestion, answerThenReview, advancePractice } from './practice-topic-helpers.mjs'
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 
@@ -13,8 +14,8 @@ const errors = []
 page.on('pageerror', error => errors.push(error.message))
 const chat = page.locator('.chat-frame')
 const practice = page.locator('.practice-frame')
-const pane = frame => frame.getByRole('complementary', { name: 'Study materials' })
-const toggle = frame => frame.getByRole('button', { name: 'Toggle materials', exact: true })
+const pane = frame => frame.getByRole('complementary', { name: 'Library' })
+const toggle = frame => frame.getByRole('button', { name: 'Toggle Library', exact: true })
 const show = async frame => { if (!await pane(frame).isVisible()) await toggle(frame).click() }
 const hide = async frame => { if (await pane(frame).isVisible()) await toggle(frame).click() }
 const scrollTop = element => element.evaluate(el => el.scrollTop)
@@ -23,13 +24,13 @@ const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) 
 async function checkScrolling(frame, label) {
   await show(frame)
   const panel = pane(frame)
-  const documents = panel.getByRole('region', { name: 'Collections and documents', exact: true })
+  const documents = panel.getByRole('region', { name: 'Folders and documents', exact: true })
   const sources = panel.getByRole('region', { name: 'Source passages', exact: true })
   const heading = panel.getByRole('heading', { name: 'Sources', exact: true })
   assert.equal(await heading.count(), 1)
   assert.equal(await panel.getByText('Supporting passages', { exact: true }).count(), 0)
   assert.equal(await panel.getByText('Top sources', { exact: true }).count(), 0)
-  assert.equal(await panel.getByRole('heading', { name: 'Materials', exact: true }).count(), 1)
+  assert.equal(await panel.getByRole('heading', { name: 'Library', exact: true }).count(), 1)
   const docsSize = await metrics(documents), sourceSize = await metrics(sources)
   assert.ok(docsSize.total > docsSize.height && docsSize.height > 90, 'Long document lists must scroll within a usable area')
   assert.ok(sourceSize.total > sourceSize.height && sourceSize.height > 90, 'Sources must have their own usable scrolling area')
@@ -75,7 +76,7 @@ try {
     await page.waitForFunction(() => window.practiceTest.state().studyScope?.length > 20)
     await show(chat)
     const body = pane(chat).locator('.study-materials-body')
-    const docs = pane(chat).getByRole('region', { name: 'Collections and documents' })
+    const docs = pane(chat).getByRole('region', { name: 'Folders and documents' })
     near((await docs.boundingBox()).height, (await body.boundingBox()).height, 'Documents use the full body when there are no sources')
     await hide(chat)
     await chat.getByLabel('Message', { exact: true }).fill('Why record ancestors during insertion?')
@@ -84,9 +85,10 @@ try {
     const chatLayout = await checkScrolling(chat, `${name}-chat`)
     await hide(chat)
     await chat.getByRole('button', { name: 'Practice', exact: true }).click()
+    await choosePracticeTopic(page)
     await practice.getByLabel('Your answer', { exact: true }).waitFor()
-    await practice.getByRole('button', { name: 'Explanation', exact: true }).click()
-    await practice.getByRole('region', { name: 'Worked explanation' }).waitFor()
+    await answerThenReview(page, 'True')
+    await practice.getByRole('region', { name: 'Practice feedback' }).waitFor()
     const practiceLayout = await checkScrolling(practice, `${name}-practice`)
     for (const part of Object.keys(chatLayout)) {
       for (const dimension of ['x', 'y', 'width', 'height']) near(practiceLayout[part][dimension], chatLayout[part][dimension], `${name}: matching ${part} ${dimension}`)
@@ -94,9 +96,9 @@ try {
 
     // New questions replace the source list and reset it to the highest-ranked source.
     await hide(practice)
-    await practice.getByRole('button', { name: 'Next question', exact: true }).click()
+    await advancePractice(page, 2)
     await page.waitForFunction(() => window.practiceTest.state().practice.sessions[0].questions.length === 2)
-    await practice.locator('.practice-thread-question.is-active').getByRole('button', { name: 'Explanation', exact: true }).click()
+    await answerThenReview(page, 'True')
     await show(practice)
     near(await scrollTop(pane(practice).getByRole('region', { name: 'Source passages' })), 0, 'New question sources start at the top')
     assert.match(await pane(practice).locator('.source-tray-card').first().innerText(), /Buffer pool/)
@@ -105,12 +107,12 @@ try {
     await sources.press('End')
     await page.waitForFunction(el => el.scrollTop > 0, await sources.elementHandle())
     await hide(practice)
-    await practice.locator('.practice-thread-question').first().getByRole('button', { name: '6 Sources', exact: true }).click()
+    await practice.locator('.practice-thread-question').first().getByRole('button', { name: '4 Sources', exact: true }).click()
     near(await scrollTop(sources), 0, 'Selecting earlier evidence resets the existing source list')
     assert.match(await pane(practice).locator('.source-tray-card').first().innerText(), /Trees/)
   }
   assert.deepEqual(errors, [])
-  console.log('Materials scrolling passed: identical Chat/Practice layout, independent wheel and keyboard scrolling, fixed headings/footer, full-height empty-source state, reader access and source reset on desktop, compact and mobile.')
+  console.log('Library scrolling passed: identical Chat/Practice layout, independent wheel and keyboard scrolling, fixed headings/footer, full-height empty-source state, reader access and source reset on desktop, compact and mobile.')
 } catch (error) {
   await page.screenshot({ path: `${output}/failure.png` })
   console.error(await page.locator('body').innerText())

@@ -29,7 +29,8 @@ export function changeStudyScope(state: AppStateSnapshot, documents: StudyDocume
   const activeSessionId = session && studyScopeKey(session.documents) === key ? session.id : undefined
   return { ...state, studyScope: scope,
     conversations: state.conversations.map(chat => chat.id === state.activeConversationId ? { ...chat, documentScope: scope } : chat),
-    practice: practice ? { ...practice, draftScope: scope, activeSessionId } : practice }
+    practice: practice ? { ...practice, draftScope: scope, activeSessionId,
+      draftTopic: studyScopeKey(state.studyScope ?? []) === key ? practice.draftTopic : undefined } : practice }
 }
 
 // Older chats inherit the former collection selection once; an explicit empty scope stays empty.

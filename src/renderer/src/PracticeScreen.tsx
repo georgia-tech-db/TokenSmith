@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ChartColumn, Loader2, Plus, RefreshCw, Square } from 'lucide-react'
-import type { ChatSelectedPassage, ChatSource, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
+import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw } from 'lucide-react'
+import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
 import { practiceAssisted, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
-  type PracticeAnswerFeedback, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
+  type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
 import { gradeTrueFalse } from '@shared/quiz'
 import { ChatModelPicker } from './ChatModelPicker'
 import { MessageText } from './MessageText'
@@ -12,7 +12,8 @@ import { StudyMaterialsPane } from './StudyMaterialsPane'
 import { SourceTray, maxSourceTrayCards } from './SourceTray'
 import type { StudyCatalog } from './hooks/useStudyDocuments'
 import { studyDocumentKey, studyScopeKey, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
-import { PracticeQuestionView } from './PracticeQuestionView'
+import { PracticeQuestionView, PracticeTopicView } from './PracticeQuestionView'
+import { PracticeTopicPicker } from './PracticeTopicPicker'
 import { PracticeActions, PracticeComposer } from './PracticeComposer'
 import { ConversationViewport } from './ConversationViewport'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
@@ -25,10 +26,13 @@ interface Props extends StudyPanels {
   state: PracticeState
   onChange: (update: (state: PracticeState) => PracticeState) => void
   onModeChange: (mode: StudyMode) => void
+  onChat: (session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) => void
   onViewLog: () => void
   catalog: StudyCatalog
   scope: StudyDocumentRef[]
   onScopeChange: (scope: StudyDocumentRef[]) => void
+  materials: CourseMaterial[]
+  embeddingModels: LocalModel[]
   models: LocalModel[]
   selectedModel?: LocalModel
   settings: TokenSmithSettings
@@ -47,7 +51,7 @@ export function PracticeScreen(props: Props) {
   const documents = catalog.documents
   const { historyOpen: sidebarOpen, onHistoryOpenChange: setSidebarOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen } = props
   const [error, setError] = useState('')
-  const [pending, setPending] = useState<{ id: string; label: string } | null>(null)
+  const [pending, setPending] = useState<{ id: string } | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
   const operation = useRef<{ id: string; controller: AbortController; sessionId: string; scopeKey: string } | null>(null)
   const session = state.sessions.find(item => item.id === state.activeSessionId)
@@ -92,10 +96,6 @@ export function PracticeScreen(props: Props) {
   function updateSession(id: string, update: (value: PracticeSession) => PracticeSession) {
     onChange(current => ({ ...current, sessions: current.sessions.map(item => item.id === id ? update(item) : item) }))
   }
-  function updateQuestion(update: (value: PracticeQuestion) => PracticeQuestion, questionId = question?.id) {
-    if (!session || !questionId) return
-    updateSession(session.id, current => ({ ...current, questions: current.questions.map(item => item.id === questionId ? update(item) : item) }))
-  }
   async function perform<T>(target: PracticeSession, label: string,
     run: (client: ReturnType<typeof createPracticeClient>, id: string, signal: AbortSignal) => Promise<T>,
     complete: (result: T, durationMs: number) => void) {
@@ -109,12 +109,12 @@ export function PracticeScreen(props: Props) {
     const controller = new AbortController()
     operation.current = { id, controller, sessionId: target.id, scopeKey: studyScopeKey(target.documents) }
     setError('')
-    setPending({ id, label })
+    setPending({ id })
     const started = performance.now()
     progress.begin({ id, kind: 'quiz', label, conversationId: target.id, model: selectedModel,
       settings: target.modelSettings, onStop: stop })
     try {
-      const result = await run(createPracticeClient(window.tokensmith, selectedModel, settings), id, controller.signal)
+      const result = await run(createPracticeClient(window.tokensmith, selectedModel, settings, { materials: props.materials, embeddingModels: props.embeddingModels }), id, controller.signal)
       if (operation.current?.id !== id || controller.signal.aborted) return
       complete(result, performance.now() - started)
       progress.finish(id, 'Practice ready')
@@ -127,19 +127,22 @@ export function PracticeScreen(props: Props) {
     }
   }
   function generate(target: PracticeSession) {
-    void perform(target, 'Preparing question', (client, id, signal) => client.question(target, id, signal), generated =>
-      updateSession(target.id, current => generated
-        ? { ...current, questions: [...current.questions, generated], currentIndex: current.questions.length }
-        : { ...current, sourcesExhausted: true }))
+    if (!target.topic) { chooseSession(); return }
+    let prepared = target
+    void perform(target, 'Preparing question', async (client, id, signal) => {
+      prepared = await client.prepareTopic(target, signal)
+      return client.question(prepared, id, signal)
+    }, generated => updateSession(target.id, current => generated
+      ? { ...current, topic: prepared.topic, questions: [...current.questions, generated], currentIndex: current.questions.length }
+      : { ...current, topic: prepared.topic, sourcesExhausted: true }))
   }
-  function start() {
-    if (!isActive || session || !model || !available || operation.current || !scopeReady) return
+  function start(topic: PracticeTopic) {
+    if (!isActive || session || !model || !available || operation.current || !scopeReady || !topic.title.trim()) return
     const scope = documents.filter(item => selected.includes(studyDocumentKey(item)))
     if (!scope.length) return
-    const names = [...new Set(scope.map(item => item.collectionName))]
-    const created: PracticeSession = { id: `practice-${crypto.randomUUID()}`, title: names.join(', '), createdAt: new Date().toISOString(),
+    const created: PracticeSession = { id: `practice-${crypto.randomUUID()}`, title: topic.title, topic, createdAt: new Date().toISOString(),
       documents: scope, modelId: model.id, modelSettings: props.modelSettingsFor(model.id), questions: [], currentIndex: 0 }
-    onChange(current => ({ ...current, activeSessionId: created.id, sessions: [created, ...current.sessions] }))
+    onChange(current => ({ ...current, draftTopic: undefined, activeSessionId: created.id, sessions: [created, ...current.sessions] }))
     generate(created)
   }
   function chooseSession(id?: string) {
@@ -147,7 +150,7 @@ export function PracticeScreen(props: Props) {
     if (window.innerWidth <= 800) setSidebarOpen(false)
     const previous = state.sessions.find(item => item.id === id)
     if (previous) props.onScopeChange(scopeRefs(previous.documents))
-    onChange(current => ({ ...current, activeSessionId: id }))
+    onChange(current => ({ ...current, draftTopic: undefined, activeSessionId: id }))
   }
   function deleteSession(id: string) {
     const target = state.sessions.find(item => item.id === id)
@@ -159,54 +162,33 @@ export function PracticeScreen(props: Props) {
   function clearSessions() {
     if (!window.confirm('Clear all practice sessions and start a new practice? Your chats will not be changed.')) return
     stop(); setError(''); setReviewOpen(false)
-    onChange(current => ({ ...current, sessions: [], activeSessionId: undefined }))
+    onChange(current => ({ ...current, sessions: [], activeSessionId: undefined, draftTopic: undefined }))
   }
-  function checkAnswer() {
-    if (!session || !question || question.composerMode === 'help' || !question.rubric || !question.draft.trim() || pending) return
-    const answer = question.draft.trim()
+  function checkAnswer(answer: string) {
+    if (!session || !question || question.format !== 'true_false' || question.attempts.length || pending || operation.current) return
     const assisted = practiceAssisted(question)
-    const complete = (feedback: PracticeAnswerFeedback, durationMs: number) => {
-      const id = crypto.randomUUID()
-      updateQuestion(current => ({ ...current, reviewing: true, composerMode: 'help', attempts: [...current.attempts,
-        { id, answer, feedback, assisted, durationMs }], timeline: [...practiceTimeline(current), { kind: 'attempt', id }] }))
-    }
-    if (question.format === 'true_false') {
-      setError('')
-      try { complete(gradeTrueFalse(question, answer), 0) }
-      catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-      return
-    }
-    void perform(session, 'Checking your answer', (client, id) => client.feedback(session, question, answer, id), complete)
-  }
-  function help(questionId: string, kind: 'hint' | 'answer') {
-    updateQuestion(current => {
-      if (kind === 'hint' && current.hint && !current.hintUsed) return { ...current, hintUsed: true, timeline: [...practiceTimeline(current), { kind: 'hint' }] }
-      if (kind === 'answer' && current.referenceAnswer && !current.answerRevealed) return { ...current, answerRevealed: true, timeline: [...practiceTimeline(current), { kind: 'explanation' }] }
-      return current
-    }, questionId)
-  }
-  function next() {
-    if (!session || pending) return
     setError('')
-    if (session.currentIndex + 1 < session.questions.length) updateSession(session.id, current => ({ ...current, currentIndex: current.currentIndex + 1 }))
-    else if (!session.sourcesExhausted) generate(session)
-  }
-  function discuss() {
-    if (!session || !question || question.composerMode !== 'help' || !question.helpDraft?.trim() || pending) return
-    const prompt = question.helpDraft.trim()
-    void perform(session, 'Explaining', (client, id) => client.discuss(session, question, prompt, id), (reply, durationMs) => {
+    try {
+      const feedback = gradeTrueFalse(question, answer)
       const id = crypto.randomUUID()
-      updateQuestion(current => ({ ...current, helpDraft: '', helpPassage: undefined,
-        discussions: [...(current.discussions ?? []), { id, question: prompt, answer: reply.text, sources: reply.sources,
-          durationMs, selectedPassage: question.helpPassage }], timeline: [...practiceTimeline(current), { kind: 'discussion', id }] }))
-    })
+      const checked: PracticeQuestion = { ...question, draft: answer, reviewing: true, attempts: [...question.attempts,
+        { id, answer, feedback, assisted, durationMs: 0 }], timeline: [...practiceTimeline(question), { kind: 'attempt', id }] }
+      const updated = { ...session, questions: session.questions.map(item => item.id === question.id ? checked : item) }
+      updateSession(session.id, () => updated)
+      const nextIndex = updated.questions.findIndex((item, index) => index > updated.currentIndex && item.format === 'true_false')
+      if (nextIndex >= 0) updateSession(session.id, current => ({ ...current, currentIndex: nextIndex }))
+      else if (available && !session.sourcesExhausted) generate(updated)
+    }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+  }
+  function chatAbout(item: PracticeQuestion, passage?: ChatSelectedPassage) {
+    if (!session) return
+    stop()
+    props.onChat(session, item, passage)
   }
   function quote(passage: ChatSelectedPassage) {
-    if (!session || pending) return
-    const index = session.questions.findIndex(item => practiceMessages(item).some(message => message.id === passage.messageId))
-    if (index < 0) return
-    updateSession(session.id, current => ({ ...current, currentIndex: index,
-      questions: current.questions.map((item, i) => i === index ? { ...item, composerMode: 'help', helpPassage: { ...passage, question: practiceQuestionText(item) } } : item) }))
+    const item = session?.questions.find(item => practiceMessages(item).some(message => message.id === passage.messageId))
+    if (item) chatAbout(item, { ...passage, question: practiceQuestionText(item) })
   }
   function continueQuestion(index: number) {
     if (!session || pending || index < 0 || index >= session.questions.length) return
@@ -217,17 +199,13 @@ export function PracticeScreen(props: Props) {
   const selectedCount = documents.filter(item => selected.includes(studyDocumentKey(item))).length
   const scopeReady = catalog.status === 'ready' && selectedCount > 0 && selectedCount === scope.length
   useEffect(() => {
-    if (!isActive || session || !available || !scopeReady) return
-    // Coalesce quick checkbox changes and avoid duplicate starts under StrictMode.
-    const timer = window.setTimeout(start, 300)
-    return () => window.clearTimeout(timer)
-  }, [isActive, session?.id, scopeKey, scopeReady, model, settings, documents])
-  const nextDisabled = Boolean(pending) || !session || (session.currentIndex === session.questions.length - 1 && (!available || Boolean(session.sourcesExhausted)))
+    if (state.draftTopic && isActive && !session && available && scopeReady) start(state.draftTopic)
+  }, [state.draftTopic, isActive, session?.id, scopeKey, scopeReady, model])
   const today = new Date().toDateString()
   const historyGroups = ['Today', 'Earlier'].map(label => ({ label, items: state.sessions
     .filter(item => (new Date(item.createdAt).toDateString() === today) === (label === 'Today'))
     .map(item => ({ id: item.id, title: item.title, detail: `${item.questions.length} question${item.questions.length === 1 ? '' : 's'}` })) }))
-  return <div className={`view-frame study-frame practice-frame ${sidebarOpen ? 'has-history' : ''} ${materialsOpen ? 'has-materials' : ''}`} hidden={!isActive}>
+  return <div className={`view-frame study-frame practice-frame ${sidebarOpen ? 'has-history' : ''} ${materialsOpen ? 'has-materials' : ''}`} hidden={!isActive} aria-busy={Boolean(pending)}>
     {sidebarOpen && <StudySidebar mode="practice" activeId={session?.id} groups={historyGroups}
       onNew={() => chooseSession()} onSelect={chooseSession} onRename={(id, title) => updateSession(id, current => ({ ...current, title }))}
       onDelete={deleteSession} onClear={clearSessions} onViewLog={props.onViewLog} />}
@@ -239,6 +217,8 @@ export function PracticeScreen(props: Props) {
         {session && <button className="icon-button subtle" type="button" aria-label="Review progress" title="Review progress"
           aria-pressed={reviewOpen} disabled={Boolean(pending)} onClick={() => setReviewOpen(open => !open)}><ChartColumn size={18} aria-hidden="true" /></button>}
       </StudyHeader>
+      {session && <div className="practice-topic-bar"><span title={session.topic?.title}>{session.topic?.title ?? 'Saved practice'}</span>
+        <button className="study-action-button" type="button" onClick={() => chooseSession()}>Practice another topic</button></div>}
       {session && reviewOpen ? <div className="practice-scroll"><div className="practice-content">
           <p className="practice-topic">{session.title}</p><h1>Your practice progress</h1>
           <p>{session.questions.filter(item => item.attempts.length || item.answerRevealed).length} of {session.questions.length} questions reviewed</p>
@@ -253,26 +233,27 @@ export function PracticeScreen(props: Props) {
       </div></div> : session ? <>
         <ConversationViewport key={session.id} messages={messages} navigationQuestions={navigationQuestions} pending={Boolean(pending)} isActive={isActive}
           focusQuestionId={question?.id} onNavigate={id => continueQuestion(session.questions.findIndex(item => item.id === id))}
-          canQuote={!pending && available} onQuote={quote}>
+          canQuote={!pending} onQuote={quote}>
+          {session.topic?.question && session.topic.answer && <PracticeTopicView topic={session.topic} />}
           {session.questions.map((item, index) => <PracticeQuestionView key={item.id} question={item} index={index} active={index === session.currentIndex}
-            busy={Boolean(pending)} onContinue={() => continueQuestion(index)} sourcesOpen={index === session.currentIndex && materialsOpen}
+            busy={Boolean(pending)} sourcesOpen={index === session.currentIndex && materialsOpen}
             onShowSources={canShowSources(item) ? () => { continueQuestion(index); setMaterialsOpen(true) } : undefined}
-            onHint={() => help(item.id, 'hint')} onReveal={() => help(item.id, 'answer')}
-            actions={index === session.currentIndex && <PracticeActions question={item} busy={Boolean(pending)} nextDisabled={nextDisabled}
-              onChange={updateQuestion} onNext={next} />} />)}
-          {!question && !pending && !session.sourcesExhausted && <button type="button" className="practice-link" disabled={!available} onClick={() => generate(session)}><RefreshCw size={17} />Retry question</button>}
+            actions={index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
+          {(!question || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
+            <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />Retry question</button></div>}
         </ConversationViewport>
-      </> : <div className="practice-scroll" />}
+      </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
+        disabled={!scopeReady || !available} scope={scope} materials={props.materials} model={model} settings={settings}
+        modelSettings={model ? props.modelSettingsFor(model.id) : settings.modelDefaults} progress={progress}
+        cache={state.topicSuggestions} onCache={cache => onChange(current => ({ ...current, topicSuggestions: cache }))} onChoose={start} /></div>}
       <div className="practice-status">
         {error && <p className="practice-error" role="alert">{error}</p>}
         {!session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">{scope.length ? 'Selected documents are unavailable.' : 'No documents selected.'}</p>}
         {!session && !available && <p className="practice-muted" role="status">No ready chat model selected.</p>}
         {session && !available && <div className="practice-error" role="status"><p>This session's model is unavailable. Your questions and answers are saved.</p><button type="button" className="practice-button" onClick={props.onManageModels}>Manage models</button></div>}
-        {session?.sourcesExhausted && <p className="practice-muted" role="status">No unused passages remain in these documents. Review earlier questions or start a new practice with other documents.</p>}
-        {pending && <div className="practice-pending" role="status"><Loader2 className="spin" size={17} /><span>{pending.label}...</span><button type="button" className="practice-link" onClick={stop}><Square size={14} />Stop</button></div>}
+        {session?.sourcesExhausted && <p className="practice-muted" role="status">No supporting passages remain for this topic. Choose Practice another topic or change the documents in Library.</p>}
       </div>
-      {session && question && !reviewOpen && <PracticeComposer question={question} busy={Boolean(pending)} available={available} isActive={isActive}
-        onChange={updateQuestion} onCheck={checkAnswer} onHelp={discuss} />}
+      {session && question?.format === 'true_false' && !reviewOpen && <PracticeComposer question={question} busy={Boolean(pending)} isActive={isActive} onCheck={checkAnswer} />}
     </section>
     <StudyMaterialsPane catalog={catalog} scope={scope} open={materialsOpen}
       collectionExpansion={props.collectionExpansion} onCollectionExpansionChange={props.onCollectionExpansionChange}

@@ -225,6 +225,7 @@ export interface Conversation {
   period: 'Today' | 'This week'
   messages: ChatMessage[]
   practiceReference?: PracticeReference
+  practiceSuggestions?: string[]
   documentScope?: StudyDocumentRef[]
 }
 
