@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 5330/17300 | 30.8% |
+| Frontend / Electron (TypeScript / TSX) | 5346/17116 | 31.2% |
 | Backend (Python) | 2174/2408 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -19,7 +19,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `python_engine/tokensmith_preparation_job.py` | 98/112 | 87.5% |
 | `python_engine/tokensmith_preparation.py` | 146/162 | 90.1% |
 | `python_engine/tokensmith_store.py` | 895/987 | 90.7% |
-| `src/main/engine/cloud-generator-service.ts` | 211/211 | 100.0% |
+| `src/main/engine/cloud-generator-service.ts` | 262/262 | 100.0% |
 | `src/main/engine/embedding-device.ts` | 41/41 | 100.0% |
 | `src/main/engine/engine-service.ts` | 0/177 | 0.0% |
 | `src/main/engine/model-context-metadata.ts` | 90/90 | 100.0% |
@@ -27,12 +27,12 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/ollama-service.ts` | 542/1157 | 46.8% |
 | `src/main/engine/question-rewrite.ts` | 74/74 | 100.0% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
-| `src/main/engine/remote-chat-service.ts` | 322/378 | 85.2% |
+| `src/main/engine/remote-chat-service.ts` | 241/291 | 82.8% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
 | `src/main/engine/study-chat-format.ts` | 880/904 | 97.3% |
 | `src/main/engine/study-engine-core.ts` | 86/93 | 92.5% |
-| `src/main/index.ts` | 0/608 | 0.0% |
+| `src/main/index.ts` | 0/605 | 0.0% |
 | `src/main/python/python-engine-service.ts` | 207/824 | 25.1% |
 | `src/main/system/detect-device-capabilities.ts` | 26/73 | 35.6% |
 | `src/main/system/detectors/command.ts` | 2/23 | 8.7% |
@@ -42,14 +42,14 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/system/detectors/nvidia-gpu.ts` | 37/46 | 80.4% |
 | `src/main/system/detectors/portable-detector.ts` | 19/50 | 38.0% |
 | `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
-| `src/preload/index.ts` | 0/155 | 0.0% |
+| `src/preload/index.ts` | 0/152 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/60 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6606 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6369 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
-| `src/renderer/src/CloudGeneratorDialog.tsx` | 0/204 | 0.0% |
+| `src/renderer/src/CloudGeneratorDialog.tsx` | 0/251 | 0.0% |
 | `src/renderer/src/components/DeviceRecommendationPanel.tsx` | 0/97 | 0.0% |
 | `src/renderer/src/ConversationViewport.tsx` | 0/252 | 0.0% |
 | `src/renderer/src/GenerationStatus.tsx` | 0/28 | 0.0% |
@@ -89,7 +89,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/chat-model-selection.ts` | 38/38 | 100.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
 | `src/shared/cleaning.ts` | 0/122 | 0.0% |
-| `src/shared/cloud-generators.ts` | 51/52 | 98.1% |
+| `src/shared/cloud-generators.ts` | 97/100 | 97.0% |
 | `src/shared/device-capabilities.ts` | 50/50 | 100.0% |
 | `src/shared/device-tier-policy.ts` | 69/69 | 100.0% |
 | `src/shared/device-tier.ts` | 256/258 | 99.2% |
@@ -115,6 +115,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 79c6bfefa46a9f378525968297cf088e73094cf3
+Measured commit: 83a0f51f1d6249d47f6bf8dac6ca2d231eb2511e
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38517167104)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38523339027)
