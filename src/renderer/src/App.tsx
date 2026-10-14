@@ -107,6 +107,7 @@ import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
   reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
+import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
   BookOpen,
@@ -3591,8 +3592,10 @@ function ChatScreen({
         if (requestSequenceRef.current !== requestSequence || !reply.text.trim()) return
         responseDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
         sourcePreview.finish(progressId)
+        const latencyTrace = combineLatencyTrace(progressId, undefined, reply.latencyTrace)
         const variant = { text: reply.text, sources: reply.sources, responseDurationMs,
-          reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError }
+          reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {}) }
         onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
           conversation.id === targetConversationId ? { ...conversation, messages: conversation.messages.map(message =>
             message.id === answerId ? { ...message, explanationView: view,
@@ -3687,6 +3690,7 @@ function ChatScreen({
     let conversationContextMode: ChatMessage['conversationContextMode'] = passage ? 'contextual' : 'standalone'
     let rewrittenRequest: EngineChatRequest | undefined
     let clarificationReply: EngineChatResponse | undefined
+    let clientLatencySpans: LatencySpan[] = []
 
     try {
       if (window.tokensmith && (documentScope.length > 0 || activeConversation.practiceReference)) {
@@ -3707,13 +3711,16 @@ function ChatScreen({
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
             const reference = activeConversation.practiceReference
-            if (history.length === 0 && reference && passage?.messageId === reference.questionId) return Promise.resolve(sourcesInScope(reference.sources, documentScope))
+            if (history.length === 0 && reference && passage?.messageId === reference.questionId) {
+              return Promise.resolve({ sources: sourcesInScope(reference.sources, documentScope) })
+            }
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
               searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
           }
         })
+        clientLatencySpans = prepared.latencySpans
         conversationContextMode = prepared.resolution.mode
         rewrittenRequest = prepared.request
         retrievedSources = prepared.request?.retrievedSources ?? []
@@ -3753,6 +3760,7 @@ function ChatScreen({
       function publishAnswer(reply: EngineChatResponse) {
         if (requestSequenceRef.current !== requestSequence) return
         sourcePreview.finish(progressId)
+        const latencyTrace = combineLatencyTrace(progressId, clientLatencySpans, reply.latencyTrace)
         const assistantMessage: ChatMessage = {
           id: assistantId,
           role: 'assistant',
@@ -3773,7 +3781,8 @@ function ChatScreen({
           explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
           responseDurationMs: answerDurationMs,
           followUpSuggestions: reply.followUpSuggestions ?? [],
-          followUpError: reply.followUpError
+          followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {})
         }
 
         onChatStateChange((current) => ({

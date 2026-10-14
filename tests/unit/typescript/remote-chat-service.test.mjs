@@ -319,6 +319,8 @@ test('runRemoteStudyEngine surfaces follow-up generation failures without replac
     assert.equal(response.text, 'Atomicity makes a transaction all-or-nothing.')
     assert.deepEqual(response.followUpSuggestions, undefined)
     assert.match(response.followUpError, /suggestion model failed/)
+    assert.equal(response.latencyTrace.spans.at(-1).stage, 'Follow-up suggestions')
+    assert.equal(response.latencyTrace.spans.at(-1).status, 'error')
   })
 })
 

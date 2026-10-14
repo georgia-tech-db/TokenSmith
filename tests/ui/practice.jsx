@@ -72,11 +72,11 @@ window.tokensmith = {
     calls.push({ kind: 'search', query, mode, options })
     if (params.has('slow-search')) await new Promise(resolve => setTimeout(resolve, 1500))
     if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))
-    if (params.has('no-passages')) return []
-    return Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, index) => {
+    if (params.has('no-passages')) return { sources: [] }
+    return { sources: Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, index) => {
       const ref = options.documents[index % options.documents.length]
       return sourceFor(documents.find(d => d.materialId === ref.materialId && d.documentId === ref.documentId), index)
-    })
+    }) }
   },
   starterSources: async (_materials, limit, selected) => {
     calls.push({ kind: 'topic-sources', selected, limit })

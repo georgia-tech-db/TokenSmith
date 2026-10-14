@@ -63,12 +63,13 @@ try {
         search: async query => {
           const result = await search(definition, query)
           if (result.reason || !result.sources.length) throw new Error(result.reason || 'No sources returned')
-          return result.sources
+          return { sources: result.sources, retrievalChildren: result.latencySpans }
         }
       })
       const answer = prepared.request ? await runOllamaStudyEngine(prepared.request) : { text: prepared.resolution.clarification }
       const turn = { question, ...answer, resolution: prepared.resolution,
         rewriteMs: prepared.rewriteMs, searchMs: prepared.searchMs,
+        latencySpans: prepared.latencySpans,
         seconds: (performance.now() - start) / 1000,
         budget: prepared.request && sourceContextBudgetForRequest(prepared.request) }
       result.turns.push(turn)
