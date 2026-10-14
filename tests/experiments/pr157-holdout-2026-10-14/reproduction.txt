@@ -1,0 +1,67 @@
+Independent PR #157 holdout — reproduction notes
+
+Pinned PR head: d628f8322c09911306c923d655db1139aab035e0
+Evaluation date: 2026-10-14
+
+The saved report and raw JSON are the authoritative results of this run. Nothing
+was posted to GitHub, and no application library or production index was changed.
+
+Inputs and independence
+-----------------------
+freeze.json hashes the corpus, questions, gold evidence groups, answer criteria,
+and question-building script before preparation. Do not rebuild or revise these
+inputs for a reproduction. build_cases.py records the original construction.
+Preparation receives only the corpus, never the questions or expected answers.
+
+Dependencies
+------------
+Use the exact PR snapshot, Python with numpy and faiss-cpu, and this repository's
+TypeScript test loader with its Node dependencies installed. environment.json
+records Python, numpy, FAISS, Ollama, hardware, model digests, and engine hashes.
+Ollama must already have gemma4:e4b and nomic-embed-text:latest available locally.
+The runners do not download models. Check model digests before comparing numbers.
+
+Original commands, executed from ${REPO_ROOT}
+------------------------------------------------------
+${PYTHON_ENV}/bin/python tests/experiments/pr157-holdout-2026-10-14/run.py prepare --source ${PR_SOURCE} --work ${WORK_DIR}
+${PYTHON_ENV}/bin/python tests/experiments/pr157-holdout-2026-10-14/run.py search --source ${PR_SOURCE} --work ${WORK_DIR}
+node tests/experiments/pr157-holdout-2026-10-14/answers.mjs --source ${PR_SOURCE}
+python3 tests/experiments/pr157-holdout-2026-10-14/make_review.py
+${PYTHON_ENV}/bin/python tests/experiments/pr157-holdout-2026-10-14/build_report.py
+
+For a fresh run
+---------------
+Preserve this result directory. Make a new sibling directory under
+tests/experiments/ and copy the four frozen input files listed in freeze.json,
+freeze.json itself, protocol.txt, run.py, answers.mjs, and make_review.py into it.
+Use the new directory in the commands above and a new empty --work directory.
+Do not copy answers.json or the blind key: the answer runner resumes saved work.
+Do not run build_cases.py, which would reconstruct rather than preserve the freeze.
+Both arms must use the same corpus path because file names can affect retrieval.
+The original source snapshot was downloaded as a GitHub tarball of the pinned SHA.
+
+Create a new blind packet, score all answers against their frozen criteria without
+reading blind-key.json, and only then decode labels. manual-scores.json shows the
+review schema: reviewId, score (0/1/2), supported, and a short reason. Score 2 means
+both criteria met without a material false claim. Score 1 is partial; score 0 is
+a wrong core answer or refusal. Support is judged against the supplied original
+sources, allowing equivalent passages beyond the predeclared target IDs.
+
+The saved build_report.py recomputes statistics for THIS run; several explanatory
+paragraphs contain its observed counts/timings and should not be blindly reused
+as a general report generator for a different run. Its paired bootstrap uses seed
+157 and 20,000 draws, clustering retrieval paraphrases by concept.
+
+Interpretation
+--------------
+These are new synthetic student-style questions, not actual student submissions.
+There is no exact overlap with the existing benchmark strings checked locally.
+The PR author's private question sets and model pretraining data were unavailable.
+One machine, one model pair, four chapters of one textbook, one fresh preparation
+per arm, and 24 answer pairs do not establish a general student-population effect.
+Preparation ran off first, then on; cold means empty application caches. Answer
+arms alternated. Search repeats alternate arms and reuse actual recorded query
+embeddings. All 48 answers used four sources and completed without output clipping.
+
+Code and raw outputs are preserved for an independent human to audit or regrade.
+The six PR plain-language unit tests also passed during this evaluation.

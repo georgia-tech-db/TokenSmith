@@ -1,0 +1,19 @@
+{
+  "frozenAt": "2026-10-14T09:39:48.140505+00:00",
+  "prHead": "d628f8322c09911306c923d655db1139aab035e0",
+  "chaptersSelectedBeforeQuestions": [
+    2,
+    8,
+    11,
+    15
+  ],
+  "questions": 72,
+  "concepts": 24,
+  "sourcePassages": 416,
+  "hashes": {
+    "corpus.tokensmith.md": "a7e4c3f034403acdc79b5738b18d16b2c0cd5b5778d6a049305821075c2b0990",
+    "original-passages.json": "e935ded52a9cafa92883ab76a034ce4e62116b216018772c9963e871a5146830",
+    "cases.json": "417702f76f6fb17da23a00448033939708a26d25df8eb2dd11b1aeabe4333a5d",
+    "build_cases.py": "478b8f51f305d487cd013b6db060573a698818c895d07c8f72550c26a8edc5f5"
+  }
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "chapter": 2,
+    "kind": "casual",
+    "n": 12,
+    "off": 5,
+    "on": 7
+  },
+  {
+    "chapter": 2,
+    "kind": "technical",
+    "n": 6,
+    "off": 4,
+    "on": 5
+  },
+  {
+    "chapter": 8,
+    "kind": "casual",
+    "n": 12,
+    "off": 5,
+    "on": 4
+  },
+  {
+    "chapter": 8,
+    "kind": "technical",
+    "n": 6,
+    "off": 4,
+    "on": 5
+  },
+  {
+    "chapter": 11,
+    "kind": "casual",
+    "n": 12,
+    "off": 3,
+    "on": 4
+  },
+  {
+    "chapter": 11,
+    "kind": "technical",
+    "n": 6,
+    "off": 4,
+    "on": 4
+  },
+  {
+    "chapter": 15,
+    "kind": "casual",
+    "n": 12,
+    "off": 7,
+    "on": 7
+  },
+  {
+    "chapter": 15,
+    "kind": "technical",
+    "n": 6,
+    "off": 4,
+    "on": 4
+  }
+]

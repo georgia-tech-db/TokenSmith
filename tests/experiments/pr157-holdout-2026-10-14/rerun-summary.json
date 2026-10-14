@@ -1,0 +1,449 @@
+{
+  "retrieval": [
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "casual",
+      "metric": "targetHit",
+      "n": 48,
+      "concepts": 24,
+      "off": 28,
+      "on": 32,
+      "wins": 5,
+      "losses": 1,
+      "delta": 0.08333333333333333,
+      "conceptBootstrap95": [
+        0.0,
+        0.16666666666666666
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "casual",
+      "metric": "completeEvidence",
+      "n": 48,
+      "concepts": 24,
+      "off": 20,
+      "on": 22,
+      "wins": 3,
+      "losses": 1,
+      "delta": 0.041666666666666664,
+      "conceptBootstrap95": [
+        -0.041666666666666664,
+        0.125
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "technical",
+      "metric": "targetHit",
+      "n": 24,
+      "concepts": 24,
+      "off": 22,
+      "on": 22,
+      "wins": 0,
+      "losses": 0,
+      "delta": 0,
+      "conceptBootstrap95": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "technical",
+      "metric": "completeEvidence",
+      "n": 24,
+      "concepts": 24,
+      "off": 16,
+      "on": 18,
+      "wins": 2,
+      "losses": 0,
+      "delta": 0.08333333333333333,
+      "conceptBootstrap95": [
+        0.0,
+        0.20833333333333334
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "all",
+      "metric": "targetHit",
+      "n": 72,
+      "concepts": 24,
+      "off": 50,
+      "on": 54,
+      "wins": 5,
+      "losses": 1,
+      "delta": 0.05555555555555555,
+      "conceptBootstrap95": [
+        0.0,
+        0.11111111111111112
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 4,
+      "kind": "all",
+      "metric": "completeEvidence",
+      "n": 72,
+      "concepts": 24,
+      "off": 36,
+      "on": 40,
+      "wins": 5,
+      "losses": 1,
+      "delta": 0.05555555555555555,
+      "conceptBootstrap95": [
+        0.0,
+        0.12499999999999999
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "casual",
+      "metric": "targetHit",
+      "n": 48,
+      "concepts": 24,
+      "off": 33,
+      "on": 37,
+      "wins": 4,
+      "losses": 0,
+      "delta": 0.08333333333333333,
+      "conceptBootstrap95": [
+        0.020833333333333332,
+        0.16666666666666666
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "casual",
+      "metric": "completeEvidence",
+      "n": 48,
+      "concepts": 24,
+      "off": 27,
+      "on": 30,
+      "wins": 3,
+      "losses": 0,
+      "delta": 0.0625,
+      "conceptBootstrap95": [
+        0.0,
+        0.125
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "technical",
+      "metric": "targetHit",
+      "n": 24,
+      "concepts": 24,
+      "off": 24,
+      "on": 24,
+      "wins": 0,
+      "losses": 0,
+      "delta": 0,
+      "conceptBootstrap95": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "technical",
+      "metric": "completeEvidence",
+      "n": 24,
+      "concepts": 24,
+      "off": 21,
+      "on": 21,
+      "wins": 0,
+      "losses": 0,
+      "delta": 0,
+      "conceptBootstrap95": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "all",
+      "metric": "targetHit",
+      "n": 72,
+      "concepts": 24,
+      "off": 57,
+      "on": 61,
+      "wins": 4,
+      "losses": 0,
+      "delta": 0.05555555555555555,
+      "conceptBootstrap95": [
+        0.013888888888888888,
+        0.1111111111111111
+      ]
+    },
+    {
+      "mode": "hybrid",
+      "k": 8,
+      "kind": "all",
+      "metric": "completeEvidence",
+      "n": 72,
+      "concepts": 24,
+      "off": 48,
+      "on": 51,
+      "wins": 3,
+      "losses": 0,
+      "delta": 0.041666666666666664,
+      "conceptBootstrap95": [
+        0.0,
+        0.08333333333333333
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "casual",
+      "metric": "targetHit",
+      "n": 48,
+      "concepts": 24,
+      "off": 26,
+      "on": 28,
+      "wins": 3,
+      "losses": 1,
+      "delta": 0.041666666666666664,
+      "conceptBootstrap95": [
+        -0.041666666666666664,
+        0.125
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "casual",
+      "metric": "completeEvidence",
+      "n": 48,
+      "concepts": 24,
+      "off": 19,
+      "on": 22,
+      "wins": 4,
+      "losses": 1,
+      "delta": 0.0625,
+      "conceptBootstrap95": [
+        -0.020833333333333332,
+        0.14583333333333334
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "technical",
+      "metric": "targetHit",
+      "n": 24,
+      "concepts": 24,
+      "off": 19,
+      "on": 20,
+      "wins": 1,
+      "losses": 0,
+      "delta": 0.041666666666666664,
+      "conceptBootstrap95": [
+        0.0,
+        0.125
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "technical",
+      "metric": "completeEvidence",
+      "n": 24,
+      "concepts": 24,
+      "off": 15,
+      "on": 17,
+      "wins": 2,
+      "losses": 0,
+      "delta": 0.08333333333333333,
+      "conceptBootstrap95": [
+        0.0,
+        0.20833333333333334
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "all",
+      "metric": "targetHit",
+      "n": 72,
+      "concepts": 24,
+      "off": 45,
+      "on": 48,
+      "wins": 4,
+      "losses": 1,
+      "delta": 0.041666666666666664,
+      "conceptBootstrap95": [
+        -0.013888888888888888,
+        0.09722222222222221
+      ]
+    },
+    {
+      "mode": "keyword",
+      "k": 4,
+      "kind": "all",
+      "metric": "completeEvidence",
+      "n": 72,
+      "concepts": 24,
+      "off": 34,
+      "on": 39,
+      "wins": 6,
+      "losses": 1,
+      "delta": 0.06944444444444445,
+      "conceptBootstrap95": [
+        0.0,
+        0.13888888888888887
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "casual",
+      "metric": "targetHit",
+      "n": 48,
+      "concepts": 24,
+      "off": 28,
+      "on": 29,
+      "wins": 1,
+      "losses": 0,
+      "delta": 0.020833333333333332,
+      "conceptBootstrap95": [
+        0.0,
+        0.0625
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "casual",
+      "metric": "completeEvidence",
+      "n": 48,
+      "concepts": 24,
+      "off": 16,
+      "on": 17,
+      "wins": 1,
+      "losses": 0,
+      "delta": 0.020833333333333332,
+      "conceptBootstrap95": [
+        0.0,
+        0.0625
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "technical",
+      "metric": "targetHit",
+      "n": 24,
+      "concepts": 24,
+      "off": 23,
+      "on": 21,
+      "wins": 0,
+      "losses": 2,
+      "delta": -0.08333333333333333,
+      "conceptBootstrap95": [
+        -0.20833333333333334,
+        0.0
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "technical",
+      "metric": "completeEvidence",
+      "n": 24,
+      "concepts": 24,
+      "off": 18,
+      "on": 18,
+      "wins": 0,
+      "losses": 0,
+      "delta": 0,
+      "conceptBootstrap95": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "all",
+      "metric": "targetHit",
+      "n": 72,
+      "concepts": 24,
+      "off": 51,
+      "on": 50,
+      "wins": 1,
+      "losses": 2,
+      "delta": -0.013888888888888888,
+      "conceptBootstrap95": [
+        -0.05555555555555555,
+        0.027777777777777776
+      ]
+    },
+    {
+      "mode": "vector",
+      "k": 4,
+      "kind": "all",
+      "metric": "completeEvidence",
+      "n": 72,
+      "concepts": 24,
+      "off": 34,
+      "on": 35,
+      "wins": 1,
+      "losses": 0,
+      "delta": 0.013888888888888888,
+      "conceptBootstrap95": [
+        0.0,
+        0.041666666666666664
+      ]
+    }
+  ],
+  "preparationSeconds": {
+    "off": {
+      "cold": 18.11862358264625,
+      "cached": 1.1041402909904718
+    },
+    "on": {
+      "cold": 741.3080919580534,
+      "cached": 1.4655189998447895
+    }
+  },
+  "extraInitialSeconds": 723.1894683754072,
+  "supportedCompleteAnswers": {
+    "n": 24,
+    "concepts": 24,
+    "off": 11,
+    "on": 12,
+    "wins": 2,
+    "losses": 1,
+    "delta": 0.041666666666666664,
+    "conceptBootstrap95": [
+      -0.08333333333333333,
+      0.16666666666666666
+    ]
+  },
+  "supportedPartialOrCompleteAnswers": {
+    "n": 24,
+    "concepts": 24,
+    "off": 19,
+    "on": 21,
+    "wins": 3,
+    "losses": 1,
+    "delta": 0.08333333333333333,
+    "conceptBootstrap95": [
+      -0.08333333333333333,
+      0.25
+    ]
+  }
+}

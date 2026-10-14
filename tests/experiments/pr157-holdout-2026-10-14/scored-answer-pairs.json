@@ -1,0 +1,458 @@
+[
+  {
+    "id": "flexible_rows.casual_a",
+    "off": {
+      "reviewId": "flexible_rows.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Explains runtime-flexible rows and mixed types without per-table recompilation. Supplied introductory passages are sufficient despite missing the predeclared target IDs.",
+      "arm": "off",
+      "id": "flexible_rows.casual_a"
+    },
+    "on": {
+      "reviewId": "flexible_rows.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains runtime-flexible rows and mixed types without per-table recompilation. Supplied introductory passages are sufficient despite missing the predeclared target IDs.",
+      "arm": "on",
+      "id": "flexible_rows.casual_a"
+    }
+  },
+  {
+    "id": "tagged_values.casual_a",
+    "off": {
+      "reviewId": "tagged_values.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Explains data_length and variable-size boundaries, but never explains the type tag needed to distinguish names from numbers.",
+      "arm": "off",
+      "id": "tagged_values.casual_a"
+    },
+    "on": {
+      "reviewId": "tagged_values.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Explains data_length and variable-size boundaries, but never explains the type tag needed to distinguish names from numbers.",
+      "arm": "on",
+      "id": "tagged_values.casual_a"
+    }
+  },
+  {
+    "id": "page_io.casual_a",
+    "off": {
+      "reviewId": "page_io.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Correctly connects fixed I/O latency, whole-page transfer and reuse of nearby cached records; source ch02.055 explicitly supports both criteria.",
+      "arm": "off",
+      "id": "page_io.casual_a"
+    },
+    "on": {
+      "reviewId": "page_io.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Correctly connects fixed I/O latency, whole-page transfer and reuse of nearby cached records; source ch02.055 explicitly supports both criteria.",
+      "arm": "on",
+      "id": "page_io.casual_a"
+    }
+  },
+  {
+    "id": "page_capacity.casual_a",
+    "off": {
+      "reviewId": "page_capacity.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Correct whole-record floor calculation, but omits page/tuple metadata overhead.",
+      "arm": "off",
+      "id": "page_capacity.casual_a"
+    },
+    "on": {
+      "reviewId": "page_capacity.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Mentions overhead only generically; does not explain metadata or unusable leftover fragments. Partial explanation from the introductory capacity passage.",
+      "arm": "on",
+      "id": "page_capacity.casual_a"
+    }
+  },
+  {
+    "id": "text_storage.casual_a",
+    "off": {
+      "reviewId": "text_storage.casual_a.A",
+      "score": 0,
+      "supported": true,
+      "note": "Appropriately says the retrieved sources do not explain the tradeoff, then gives unrelated string-storage detail. Neither requested criterion is answered.",
+      "arm": "off",
+      "id": "text_storage.casual_a"
+    },
+    "on": {
+      "reviewId": "text_storage.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains inspectability/simplicity and both conversion and variable storage costs; directly supported by ch02.086.",
+      "arm": "on",
+      "id": "text_storage.casual_a"
+    }
+  },
+  {
+    "id": "physical_independence.casual_a",
+    "off": {
+      "reviewId": "physical_independence.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains unchanged interfaces and logical objects despite changing the physical serialization. ch02.120 directly supports it.",
+      "arm": "off",
+      "id": "physical_independence.casual_a"
+    },
+    "on": {
+      "reviewId": "physical_independence.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Explains unchanged interfaces and logical objects despite changing the physical serialization. ch02.120 directly supports it.",
+      "arm": "on",
+      "id": "physical_independence.casual_a"
+    }
+  },
+  {
+    "id": "deleted_hash_slot.casual_a",
+    "off": {
+      "reviewId": "deleted_hash_slot.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Correctly explains broken probe chains and continued lookup, but does not state that insertion can reuse tombstones, which is part of the frozen second criterion. This is still a useful explanation of the asked failure.",
+      "arm": "off",
+      "id": "deleted_hash_slot.casual_a"
+    },
+    "on": {
+      "reviewId": "deleted_hash_slot.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Correctly explains broken probe chains and continued lookup, but does not state that insertion can reuse tombstones, which is part of the frozen second criterion. This is still a useful explanation of the asked failure.",
+      "arm": "on",
+      "id": "deleted_hash_slot.casual_a"
+    }
+  },
+  {
+    "id": "mismatched_probing.casual_a",
+    "off": {
+      "reviewId": "mismatched_probing.casual_a.B",
+      "score": 0,
+      "supported": false,
+      "note": "Incorrectly dismisses sequential lookup in the stated scenario and discusses capacity; misses the insertion/lookup mismatch and false-not-found failure.",
+      "arm": "off",
+      "id": "mismatched_probing.casual_a"
+    },
+    "on": {
+      "reviewId": "mismatched_probing.casual_a.A",
+      "score": 0,
+      "supported": false,
+      "note": "Answers table-full/tombstone performance instead of mismatch correctness; never explains that different insertion and lookup paths lose an existing key.",
+      "arm": "on",
+      "id": "mismatched_probing.casual_a"
+    }
+  },
+  {
+    "id": "hash_ranges.casual_a",
+    "off": {
+      "reviewId": "hash_ranges.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains unordered hashing, linear scan for ranges and the sorted B+ tree alternative; supplied comparison table supports the complexity statements.",
+      "arm": "off",
+      "id": "hash_ranges.casual_a"
+    },
+    "on": {
+      "reviewId": "hash_ranges.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Identifies lack of ordering, but only calls range work less direct; does not explain scanning all buckets or the ordered-index alternative.",
+      "arm": "on",
+      "id": "hash_ranges.casual_a"
+    }
+  },
+  {
+    "id": "hash_growth.casual_a",
+    "off": {
+      "reviewId": "hash_growth.casual_a.B",
+      "score": 1,
+      "supported": false,
+      "note": "Explains load factor but not the capacity-dependent rehashing pause. Also says tombstones are treated as occupied during insertion without acknowledging reusable deleted slots.",
+      "arm": "off",
+      "id": "hash_growth.casual_a"
+    },
+    "on": {
+      "reviewId": "hash_growth.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Explains collision/probe growth and rebuilding cost, but omits why changing capacity changes hash placement and forces reinsertion.",
+      "arm": "on",
+      "id": "hash_growth.casual_a"
+    }
+  },
+  {
+    "id": "extendible_split.casual_a",
+    "off": {
+      "reviewId": "extendible_split.casual_a.A",
+      "score": 0,
+      "supported": true,
+      "note": "Correctly reports missing relevant evidence, but neither local/global-depth condition is answered.",
+      "arm": "off",
+      "id": "extendible_split.casual_a"
+    },
+    "on": {
+      "reviewId": "extendible_split.casual_a.B",
+      "score": 0,
+      "supported": true,
+      "note": "Distinguishes whole-table rehashing from the asked directory split but cannot answer either depth condition from the supplied evidence.",
+      "arm": "on",
+      "id": "extendible_split.casual_a"
+    }
+  },
+  {
+    "id": "shared_readers.casual_a",
+    "off": {
+      "reviewId": "shared_readers.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Correct shared-reader and exclusive-writer behavior, directly supported by ch08.103.",
+      "arm": "off",
+      "id": "shared_readers.casual_a"
+    },
+    "on": {
+      "reviewId": "shared_readers.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Correct shared-reader and exclusive-writer behavior, directly supported by ch08.103.",
+      "arm": "on",
+      "id": "shared_readers.casual_a"
+    }
+  },
+  {
+    "id": "operator_lifecycle.casual_a",
+    "off": {
+      "reviewId": "operator_lifecycle.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Explains next and exhaustion but omits open, explicit getOutput use and close/cleanup.",
+      "arm": "off",
+      "id": "operator_lifecycle.casual_a"
+    },
+    "on": {
+      "reviewId": "operator_lifecycle.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Explains open-next-close and exhaustion, but does not explain true followed by getOutput; conflates requesting a tuple with returning its value.",
+      "arm": "on",
+      "id": "operator_lifecycle.casual_a"
+    }
+  },
+  {
+    "id": "pull_direction.casual_a",
+    "off": {
+      "reviewId": "pull_direction.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Explains demand from the top and leaf scanning, but does not trace returned data through filtering/projection or repeated child requests.",
+      "arm": "off",
+      "id": "pull_direction.casual_a"
+    },
+    "on": {
+      "reviewId": "pull_direction.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Correct root-to-leaf calls and upward tuple direction; omits filter processing and its potentially repeated child requests, required by the frozen second criterion.",
+      "arm": "on",
+      "id": "pull_direction.casual_a"
+    }
+  },
+  {
+    "id": "pipeline_latency.casual_a",
+    "off": {
+      "reviewId": "pipeline_latency.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Explains whole intermediate materialization, avoided writes/reads and earlier first output. Supported by ch11.031 and the comparison table ch11.032.",
+      "arm": "off",
+      "id": "pipeline_latency.casual_a"
+    },
+    "on": {
+      "reviewId": "pipeline_latency.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains whole intermediate materialization, avoided writes/reads and earlier first output. Supported by ch11.031 and the comparison table ch11.032.",
+      "arm": "on",
+      "id": "pipeline_latency.casual_a"
+    }
+  },
+  {
+    "id": "move_output.casual_a",
+    "off": {
+      "reviewId": "move_output.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Covers cheap ownership transfer and replacement of moved-from state on next. Calls the moved-from fields vector the original pointer, an imprecise noun, but the surrounding explanation correctly identifies the transferred vector and mechanism.",
+      "arm": "off",
+      "id": "move_output.casual_a"
+    },
+    "on": {
+      "reviewId": "move_output.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Covers cheap ownership transfer and replacement of moved-from state on next. Calls the moved-from fields vector the original pointer, an imprecise noun, but the surrounding explanation correctly identifies the transferred vector and mechanism.",
+      "arm": "on",
+      "id": "move_output.casual_a"
+    }
+  },
+  {
+    "id": "scan_empty_slots.casual_a",
+    "off": {
+      "reviewId": "scan_empty_slots.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Gives cursor advancement and false at exhaustion, but never directly explains skipping empty slots rather than stopping, nor the currentTuple reset from the target helper.",
+      "arm": "off",
+      "id": "scan_empty_slots.casual_a"
+    },
+    "on": {
+      "reviewId": "scan_empty_slots.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Gives cursor advancement and false at exhaustion, but never directly explains skipping empty slots rather than stopping, nor the currentTuple reset from the target helper.",
+      "arm": "on",
+      "id": "scan_empty_slots.casual_a"
+    }
+  },
+  {
+    "id": "sort_blocking.casual_a",
+    "off": {
+      "reviewId": "sort_blocking.casual_a.B",
+      "score": 1,
+      "supported": false,
+      "note": "Explains filtering and gestures at global order, but acknowledges missing sorting evidence and does not explain unknown minimum/buffering from supplied sources.",
+      "arm": "off",
+      "id": "sort_blocking.casual_a"
+    },
+    "on": {
+      "reviewId": "sort_blocking.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Correctly contrasts immediate qualifying filter output with needing all input before knowing the first sorted result and buffering it. Directly supported by ch11.088.",
+      "arm": "on",
+      "id": "sort_blocking.casual_a"
+    }
+  },
+  {
+    "id": "few_columns.casual_a",
+    "off": {
+      "reviewId": "few_columns.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Correctly contrasts reading unrelated row attributes with reading only the required columns. Introductory source ch15.021 directly supports both criteria even though it is not a frozen target ID.",
+      "arm": "off",
+      "id": "few_columns.casual_a"
+    },
+    "on": {
+      "reviewId": "few_columns.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Correctly contrasts reading unrelated row attributes with reading only the required columns. Introductory source ch15.021 directly supports both criteria even though it is not a frozen target ID.",
+      "arm": "on",
+      "id": "few_columns.casual_a"
+    }
+  },
+  {
+    "id": "late_rows.casual_a",
+    "off": {
+      "reviewId": "late_rows.casual_a.A",
+      "score": 1,
+      "supported": true,
+      "note": "Correctly explains shared offsets and delaying tuple reconstruction, but omits explicitly collecting qualifying offsets and fetching the other column grouped by page. This is still a useful general explanation of the question.",
+      "arm": "off",
+      "id": "late_rows.casual_a"
+    },
+    "on": {
+      "reviewId": "late_rows.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Explains positional information and collecting filter offsets, but omits the corresponding-value fetch and page grouping required by the second criterion.",
+      "arm": "on",
+      "id": "late_rows.casual_a"
+    }
+  },
+  {
+    "id": "column_writes.casual_a",
+    "off": {
+      "reviewId": "column_writes.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Explains appending a value to every column file and the resulting write amplification for small transactional inserts. Supported by ch15.048.",
+      "arm": "off",
+      "id": "column_writes.casual_a"
+    },
+    "on": {
+      "reviewId": "column_writes.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains appending a value to every column file and the resulting write amplification for small transactional inserts. Supported by ch15.048.",
+      "arm": "on",
+      "id": "column_writes.casual_a"
+    }
+  },
+  {
+    "id": "timestamp_deltas.casual_a",
+    "off": {
+      "reviewId": "timestamp_deltas.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Gives the first timestamp, successive differences, and cumulative reconstruction; explains space savings through smaller deltas. Does not name a particular compact integer format, which the rubric does not require.",
+      "arm": "off",
+      "id": "timestamp_deltas.casual_a"
+    },
+    "on": {
+      "reviewId": "timestamp_deltas.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Gives the first timestamp, successive differences, and cumulative reconstruction; explains space savings through smaller deltas. Does not name a particular compact integer format, which the rubric does not require.",
+      "arm": "on",
+      "id": "timestamp_deltas.casual_a"
+    }
+  },
+  {
+    "id": "small_integer_bits.casual_a",
+    "off": {
+      "reviewId": "small_integer_bits.casual_a.B",
+      "score": 1,
+      "supported": true,
+      "note": "Correctly explains subtraction and four-bit packing, but never explains reconstruction by unpacking and adding back the retained minimum. The phrase smaller range is imprecise: the maximum magnitude falls, while range width is unchanged.",
+      "arm": "off",
+      "id": "small_integer_bits.casual_a"
+    },
+    "on": {
+      "reviewId": "small_integer_bits.casual_a.A",
+      "score": 1,
+      "supported": false,
+      "note": "Correctly describes subtracting the minimum and packing small offsets, but materially reverses decoding order: it says add the minimum before unpacking. Offsets must first be unpacked and then have the minimum added. Subtraction also changes magnitude, not range width.",
+      "arm": "on",
+      "id": "small_integer_bits.casual_a"
+    }
+  },
+  {
+    "id": "batch_processing.casual_a",
+    "off": {
+      "reviewId": "batch_processing.casual_a.A",
+      "score": 2,
+      "supported": true,
+      "note": "Explains amortized call overhead, contiguous tight-loop locality, and SIMD, all directly supported by ch15.081.",
+      "arm": "off",
+      "id": "batch_processing.casual_a"
+    },
+    "on": {
+      "reviewId": "batch_processing.casual_a.B",
+      "score": 2,
+      "supported": true,
+      "note": "Explains amortized call overhead, contiguous tight-loop locality, and SIMD, all directly supported by ch15.081.",
+      "arm": "on",
+      "id": "batch_processing.casual_a"
+    }
+  }
+]

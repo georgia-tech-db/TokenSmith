@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-10-14T10:09:30.522847+00:00",
+  "frozenInputHashesMatch": true,
+  "prEngineHashesMatchPreparationSnapshot": true,
+  "answerPairs": 24,
+  "uniqueAnswerArms": 48,
+  "blindScores": 48,
+  "allAnswersCompletedNormally": true,
+  "allAnswersUsedFourSources": true,
+  "allPromptBudgetsFit": true,
+  "allSourcesUntruncatedByPacker": true,
+  "answerPackerSha256": "2116878c4543708c049b1d1e0dd9b04337d92353c1a0a195ed0e0731f19b753d",
+  "blindScoresSha256": "5a6da69a272db5d3b58e297a3b7be1a720a506d6c74708e6a6347da3b7d7e143"
+}

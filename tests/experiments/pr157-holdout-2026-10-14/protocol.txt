@@ -1,0 +1,58 @@
+Independent evaluation of PR #157, pinned to d628f8322c09911306c923d655db1139aab035e0.
+
+Scope fixed before measurement: complete BuzzDB chapters 2, 8, 11 and 15 (416
+original passages). This spans representation, hashing, iterator execution and
+columnar execution, but remains one textbook, not a cross-domain validation.
+Questions are newly authored synthetic student-style questions, not recorded real
+student questions and not evidence about model pretraining. The evaluator has seen
+the PR summary and original textbook; no generated terms or retrieval results
+are used to author or revise questions. No PR-author question set was provided.
+
+Freeze 24 concepts, each with two casual formulations and one technical control.
+Freeze gold original-passage groups and two answer criteria before all model calls.
+No question, gold passage list, answer criterion or benchmark score is exposed to
+the preparation step. Enrich every eligible passage, including distractors.
+Do not tune prompts, generation length, weights, source budgets or rejection rules.
+
+Compare the exact PR engine with the checkbox off versus on. Both use Basic
+preparation, the same corpus filename, Nomic embedder and fresh isolated indexes.
+Use the PR's unmodified Gemma 4 E4B completion client for descriptions. Record
+per-call timing/failures, initial empty model residency, exact model digests,
+environment, total preparation, enrichment, embedding and publication times.
+Run off first and on second, report order and separate model-load overhead from
+warm inference where available. Repeat both with warm on-disk preparation caches;
+verify no generator calls in cached enrichment. Cold here means application
+caches empty, not a flushed OS filesystem cache. Never modify the user library.
+
+Primary retrieval condition: production hybrid with four returned source units.
+Secondary diagnostic: hybrid at eight source units, keyword and vector at four.
+Generate each query embedding once and reuse the identical vector across arms.
+This excludes query-embedding time from paired search latency but records it
+separately. Alternate arm order; repeat searches for descriptive median/p95.
+Assert equal stored source text/count and that generated metadata is absent from
+returned source context. Record full sources and source IDs for every query.
+
+Metrics: target passage hit (any gold group represented) and complete evidence
+(all predeclared gold groups represented). These are retrieval proxies, not answer
+accuracy; an equivalent unlisted passage may also be sufficient. Report wins AND
+regressions, casual and technical separately, and paired intervals bootstrapped by
+concept (24 clusters), not 72 independent questions. Report by chapter as well.
+
+Answer experiment: every casual_a question, fixed in advance (24 pairs), same
+Gemma E4B, same production source packer, no question rewrite, no chat history or
+follow-up generation, same deterministic sampling settings and output budget.
+This isolates retrieval's effect on one-turn source-backed answers rather than
+testing the entire application workflow. Alternate arms, preserve requests and
+responses, capture clipping, failures and timings. Score against frozen criteria:
+0 = core wrong/unsupported/refusal; 1 = partially correct; 2 = both criteria met
+without a material false assertion. Also flag whether supplied original sources
+support the answer. Blind arm labels in the review packet. Manual scoring by the
+coordinating assistant is independent of the PR author, not an independent human
+judge. Make the full packet available for audit.
+
+Decision: compare net useful-answer gain with measured extra upfront time. Report
+amortized preparation seconds per query at 10, 100 and 1000 queries, and calculate
+break-even query counts for explicitly hypothetical 1/3/5 minutes saved per
+recovered useful answer. Do not equate a retrieval hit with time saved or claim a
+learning benefit. If answer improvement is absent or uncertainty spans no gain,
+do not recommend enabling by default on the strength of retrieval alone.

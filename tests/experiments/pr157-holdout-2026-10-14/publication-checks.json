@@ -1,0 +1,19 @@
+{
+  "frozenInputsUnchanged": true,
+  "all48PromptsReproducedOffline": true,
+  "sourceCountsAndBudgetLimitsReproducedOffline": true,
+  "historicalTokenEstimatesPreserved": true,
+  "allRetrievalStatisticsReproduced": true,
+  "answerStatisticsReproduced": true,
+  "freshRunSetupSmokeTestPassed": true,
+  "noModelCallsDuringPackaging": true,
+  "typescriptVersion": "6.0.3",
+  "nodeVersion": "20.19.6",
+  "publicationChanges": [
+    "Redacted local absolute paths in metadata",
+    "Removed unused installed models from environment inventory",
+    "Added portable hardware metadata collection; original runner retained",
+    "Bundled the exact TypeScript loader used in the original run; original answer runner retained",
+    "Added audit, fresh-run setup, generic summary scripts, and reproduction README"
+  ]
+}

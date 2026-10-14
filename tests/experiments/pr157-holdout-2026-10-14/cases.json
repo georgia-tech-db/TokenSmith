@@ -1,0 +1,1454 @@
+[
+  {
+    "id": "flexible_rows.casual_a",
+    "concept": "flexible_rows",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "My little database only accepts two whole numbers per record. How could I let people store names and prices too without rebuilding the program for each table?",
+    "goldGroups": [
+      [
+        "ch02.013",
+        "ch02.015"
+      ],
+      [
+        "ch02.014",
+        "ch02.010"
+      ]
+    ],
+    "answerCriteria": [
+      "Runtime collection of fields permits a variable number of columns.",
+      "Fields support different value types; changing a table no longer requires recompiling the Tuple definition."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "flexible_rows.casual_b",
+    "concept": "flexible_rows",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "Why would a database keep a list of separate values inside a row instead of giving every row the same two named boxes?",
+    "goldGroups": [
+      [
+        "ch02.013",
+        "ch02.015"
+      ],
+      [
+        "ch02.014",
+        "ch02.010"
+      ]
+    ],
+    "answerCriteria": [
+      "Runtime collection of fields permits a variable number of columns.",
+      "Fields support different value types; changing a table no longer requires recompiling the Tuple definition."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "flexible_rows.technical",
+    "concept": "flexible_rows",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "How does replacing the fixed Tuple struct with a vector of Field objects support variable schemas and mixed data types?",
+    "goldGroups": [
+      [
+        "ch02.013",
+        "ch02.015"
+      ],
+      [
+        "ch02.014",
+        "ch02.010"
+      ]
+    ],
+    "answerCriteria": [
+      "Runtime collection of fields permits a variable number of columns.",
+      "Fields support different value types; changing a table no longer requires recompiling the Tuple definition."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "tagged_values.casual_a",
+    "concept": "tagged_values",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "If a saved value is just a bunch of bytes, how can the database tell whether it is a number or a name and where that value ends?",
+    "goldGroups": [
+      [
+        "ch02.026",
+        "ch02.029"
+      ],
+      [
+        "ch02.028",
+        "ch02.029"
+      ]
+    ],
+    "answerCriteria": [
+      "A type tag tells the engine how to interpret the bytes.",
+      "A byte length identifies the size, particularly for variable-length strings."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "tagged_values.casual_b",
+    "concept": "tagged_values",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "What extra information has to travel with raw stored data so the program can read it correctly, especially for names of different lengths?",
+    "goldGroups": [
+      [
+        "ch02.026",
+        "ch02.029"
+      ],
+      [
+        "ch02.028",
+        "ch02.029"
+      ]
+    ],
+    "answerCriteria": [
+      "A type tag tells the engine how to interpret the bytes.",
+      "A byte length identifies the size, particularly for variable-length strings."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "tagged_values.technical",
+    "concept": "tagged_values",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "Why does Field store both a FieldType tag and data_length alongside its byte buffer?",
+    "goldGroups": [
+      [
+        "ch02.026",
+        "ch02.029"
+      ],
+      [
+        "ch02.028",
+        "ch02.029"
+      ]
+    ],
+    "answerCriteria": [
+      "A type tag tells the engine how to interpret the bytes.",
+      "A byte length identifies the size, particularly for variable-length strings."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "page_io.casual_a",
+    "concept": "page_io",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "I only asked for one record. Why does the database bring in a whole block of nearby records from the drive?",
+    "goldGroups": [
+      [
+        "ch02.055",
+        "ch02.057"
+      ]
+    ],
+    "answerCriteria": [
+      "Disk access has substantial fixed latency and hardware/OS transfer blocks.",
+      "A page amortizes that cost across nearby records and can serve later accesses from memory."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "page_io.casual_b",
+    "concept": "page_io",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "Why fetch a batch of neighboring data from storage instead of making a separate trip for every tiny value?",
+    "goldGroups": [
+      [
+        "ch02.055",
+        "ch02.057"
+      ]
+    ],
+    "answerCriteria": [
+      "Disk access has substantial fixed latency and hardware/OS transfer blocks.",
+      "A page amortizes that cost across nearby records and can serve later accesses from memory."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "page_io.technical",
+    "concept": "page_io",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "Why is a page the unit of database I/O rather than an individual tuple?",
+    "goldGroups": [
+      [
+        "ch02.055",
+        "ch02.057"
+      ]
+    ],
+    "answerCriteria": [
+      "Disk access has substantial fixed latency and hardware/OS transfer blocks.",
+      "A page amortizes that cost across nearby records and can serve later accesses from memory."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "page_capacity.casual_a",
+    "concept": "page_capacity",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "If I divide the space in a storage block by the size of one record, why might the real number of records that fit be smaller?",
+    "goldGroups": [
+      [
+        "ch02.066",
+        "ch02.070"
+      ]
+    ],
+    "answerCriteria": [
+      "Page and/or tuple metadata consume space unavailable to record payload.",
+      "Only complete records fit, so a leftover fragment smaller than a record is unusable."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "page_capacity.casual_b",
+    "concept": "page_capacity",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "A disk block still has a few spare bytes but refuses another row. Where did the useful space go?",
+    "goldGroups": [
+      [
+        "ch02.066",
+        "ch02.070"
+      ]
+    ],
+    "answerCriteria": [
+      "Page and/or tuple metadata consume space unavailable to record payload.",
+      "Only complete records fit, so a leftover fragment smaller than a record is unusable."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "page_capacity.technical",
+    "concept": "page_capacity",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "Why does PAGE_SIZE divided by tuple size overestimate page capacity once headers, tuple metadata, and internal fragmentation are considered?",
+    "goldGroups": [
+      [
+        "ch02.066",
+        "ch02.070"
+      ]
+    ],
+    "answerCriteria": [
+      "Page and/or tuple metadata consume space unavailable to record payload.",
+      "Only complete records fit, so a leftover fragment smaller than a record is unusable."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "text_storage.casual_a",
+    "concept": "text_storage",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "Why does the teaching database turn values into readable characters before saving them, even though that sounds slower?",
+    "goldGroups": [
+      [
+        "ch02.086",
+        "ch02.118"
+      ]
+    ],
+    "answerCriteria": [
+      "Readable text is simple to inspect/debug and useful for teaching.",
+      "Formatting/parsing costs CPU and text can require more space; it is not uniformly more compact than binary."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "text_storage.casual_b",
+    "concept": "text_storage",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "What do we gain and lose by making the saved database file readable in an ordinary text editor?",
+    "goldGroups": [
+      [
+        "ch02.086",
+        "ch02.118"
+      ]
+    ],
+    "answerCriteria": [
+      "Readable text is simple to inspect/debug and useful for teaching.",
+      "Formatting/parsing costs CPU and text can require more space; it is not uniformly more compact than binary."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "text_storage.technical",
+    "concept": "text_storage",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "What are the transparency, parsing-cost, and storage-size tradeoffs of BuzzDB text serialization versus binary serialization?",
+    "goldGroups": [
+      [
+        "ch02.086",
+        "ch02.118"
+      ]
+    ],
+    "answerCriteria": [
+      "Readable text is simple to inspect/debug and useful for teaching.",
+      "Formatting/parsing costs CPU and text can require more space; it is not uniformly more compact than binary."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "physical_independence.casual_a",
+    "concept": "physical_independence",
+    "chapter": 2,
+    "kind": "casual_a",
+    "question": "If we change the database file from readable text to compact bytes, why should the program that finds the highest student ID keep working?",
+    "goldGroups": [
+      [
+        "ch02.120"
+      ]
+    ],
+    "answerCriteria": [
+      "Storage serialization/deserialization changes behind a stable interface.",
+      "Applications continue using the same logical Page/Tuple/Field objects."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "physical_independence.casual_b",
+    "concept": "physical_independence",
+    "chapter": 2,
+    "kind": "casual_b",
+    "question": "How can the way records are saved change without making everyone rewrite the code that uses those records?",
+    "goldGroups": [
+      [
+        "ch02.120"
+      ]
+    ],
+    "answerCriteria": [
+      "Storage serialization/deserialization changes behind a stable interface.",
+      "Applications continue using the same logical Page/Tuple/Field objects."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "physical_independence.technical",
+    "concept": "physical_independence",
+    "chapter": 2,
+    "kind": "technical",
+    "question": "How do stable Page serialization interfaces and Tuple/Field objects provide physical data independence?",
+    "goldGroups": [
+      [
+        "ch02.120"
+      ]
+    ],
+    "answerCriteria": [
+      "Storage serialization/deserialization changes behind a stable interface.",
+      "Applications continue using the same logical Page/Tuple/Field objects."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "deleted_hash_slot.casual_a",
+    "concept": "deleted_hash_slot",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "After deleting one entry from my lookup table, a different entry suddenly cannot be found. Why can leaving a special deleted mark fix that?",
+    "goldGroups": [
+      [
+        "ch08.037",
+        "ch08.036"
+      ],
+      [
+        "ch08.038",
+        "ch08.040"
+      ]
+    ],
+    "answerCriteria": [
+      "An empty slot terminates lookup and can break the probe chain to a later colliding key.",
+      "A tombstone makes lookup continue while allowing insertion to reuse the slot."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "deleted_hash_slot.casual_b",
+    "concept": "deleted_hash_slot",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "Why is a box that used to contain a key different from a box that has always been empty when searching through collisions?",
+    "goldGroups": [
+      [
+        "ch08.037",
+        "ch08.036"
+      ],
+      [
+        "ch08.038",
+        "ch08.040"
+      ]
+    ],
+    "answerCriteria": [
+      "An empty slot terminates lookup and can break the probe chain to a later colliding key.",
+      "A tombstone makes lookup continue while allowing insertion to reuse the slot."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "deleted_hash_slot.technical",
+    "concept": "deleted_hash_slot",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "Why must open-addressed hash deletion leave a tombstone rather than an empty slot?",
+    "goldGroups": [
+      [
+        "ch08.037",
+        "ch08.036"
+      ],
+      [
+        "ch08.038",
+        "ch08.040"
+      ]
+    ],
+    "answerCriteria": [
+      "An empty slot terminates lookup and can break the probe chain to a later colliding key.",
+      "A tombstone makes lookup continue while allowing insertion to reuse the slot."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "mismatched_probing.casual_a",
+    "concept": "mismatched_probing",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "The table jumps farther each time it looks for a place to put an entry, but checks the next box each time it searches. Can that lose an entry that is still there?",
+    "goldGroups": [
+      [
+        "ch08.050",
+        "ch08.051",
+        "ch08.053"
+      ],
+      [
+        "ch08.052",
+        "ch08.053"
+      ]
+    ],
+    "answerCriteria": [
+      "Insertion and lookup must use the same collision probe sequence.",
+      "Linear lookup can encounter an empty slot and stop before a key placed farther away by quadratic probing."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "mismatched_probing.casual_b",
+    "concept": "mismatched_probing",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "Why must finding a colliding key follow the same trail that was used to store it?",
+    "goldGroups": [
+      [
+        "ch08.050",
+        "ch08.051",
+        "ch08.053"
+      ],
+      [
+        "ch08.052",
+        "ch08.053"
+      ]
+    ],
+    "answerCriteria": [
+      "Insertion and lookup must use the same collision probe sequence.",
+      "Linear lookup can encounter an empty slot and stop before a key placed farther away by quadratic probing."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "mismatched_probing.technical",
+    "concept": "mismatched_probing",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "What correctness failure follows from quadratic probing in insertOrUpdate but linear probing in getValue?",
+    "goldGroups": [
+      [
+        "ch08.050",
+        "ch08.051",
+        "ch08.053"
+      ],
+      [
+        "ch08.052",
+        "ch08.053"
+      ]
+    ],
+    "answerCriteria": [
+      "Insertion and lookup must use the same collision probe sequence.",
+      "Linear lookup can encounter an empty slot and stop before a key placed farther away by quadratic probing."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "hash_ranges.casual_a",
+    "concept": "hash_ranges",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "The lookup table is quick when I know one exact number. Why is asking for all numbers between two limits much harder?",
+    "goldGroups": [
+      [
+        "ch08.054",
+        "ch08.055",
+        "ch08.056",
+        "ch08.057",
+        "ch08.058"
+      ]
+    ],
+    "answerCriteria": [
+      "Hashing does not preserve key order, so nearby values need not occupy nearby buckets.",
+      "A range generally requires scanning rather than one direct lookup; an ordered index is more suitable."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "hash_ranges.casual_b",
+    "concept": "hash_ranges",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "Why can I not just walk through neighboring boxes to find nearby key values in a hashed lookup table?",
+    "goldGroups": [
+      [
+        "ch08.054",
+        "ch08.055",
+        "ch08.056",
+        "ch08.057",
+        "ch08.058"
+      ]
+    ],
+    "answerCriteria": [
+      "Hashing does not preserve key order, so nearby values need not occupy nearby buckets.",
+      "A range generally requires scanning rather than one direct lookup; an ordered index is more suitable."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "hash_ranges.technical",
+    "concept": "hash_ranges",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "Why are range queries poorly supported by a hash index despite fast equality lookup?",
+    "goldGroups": [
+      [
+        "ch08.054",
+        "ch08.055",
+        "ch08.056",
+        "ch08.057",
+        "ch08.058"
+      ]
+    ],
+    "answerCriteria": [
+      "Hashing does not preserve key order, so nearby values need not occupy nearby buckets.",
+      "A range generally requires scanning rather than one direct lookup; an ordered index is more suitable."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "hash_growth.casual_a",
+    "concept": "hash_growth",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "Why does a lookup table get slower as its boxes fill up, and why can doubling its size cause a long pause?",
+    "goldGroups": [
+      [
+        "ch08.061"
+      ],
+      [
+        "ch08.073",
+        "ch08.074"
+      ]
+    ],
+    "answerCriteria": [
+      "More occupied slots increase collisions and probe lengths.",
+      "Changing capacity changes key placement, requiring rehashing/reinserting existing entries and potentially a blocking rebuild."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "hash_growth.casual_b",
+    "concept": "hash_growth",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "The table has room for more keys after I enlarge it. Why do I still have to move the old entries around?",
+    "goldGroups": [
+      [
+        "ch08.061"
+      ],
+      [
+        "ch08.073",
+        "ch08.074"
+      ]
+    ],
+    "answerCriteria": [
+      "More occupied slots increase collisions and probe lengths.",
+      "Changing capacity changes key placement, requiring rehashing/reinserting existing entries and potentially a blocking rebuild."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "hash_growth.technical",
+    "concept": "hash_growth",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "How do increasing load factor and capacity-dependent hashing explain probe degradation and full rehashing costs?",
+    "goldGroups": [
+      [
+        "ch08.061"
+      ],
+      [
+        "ch08.073",
+        "ch08.074"
+      ]
+    ],
+    "answerCriteria": [
+      "More occupied slots increase collisions and probe lengths.",
+      "Changing capacity changes key placement, requiring rehashing/reinserting existing entries and potentially a blocking rebuild."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "extendible_split.casual_a",
+    "concept": "extendible_split",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "In the growing hash table with a separate address list, when one bucket gets full, when do we also have to make the address list bigger?",
+    "goldGroups": [
+      [
+        "ch08.077",
+        "ch08.080"
+      ],
+      [
+        "ch08.078",
+        "ch08.080"
+      ]
+    ],
+    "answerCriteria": [
+      "If local depth is below global depth, split and redirect existing directory entries without doubling.",
+      "If local depth equals global depth, double the directory/increment global depth, then split."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "extendible_split.casual_b",
+    "concept": "extendible_split",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "Can one overflowing bucket be split without doubling the entire lookup directory? What determines that?",
+    "goldGroups": [
+      [
+        "ch08.077",
+        "ch08.080"
+      ],
+      [
+        "ch08.078",
+        "ch08.080"
+      ]
+    ],
+    "answerCriteria": [
+      "If local depth is below global depth, split and redirect existing directory entries without doubling.",
+      "If local depth equals global depth, double the directory/increment global depth, then split."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "extendible_split.technical",
+    "concept": "extendible_split",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "When does extendible hashing split a bucket without directory growth, and when must global depth increase?",
+    "goldGroups": [
+      [
+        "ch08.077",
+        "ch08.080"
+      ],
+      [
+        "ch08.078",
+        "ch08.080"
+      ]
+    ],
+    "answerCriteria": [
+      "If local depth is below global depth, split and redirect existing directory entries without doubling.",
+      "If local depth equals global depth, double the directory/increment global depth, then split."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "shared_readers.casual_a",
+    "concept": "shared_readers",
+    "chapter": 8,
+    "kind": "casual_a",
+    "question": "If lots of people only want to look at the same stored value, why make them wait one at a time? What changes when someone wants to edit it?",
+    "goldGroups": [
+      [
+        "ch08.103"
+      ]
+    ],
+    "answerCriteria": [
+      "Multiple readers can hold a shared lock because they do not modify data.",
+      "A writer needs exclusive access and must wait for existing readers/writers."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "shared_readers.casual_b",
+    "concept": "shared_readers",
+    "chapter": 8,
+    "kind": "casual_b",
+    "question": "How can many readers use one database entry together without letting a writer change it underneath them?",
+    "goldGroups": [
+      [
+        "ch08.103"
+      ]
+    ],
+    "answerCriteria": [
+      "Multiple readers can hold a shared lock because they do not modify data.",
+      "A writer needs exclusive access and must wait for existing readers/writers."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "shared_readers.technical",
+    "concept": "shared_readers",
+    "chapter": 8,
+    "kind": "technical",
+    "question": "How do shared and exclusive lock modes improve concurrent read-heavy hash access while protecting writes?",
+    "goldGroups": [
+      [
+        "ch08.103"
+      ]
+    ],
+    "answerCriteria": [
+      "Multiple readers can hold a shared lock because they do not modify data.",
+      "A writer needs exclusive access and must wait for existing readers/writers."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "operator_lifecycle.casual_a",
+    "concept": "operator_lifecycle",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "What is the normal sequence for setting up a query step, asking it for records, reading each result, and tidying up afterwards?",
+    "goldGroups": [
+      [
+        "ch11.021",
+        "ch11.020"
+      ],
+      [
+        "ch11.022",
+        "ch11.020"
+      ],
+      [
+        "ch11.023",
+        "ch11.020"
+      ],
+      [
+        "ch11.024",
+        "ch11.020"
+      ]
+    ],
+    "answerCriteria": [
+      "Initialize with open, then loop on next; true means output is available via getOutput.",
+      "False means exhaustion; close releases acquired resources."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "operator_lifecycle.casual_b",
+    "concept": "operator_lifecycle",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "How does the caller know a query step has another row ready, and what should it do when there are no rows left?",
+    "goldGroups": [
+      [
+        "ch11.021",
+        "ch11.020"
+      ],
+      [
+        "ch11.022",
+        "ch11.020"
+      ],
+      [
+        "ch11.023",
+        "ch11.020"
+      ],
+      [
+        "ch11.024",
+        "ch11.020"
+      ]
+    ],
+    "answerCriteria": [
+      "Initialize with open, then loop on next; true means output is available via getOutput.",
+      "False means exhaustion; close releases acquired resources."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "operator_lifecycle.technical",
+    "concept": "operator_lifecycle",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "Describe the Operator lifecycle using open, next, getOutput, and close, including next returning false.",
+    "goldGroups": [
+      [
+        "ch11.021",
+        "ch11.020"
+      ],
+      [
+        "ch11.022",
+        "ch11.020"
+      ],
+      [
+        "ch11.023",
+        "ch11.020"
+      ],
+      [
+        "ch11.024",
+        "ch11.020"
+      ]
+    ],
+    "answerCriteria": [
+      "Initialize with open, then loop on next; true means output is available via getOutput.",
+      "False means exhaustion; close releases acquired resources."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "pull_direction.casual_a",
+    "concept": "pull_direction",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "In a stack of query steps, does the file reader start pushing rows upward, or does the top step ask for them? How does one row make the round trip?",
+    "goldGroups": [
+      [
+        "ch11.027"
+      ],
+      [
+        "ch11.028"
+      ]
+    ],
+    "answerCriteria": [
+      "The executor calls next on the root, which recursively requests input from children.",
+      "Leaf data moves upward through filtering/projection; a filter can request more than one child tuple before returning."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "pull_direction.casual_b",
+    "concept": "pull_direction",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "When the query asks for one answer, why can that request travel down several layers before a record comes back up?",
+    "goldGroups": [
+      [
+        "ch11.027"
+      ],
+      [
+        "ch11.028"
+      ]
+    ],
+    "answerCriteria": [
+      "The executor calls next on the root, which recursively requests input from children.",
+      "Leaf data moves upward through filtering/projection; a filter can request more than one child tuple before returning."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "pull_direction.technical",
+    "concept": "pull_direction",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "Explain downward control flow and upward tuple flow in the pull-based iterator model.",
+    "goldGroups": [
+      [
+        "ch11.027"
+      ],
+      [
+        "ch11.028"
+      ]
+    ],
+    "answerCriteria": [
+      "The executor calls next on the root, which recursively requests input from children.",
+      "Leaf data moves upward through filtering/projection; a filter can request more than one child tuple before returning."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "pipeline_latency.casual_a",
+    "concept": "pipeline_latency",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "Why can a query show its first few results sooner if each step hands rows straight to the next, instead of finishing a big temporary file first?",
+    "goldGroups": [
+      [
+        "ch11.031",
+        "ch11.032"
+      ],
+      [
+        "ch11.033",
+        "ch11.032"
+      ]
+    ],
+    "answerCriteria": [
+      "Materialization writes/buffers whole intermediate results before the next stage proceeds.",
+      "Pipelining reduces intermediate I/O/memory and lets downstream work/first results begin earlier."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "pipeline_latency.casual_b",
+    "concept": "pipeline_latency",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "What is wasted when every stage writes all its output and the following stage then reads it back?",
+    "goldGroups": [
+      [
+        "ch11.031",
+        "ch11.032"
+      ],
+      [
+        "ch11.033",
+        "ch11.032"
+      ]
+    ],
+    "answerCriteria": [
+      "Materialization writes/buffers whole intermediate results before the next stage proceeds.",
+      "Pipelining reduces intermediate I/O/memory and lets downstream work/first results begin earlier."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "pipeline_latency.technical",
+    "concept": "pipeline_latency",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "Compare pipelining with full intermediate-result materialization for I/O and time to first tuple.",
+    "goldGroups": [
+      [
+        "ch11.031",
+        "ch11.032"
+      ],
+      [
+        "ch11.033",
+        "ch11.032"
+      ]
+    ],
+    "answerCriteria": [
+      "Materialization writes/buffers whole intermediate results before the next stage proceeds.",
+      "Pipelining reduces intermediate I/O/memory and lets downstream work/first results begin earlier."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "move_output.casual_a",
+    "concept": "move_output",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "When the scan hands a large row to its caller, why transfer ownership instead of making a complete duplicate?",
+    "goldGroups": [
+      [
+        "ch11.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Moving transfers ownership cheaply instead of allocating/copying all field data.",
+      "The source is valid but moved-from; the next successful next call replaces the current tuple."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "move_output.casual_b",
+    "concept": "move_output",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "After giving the row data away, why is it okay for the scan to replace its current row on the next successful request?",
+    "goldGroups": [
+      [
+        "ch11.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Moving transfers ownership cheaply instead of allocating/copying all field data.",
+      "The source is valid but moved-from; the next successful next call replaces the current tuple."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "move_output.technical",
+    "concept": "move_output",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "Why does ScanOperator getOutput use std::move on the tuple fields, and what happens to the source fields afterward?",
+    "goldGroups": [
+      [
+        "ch11.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Moving transfers ownership cheaply instead of allocating/copying all field data.",
+      "The source is valid but moved-from; the next successful next call replaces the current tuple."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "scan_empty_slots.casual_a",
+    "concept": "scan_empty_slots",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "Some positions on a stored page have no record in them. Does the scan stop there, or how does it find the next real row and eventually signal that it is done?",
+    "goldGroups": [
+      [
+        "ch11.052",
+        "ch11.048"
+      ],
+      [
+        "ch11.056",
+        "ch11.048"
+      ]
+    ],
+    "answerCriteria": [
+      "Empty slots are skipped while scanning for an occupied slot; a hole is not end-of-table.",
+      "After all pages are exhausted, currentTuple is reset/null, signaling no more rows."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "scan_empty_slots.casual_b",
+    "concept": "scan_empty_slots",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "Why should a blank position on a page be skipped instead of being treated as the end of the table?",
+    "goldGroups": [
+      [
+        "ch11.052",
+        "ch11.048"
+      ],
+      [
+        "ch11.056",
+        "ch11.048"
+      ]
+    ],
+    "answerCriteria": [
+      "Empty slots are skipped while scanning for an occupied slot; a hole is not end-of-table.",
+      "After all pages are exhausted, currentTuple is reset/null, signaling no more rows."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "scan_empty_slots.technical",
+    "concept": "scan_empty_slots",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "How does loadNextTuple skip empty slots and signal end-of-scan through currentTuple?",
+    "goldGroups": [
+      [
+        "ch11.052",
+        "ch11.048"
+      ],
+      [
+        "ch11.056",
+        "ch11.048"
+      ]
+    ],
+    "answerCriteria": [
+      "Empty slots are skipped while scanning for an occupied slot; a hole is not end-of-table.",
+      "After all pages are exhausted, currentTuple is reset/null, signaling no more rows."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "sort_blocking.casual_a",
+    "concept": "sort_blocking",
+    "chapter": 11,
+    "kind": "casual_a",
+    "question": "A filter can give me a matching row right away. Why can a step that puts all rows in order have to wait before giving me even the first one?",
+    "goldGroups": [
+      [
+        "ch11.088",
+        "ch11.033"
+      ]
+    ],
+    "answerCriteria": [
+      "A filter can output each qualifying tuple independently.",
+      "A general sort must inspect all input to know global order/minimum, buffering or spilling before emitting sorted output."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "sort_blocking.casual_b",
+    "concept": "sort_blocking",
+    "chapter": 11,
+    "kind": "casual_b",
+    "question": "Why does adding a sorting step stop the steady flow of results from a query?",
+    "goldGroups": [
+      [
+        "ch11.088",
+        "ch11.033"
+      ]
+    ],
+    "answerCriteria": [
+      "A filter can output each qualifying tuple independently.",
+      "A general sort must inspect all input to know global order/minimum, buffering or spilling before emitting sorted output."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "sort_blocking.technical",
+    "concept": "sort_blocking",
+    "chapter": 11,
+    "kind": "technical",
+    "question": "Why is sorting a blocking pipeline breaker whereas selection is non-blocking?",
+    "goldGroups": [
+      [
+        "ch11.088",
+        "ch11.033"
+      ]
+    ],
+    "answerCriteria": [
+      "A filter can output each qualifying tuple independently.",
+      "A general sort must inspect all input to know global order/minimum, buffering or spilling before emitting sorted output."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "few_columns.casual_a",
+    "concept": "few_columns",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "My report totals one attribute after checking another, but each record has lots of other attributes. Why might keeping attributes in separate files save drive reads?",
+    "goldGroups": [
+      [
+        "ch15.037",
+        "ch15.036"
+      ],
+      [
+        "ch15.038",
+        "ch15.039",
+        "ch15.036"
+      ]
+    ],
+    "answerCriteria": [
+      "A row scan brings unrelated columns along with the needed ones.",
+      "Column storage can read just the filter/aggregate columns, reducing bytes/pages read when only a few columns are needed."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "few_columns.casual_b",
+    "concept": "few_columns",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "Why read a whole wide record just to use two of its values, and what storage layout avoids that?",
+    "goldGroups": [
+      [
+        "ch15.037",
+        "ch15.036"
+      ],
+      [
+        "ch15.038",
+        "ch15.039",
+        "ch15.036"
+      ]
+    ],
+    "answerCriteria": [
+      "A row scan brings unrelated columns along with the needed ones.",
+      "Column storage can read just the filter/aggregate columns, reducing bytes/pages read when only a few columns are needed."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "few_columns.technical",
+    "concept": "few_columns",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "Why does a column store reduce I/O for analytical queries referencing only a small subset of columns?",
+    "goldGroups": [
+      [
+        "ch15.037",
+        "ch15.036"
+      ],
+      [
+        "ch15.038",
+        "ch15.039",
+        "ch15.036"
+      ]
+    ],
+    "answerCriteria": [
+      "A row scan brings unrelated columns along with the needed ones.",
+      "Column storage can read just the filter/aggregate columns, reducing bytes/pages read when only a few columns are needed."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "late_rows.casual_a",
+    "concept": "late_rows",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "If matching values are in separate attribute files, how does the query remember which ones belong to the same row without rebuilding every whole row immediately?",
+    "goldGroups": [
+      [
+        "ch15.042"
+      ],
+      [
+        "ch15.044",
+        "ch15.045"
+      ]
+    ],
+    "answerCriteria": [
+      "Record qualifying row positions/page offsets while scanning the filter column.",
+      "Use those positions to fetch corresponding aggregate values, grouped by page, without eagerly reconstructing complete tuples."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "late_rows.casual_b",
+    "concept": "late_rows",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "After finding positions that pass a test in one file, how can the program collect the corresponding values from another file efficiently?",
+    "goldGroups": [
+      [
+        "ch15.042"
+      ],
+      [
+        "ch15.044",
+        "ch15.045"
+      ]
+    ],
+    "answerCriteria": [
+      "Record qualifying row positions/page offsets while scanning the filter column.",
+      "Use those positions to fetch corresponding aggregate values, grouped by page, without eagerly reconstructing complete tuples."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "late_rows.technical",
+    "concept": "late_rows",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "How does pageOffsetMap support late materialization in queryColumnarStorage?",
+    "goldGroups": [
+      [
+        "ch15.042"
+      ],
+      [
+        "ch15.044",
+        "ch15.045"
+      ]
+    ],
+    "answerCriteria": [
+      "Record qualifying row positions/page offsets while scanning the filter column.",
+      "Use those positions to fetch corresponding aggregate values, grouped by page, without eagerly reconstructing complete tuples."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "column_writes.casual_a",
+    "concept": "column_writes",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "Why might storing every attribute separately be great for reports but awkward when I add one new customer with many attributes?",
+    "goldGroups": [
+      [
+        "ch15.048"
+      ]
+    ],
+    "answerCriteria": [
+      "One inserted row needs a value appended to every relevant column file.",
+      "One logical write becomes many physical writes, which is unfavorable for frequent small transactional inserts."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "column_writes.casual_b",
+    "concept": "column_writes",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "Why can adding just one record turn into lots of separate writes when each attribute has its own file?",
+    "goldGroups": [
+      [
+        "ch15.048"
+      ]
+    ],
+    "answerCriteria": [
+      "One inserted row needs a value appended to every relevant column file.",
+      "One logical write becomes many physical writes, which is unfavorable for frequent small transactional inserts."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "column_writes.technical",
+    "concept": "column_writes",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "How does column-oriented insertion cause write amplification for wide transactional rows?",
+    "goldGroups": [
+      [
+        "ch15.048"
+      ]
+    ],
+    "answerCriteria": [
+      "One inserted row needs a value appended to every relevant column file.",
+      "One logical write becomes many physical writes, which is unfavorable for frequent small transactional inserts."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "timestamp_deltas.casual_a",
+    "concept": "timestamp_deltas",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "Sensor readings have huge time numbers that increase only a little each time. How can we save less data but still reconstruct the original times?",
+    "goldGroups": [
+      [
+        "ch15.058",
+        "ch15.059",
+        "ch15.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Store the first/base timestamp and differences between successive timestamps.",
+      "Recover values with cumulative addition; small differences can be represented compactly using a suitable encoding."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "timestamp_deltas.casual_b",
+    "concept": "timestamp_deltas",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "Why store a starting time and small gaps rather than every long timestamp in full?",
+    "goldGroups": [
+      [
+        "ch15.058",
+        "ch15.059",
+        "ch15.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Store the first/base timestamp and differences between successive timestamps.",
+      "Recover values with cumulative addition; small differences can be represented compactly using a suitable encoding."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "timestamp_deltas.technical",
+    "concept": "timestamp_deltas",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "How does delta encoding exploit sorted timestamps, and what base value must be retained?",
+    "goldGroups": [
+      [
+        "ch15.058",
+        "ch15.059",
+        "ch15.061"
+      ]
+    ],
+    "answerCriteria": [
+      "Store the first/base timestamp and differences between successive timestamps.",
+      "Recover values with cumulative addition; small differences can be represented compactly using a suitable encoding."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "small_integer_bits.casual_a",
+    "concept": "small_integer_bits",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "If all my measurements are between 68 and 80, why waste a full machine-sized number on each one? How can I store them in fewer bits and still recover them?",
+    "goldGroups": [
+      [
+        "ch15.062"
+      ]
+    ],
+    "answerCriteria": [
+      "Retain/subtract the minimum so values become small nonnegative offsets.",
+      "Pack offsets using only enough bits for their range; restore by unpacking and adding the minimum."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "small_integer_bits.casual_b",
+    "concept": "small_integer_bits",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "How does taking away the smallest measurement let us squeeze several readings into a byte or word?",
+    "goldGroups": [
+      [
+        "ch15.062"
+      ]
+    ],
+    "answerCriteria": [
+      "Retain/subtract the minimum so values become small nonnegative offsets.",
+      "Pack offsets using only enough bits for their range; restore by unpacking and adding the minimum."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "small_integer_bits.technical",
+    "concept": "small_integer_bits",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "How do frame-of-reference encoding and bit-packing compress a narrow integer range?",
+    "goldGroups": [
+      [
+        "ch15.062"
+      ]
+    ],
+    "answerCriteria": [
+      "Retain/subtract the minimum so values become small nonnegative offsets.",
+      "Pack offsets using only enough bits for their range; restore by unpacking and adding the minimum."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "batch_processing.casual_a",
+    "concept": "batch_processing",
+    "chapter": 15,
+    "kind": "casual_a",
+    "question": "Why can asking a query step for a thousand values at once be faster than asking a thousand times for one value?",
+    "goldGroups": [
+      [
+        "ch15.081"
+      ]
+    ],
+    "answerCriteria": [
+      "A batch amortizes function/dispatch overhead across many values.",
+      "Tight loops over contiguous arrays improve instruction/data locality and can enable SIMD."
+    ],
+    "generateAnswer": true
+  },
+  {
+    "id": "batch_processing.casual_b",
+    "concept": "batch_processing",
+    "chapter": 15,
+    "kind": "casual_b",
+    "question": "What is the advantage of working through a small array of values in one tight loop rather than passing one record through the machinery each time?",
+    "goldGroups": [
+      [
+        "ch15.081"
+      ]
+    ],
+    "answerCriteria": [
+      "A batch amortizes function/dispatch overhead across many values.",
+      "Tight loops over contiguous arrays improve instruction/data locality and can enable SIMD."
+    ],
+    "generateAnswer": false
+  },
+  {
+    "id": "batch_processing.technical",
+    "concept": "batch_processing",
+    "chapter": 15,
+    "kind": "technical",
+    "question": "How does vectorized execution amortize iterator-call overhead and improve locality?",
+    "goldGroups": [
+      [
+        "ch15.081"
+      ]
+    ],
+    "answerCriteria": [
+      "A batch amortizes function/dispatch overhead across many values.",
+      "Tight loops over contiguous arrays improve instruction/data locality and can enable SIMD."
+    ],
+    "generateAnswer": false
+  }
+]

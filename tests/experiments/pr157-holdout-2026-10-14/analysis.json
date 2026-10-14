@@ -1,0 +1,95 @@
+{
+  "preparationSeconds": {
+    "off": {
+      "cold": 18.11862358264625,
+      "cached": 1.1041402909904718
+    },
+    "on": {
+      "cold": 741.3080919580534,
+      "cached": 1.4655189998447895
+    }
+  },
+  "extraInitialSeconds": 723.1894683754072,
+  "warmSearchSeconds": {
+    "off": {
+      "n": 144,
+      "median": 0.018885083496570587,
+      "p95": 0.042475679353810844
+    },
+    "on": {
+      "n": 144,
+      "median": 0.0189238335005939,
+      "p95": 0.03587466077879071
+    }
+  },
+  "queryEmbeddingSeconds": {
+    "n": 72,
+    "median": 0.029689333401620388,
+    "p95": 0.03344019348733127
+  },
+  "amortizedExtraSecondsPerQuery": {
+    "10": 72.31894683754072,
+    "100": 7.231894683754072,
+    "1000": 0.7231894683754072
+  },
+  "breakEvenQueriesAtHypotheticalMinutesSaved": {
+    "1": 289.2757873501629,
+    "3": 96.42526245005429,
+    "5": 57.85515747003258
+  },
+  "answerSummary": {
+    "n": 24,
+    "rubric": "0 wrong/refusal/unsupported core, 1 partial, 2 both criteria correct",
+    "contentCorrect": {
+      "off": 11,
+      "on": 12
+    },
+    "supportedCorrect": {
+      "off": 11,
+      "on": 12
+    },
+    "supportedPartialOrComplete": {
+      "off": 19,
+      "on": 21
+    },
+    "scoreHistogram": {
+      "off": {
+        "0": 3,
+        "1": 10,
+        "2": 11
+      },
+      "on": {
+        "0": 2,
+        "1": 10,
+        "2": 12
+      }
+    },
+    "meanScore": {
+      "off": 1.3333333333333333,
+      "on": 1.4166666666666667
+    },
+    "times": {
+      "off": {
+        "n": 24,
+        "median": 13.833635103999987,
+        "p95": 17.802894527600003
+      },
+      "on": {
+        "n": 24,
+        "median": 14.194048895500018,
+        "p95": 15.831895529549994
+      }
+    },
+    "errors": {
+      "off": 0,
+      "on": 0
+    },
+    "wins": 2,
+    "losses": 1,
+    "delta": 0.041666666666666664,
+    "bootstrap95": [
+      -0.08333333333333333,
+      0.16666666666666666
+    ]
+  }
+}

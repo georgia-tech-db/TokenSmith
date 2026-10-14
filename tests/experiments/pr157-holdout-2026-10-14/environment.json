@@ -1,0 +1,89 @@
+{
+  "startedAt": "2026-10-14T09:41:13.661760+00:00",
+  "platform": "macOS-14.6.1-arm64-arm-64bit",
+  "python": "3.12.14 (main, Sep  1 2026, 14:09:38) [Clang 22.1.3 ]",
+  "numpy": "2.5.2",
+  "faiss": "1.15.0",
+  "prHead": "d628f8322c09911306c923d655db1139aab035e0",
+  "ollamaVersion": {
+    "version": "0.31.1"
+  },
+  "initialResidency": {
+    "models": []
+  },
+  "models": {
+    "models": [
+      {
+        "name": "gemma4:e4b",
+        "model": "gemma4:e4b",
+        "modified_at": "2026-09-13T00:03:27.713974701+05:30",
+        "size": 9608350718,
+        "digest": "c6eb396dbd5992bbe3f5cdb947e8bbc0ee413d7c17e2beaae69f5d569cf982eb",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gemma4",
+          "families": [
+            "gemma4"
+          ],
+          "parameter_size": "8.0B",
+          "quantization_level": "Q4_K_M"
+        },
+        "capabilities": [
+          "completion",
+          "tools",
+          "thinking"
+        ]
+      },
+      {
+        "name": "nomic-embed-text:latest",
+        "model": "nomic-embed-text:latest",
+        "modified_at": "2026-09-10T02:21:14.174535598+05:30",
+        "size": 274302450,
+        "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "nomic-bert",
+          "families": [
+            "nomic-bert"
+          ],
+          "parameter_size": "137M",
+          "quantization_level": "F16",
+          "context_length": 2048,
+          "embedding_length": 768
+        },
+        "capabilities": [
+          "embedding"
+        ]
+      }
+    ]
+  },
+  "cpu": "Apple M1 Max",
+  "memoryBytes": 34359738368,
+  "sourceHashes": {
+    "python_engine/tokensmith_cleaning.py": "f7c6d7df3f1ade4708000742c32397bc27b185c5b72cb16704d643ae24fb3685",
+    "python_engine/tokensmith_engine.py": "80fad8ac95baa74e60873cbdc7e3c530f6d2d21ab51f39b059c21711380a503e",
+    "python_engine/tokensmith_preparation.py": "9cc69784d0c7e61d580270bd4acf7598f36c7a7843d1f21d6769dec9bac86e78",
+    "python_engine/tokensmith_preparation_job.py": "924dd9e5ab9152faae324d1cdcc873fce3478b52283a2f6e818c2dc5ee9759ff",
+    "python_engine/tokensmith_store.py": "6250ea48fcd2eb80392fb27b444cd60178d271725674040b3ea38f4ddbfdb4c7"
+  },
+  "corpusPath": "${REPO_ROOT}/tests/experiments/pr157-holdout-2026-10-14/corpus.tokensmith.md",
+  "work": "${WORK_DIR}",
+  "generator": {
+    "id": "ollama:gemma4:e4b",
+    "engine": "ollama",
+    "name": "gemma4:e4b",
+    "role": "generator",
+    "ollamaModelName": "gemma4:e4b",
+    "contextLength": 8192
+  },
+  "embedder": {
+    "id": "ollama:nomic-embed-text",
+    "engine": "ollama",
+    "name": "nomic-embed-text",
+    "role": "embedder",
+    "ollamaModelName": "nomic-embed-text:latest",
+    "contextLength": 2048
+  }
+}
