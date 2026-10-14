@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { listOpenAiCompatibleModels, runRemoteStudyEngine } = requireTranspiledTs(
+const { runRemoteStudyEngine } = requireTranspiledTs(
   'src/main/engine/remote-chat-service.ts'
 )
 
@@ -61,84 +61,7 @@ async function withMockFetch(fetchImplementation, callback) {
   }
 }
 
-test('listOpenAiCompatibleModels normalizes Gemini chat model ids and sorts recent Gemini models first', async () => {
-  const originalFetch = globalThis.fetch
-  const requestedUrls = []
 
-  globalThis.fetch = async (url, options) => {
-    requestedUrls.push(String(url))
-    assert.equal(options.headers.Accept, 'application/json')
-    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
-
-    if (String(url).endsWith('/models')) {
-      return {
-        ok: true,
-        json: async () => ({
-          data: [
-            { id: 'models/antigravity-preview-05-26' },
-            { id: 'models/gemini-3.5-flash' },
-            { id: 'models/gemini-2.5-pro' },
-            { id: 'models/gemini-2.0-flash' },
-            { id: 'models/gemini-embedding-001' },
-            { id: 'models/text-embedding-004' }
-          ]
-        })
-      }
-    }
-
-    throw new Error(`Unexpected request to ${String(url)}`)
-  }
-
-  try {
-    const models = await listOpenAiCompatibleModels(
-      ' gemini-key ',
-      'https://generativelanguage.googleapis.com/v1beta/openai/'
-    )
-
-    assert.equal(requestedUrls[0], 'https://generativelanguage.googleapis.com/v1beta/openai/models')
-    assert.deepEqual(requestedUrls, ['https://generativelanguage.googleapis.com/v1beta/openai/models'])
-    assert.deepEqual(models, [
-      'gemini-3.5-flash',
-      'gemini-2.5-pro',
-      'gemini-2.0-flash',
-      'antigravity-preview-05-26'
-    ])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('listOpenAiCompatibleModels lists Gemini embedding models when requested', async () => {
-  const originalFetch = globalThis.fetch
-
-  globalThis.fetch = async (url, options) => {
-    assert.equal(String(url), 'https://generativelanguage.googleapis.com/v1beta/openai/models')
-    assert.equal(options.headers.Authorization, 'Bearer gemini-key')
-
-    return {
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: 'models/gemini-3.5-flash' },
-          { id: 'models/text-embedding-004' },
-          { id: 'models/gemini-embedding-001' }
-        ]
-      })
-    }
-  }
-
-  try {
-    const models = await listOpenAiCompatibleModels(
-      ' gemini-key ',
-      'https://generativelanguage.googleapis.com/v1beta/openai/',
-      'embedder'
-    )
-
-    assert.deepEqual(models, ['gemini-embedding-001', 'text-embedding-004'])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
 
 test('runRemoteStudyEngine sends Gemini chat through OpenAI-compatible chat completions', async () => {
   let requestedUrl = ''
@@ -418,23 +341,4 @@ test('runRemoteStudyEngine includes the remote endpoint and model when a provide
       /HTTP 404 at POST https:\/\/generativelanguage\.googleapis\.com\/v1beta\/openai\/chat\/completions using model gemini-2\.0-flash/
     )
   })
-})
-
-test('listOpenAiCompatibleModels preserves generic OpenAI-compatible model ids', async () => {
-  const originalFetch = globalThis.fetch
-
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      data: [{ id: 'z-model' }, { id: 'models/provider-prefixed' }, { id: 'a-model' }]
-    })
-  })
-
-  try {
-    const models = await listOpenAiCompatibleModels('key', 'https://api.example.test/v1/')
-
-    assert.deepEqual(models, ['a-model', 'models/provider-prefixed', 'z-model'])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
 })

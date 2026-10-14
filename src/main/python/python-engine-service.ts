@@ -257,7 +257,7 @@ function resolveEmbeddingModel(model?: LocalModel): LocalModel | undefined {
   }
 
   if (model.engine === 'remote' || model.engine === 'ollama') {
-    return model
+    return modelWithRememberedRemoteApiKey(model)
   }
 
   return undefined
@@ -621,7 +621,7 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
-      model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
+      model: resolveEmbeddingModel(model),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
