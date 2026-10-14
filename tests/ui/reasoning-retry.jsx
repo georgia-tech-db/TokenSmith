@@ -32,11 +32,17 @@ let state = {
   models: [model], selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials: [],
   settings: { application: { suggestionMode: 'on', showSources: false }, modelSettingsById: { test: { reasoningMode: 'auto', contextLength: 8192, maxLength: 1536 } } }
 }
+const storageKey = `query-plan-${params.get('run') || 'fixture'}`
+if (params.has('plan-test')) {
+  const saved = sessionStorage.getItem(storageKey)
+  if (saved) state = JSON.parse(saved)
+}
+window.reasoningTest = { state: () => state }
 let attempts = 0
 window.tokensmith = {
   getAppVersion: async () => 'UI test', loadAppState: async () => state,
-  saveAppState: async next => { state = next; return next },
-  listEngines: async () => [], listMaterials: async () => [],
+  saveAppState: async next => { state = next; if (params.has('plan-test')) sessionStorage.setItem(storageKey, JSON.stringify(next)); return next },
+  listEngines: async () => [], listMaterials: async () => [], listStudyDocuments: async () => [],
   onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: () => () => {},
   cancelChatRequest: async () => true,
   sendChatMessage: async (request, onAnswer) => {
@@ -47,11 +53,13 @@ window.tokensmith = {
       text: request.answerToSimplify ? 'The middle key goes up, and each child stays with one of the two nodes.'
         : 'Promote **30**.\n\n- **Left:** keys [10, 20]; children C0, C1, C2.\n- **Right:** key [40]; children **C3, C4**.\n\nAll five children remain, exactly once. The right node has one key and therefore needs two children.',
       sources: request.retrievedSources ?? [],
+      latencyTrace: { requestId: request.requestId, totalDurationMs: request.answerToSimplify ? 300 : 900,
+        spans: [{ stage: 'Answer generation', startedAt: 1, durationMs: request.answerToSimplify ? 300 : 900 }] },
       reasoning: { modelId: model.id, supported: true, used: request.modelSettings.thinking === true }
     }
     onAnswer?.(reply, true)
     await new Promise(resolve => setTimeout(resolve, 400))
-    return { ...reply, followUpSuggestions: ['Why must the right node keep two children?'] }
+    return { ...reply, latencyTrace: { ...reply.latencyTrace, totalDurationMs: reply.latencyTrace.totalDurationMs + 400, spans: [...reply.latencyTrace.spans, { stage: 'Follow-up suggestions', startedAt: 2, durationMs: 400 }] }, followUpSuggestions: ['Why must the right node keep two children?'] }
   }
 }
 await import('../../src/renderer/src/main.tsx')

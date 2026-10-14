@@ -1,33 +1,6 @@
-import { useId, useMemo, useState } from 'react'
-import { Activity, ChevronDown } from 'lucide-react'
-import {
-  buildLatencyBreakdown,
-  formatLatencyTrace,
-  type LatencyBreakdown,
-  type LatencyStageBreakdownItem,
-  type LatencyTrace
-} from '@shared/latency-trace'
-
-function formatSeconds(durationMs: number): string {
-  return `${(durationMs / 1000).toFixed(2)} s`
-}
-
-export function latencyPlanText(trace: LatencyTrace, wallTimeMs?: number): string | undefined {
-  // A formatting problem must never break an otherwise successful answer.
-  try {
-    return formatLatencyTrace(trace, wallTimeMs)
-  } catch {
-    return undefined
-  }
-}
-
-export function latencyPlanBreakdown(trace: LatencyTrace): LatencyBreakdown | undefined {
-  try {
-    return buildLatencyBreakdown(trace)
-  } catch {
-    return undefined
-  }
-}
+import { useState } from 'react'
+import { formatDuration, type LatencyPlan, type LatencyStageBreakdownItem } from './latency-plan'
+import './query-plan.css'
 
 function stageToneClass(stage: LatencyStageBreakdownItem): string {
   if (stage.status === 'skipped') return 'is-skipped'
@@ -113,14 +86,13 @@ function StageRow({
               aria-label={`${item.label} sub-stage time breakdown`}
             >
               {activeChildren.map((child) => (
-                <button
+                <span
                   key={child.key}
-                  type="button"
+                  aria-hidden="true"
                   className={`query-plan-bar-segment ${stageToneClass(child)}`}
-                  style={{ width: `${Math.max(child.widthPercent, 4)}%`, flexGrow: Math.max(child.durationMs, 1) }}
+                  style={{ flex: `0 0 ${child.widthPercent}%` }}
                   title={`${child.label}: ${child.durationLabel} (${child.percentLabel})${child.isBottleneck ? ' — Bottleneck' : ''}`}
                   aria-label={`${child.label}: ${child.durationLabel} (${child.percentLabel})${child.isBottleneck ? ', bottleneck' : ''}`}
-                  onClick={() => onToggleDescription(child.key)}
                 />
               ))}
             </div>
@@ -143,26 +115,19 @@ function StageRow({
   )
 }
 
-export function QueryPlanPanel({ trace, wallTimeMs }: { trace?: LatencyTrace; wallTimeMs?: number }) {
-  const [open, setOpen] = useState(false)
+function stageKeys(stages: LatencyStageBreakdownItem[]): string[] {
+  return stages.flatMap((stage) => [stage.key, ...stageKeys(stage.children)])
+}
+
+export function QueryPlanPanel({ plan, panelId, answerReadyMs }: {
+  plan: LatencyPlan
+  panelId: string
+  answerReadyMs?: number
+}) {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(() => new Set())
-  const panelId = useId()
-  const text = useMemo(() => (trace ? latencyPlanText(trace, wallTimeMs) : undefined), [trace, wallTimeMs])
-  const breakdown = useMemo(() => (trace ? latencyPlanBreakdown(trace) : undefined), [trace])
-  if (!trace || !text || !breakdown) return null
-
-  const hasWallTime = typeof wallTimeMs === 'number' && Number.isFinite(wallTimeMs) && wallTimeMs >= 0
-  const allStageKeys = useMemo(() => {
-    const keys: string[] = []
-    for (const stage of breakdown.stages) {
-      keys.push(stage.key)
-      for (const child of stage.children) {
-        keys.push(child.key)
-      }
-    }
-    return keys
-  }, [breakdown])
-
+  const { text, breakdown } = plan
+  const hasAnswerTime = typeof answerReadyMs === 'number' && Number.isFinite(answerReadyMs) && answerReadyMs >= 0
+  const allStageKeys = stageKeys(breakdown.stages)
   const allDescriptionsOpen = allStageKeys.length > 0 && allStageKeys.every((key) => expandedDescriptions.has(key))
 
   function toggleDescription(key: string) {
@@ -183,112 +148,98 @@ export function QueryPlanPanel({ trace, wallTimeMs }: { trace?: LatencyTrace; wa
 
   return (
     <div className="query-plan">
-      <button
-        className="source-chip"
-        type="button"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Activity size={16} aria-hidden="true" />
-        <span>Latency plan</span>
-        <ChevronDown size={14} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="query-plan-body" id={panelId} role="region" aria-label="Latency plan">
-          <div className="query-plan-top-row">
-            <dl className="query-plan-totals">
-              <div>
-                <dt>Measured stages</dt>
-                <dd>{formatSeconds(trace.totalDurationMs)}</dd>
-              </div>
-              {hasWallTime && (
-                <div>
-                  <dt>Wall time</dt>
-                  <dd>{formatSeconds(wallTimeMs)}</dd>
-                </div>
-              )}
-              {breakdown.bottleneck && (
-                <div className="query-plan-bottleneck-summary">
-                  <dt>Bottleneck</dt>
-                  <dd>
-                    {breakdown.bottleneck.label} ({breakdown.bottleneck.durationLabel} · {breakdown.bottleneck.percentLabel})
-                    {breakdown.bottleneck.substageLabel
-                      ? ` — ${breakdown.bottleneck.substageLabel} (${breakdown.bottleneck.substageDurationLabel})`
-                      : ''}
-                  </dd>
-                </div>
-              )}
-            </dl>
-            <button
-              type="button"
-              className="query-plan-explain-all-btn"
-              aria-pressed={allDescriptionsOpen}
-              onClick={toggleAllDescriptions}
-            >
-              <span className="query-plan-info-icon-inline" aria-hidden="true">i</span>
-              <span>{allDescriptionsOpen ? 'Hide stage guides' : 'Explain all stages'}</span>
-            </button>
-          </div>
-
-          {breakdown.barSegments.length > 0 && (
-            <div className="query-plan-bar-container">
-              <div
-                className="query-plan-stacked-bar"
-                role="img"
-                aria-label={`Horizontal stacked latency bar. Bottleneck: ${breakdown.bottleneck?.label ?? 'none'}`}
-              >
-                {breakdown.barSegments.map((segment) => (
-                  <button
-                    key={segment.key}
-                    type="button"
-                    className={`query-plan-bar-segment ${stageToneClass(segment)}`}
-                    style={{
-                      width: `${Math.max(segment.widthPercent, 4)}%`,
-                      flexGrow: Math.max(segment.durationMs, 1)
-                    }}
-                    title={`${segment.label}: ${segment.durationLabel} (${segment.percentLabel})${segment.isBottleneck ? ' — Bottleneck' : ''}`}
-                    aria-label={`${segment.label}: ${segment.durationLabel} (${segment.percentLabel})${segment.isBottleneck ? ', bottleneck' : ''}`}
-                    onClick={() => toggleDescription(segment.key)}
-                  />
-                ))}
-              </div>
-              <div className="query-plan-bar-legend" aria-label="Stage time legend">
-                {breakdown.barSegments.map((segment) => (
-                  <button
-                    key={segment.key}
-                    type="button"
-                    className={`query-plan-legend-item ${segment.isBottleneck ? 'is-bottleneck' : ''}`}
-                    onClick={() => toggleDescription(segment.key)}
-                    title={`Click to view description for ${segment.label}`}
-                  >
-                    <span className={`query-plan-stage-swatch ${stageToneClass(segment)}`} aria-hidden="true" />
-                    <span className="query-plan-legend-label">{segment.label}</span>
-                    <span className="query-plan-legend-time">{segment.durationLabel}</span>
-                  </button>
-                ))}
-              </div>
+      <div className="query-plan-body" id={panelId} role="region" aria-label="Query plan">
+        <p className="query-plan-note">Time spent preparing this answer. Measured stages include background follow-up suggestions; answer ready time ends when the answer appears.</p>
+        <div className="query-plan-top-row">
+          <dl className="query-plan-totals">
+            <div>
+              <dt>Measured stages</dt>
+              <dd>{breakdown.totalDurationLabel}</dd>
             </div>
-          )}
-
-          <div className="query-plan-stages" aria-label="Answer generation stages">
-            {breakdown.stages.map((stage) => (
-              <StageRow
-                key={stage.key}
-                item={stage}
-                expandedDescriptions={expandedDescriptions}
-                onToggleDescription={toggleDescription}
-                panelId={panelId}
-              />
-            ))}
-          </div>
-
-          <details className="query-plan-raw-details">
-            <summary>Raw execution trace</summary>
-            <pre className="query-plan-text">{text}</pre>
-          </details>
+            {hasAnswerTime && (
+              <div>
+                <dt>Answer ready in</dt>
+                <dd>{formatDuration(answerReadyMs!)}</dd>
+              </div>
+            )}
+            {breakdown.bottleneck && (
+              <div className="query-plan-bottleneck-summary">
+                <dt>Bottleneck</dt>
+                <dd>
+                  {breakdown.bottleneck.label} ({breakdown.bottleneck.durationLabel} · {breakdown.bottleneck.percentLabel})
+                  {breakdown.bottleneck.substageLabel
+                    ? ` — ${breakdown.bottleneck.substageLabel} (${breakdown.bottleneck.substageDurationLabel})`
+                    : ''}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <button
+            type="button"
+            className="query-plan-explain-all-btn"
+            aria-pressed={allDescriptionsOpen}
+            onClick={toggleAllDescriptions}
+          >
+            <span className="query-plan-info-icon-inline" aria-hidden="true">i</span>
+            <span>{allDescriptionsOpen ? 'Hide stage guides' : 'Explain all stages'}</span>
+          </button>
         </div>
-      )}
+
+        {breakdown.barSegments.length > 0 && (
+          <div className="query-plan-bar-container">
+            <div
+              className="query-plan-stacked-bar"
+              role="img"
+              aria-label={`Horizontal stacked latency bar. Bottleneck: ${breakdown.bottleneck?.label ?? 'none'}`}
+            >
+              {breakdown.barSegments.map((segment) => (
+                <span
+                  key={segment.key}
+                  aria-hidden="true"
+                  className={`query-plan-bar-segment ${stageToneClass(segment)}`}
+                  style={{
+                    flex: `0 0 ${segment.widthPercent}%`
+                  }}
+                  title={`${segment.label}: ${segment.durationLabel} (${segment.percentLabel})${segment.isBottleneck ? ' — Bottleneck' : ''}`}
+                  aria-label={`${segment.label}: ${segment.durationLabel} (${segment.percentLabel})${segment.isBottleneck ? ', bottleneck' : ''}`}
+                />
+              ))}
+            </div>
+            <div className="query-plan-bar-legend" aria-label="Stage time legend">
+              {breakdown.barSegments.map((segment) => (
+                <button
+                  key={segment.key}
+                  type="button"
+                  className={`query-plan-legend-item ${segment.isBottleneck ? 'is-bottleneck' : ''}`}
+                  onClick={() => toggleDescription(segment.key)}
+                  title={`Click to view description for ${segment.label}`}
+                >
+                  <span className={`query-plan-stage-swatch ${stageToneClass(segment)}`} aria-hidden="true" />
+                  <span className="query-plan-legend-label">{segment.label}</span>
+                  <span className="query-plan-legend-time">{segment.durationLabel}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="query-plan-stages" aria-label="Answer generation stages">
+          {breakdown.stages.map((stage) => (
+            <StageRow
+              key={stage.key}
+              item={stage}
+              expandedDescriptions={expandedDescriptions}
+              onToggleDescription={toggleDescription}
+              panelId={panelId}
+            />
+          ))}
+        </div>
+
+        <details className="query-plan-raw-details">
+          <summary>Raw execution trace</summary>
+          <pre className="query-plan-text">{text}</pre>
+        </details>
+      </div>
     </div>
   )
 }

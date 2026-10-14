@@ -101,3 +101,12 @@ Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies t
 - Check 866px and 390px widths. The header controls remain visible; Contents becomes a panel above the text in narrow windows.
 
 Parsed heading targets and mixed-source ordering also run in the TypeScript unit suite.
+
+## Query plans
+
+`query-plan-check.mjs` checks the Show query plan action after Explain more simply,
+keyboard access, optional/late/malformed traces, per-answer-version plans, reload
+persistence, and desktop/mobile layout. It uses `query-plan.html` and the full-app
+`reasoning-retry.html?plan-test` fixture. See [query-plan.md](../../docs/query-plan.md)
+for commands. Set `QUERY_PLAN_UI_URL` to the fixture server origin (default
+`http://127.0.0.1:5196`) and optionally `QUERY_PLAN_OUTPUT` for screenshots.

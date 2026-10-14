@@ -3,10 +3,8 @@ import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const {
-  buildLatencyBreakdown,
   combineLatencyTrace,
   createLatencyTrace,
-  formatLatencyTrace,
   getLatencyStageInfo,
   listLatencyStageInfo,
   measuredDurationMs,
@@ -15,6 +13,8 @@ const {
   sanitizeLatencyDetails,
   startLatencySpan
 } = requireTranspiledTs('src/shared/latency-trace.ts')
+
+const { buildLatencyBreakdown, formatLatencyTrace, prepareLatencyPlan } = requireTranspiledTs('src/renderer/src/latency-plan.ts')
 
 const span = (stage, durationMs, fields = {}) => ({
   stage,
@@ -55,7 +55,7 @@ test('formats a stable EXPLAIN-style latency artifact with rebranded stages and 
 
   assert.equal(trace.totalDurationMs, 6800)
   assert.equal(formatLatencyTrace(trace, 7300), [
-    'Answer (measured stages 6.80 s; wall time 7.30 s; bottleneck Answer generation 5.03 s)',
+    'Answer (measured stages 6.80 s; answer ready in 7.30 s; bottleneck Answer generation 5.03 s)',
     ' -> Question understanding (actual 150 ms) history_turns=3',
     ' -> Library search (actual 700 ms) out=12, mode=hybrid, sources=12',
     '      -> Query encoding (actual 50.0 ms) models=1',
@@ -268,4 +268,39 @@ test('traced messages round-trip through JSON and old messages need no trace', (
   const saved = JSON.parse(JSON.stringify({ id: 'a1', role: 'assistant', text: 'x', latencyTrace: trace }))
   assert.equal(formatLatencyTrace(saved.latencyTrace, 1234), formatLatencyTrace(trace, 1234))
   assert.equal(JSON.parse(JSON.stringify({ id: 'a0', role: 'assistant', text: 'old' })).latencyTrace, undefined)
+})
+
+
+test('saved or cross-process malformed metadata cannot break the answer plan', () => {
+  for (const trace of [undefined, null, {}, { spans: null }, { spans: 'bad' }, { spans: [null, {}] }]) {
+    assert.equal(prepareLatencyPlan(trace), undefined)
+  }
+  const plan = prepareLatencyPlan({ totalDurationMs: 999999, spans: [
+    null, span('Generation', -10), span('Generation', 40, {
+      startedAt: NaN, inCount: -1, outCount: 2.9, status: 'unexpected',
+      details: { prompt: 'private', prompt_tokens: 12 },
+      children: [null, span('Model load', Infinity), span('Token generation', 30)]
+    }), span('Suggestions', 100, { status: 'skipped' })
+  ] }, 50)
+  assert.equal(plan.breakdown.totalDurationMs, 40, 'Total is recomputed from valid measured stages')
+  assert.equal(plan.breakdown.stages[0].outCount, 2)
+  assert.equal(plan.breakdown.stages[0].children.length, 1)
+  assert.doesNotMatch(plan.text, /private|NaN|Infinity|undefined/)
+  assert.match(plan.text, /answer ready in 50.0 ms/)
+})
+
+test('nested stage identities are unique even when stage names repeat across parents', () => {
+  const trace = createLatencyTrace([
+    span('Library search', 10, { children: [span('Repeated', 5, { children: [span('Repeated', 2)] })] }),
+    span('Answer generation', 20, { children: [span('Repeated', 10)] })
+  ])
+  const keys = stages => stages.flatMap(stage => [stage.key, ...keys(stage.children)])
+  const all = keys(buildLatencyBreakdown(trace).stages)
+  assert.equal(new Set(all).size, all.length)
+})
+
+test('skipped work contributes no elapsed time', () => {
+  const skipped = startLatencySpan('Suggestions').finish({ status: 'skipped' })
+  assert.equal(skipped.durationMs, 0)
+  assert.equal(createLatencyTrace([span('Generation', 30), skipped]).totalDurationMs, 30)
 })

@@ -37,7 +37,7 @@ test('topic retrieval is scoped once, reused on Next, and never falls back to ra
   const calls = []
   const outside = { ...source, materialId: 'other' }
   const bridge = {
-    searchLibrary: async (...args) => { calls.push(['search', ...args]); return [outside, source, source] },
+    searchLibrary: async (...args) => { calls.push(['search', ...args]); return { sources: [outside, source, source] } },
     practiceSources: async () => { throw new Error('Unrelated whole-document sampling') },
     sendChatMessage: async request => { calls.push(['model', request]); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources } }
   }
@@ -56,7 +56,7 @@ test('topic retrieval is scoped once, reused on Next, and never falls back to ra
 })
 
 test('unsupported and cancelled topic retrieval cannot generate a whole-document question', async () => {
-  const bridge = { searchLibrary: async () => [], sendChatMessage: async () => { throw new Error('Unexpected model call') } }
+  const bridge = { searchLibrary: async () => ({ sources: [] }), sendChatMessage: async () => { throw new Error('Unexpected model call') } }
   const client = createPracticeClient(bridge, model, settings, { materials: [{ id: 'c1' }], embeddingModels: [] })
   await assert.rejects(client.prepareTopic({ ...session, topic: { title: 'Unknown topic' } }, new AbortController().signal), /No supporting passages/)
   const controller = new AbortController(); controller.abort()
