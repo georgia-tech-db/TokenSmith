@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { waitDisplay } from '@shared/generation-estimate'
 import type { GenerationProgress } from './hooks/useGenerationProgress'
+import './answer-explanation.css'
 import './generation-status.css'
 
 export function GenerationStatus({ progress, onOpen }: { progress: GenerationProgress | null; onOpen: (conversationId: string) => void }) {
@@ -21,7 +22,7 @@ export function GenerationStatus({ progress, onOpen }: { progress: GenerationPro
       <span className="generation-status-time" title={progress.estimate.samples ? 'Based on recent runs with this model on this installation' : 'Initial estimate; learns from completed runs'}>
         {progress.complete ? '' : display?.text}
       </span>
-      {!progress.complete && <button type="button" className="generation-status-stop" onClick={progress.onStop}>Stop</button>}
+      {!progress.complete && <button type="button" className="study-action-button generation-status-stop" onClick={progress.onStop}>Stop</button>}
     </>}
   </footer>
 }

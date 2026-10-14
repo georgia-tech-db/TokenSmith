@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
@@ -36,7 +36,10 @@ export function requireTranspiledTs(sourcePath) {
     })
 
     mkdirSync(dirname(outputPath), { recursive: true })
-    writeFileSync(outputPath, output.outputText, 'utf8')
+    // Publish each generated module only after its contents have been written.
+    const temporaryPath = `${outputPath}.${process.pid}.tmp`
+    writeFileSync(temporaryPath, output.outputText, 'utf8')
+    renameSync(temporaryPath, outputPath)
 
     for (const match of output.outputText.matchAll(/require\(["'](\.{1,2}\/[^"']+)["']\)/g)) {
       const dependencyPath = resolve(dirname(absolutePath), `${match[1]}.ts`)

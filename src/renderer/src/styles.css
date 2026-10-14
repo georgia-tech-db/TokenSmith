@@ -341,6 +341,8 @@ button {
   min-width: 0;
 }
 
+.log-card-header > div:first-child { min-width: 0; flex: 1; }
+
 .log-card-header p {
   margin: 0 0 7px;
   color: var(--soft-text);
@@ -370,7 +372,12 @@ button {
 
 .log-card-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
+}
+
+@media (max-width: 800px) {
+  .log-card { top: 16px; right: 16px; width: calc(100vw - 32px); max-height: calc(100vh - 32px); min-height: min(420px, calc(100vh - 32px)); padding: 16px; }
 }
 
 .log-card-meta {
@@ -2019,18 +2026,22 @@ button {
 }
 
 .source-tray {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
-  margin-top: auto;
-  padding-top: 14px;
+  overflow: hidden;
+  padding: 14px 16px;
   border-top: 1px solid var(--line);
 }
 
 .source-tray-header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 7px;
+  margin: 0;
   color: var(--green-strong);
   font-size: 0.82rem;
   font-weight: 650;
@@ -2038,17 +2049,22 @@ button {
 
 .source-tray-list {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
   gap: 8px;
-  max-height: min(520px, 48vh);
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-right: 2px;
 }
 
 .source-tray-card {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) max-content;
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: start;
-  gap: 10px;
+  gap: 6px 10px;
   width: 100%;
   padding: 9px;
   border: 1px solid var(--line);
@@ -2072,6 +2088,7 @@ button {
 
 .source-media {
   display: block;
+  grid-row: 1 / span 2;
   min-width: 0;
 }
 
@@ -2080,8 +2097,8 @@ button {
   place-items: center;
   align-content: center;
   gap: 2px;
-  width: 82px;
-  height: 94px;
+  width: 44px;
+  height: 58px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2108,7 +2125,7 @@ button {
 .source-page-label {
   justify-self: end;
   align-self: start;
-  max-width: 110px;
+  max-width: 100%;
   padding: 4px 7px;
   border: 1px solid rgb(0 0 0 / 8%);
   border-radius: 999px;
@@ -2117,14 +2134,15 @@ button {
   box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
   font-size: 0.58rem;
   font-weight: 650;
-  line-height: 1;
+  line-height: 1.2;
   text-align: center;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .source-card-badges {
   display: grid;
-  justify-items: end;
+  grid-column: 2;
+  justify-items: start;
   gap: 6px;
 }
 
@@ -2142,10 +2160,13 @@ button {
 }
 
 .source-tray-copy strong {
+  display: -webkit-box;
   color: var(--green-strong);
   font-size: 0.78rem;
   font-weight: 650;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .source-tray-copy small {
@@ -2165,6 +2186,9 @@ button {
 
 .source-tray-error {
   margin: 0;
+  flex-shrink: 0;
+  max-height: 35%;
+  overflow: auto;
   color: var(--danger);
   font-size: 0.72rem;
   line-height: 1.3;

@@ -1090,7 +1090,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
   if (request.practiceTask) {
     const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
-    const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, runtimeRequest.modelSettings, {
+    const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, verified.request.modelSettings, {
       format: practiceResponseSchema(request.practiceTask), temperature: request.practiceTask === 'feedback' ? 0 : 0.3,
       thinking: false, signal: options.signal
     })

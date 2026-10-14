@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { studyScopeKey, scopeRefs, sourcesInScope, currentStudyScope, initializeStudyScopes } = requireTranspiledTs('src/shared/study-scope.ts')
+const { studyScopeKey, scopeRefs, sourcesInScope, changeStudyScope, initializeStudyScopes } = requireTranspiledTs('src/shared/study-scope.ts')
 const documents = [
   { materialId: 'db', documentId: 1, title: 'Trees.md' },
   { materialId: 'db', documentId: 2, title: 'Buffer.txt' },
@@ -20,16 +20,42 @@ test('old chats inherit the old collection selection once; explicit empty select
   assert.equal(initializeStudyScopes(next, documents), next)
 })
 
-test('each chat and started practice restores its own scope; drafts inherit the last selection', () => {
+test('one selection updates Chat and Practice without rewriting saved exercises or other chats', () => {
   const a = scopeRefs([documents[0]]), b = scopeRefs([documents[2]])
-  const state = { ...base, studyScope: b, conversations: [{ id: 'a', documentScope: a }, { id: 'b', documentScope: b }],
-    practice: { mode: 'chat', draftScope: b, sessions: [{ id: 'p', documents: [documents[1]] }], activeSessionId: 'p' } }
-  assert.deepEqual(currentStudyScope(state), a)
-  assert.deepEqual(currentStudyScope({ ...state, activeConversationId: 'b' }), b)
-  assert.deepEqual(currentStudyScope({ ...state, practice: { ...state.practice, mode: 'practice' } }), scopeRefs([documents[1]]))
-  assert.deepEqual(currentStudyScope({ ...state, practice: { ...state.practice, mode: 'practice', activeSessionId: undefined } }), b)
-  const fresh = initializeStudyScopes({ ...state, conversations: [{ id: 'new' }] }, documents)
+  const session = { id: 'p', documents: [documents[0]], questions: [{ draft: 'Keep this answer' }] }
+  const state = { ...base, studyScope: a, conversations: [{ id: 'a', documentScope: a }, { id: 'b', documentScope: a }],
+    practice: { mode: 'chat', draftScope: a, draftTopic: { title: 'Trees' }, sessions: [session], activeSessionId: 'p' } }
+  for (const mode of ['chat', 'practice']) {
+    const next = changeStudyScope({ ...state, practice: { ...state.practice, mode } }, b)
+    assert.deepEqual(next.studyScope, b)
+    assert.deepEqual(next.conversations[0].documentScope, b)
+    assert.equal(next.conversations[1], state.conversations[1])
+    assert.deepEqual(next.practice.draftScope, b)
+    assert.equal(next.practice.activeSessionId, undefined)
+    assert.equal(next.practice.draftTopic, undefined)
+    assert.equal(next.practice.sessions[0], session)
+    assert.equal(next.practice.mode, mode)
+  }
+  assert.equal(changeStudyScope(state, [...a, ...a]).practice.activeSessionId, 'p')
+  assert.equal(changeStudyScope(state, [...a, ...a]).practice.draftTopic.title, 'Trees')
+  const empty = changeStudyScope(state, [])
+  assert.deepEqual(initializeStudyScopes(empty, documents).studyScope, [])
+  assert.equal(empty.practice.activeSessionId, undefined)
+  const fresh = initializeStudyScopes({ ...state, studyScope: b, conversations: [{ id: 'new' }] }, documents)
   assert.deepEqual(fresh.conversations[0].documentScope, b)
+  assert.equal(fresh.practice.activeSessionId, undefined)
+  assert.equal(fresh.practice.sessions[0], session)
+})
+
+test('restoring an older state detaches a practice session with a different document scope', () => {
+  const state = { ...initializeStudyScopes(base, documents), practice: {
+    mode: 'practice', draftScope: [], sessions: [{ id: 'p', documents: [documents[2]] }], activeSessionId: 'p'
+  } }
+  const next = initializeStudyScopes(state, documents)
+  assert.deepEqual(next.studyScope, scopeRefs(documents.slice(0, 2)))
+  assert.equal(next.practice.activeSessionId, undefined)
+  assert.equal(next.practice.sessions, state.practice.sessions)
+  assert.equal(initializeStudyScopes(next, documents), next)
 })
 
 test('scope keys are order-independent and references contain no document content', () => {

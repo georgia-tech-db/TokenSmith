@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
+import { choosePracticeTopic, idlePractice } from './practice-topic-helpers.mjs'
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH })
@@ -60,14 +61,14 @@ try {
   await chat.getByRole('button', { name: 'Practice', exact: true }).click()
   assert.match(await picker(practice).innerText(), /cloud-test/)
   await choose(practice, 'ui-test')
-  await practice.getByRole('button', { name: 'Start practice', exact: true }).click()
+  await choosePracticeTopic(page)
   await practice.getByLabel('Your answer', { exact: true }).waitFor()
   const session = (await saved()).practice.sessions[0]
   assert.equal(session.modelId, 'test')
   assert.equal(session.modelSettings.contextLength, 8192)
   assert.equal(await picker(practice).isDisabled(), true)
-  await practice.getByRole('button', { name: 'Show explanation', exact: true }).click()
-  await practice.getByRole('button', { name: 'Discuss this', exact: true }).click()
+  await idlePractice(page)
+  await practice.getByRole('button', { name: 'Chat about this question', exact: true }).click()
   await page.waitForFunction(() => { const s = window.practiceTest.state(); return s.conversations.find(c => c.id === s.activeConversationId)?.practiceReference })
   assert.match(await picker(chat).innerText(), /ui-test/)
   assert.equal((await saved()).settings.application.defaultModelId, 'cloud')
