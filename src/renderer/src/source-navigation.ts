@@ -1,7 +1,7 @@
 import type { ChatSource } from '@shared/app-state'
 
 export function sourceEntryKey(source: ChatSource): string {
-  return JSON.stringify([source.path, source.tokensmithChunkId ?? source.chunkId ?? source.chunkRowid,
+  return JSON.stringify([source.materialId, source.path, source.tokensmithChunkId ?? source.chunkId ?? source.chunkRowid,
     source.pageStart, source.pageEnd, source.lineFrom, source.lineTo, source.locator, source.excerpt])
 }
 export function navigableSource(source: ChatSource): boolean {
@@ -21,10 +21,10 @@ export function sourceNavigationList(source: ChatSource, candidates: ChatSource[
 }
 
 // Library navigation visits files, retaining the clicked passage in the first file.
-export function collectionDocumentSources(source: ChatSource, documents: Array<{ path: string; title: string }>): ChatSource[] {
-  return documents.map(document => document.path === source.path ? source : {
+export function collectionDocumentSources(source: ChatSource, documents: Array<{ path: string; title: string; materialId?: string; documentId?: number }>): ChatSource[] {
+  return documents.map(document => document.path === source.path && (!document.materialId || document.materialId === source.materialId) ? source : {
     path: document.path, title: document.title, documentTitle: document.title,
-    materialId: source.materialId, excerpt: '', locator: /\.pdf$/i.test(document.path) ? 'Page 1' : 'Start of document',
+    materialId: document.materialId ?? source.materialId, documentId: document.documentId, excerpt: '', locator: /\.pdf$/i.test(document.path) ? 'Page 1' : 'Start of document',
     ...(/\.pdf$/i.test(document.path) ? { pageStart: 1 } : { lineFrom: 1, lineTo: 1 })
   }).filter(navigableSource)
 }

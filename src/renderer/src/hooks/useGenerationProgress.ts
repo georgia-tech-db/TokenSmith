@@ -7,6 +7,7 @@ export interface ProgressStart extends TimingContext {
   conversationId: string
   label: string
   onStop: () => void
+  materialIds?: string[]
 }
 export interface GenerationProgress extends ProgressStart {
   startedAt: number
@@ -14,6 +15,7 @@ export interface GenerationProgress extends ProgressStart {
   complete?: boolean
 }
 export interface GenerationProgressApi {
+  stopForCollection: (collectionId: string) => void
   begin: (start: ProgressStart) => void
   stage: (id: string, label: string, context?: Partial<TimingContext>) => void
   next: (id: string, label: string, context: Partial<TimingContext>) => void
@@ -39,6 +41,10 @@ export function useGenerationProgress() {
       try { localStorage.setItem(timingStorageKey, JSON.stringify(samples)) } catch { /* In-memory learning remains available. */ }
     }
     return {
+      stopForCollection(collectionId) {
+        for (const job of [...jobs.values()]) if (job.materialIds?.some(id => id.startsWith(`${collectionId}/`))) { job.onStop(); jobs.delete(job.id) }
+        publish()
+      },
       begin(start) {
         const job = { ...start, startedAt: performance.now(), estimate: estimateWait(start, samples, device.current) }
         jobs.set(start.id, job)

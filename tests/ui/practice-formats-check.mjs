@@ -58,7 +58,7 @@ try {
     await practice.locator('.source-tray-card').click()
     await page.getByRole('dialog', { name: 'Source Markdown viewer' }).waitFor()
     await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
-    await practice.getByRole('button', { name: 'Close Library', exact: true }).click()
+    await practice.getByRole('button', { name: 'Close Documents', exact: true }).click()
     await next(2)
     await answerThenReview(page, 'False')
     await next(3)

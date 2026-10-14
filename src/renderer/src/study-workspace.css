@@ -50,3 +50,5 @@
   .study-materials-toggle > span:not(:last-child) { display: none; }
   .study-frame .composer-area { padding-left: 16px; padding-right: 16px; }
 }
+
+.study-collection-heading { font-size: 0.95rem; margin: 14px 0 10px; overflow-wrap: anywhere; }

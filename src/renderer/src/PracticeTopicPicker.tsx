@@ -17,7 +17,7 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
   const [revision, setRevision] = useState(0)
   const scopeKey = studyScopeKey(scope)
   const key = JSON.stringify([scopeKey, materials.filter(material => scope.some(doc => doc.materialId === material.id))
-    .map(material => [material.id, material.indexedAt, material.chunkCount])])
+    .map(material => [material.id, material.collectionRevision, material.indexedAt, material.chunkCount])])
   const topics = cache?.key === key ? cache.topics : []
   useEffect(() => {
     if (!isActive || !ready) return
@@ -33,14 +33,18 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
       controller.abort(); progress.cancel(id)
       void bridge.cancelChatRequest(id).catch(() => {})
     }
-    const timer = window.setTimeout(() => {
+    const timer = window.setTimeout(async () => {
       setStatus('loading')
-      progress.begin({ id, conversationId: 'practice-topics', kind: 'starter', label: 'Finding topics', model,
+      const saved = await bridge.collectionTopics?.(scope).catch(() => [])
+      if (controller.signal.aborted) return
+      if (saved?.length) { finished = true; onCache({ key, topics: saved }); setStatus('ready'); return }
+      progress.begin({ id, materialIds: scope.map(d => d.materialId), conversationId: 'practice-topics', kind: 'starter', label: 'Finding topics', model,
         settings: { ...modelSettings, maxLength: Math.min(modelSettings.maxLength, 768), reasoningMode: 'off', thinking: false },
         onStop: () => { stop(); setStatus('error') } })
       void createPracticeClient(bridge, model, settings, { materials, embeddingModels: [] })
         .topics(scope, modelSettings, id, controller.signal).then(topics => {
           if (controller.signal.aborted) return
+          void bridge.saveCollectionTopics?.(scope, topics, materials.find(m => scope.some(d => d.materialId === m.id))?.collectionRevision ?? '').catch(() => {})
           finished = true; onCache({ key, topics }); setStatus('ready'); progress.finish(id, 'Topics ready')
         }).catch(() => {
           if (controller.signal.aborted) return

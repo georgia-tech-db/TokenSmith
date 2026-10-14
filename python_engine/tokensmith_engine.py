@@ -1951,7 +1951,14 @@ def resolve_source_document(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"source": source_document_for_source(payload["userDataPath"], source)}
 
 
+try:
+    import tokensmith_collections
+except ImportError:
+    from python_engine import tokensmith_collections
+
 COMMANDS = {
+    'validate_collection': tokensmith_collections.validate,
+    'create_collection': tokensmith_collections.create,
     "health": health,
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,

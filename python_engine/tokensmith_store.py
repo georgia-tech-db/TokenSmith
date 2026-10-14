@@ -542,10 +542,9 @@ def path_candidates(path: Any) -> List[str]:
 
 
 def folder_path_for_import(import_path: str, kind: str) -> str:
-    path = Path(import_path)
-    if kind == "folder":
-        return str(path)
-    return str(path.parent)
+    # Each independently added document owns its storage group. Using its parent
+    # merges sibling file imports and lets an update/removal affect both files.
+    return str(Path(import_path))
 
 
 def upsert_folder(conn: sqlite3.Connection, folder_path: str) -> int:
@@ -2263,10 +2262,11 @@ def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> O
             JOIN collections col ON col.id = ci.collection_id
             LEFT JOIN pdf_page_thumbnails pt ON pt.document_id = d.id AND pt.page = ch.page
             WHERE ({' OR '.join(where_clauses)})
+              AND (? IS NULL OR CAST(col.id AS TEXT) = ?)
             ORDER BY CASE WHEN ch.id = ? THEN 0 ELSE 1 END, ch.id
             LIMIT 1
             """,
-            [*params, chunk_id if chunk_id is not None else -1],
+            [*params, material_id, material_id, chunk_id if chunk_id is not None else -1],
         ).fetchone()
 
     if not row:

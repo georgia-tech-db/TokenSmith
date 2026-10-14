@@ -75,7 +75,16 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:preview-cleaning', materialPath, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['previewCleaning']>>
     >,
-  preparationReport: (path, documentPath) => ipcRenderer.invoke('library:preparation-report', path, documentPath),
+  listCollections: () => ipcRenderer.invoke('collections:list'),
+  createCollection: (path, name) => ipcRenderer.invoke('collections:create', path, name),
+  createLibrary: name => ipcRenderer.invoke('libraries:create', name),
+  pickLibrary: () => ipcRenderer.invoke('libraries:pick'),
+  loadCollection: path => ipcRenderer.invoke('collections:load', path),
+  unloadCollection: id => ipcRenderer.invoke('collections:unload', id),
+  locateCollectionFolder: (materialId, path) => ipcRenderer.invoke('collections:locate-folder', materialId, path),
+  collectionTopics: documents => ipcRenderer.invoke('collections:topics', documents),
+  saveCollectionTopics: (documents, topics, revision) => ipcRenderer.invoke('collections:save-topics', documents, topics, revision),
+  preparationReport: (path, documentPath, materialId) => ipcRenderer.invoke('library:preparation-report', path, documentPath, materialId),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>
     ipcRenderer.invoke('library:index-material', materialId, materialPath, embeddingModel, options) as Promise<
       Awaited<ReturnType<TokenSmithBridge['indexMaterial']>>

@@ -23,6 +23,18 @@ if (params.has('long-catalog')) {
     }
   }
 }
+if (params.has('collections')) {
+  for (const material of materials) {
+    const previous = material.id
+    material.collectionId = previous === 'c1' ? 'alpha0000' : 'beta0000'
+    material.collectionTitle = previous === 'c1' ? 'Database course' : 'Poetry course'
+    material.id = `${material.collectionId}/1`
+    for (const document of documents.filter(d => d.materialId === previous)) {
+      document.materialId = material.id; document.collectionId = material.collectionId; document.collectionTitle = material.collectionTitle
+      if (previous === 'c2') document.documentId = 1
+    }
+  }
+}
 let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   appVersion: 'UI test', activeScreen: 'chat', activeConversationId: 'chat-test',
   conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }, ...(params.has('model-selection') ? [
@@ -142,5 +154,57 @@ window.tokensmith = {
       text: '# Ancestor paths\n\nThe ancestor path allows a split to propagate to parent nodes.\n', chunkText: source.excerpt,
       lineFrom: source.lineFrom, lineTo: source.lineTo }
   }
+}
+if (params.has('collections')) {
+  const collectionKey = `${storageKey}:collections`
+  let collections = JSON.parse(sessionStorage.getItem(collectionKey) || 'null') || [
+    { format: 'tokensmith-collection', version: 1, id: 'alpha0000', name: 'Database course', path: '/collections/database', indexRevision: 'revision-a', loaded: true },
+    { format: 'tokensmith-collection', version: 1, id: 'beta0000', name: 'Poetry course', path: '/collections/poetry', indexRevision: 'revision-b', loaded: false }
+  ]
+  const savedTopics = params.has('saved-topics') ? [{ title: 'B+ trees' }] : []
+  const loaded = id => collections.some(c => c.id === id && c.loaded)
+  const persist = () => { sessionStorage.setItem(collectionKey, JSON.stringify(collections)); return structuredClone(collections) }
+  window.collectionTest = { get: () => collections, pickPath: '/collections/poetry', savedTopics }
+  Object.assign(window.tokensmith, {
+    listCollections: async () => structuredClone(collections),
+    listMaterials: async () => materials.filter(m => loaded(m.collectionId)),
+    studyDocuments: async () => {
+      if (params.has('catalog-error')) throw new Error('The document catalog is temporarily unavailable.')
+      return documents.filter(d => loaded(d.collectionId))
+    },
+    pickMaterialFolder: async () => ({ path: window.collectionTest.pickPath, title: 'Chosen folder', canceled: !window.collectionTest.pickPath }),
+    pickLibrary: async () => ({ path: window.collectionTest.pickPath, canceled: !window.collectionTest.pickPath }),
+    pickMaterials: async () => ({ canceled: false, materials: [
+      { id: 'new-note', title: 'New notes', path: '/fixture/new/notes.md', kind: 'document', status: 'indexing' },
+      { id: 'new-handout', title: 'Handout', path: '/fixture/new/handout.pdf', kind: 'document', status: 'indexing' }
+    ] }),
+    createLibrary: async name => {
+      const path = `/app/libraries/${crypto.randomUUID()}`
+      calls.push({ kind: 'create-collection', path, name })
+      collections.unshift({ format: 'tokensmith-collection', version: 1, id: crypto.randomUUID(), name, path, indexRevision: 'new', loaded: true })
+      return persist()
+    },
+    loadCollection: async path => {
+      calls.push({ kind: 'load-collection', path })
+      const item = collections.find(c => c.path === path)
+      if (!item) throw new Error('Choose a saved TokenSmith library. To add documents, use New library.')
+      item.loaded = true; return persist()
+    },
+    unloadCollection: async id => { calls.push({ kind: 'unload-collection', id }); collections.find(c => c.id === id).loaded = false; return persist() },
+    collectionTopics: async () => structuredClone(savedTopics),
+    saveCollectionTopics: async (_documents, topics) => { calls.push({ kind: 'save-topics' }); savedTopics.splice(0, savedTopics.length, ...topics) },
+    indexMaterial: async (id, path, _model, options) => {
+      calls.push({ kind: 'index-document', path, options })
+      const collection = collections.find(c => id.startsWith(c.id + '/'))
+      const item = { id, path, title: options.title, status: 'ready', kind: 'document', fileCount: 1,
+        indexedAt: new Date().toISOString(), collectionId: collection.id, collectionTitle: collection.name }
+      materials.push(item)
+      documents.push({ materialId: id, documentId: documents.length + 1, title: path.split('/').pop(), path, chunkCount: 1,
+        collectionId: collection.id, collectionTitle: collection.name, collectionName: collection.name })
+      return item
+    },
+    preparationReport: async () => ({ documents: [] }),
+    locateCollectionFolder: async (id, path) => { calls.push({ kind: 'locate-files', id, path }) }
+  })
 }
 await import('../../src/renderer/src/main.tsx')

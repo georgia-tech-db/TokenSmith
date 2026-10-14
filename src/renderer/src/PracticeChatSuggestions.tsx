@@ -25,7 +25,7 @@ export function PracticeChatSuggestions({ conversation, model, settings, modelSe
     }
     const timer = window.setTimeout(() => {
       setError(false)
-      progress.begin({ id, conversationId: conversation.id, kind: 'follow-ups', label: 'Preparing follow-ups',
+      progress.begin({ id, materialIds: conversation.documentScope?.map(d => d.materialId), conversationId: conversation.id, kind: 'follow-ups', label: 'Preparing follow-ups',
         model, settings: modelSettings, count: 3, onStop: () => { stop(); setError(true) } })
       void bridge.suggestChatQuestions(id, { messages: conversation.messages, materials: [],
         documents: conversation.documentScope, retrievedSources: conversation.practiceReference?.sources ?? [], model, settings,

@@ -3,6 +3,8 @@ import type { EmbeddingOptions } from './embedding-settings'
 
 export interface StudyDocumentRef { materialId: string; documentId: number }
 export interface StudyDocument extends StudyDocumentRef {
+  collectionId?: string
+  collectionTitle?: string
   title: string
   path: string
   collectionName: string

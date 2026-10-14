@@ -1,3 +1,4 @@
+import { materialCollectionId } from '../shared/collections'
 import type { IndexMaterialOptions } from '../shared/preparation'
 import { preparationReportWithPython } from './python/python-engine-service'
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, shell } from 'electron'
@@ -7,6 +8,9 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
+  collections,
+  cancelCollectionIndexing,
+  locateCollectionFolder,
   cancelMaterialIndexingWithPython,
   indexMaterialWithPython,
   listIndexedMaterialsWithPython,
@@ -63,6 +67,26 @@ const appIconFileName = 'tokensmith-icon.png'
 let cloudGenerators: CloudGeneratorService
 const chatRequests = new Map<string, AbortController>()
 const questionSuggestionRequests = new Map<string, AbortController>()
+const collectionRequests = new Set<{ ids: Set<string>; controller: AbortController }>()
+function trackCollectionRequest(request: EngineChatRequest | EngineQuestionSuggestionRequest, controller: AbortController) {
+  const ids = new Set([...request.materials.map(m => materialCollectionId(m.id)),
+    ...(request.retrievedSources ?? []).map(s => materialCollectionId(s.materialId))].filter((id): id is string => Boolean(id)))
+  const mounted = [...ids].map(id => { const item = collections().get(id); return { item, revision: item.indexRevision } })
+  for (const source of request.retrievedSources ?? []) {
+    const id = materialCollectionId(source.materialId)
+    if (id && source.collectionRevision && collections().get(id).indexRevision !== source.collectionRevision) {
+      throw new Error('This collection has changed. Start a new question or practice topic to use its current passages.')
+    }
+  }
+  const tracked = { ids, controller }; collectionRequests.add(tracked)
+  return { finish: () => {
+    if (controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError')
+    for (const { item, revision } of mounted) {
+      collections().current(item)
+      if (item.indexRevision !== revision) throw new Error('The collection changed during this request. Please try again.')
+    }
+  }, close: () => collectionRequests.delete(tracked) }
+}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -105,10 +129,12 @@ function getStatePath(): string {
 async function loadAppState(): Promise<AppStateSnapshot | null> {
   try {
     const stateJson = await readFile(getStatePath(), 'utf8')
-    const state = JSON.parse(stateJson) as AppStateSnapshot
+    let state = JSON.parse(stateJson) as AppStateSnapshot
+    if (state.collectionFormatVersion !== 1) state = { ...state, collectionFormatVersion: 1,
+      materials: [], conversations: [], activeConversationId: '', practice: undefined, studyScope: [] }
     rememberRemoteModelApiKeys(state.models)
 
-    const safeState = sanitizeAppStateSecrets(removeRetiredModelState(state))
+    const safeState = sanitizeAppStateSecrets(removeRetiredModelState({ ...state, collectionFormatVersion: 1 }))
     const safeStateJson = JSON.stringify(safeState, null, 2)
     if (safeStateJson !== stateJson) {
       await writeFile(getStatePath(), safeStateJson, 'utf8')
@@ -127,7 +153,7 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
 async function saveAppState(state: AppStateSnapshot): Promise<AppStateSnapshot> {
   const statePath = getStatePath()
   rememberRemoteModelApiKeys(state.models)
-  const safeState = sanitizeAppStateSecrets(removeRetiredModelState(state))
+  const safeState = sanitizeAppStateSecrets(removeRetiredModelState({ ...state, collectionFormatVersion: 1 }))
 
   await mkdir(dirname(statePath), { recursive: true })
   await writeFile(statePath, JSON.stringify(safeState, null, 2), 'utf8')
@@ -142,8 +168,9 @@ function createId(prefix: string): string {
 async function pickMaterials(): Promise<PickMaterialsResult> {
   const result = await dialog.showOpenDialog({
     title: 'Add documents',
-    buttonLabel: 'Choose Folder',
-    properties: ['openDirectory']
+    buttonLabel: 'Add documents',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Documents', extensions: ['pdf', 'md', 'markdown', 'txt'] }]
   })
 
   if (result.canceled) {
@@ -161,10 +188,10 @@ async function pickMaterials(): Promise<PickMaterialsResult> {
   }
 }
 
-async function pickMaterialFolder(): Promise<PickMaterialFolderResult> {
+async function pickMaterialFolder(library = false): Promise<PickMaterialFolderResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Choose PDF folder',
-    buttonLabel: 'Choose Folder',
+    title: library ? 'Open library' : 'Locate original documents',
+    buttonLabel: library ? 'Open library' : 'Choose',
     properties: ['openDirectory']
   })
 
@@ -234,23 +261,6 @@ function isSameOrChildPath(parentPath: string, childPath: string): boolean {
   return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function indexedMaterialAllowsSource(material: CourseMaterial, sourcePath: string): boolean {
-  const materialPath = normalizeSourcePath(material.path)
-  if (!materialPath) {
-    return false
-  }
-
-  if (material.kind === 'folder') {
-    return isSameOrChildPath(materialPath, sourcePath)
-  }
-
-  return materialPath === sourcePath
-}
-
-function indexedMaterialAllowsPdf(material: CourseMaterial, pdfPath: string): boolean {
-  return indexedMaterialAllowsSource(material, pdfPath)
-}
-
 function isMarkdownSourcePath(path: string): boolean {
   const extension = extname(path).toLowerCase()
   return extension === '.md' || extension === '.markdown' || extension === '.txt'
@@ -263,33 +273,15 @@ interface IndexedPdfSourceResolution {
   thumbnailPath?: string
 }
 
-async function resolveIndexedPdfSourcePathFromMaterials(source: ChatSource): Promise<string> {
-  const pdfPath = normalizeSourcePath(source.path)
-  if (!pdfPath || extname(pdfPath).toLowerCase() !== '.pdf') {
-    throw new Error('This source is not backed by a PDF file.')
-  }
-
-  const indexedMaterials = await listIndexedMaterialsWithPython()
-  const isIndexed = indexedMaterials.some((material) => indexedMaterialAllowsPdf(material, pdfPath))
-  if (!isIndexed) {
-    throw new Error('This PDF is not part of the indexed library.')
-  }
-
-  const pdfStat = statSync(pdfPath)
-  if (!pdfStat.isFile()) {
-    throw new Error('The source PDF is no longer available.')
-  }
-
-  return pdfPath
-}
-
 function normalizedPageNumber(page: unknown): number | undefined {
   const numericPage = Number(page)
   return Number.isFinite(numericPage) && numericPage > 0 ? Math.round(numericPage) : undefined
 }
 
 async function resolveIndexedPdfSource(source: ChatSource): Promise<IndexedPdfSourceResolution> {
-  const resolvedSource = await resolveSourceDocumentWithPython(source).catch(() => null)
+  const { collection } = collections().forMaterial(source.materialId ?? '')
+  const resolvedSource = await resolveSourceDocumentWithPython(source)
+  collections().current(collection)
 
   if (resolvedSource?.path) {
     const pdfPath = normalizeSourcePath(resolvedSource.path)
@@ -297,9 +289,9 @@ async function resolveIndexedPdfSource(source: ChatSource): Promise<IndexedPdfSo
       throw new Error('This source is not backed by a PDF file.')
     }
 
-    const pdfStat = statSync(pdfPath)
-    if (!pdfStat.isFile()) {
-      throw new Error('The source PDF is no longer available.')
+    const pdfStat = existsSync(pdfPath) ? statSync(pdfPath) : undefined
+    if (!pdfStat?.isFile()) {
+      throw new Error('The original PDF is unavailable. Use Locate files in Library to find it.')
     }
 
     return {
@@ -310,26 +302,20 @@ async function resolveIndexedPdfSource(source: ChatSource): Promise<IndexedPdfSo
     }
   }
 
-  const pdfPath = await resolveIndexedPdfSourcePathFromMaterials(source)
-  return {
-    path: pdfPath,
-    title: source.documentTitle || source.title || parse(pdfPath).name,
-    page: sourcePageNumber(source),
-    thumbnailPath: source.thumbnailPath
-  }
+  throw new Error('This passage is no longer available in the loaded collection.')
 }
 
-function pdfThumbnailRootPath(): string {
-  return join(app.getPath('userData'), 'tokensmith-pdf-thumbnails')
+function pdfThumbnailRootPath(source: ChatSource): string {
+  return join(collections().forMaterial(source.materialId ?? '').collection.path, 'tokensmith-pdf-thumbnails')
 }
 
 function sourcePageNumber(source: ChatSource): number | undefined {
   return normalizedPageNumber(source.pageStart)
 }
 
-function cachedThumbnailPathForPdfPage(pdfPath: string, page: number): string {
+function cachedThumbnailPathForPdfPage(source: ChatSource, pdfPath: string, page: number): string {
   const digest = createHash('sha256').update(pdfPath).digest('hex').slice(0, 20)
-  return join(pdfThumbnailRootPath(), digest, `page-${String(page).padStart(4, '0')}.png`)
+  return join(pdfThumbnailRootPath(source), digest, `page-${String(page).padStart(4, '0')}.png`)
 }
 
 function resolveCachedThumbnailPath(
@@ -341,11 +327,11 @@ function resolveCachedThumbnailPath(
   const candidates = [
     normalizeSourcePath(resolvedThumbnailPath),
     normalizeSourcePath(source.thumbnailPath),
-    page ? cachedThumbnailPathForPdfPage(pdfPath, page) : undefined
+    page ? cachedThumbnailPathForPdfPage(source, pdfPath, page) : undefined
   ].filter((candidate): candidate is string => Boolean(candidate && extname(candidate).toLowerCase() === '.png'))
 
   for (const thumbnailPath of candidates) {
-    if (!isSameOrChildPath(pdfThumbnailRootPath(), thumbnailPath)) {
+    if (!isSameOrChildPath(pdfThumbnailRootPath(source), thumbnailPath)) {
       continue
     }
 
@@ -375,6 +361,7 @@ async function getPdfForSource(source: ChatSource): Promise<PdfSourceDocument> {
 }
 
 async function getPdfThumbnailForSource(source: ChatSource): Promise<PdfSourceThumbnail> {
+  collections().forMaterial(source.materialId ?? '')
   const resolvedSource = await resolveIndexedPdfSource(source)
   const thumbnailPath = resolveCachedThumbnailPath(
     source,
@@ -393,21 +380,17 @@ async function getPdfThumbnailForSource(source: ChatSource): Promise<PdfSourceTh
 }
 
 async function getMarkdownForSource(source: ChatSource): Promise<MarkdownSourceDocument> {
-  const resolvedSource = await resolveSourceDocumentWithPython(source).catch(() => null)
-  const markdownPath = normalizeSourcePath(resolvedSource?.path || source.path)
+  const { collection } = collections().forMaterial(source.materialId ?? '')
+  const resolvedSource = await resolveSourceDocumentWithPython(source)
+  collections().current(collection)
+  const markdownPath = normalizeSourcePath(resolvedSource?.path)
   if (!markdownPath || !isMarkdownSourcePath(markdownPath)) {
     throw new Error('This source is not backed by a Markdown file.')
   }
 
-  const indexedMaterials = await listIndexedMaterialsWithPython()
-  const isIndexed = indexedMaterials.some((material) => indexedMaterialAllowsSource(material, markdownPath))
-  if (!isIndexed) {
-    throw new Error('This Markdown file is not part of the indexed library.')
-  }
-
-  const markdownStat = statSync(markdownPath)
-  if (!markdownStat.isFile()) {
-    throw new Error('The source Markdown file is no longer available.')
+  const markdownStat = existsSync(markdownPath) ? statSync(markdownPath) : undefined
+  if (!markdownStat?.isFile()) {
+    throw new Error('The original document is unavailable. Use Locate files in Library to find it.')
   }
 
   return {
@@ -461,6 +444,7 @@ app.whenReady().then(async () => {
   setRemoteGeneratorTransport((input, init) => net.fetch(input instanceof URL ? input.toString() : input, { ...init, credentials: 'omit' }))
   cloudGenerators = new CloudGeneratorService(join(app.getPath('userData'), 'cloud-connections.json'), safeStorage, remoteGeneratorFetch)
   await cloudGenerators.initialize()
+  await collections().initialize()
   setCloudCredentialResolver(model => cloudGenerators.credentialFor(model))
   applyDockIcon()
 
@@ -482,17 +466,22 @@ app.whenReady().then(async () => {
   ipcMain.handle('engine:chat', async (event, request: EngineChatRequest) => {
     const key = `${event.sender.id}:${request.requestId}`
     const controller = new AbortController()
+    const tracked = trackCollectionRequest(request, controller)
     if (request.requestId) chatRequests.set(key, controller)
     try {
-      return await sendChatMessage(request, {
+      const result = await sendChatMessage(request, {
         signal: controller.signal,
         onAnswer: (answer, hasFollowUps) => {
+          tracked.finish()
           if (request.requestId && !controller.signal.aborted && !event.sender.isDestroyed()) {
             event.sender.send('engine:answer-ready', request.requestId, answer, hasFollowUps)
           }
         }
       })
+      tracked.finish()
+      return result
     } finally {
+      tracked.close()
       if (chatRequests.get(key) === controller) chatRequests.delete(key)
     }
   })
@@ -508,19 +497,35 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('engine:suggest-questions', async (_event, requestId: string, request: EngineQuestionSuggestionRequest) => {
     const controller = new AbortController()
+    const tracked = trackCollectionRequest(request, controller)
     questionSuggestionRequests.set(requestId, controller)
     try {
-      return await suggestChatQuestions(request, controller.signal)
+      const result = await suggestChatQuestions(request, controller.signal)
+      tracked.finish()
+      return result
     } catch (error) {
       if (isAbortError(error)) return { suggestions: [] }
       throw error
     } finally {
+      tracked.close()
       questionSuggestionRequests.delete(requestId)
     }
   })
   ipcMain.handle('engine:cancel-suggest-questions', (_event, requestId: string) => {
     questionSuggestionRequests.get(requestId)?.abort()
   })
+  ipcMain.handle('collections:list', () => collections().list())
+  ipcMain.handle('collections:create', (_event, path: string, name: string) => collections().create(path, name))
+  ipcMain.handle('libraries:create', (_event, name: string) => collections().createManaged(name))
+  ipcMain.handle('libraries:pick', () => pickMaterialFolder(true))
+  ipcMain.handle('collections:load', (_event, path: string) => collections().load(path))
+  ipcMain.handle('collections:unload', (_event, id: string) => collections().unload(id, async () => {
+    for (const request of collectionRequests) if (request.ids.has(id)) request.controller.abort()
+    await cancelCollectionIndexing(id)
+  }))
+  ipcMain.handle('collections:locate-folder', (_event, materialId: string, path: string) => locateCollectionFolder(materialId, path))
+  ipcMain.handle('collections:topics', (_event, documents: StudyDocumentRef[]) => collections().topics(documents))
+  ipcMain.handle('collections:save-topics', (_event, documents: StudyDocumentRef[], topics: import('../shared/practice').PracticeTopic[], revision: string) => collections().saveTopics(documents, topics, revision))
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) =>
@@ -562,7 +567,7 @@ app.whenReady().then(async () => {
       options?: IndexMaterialOptions
     ) => indexMaterialWithPython(materialPath, embeddingModel, materialId, options)
   )
-  ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string) => preparationReportWithPython(path, documentPath))
+  ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string, materialId?: string) => preparationReportWithPython(path, documentPath, materialId))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())
   ipcMain.handle('library:set-material-enabled', (_event, materialId: string, isActive: boolean) =>
     setMaterialEnabledWithPython(materialId, isActive)

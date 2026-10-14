@@ -41,7 +41,7 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       if (!session.topic) return session
       let sources = sourcesInScope(session.topic.sources ?? [], session.documents)
       if (!session.topic.prepared) {
-        if (!retrieval) throw new Error('Select documents in Library to practice this topic.')
+        if (!retrieval) throw new Error('Select documents to practice this topic.')
         const ids = new Set(session.documents.map(document => document.materialId))
         const query = session.topic.question
           ? `${session.topic.question.slice(0, 1000)}\n${session.topic.answer?.slice(0, 1000) ?? ''}` : session.topic.title
@@ -56,7 +56,7 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       signal.throwIfAborted()
       sources = [...new Map(sources.filter(source => (source.context || source.excerpt)?.trim())
         .map(source => [practiceSourceKey(source), source])).values()].slice(0, 8)
-      if (!sources.length) throw new Error('No supporting passages were found for this topic in the selected documents. Choose another topic or change the selection in Library.')
+      if (!sources.length) throw new Error('No supporting passages were found for this topic in the selected documents. Choose another topic or change the selected documents.')
       return { ...session, topic: { ...session.topic, sources, prepared: true } }
     },
     async question(session: PracticeSession, requestId: string, signal: AbortSignal): Promise<PracticeQuestion | null> {

@@ -9,7 +9,7 @@ export interface StudyCatalog {
   reload: () => void
 }
 
-export function useStudyDocuments(materials: CourseMaterial[], enabled: boolean): StudyCatalog {
+export function useStudyDocuments(materials: CourseMaterial[], enabled: boolean, collectionKey = ''): StudyCatalog {
   const [documents, setDocuments] = useState<StudyDocument[]>([])
   const [status, setStatus] = useState<StudyCatalog['status']>('loading')
   const [error, setError] = useState('')
@@ -18,6 +18,7 @@ export function useStudyDocuments(materials: CourseMaterial[], enabled: boolean)
   useEffect(() => {
     if (!enabled) return
     let disposed = false
+    setDocuments([])
     setStatus('loading')
     setError('')
     const request = window.tokensmith?.studyDocuments
@@ -30,6 +31,6 @@ export function useStudyDocuments(materials: CourseMaterial[], enabled: boolean)
       setError(reason instanceof Error ? reason.message : String(reason)); setStatus('error')
     })
     return () => { disposed = true }
-  }, [enabled, signature, revision])
+  }, [enabled, signature, revision, collectionKey])
   return { documents, status, error, reload: () => setRevision(value => value + 1) }
 }

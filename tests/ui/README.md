@@ -1,5 +1,29 @@
 # Chat Interaction Checks
 
+## Collection lifecycle
+
+With the preview server below, run `node tests/ui/collections-check.mjs` (set
+`PRACTICE_UI_URL` to the server's `/tests/ui/practice.html` URL). This exercises
+New/Load/Unload, invalid-folder recovery, restart state, saved topics, unloading
+during Chat and Practice, rejection of late replies, and desktop/narrow layouts.
+The fixture never uses real model calls or personal app data.
+
+After `npm run build`, `node tests/ui/collection-native-check.mjs` exercises the
+built Electron app and its real preload/IPC with disposable app data and real
+empty indexes. It verifies legacy study-data reset while retaining settings and
+models, creation, unload, restart, and reload. `ELECTRON_PATH` can override the
+default macOS development executable. Both checks accept `PLAYWRIGHT_MODULE`;
+the browser check also accepts `CHROME_PATH`.
+
+`npm run test:integration` includes real document indexing and retrieval across
+two collection databases with overlapping IDs. Embedding responses come from a
+local deterministic server. It checks moved folders, source relocation, saved
+topics, byte-preserving load/unload, repeated reload, and cancellation of real
+Python search/indexing workers. Registry/format edge cases also run in the
+TypeScript and Python unit suites.
+
+## Chat fixture
+
 Run `npx vite --config tests/ui/vite.config.mjs --host 127.0.0.1 --port 5186`, then open
 `http://127.0.0.1:5186/tests/ui/chat-interactions.html`.
 

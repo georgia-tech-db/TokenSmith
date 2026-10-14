@@ -111,7 +111,7 @@ export function PracticeScreen(props: Props) {
     setError('')
     setPending({ id })
     const started = performance.now()
-    progress.begin({ id, kind: 'quiz', label, conversationId: target.id, model: selectedModel,
+    progress.begin({ id, materialIds: target.documents.map(d => d.materialId), kind: 'quiz', label, conversationId: target.id, model: selectedModel,
       settings: target.modelSettings, onStop: stop })
     try {
       const result = await run(createPracticeClient(window.tokensmith, selectedModel, settings, { materials: props.materials, embeddingModels: props.embeddingModels }), id, controller.signal)
@@ -128,6 +128,9 @@ export function PracticeScreen(props: Props) {
   }
   function generate(target: PracticeSession) {
     if (!target.topic) { chooseSession(); return }
+    if (!target.documents.every(doc => documents.some(available => studyDocumentKey(available) === studyDocumentKey(doc)))) {
+      setError('Open the library to continue this practice.'); return
+    }
     let prepared = target
     void perform(target, 'Preparing question', async (client, id, signal) => {
       prepared = await client.prepareTopic(target, signal)
@@ -178,7 +181,7 @@ export function PracticeScreen(props: Props) {
       updateSession(session.id, () => updated)
       const nextIndex = updated.questions.findIndex((item, index) => index > updated.currentIndex && item.format === 'true_false')
       if (nextIndex >= 0) updateSession(session.id, current => ({ ...current, currentIndex: nextIndex }))
-      else if (available && !session.sourcesExhausted) generate(updated)
+      else if (available && scopeReady && !session.sourcesExhausted) generate(updated)
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
@@ -241,7 +244,7 @@ export function PracticeScreen(props: Props) {
             onShowSources={canShowSources(item) ? () => { continueQuestion(index); setMaterialsOpen(true) } : undefined}
             actions={index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
           {(!question || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
-            <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />Retry question</button></div>}
+            <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />Retry question</button></div>}
         </ConversationViewport>
       </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
         disabled={!scopeReady || !available} scope={scope} materials={props.materials} model={model} settings={settings}
@@ -251,8 +254,9 @@ export function PracticeScreen(props: Props) {
         {error && <p className="practice-error" role="alert">{error}</p>}
         {!session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">{scope.length ? 'Selected documents are unavailable.' : 'No documents selected.'}</p>}
         {!session && !available && <p className="practice-muted" role="status">No ready chat model selected.</p>}
+        {session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">Open the library to continue this practice.</p>}
         {session && !available && <div className="practice-error" role="status"><p>This session's model is unavailable. Your questions and answers are saved.</p><button type="button" className="practice-button" onClick={props.onManageModels}>Manage models</button></div>}
-        {session?.sourcesExhausted && <p className="practice-muted" role="status">No supporting passages remain for this topic. Choose Practice another topic or change the documents in Library.</p>}
+        {session?.sourcesExhausted && <p className="practice-muted" role="status">No supporting passages remain for this topic. Choose Practice another topic or change the selected documents.</p>}
       </div>
       {session && question?.format === 'true_false' && !reviewOpen && <PracticeComposer question={question} busy={Boolean(pending)} isActive={isActive} onCheck={checkAnswer} />}
     </section>

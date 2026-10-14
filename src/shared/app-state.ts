@@ -33,6 +33,9 @@ export interface ModelDownloadProgress {
 }
 
 export interface CourseMaterial {
+  collectionRevision?: string
+  collectionId?: string
+  collectionTitle?: string
   id: string
   title: string
   detail: string
@@ -133,6 +136,7 @@ export interface ModelRuntimeSettings {
 export type MessageRole = 'user' | 'assistant'
 
 export interface ChatSource {
+  collectionRevision?: string
   title: string
   locator: string
   excerpt: string
@@ -238,6 +242,7 @@ export interface TokenSmithSettings {
 }
 
 export interface AppStateSnapshot {
+  collectionFormatVersion?: 1
   version: 1
   appVersion: string
   activeScreen: ScreenId

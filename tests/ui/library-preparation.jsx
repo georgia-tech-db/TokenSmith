@@ -16,6 +16,7 @@ const documents = ['Poetry collection', 'VLDB Looking Glass', 'Annual report', '
 }))
 const preparation = { mode: 'ai', modelId: 'gemma', instructions: '', documentInstructions: {} }
 window.tokensmith = {
+  pickMaterials: async () => ({ canceled: true, materials: [] }),
   pickMaterialFolder: async () => ({ path: '/sample/documents', title: 'Documents', canceled: false }),
   preparationReport: async (_, selected) => ({ documents: documents.map(d => ({ ...d, chunks: d.path === selected ? d.chunks : [] })) })
 }
@@ -29,7 +30,7 @@ function Fixture() {
     setNotice(`Started ${options.preparation.mode} preparation. Model: ${options.preparationModel?.name || 'None'}. Instructions: ${options.preparation.instructions || 'None'}`)
     setMaterials(items => items.map(m => m.id === id ? { ...m, status: 'ready', indexedAt: new Date().toISOString(), preparation: options.preparation, fileCount: 5, chunkCount: 5 } : m))
   }
-  return <><div role="status">{notice}</div><LibraryWorkspace createRequest={0} materials={materials} models={models} selectedModelId="gemma" selectedEmbeddingModelId="nomic"
+  return <><div role="status">{notice}</div><LibraryWorkspace createRequest={0} documents={documents.map((d, i) => ({ ...d, documentId: i + 1, materialId: '1', collectionName: 'Mixed reference library' }))} materials={materials} models={models} selectedModelId="gemma" selectedEmbeddingModelId="nomic"
     onAddMaterials={items => setMaterials(old => [...items, ...old])} onStartMaterialIndexing={start}
     onRemoveMaterial={id => setMaterials(items => items.filter(m => m.id !== id))}
     onPauseMaterialIndexing={() => {}} onResumeMaterialIndexing={() => {}}

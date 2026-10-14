@@ -38,6 +38,15 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  listCollections: () => Promise<import('./collections').Collection[]>
+  createCollection: (path: string, name: string) => Promise<import('./collections').Collection[]>
+  createLibrary: (name: string) => Promise<import('./collections').Collection[]>
+  pickLibrary: () => Promise<PickMaterialFolderResult>
+  loadCollection: (path: string) => Promise<import('./collections').Collection[]>
+  unloadCollection: (id: string) => Promise<import('./collections').Collection[]>
+  locateCollectionFolder: (materialId: string, path: string) => Promise<void>
+  collectionTopics: (documents: StudyDocumentRef[]) => Promise<import('./practice').PracticeTopic[]>
+  saveCollectionTopics: (documents: StudyDocumentRef[], topics: import('./practice').PracticeTopic[], expectedRevision: string) => Promise<void>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
   getAppVersion: () => Promise<string>
@@ -74,7 +83,7 @@ export interface TokenSmithBridge {
     embeddingModel?: LocalModel,
     options?: IndexMaterialOptions
   ) => Promise<CourseMaterial>
-  preparationReport: (path: string, documentPath?: string) => Promise<PreparationReport>
+  preparationReport: (path: string, documentPath?: string, materialId?: string) => Promise<PreparationReport>
   onMaterialIndexProgress: (callback: (progress: MaterialIndexProgress) => void) => () => void
   listMaterials: () => Promise<CourseMaterial[]>
   setMaterialEnabled: (materialId: string, isActive: boolean) => Promise<void>
