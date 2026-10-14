@@ -2,7 +2,7 @@ import type { ChatMessage, ChatSource } from './app-state'
 import { questionWithSelection } from './chat-selection'
 import { reasoningMode } from './reasoning'
 import type {
-  ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
+  AdvancedMathPlan, ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, QuestionRewrite
 } from './engine'
 
 export function answerForDisplay(message: ChatMessage) {
@@ -31,7 +31,7 @@ export function trimReferenceExchange(exchange: ChatReferenceExchange, maxChars:
 
 interface RewritePipelineDependencies {
   resolve: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
-  search: (query: string) => Promise<ChatSource[]>
+  search: (query: string, plan?: AdvancedMathPlan) => Promise<ChatSource[]>
 }
 
 export async function prepareRewrittenStudyChat(
@@ -47,10 +47,11 @@ export async function prepareRewrittenStudyChat(
   const needsRewrite = Boolean(previous || request.selectedPassage ||
     (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
   const rewriteStart = performance.now()
-  const resolution: QuestionRewrite = needsRewrite
-    ? await dependencies.resolve(request)
+  const advancedMathEnabled = request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled ?? false
+  const resolution: QuestionRewrite = needsRewrite || advancedMathEnabled
+    ? await dependencies.resolve({ ...request, advancedMathEnabled, resolveContext: needsRewrite })
     : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
-  const rewriteMs = needsRewrite ? performance.now() - rewriteStart : 0
+  const rewriteMs = needsRewrite || advancedMathEnabled ? performance.now() - rewriteStart : 0
   if (resolution.mode === 'clarify') {
     return { resolution, rewriteMs, searchMs: 0 }
   }
@@ -60,13 +61,16 @@ export async function prepareRewrittenStudyChat(
   const query = mode === 'standalone' ? request.prompt : resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
   const searchStart = performance.now()
-  const retrievedSources = await dependencies.search(query)
+  const retrievedSources = await dependencies.search(query, resolution.advancedMathPlan)
+  const searchMs = performance.now() - searchStart
   return {
     resolution: { ...resolution, mode, query },
     rewriteMs,
-    searchMs: performance.now() - searchStart,
+    searchMs,
     request: {
       ...request,
+      ...(resolution.advancedMathPlan ? { advancedMathPlan: resolution.advancedMathPlan } : {}),
+      ...(advancedMathEnabled ? { preparationTiming: { contextAndRoutingMs: rewriteMs, retrievalMs: searchMs } } : {}),
       // A rewrite is a retrieval aid, never the student's replacement task.
       answerPrompt: request.prompt,
       retrievalQuery: query,

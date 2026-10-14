@@ -3099,6 +3099,13 @@ button {
   background: #fff7dc;
 }
 
+.model-role-badge.is-math {
+  color: #5d3b85;
+  border-color: #dacbed;
+  background: #f2eafc;
+  font-weight: 700;
+}
+
 .model-recommendation-badge {
   display: inline-flex;
   align-items: center;

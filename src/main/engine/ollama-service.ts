@@ -16,7 +16,7 @@ import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
 import { effectiveContextLength, localContextForTokens, usesAutomaticContext } from '../../shared/model-context'
 import { withModelContextMetadata } from './model-context-metadata'
 import { practiceResponseSchema } from '../../shared/quiz'
-import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
+import { parseQuestionRewrite, questionRewriteMessages, questionResolutionSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -45,6 +45,8 @@ import {
   filterSuggestedQuestions
 } from './study-chat-format'
 import { writeTokenSmithLog } from '../python/python-engine-service'
+import { executeIsolatedJavascript } from './javascript-executor'
+import { javascriptContextReserveTokens, runJavascriptInterpret, type JavascriptInterpretTrace } from './javascript-interpret'
 
 interface OllamaTagsResponse {
   models?: Array<{
@@ -76,6 +78,10 @@ interface OllamaChatResponse {
   done_reason?: string
   prompt_eval_count?: number
   eval_count?: number
+  load_duration?: number
+  prompt_eval_duration?: number
+  eval_duration?: number
+  total_duration?: number
   message?: {
     content?: string
     thinking?: string
@@ -843,6 +849,7 @@ interface OllamaCompletionOverrides {
   format?: Record<string, unknown>
   thinking?: boolean
   signal?: AbortSignal
+  allowEmpty?: boolean
 }
 
 async function requestOllamaChatCompletion(
@@ -898,7 +905,11 @@ async function runOllamaChatCompletion(
   writeTokenSmithLog('ollama_completion_usage', {
     modelName, thinking: overrides.thinking ?? false, doneReason: payload.done_reason,
     promptTokens: payload.prompt_eval_count, generatedTokens: payload.eval_count,
-    hasFinalAnswer: Boolean(payload.message?.content?.trim())
+    hasFinalAnswer: Boolean(payload.message?.content?.trim()),
+    loadMs: payload.load_duration === undefined ? undefined : payload.load_duration / 1e6,
+    promptEvalMs: payload.prompt_eval_duration === undefined ? undefined : payload.prompt_eval_duration / 1e6,
+    generationMs: payload.eval_duration === undefined ? undefined : payload.eval_duration / 1e6,
+    totalMs: payload.total_duration === undefined ? undefined : payload.total_duration / 1e6
   })
   if (payload.done_reason === 'length') {
     throw new Error(overrides.format
@@ -906,7 +917,15 @@ async function runOllamaChatCompletion(
       : 'The answer reached its length limit before finishing. Increase Max Length and ensure Context Length has room for the sources and response.')
   }
   const text = payload.message?.content ?? ''
-  if (!text.trim()) {
+  if (!text.trim() && overrides.allowEmpty) {
+    writeTokenSmithLog('javascript_interpret_empty_response', {
+      modelName,
+      doneReason: payload.done_reason,
+      evalCount: payload.eval_count,
+      promptEvalCount: payload.prompt_eval_count
+    })
+  }
+  if (!text.trim() && !overrides.allowEmpty) {
     throw new Error('Ollama returned an empty response.')
   }
 
@@ -974,7 +993,7 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const automatic = reasoningMode(request.modelSettings) === 'auto'
   const canReason = automatic && await supportsSwitchableThinking(baseUrl, request.model.ollamaModelName, signal)
-  if (!request.selectedPassage && !lastChatExchange(request.messages) && !canReason) {
+  if (!request.classifyAdvancedMath && !request.selectedPassage && !lastChatExchange(request.messages) && !canReason) {
     return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
   }
   const runtime = await requestWithOllamaRuntimeContext(
@@ -982,10 +1001,10 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   )
   const messages = questionRewriteMessages(runtime)
   const text = await runOllamaChatCompletion(baseUrl, request.model.ollamaModelName, messages, runtime.modelSettings, {
-    maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
+    maxTokens: 512, temperature: 0, format: questionResolutionSchema(request.classifyAdvancedMath), signal
   })
   try {
-    const parsed = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
+    const parsed = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage), request.classifyAdvancedMath)
     const resolution: QuestionRewrite = automatic && !canReason ? { ...parsed, reasoning: false } : parsed
     writeTokenSmithLog('chat_question_rewrite', {
       modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
@@ -1044,12 +1063,32 @@ async function generateOllamaFollowUpSuggestions(
   return suggestions
 }
 
-export async function runOllamaStudyEngine(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
+export interface OllamaStudyEngineOptions extends EngineRunOptions {
+  onJavascriptInterpretTrace?: (trace: JavascriptInterpretTrace) => void
+}
+
+const advancedMathContexts = new Map<string, { until: number; contextLength: number }>()
+
+export async function runOllamaStudyEngine(
+  request: EngineChatRequest,
+  options: OllamaStudyEngineOptions = {}
+): Promise<EngineChatResponse> {
   assertOllamaModel(request.model)
 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
-  let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
+  const mathRequested = request.advancedMathPlan?.route === 'math' &&
+    (request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) === true && !request.answerToSimplify && !request.practiceTask
+  const contextKey = mathRequested ? `${baseUrl}|${modelName}|${request.model.addedAt}` : undefined
+  const cachedContext = contextKey ? advancedMathContexts.get(contextKey) : undefined
+  const contextRequest = cachedContext && cachedContext.until > Date.now() && !request.model.contextLength
+    ? { ...request, model: { ...request.model, contextLength: cachedContext.contextLength } } : request
+  let runtimeRequest = await requestWithOllamaRuntimeContext(contextRequest, baseUrl, modelName)
+  if (contextKey && runtimeRequest.model.contextLength) {
+    for (const [key, value] of advancedMathContexts) if (value.until <= Date.now()) advancedMathContexts.delete(key)
+    if (advancedMathContexts.size >= 8) advancedMathContexts.delete(advancedMathContexts.keys().next().value!)
+    advancedMathContexts.set(contextKey, { until: Date.now() + 300_000, contextLength: runtimeRequest.model.contextLength })
+  }
   if (request.practiceTask) {
     const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
     const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, runtimeRequest.modelSettings, {
@@ -1057,6 +1096,37 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
       thinking: false, signal: options.signal
     })
     return { engineId: 'tokensmith', modelName: request.model.name, text, sources: verified.sources }
+  }
+  if (mathRequested && !request.practiceTask) {
+    const runtimeSettings = runtimeRequest.modelSettings
+    logRuntimeContextBudget('chat_runtime_context_budget', runtimeRequest)
+    const packed = prepareStudyChatMessages(runtimeRequest, javascriptContextReserveTokens)
+    const javascriptMessages = packed.messages
+    const text = await runJavascriptInterpret(
+      javascriptMessages,
+      (conversation, maxTokens) => {
+        const contextLength = runtimeSettings?.contextLength ?? runtimeRequest.model.contextLength ?? 4096
+        const estimatedPrompt = Math.ceil((conversation.reduce((size, message) => size + message.content.length, 0) + 2) / 4)
+        const available = contextLength - estimatedPrompt - 256
+        if (available < 1024) throw new Error('JavaScript reasoning needs more context for its execution feedback and explanation. Increase Context Length or use a shorter passage.')
+        return runOllamaChatCompletion(baseUrl, modelName, conversation, runtimeSettings,
+          { maxTokens: Math.min(maxTokens, available), temperature: 0, signal: options.signal, allowEmpty: true })
+      },
+      executeIsolatedJavascript,
+      (trace) => {
+        options.onJavascriptInterpretTrace?.(trace)
+        writeTokenSmithLog('javascript_interpret', {
+          modelName, prompt: request.prompt, modelMessages: javascriptMessages,
+          ...trace
+        })
+      },
+      request.prompt
+    )
+    const answer = answerWithOrderedSources(text, packed.sources)
+    options.signal?.throwIfAborted()
+    const response = { engineId: 'tokensmith' as const, modelName: request.model.name, text: answer.text, sources: answer.sources }
+    options.onAnswer?.(response, false)
+    return response
   }
   const mode = reasoningMode(runtimeRequest.modelSettings)
   let selected = request.reasoning === true

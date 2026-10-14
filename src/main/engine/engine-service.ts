@@ -16,7 +16,8 @@ import { modelWithRememberedRemoteApiKey } from './remote-model-secrets'
 import { resolveRemoteChatQuestion } from './remote-chat-service'
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
-import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine } from './ollama-service'
+import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine, getOllamaStatus } from './ollama-service'
+import { createAdvancedMathService } from './advanced-math-service'
 import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
 async function withStarterSources(
@@ -46,13 +47,23 @@ export async function listEngines(): Promise<EngineInfo[]> {
 }
 
 export async function sendChatMessage(request: EngineChatRequest, options: EngineRunOptions = {}): Promise<EngineChatResponse> {
+  const planned = await advancedMath.prepare(request, options.signal)
+  if ('mode' in planned) {
+    const response: EngineChatResponse = { engineId: 'tokensmith', modelName: request.model.name, text: planned.clarification, sources: [] }
+    options.onAnswer?.(response, false)
+    return response
+  }
+  request = planned
+  const mathUsed = request.advancedMathPlan?.route === 'math' &&
+    (request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled) === true && !request.answerToSimplify && !request.practiceTask
+  const annotate = (response: EngineChatResponse): EngineChatResponse => mathUsed ? { ...response, advancedMathUsed: true } : response
   writeTokenSmithLog('chat_request_context', chatRequestLogDetails(request))
 
-  const response = await sendStudyChatMessage(request, {
+  const response = annotate(await sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  }, options)
+  }, { ...options, onAnswer: options.onAnswer ? (answer, followUps) => options.onAnswer!(annotate(answer), followUps) : undefined }))
 
   writeTokenSmithLog('chat_response_context', {
     modelName: response.modelName,
@@ -64,12 +75,18 @@ export async function sendChatMessage(request: EngineChatRequest, options: Engin
   return response
 }
 
-export async function resolveChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
+async function resolveDefaultQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   if (request.model.engine === 'ollama') return resolveOllamaChatQuestion(request, signal)
   if (request.model.engine === 'remote') {
     return resolveRemoteChatQuestion({ ...request, model: modelWithRememberedRemoteApiKey(request.model) }, signal)
   }
   throw new Error('Question rewriting requires an Ollama or remote chat model.')
+}
+
+const advancedMath = createAdvancedMathService({ resolve: resolveDefaultQuestion, status: getOllamaStatus, log: writeTokenSmithLog })
+
+export async function resolveChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
+  return advancedMath.resolve(request, signal)
 }
 
 export async function suggestChatQuestions(
@@ -133,6 +150,9 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
   return {
     prompt: request.prompt,
     selectedPassage: request.selectedPassage,
+    advancedMathEnabled: request.advancedMathEnabled ?? request.applicationSettings?.advancedMathEnabled ?? false,
+    advancedMathPlan: request.advancedMathPlan,
+    preparationTiming: request.preparationTiming,
     answerPrompt: request.answerPrompt,
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',

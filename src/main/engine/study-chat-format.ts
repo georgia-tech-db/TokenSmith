@@ -79,6 +79,7 @@ export interface SourceContextBudget {
 }
 
 interface SourceContextOptions {
+  additionalReservedTokens?: number
   prompt?: string
   evidenceQuery?: string
   referenceText?: string
@@ -284,7 +285,8 @@ function emptyBudget(options?: SourceContextOptions): SourceContextBudget {
     safetyMarginTokens: safetyMargin,
     fixedPromptTokens,
     sourceBudgetTokens: Math.max(0, Math.min(modelContextTokens - answerReserve,
-      options?.model?.inputTokenLimit ?? Infinity) - safetyMargin - fixedPromptTokens),
+      options?.model?.inputTokenLimit ?? Infinity) - safetyMargin - fixedPromptTokens -
+      Math.max(0, Math.min(modelContextTokens, options?.additionalReservedTokens ?? 0))),
     usedSourceTokens: 0,
     estimatedPromptTokens: fixedPromptTokens,
     includedSourceCount: 0,
@@ -489,7 +491,7 @@ function chatReferenceText(request: EngineChatRequest): string {
   return blocks.join('\n\n')
 }
 
-export function prepareStudyChatMessages(request: EngineChatRequest): {
+export function prepareStudyChatMessages(request: EngineChatRequest, additionalReservedTokens = 0): {
   messages: StudyChatMessage[]; budget: SourceContextBudget; sources: ChatSource[]
 } {
   const runtimeSettings = (modelAwareRuntimeSettings(request) ?? request.modelSettings) as
@@ -508,6 +510,7 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     modelSettings,
     includeBudget: true,
     includeInstructions: false,
+    additionalReservedTokens,
     explanationDepth: request.practiceTask ? undefined : requestExplanationDepth(request.applicationSettings),
     systemInstructions: practiceInstructions,
     includeEvidenceIds: Boolean(request.practiceTask),

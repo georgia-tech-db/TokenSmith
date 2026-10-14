@@ -20,6 +20,7 @@ import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
 import { normalizeEmbeddingGpuEnabled } from '@shared/embedding-settings'
+import { advancedMathModelName, advancedMathModelInstalled, reconcileAdvancedMathEnabled, normalizeAdvancedMathEnabled } from '@shared/advanced-math'
 import { canExplainSimpler, canRetryWithReasoning, reasoningRetryRequest, replaceQuestion, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
 import { SelectedPassagePreview } from './SelectedPassagePreview'
 import './chat-interactions.css'
@@ -27,7 +28,7 @@ import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
 import { ChatDepthPicker } from './ChatDepthPicker'
 import { AnswerExplanation } from './AnswerExplanation'
-import { answerForDisplay } from '../../shared/study-chat-pipeline'
+import { answerForDisplay, lastChatExchange } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
 import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
 import { answerModel, isAnswerModel, migrateConversationModels, selectStudyModel, studyModelTarget, type ModelSelectionTarget } from '@shared/chat-model-selection'
@@ -225,7 +226,8 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  embeddingGpuEnabled: true
+  embeddingGpuEnabled: true,
+  advancedMathEnabled: false
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -830,7 +832,8 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): 
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
+    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled),
+    advancedMathEnabled: normalizeAdvancedMathEnabled(settings?.advancedMathEnabled)
   }
 }
 
@@ -1295,6 +1298,7 @@ export function App() {
       conversations: [conversation, ...current.conversations], practice: { ...(current.practice ?? emptyPracticeState()), mode: 'chat' } }))
   }
   const [appVersion, setAppVersion] = useState<string>('dev')
+  const [mathStatus, setMathStatus] = useState<OllamaStatus | null>(null)
   const [engines, setEngines] = useState<EngineInfo[]>([
     {
       id: 'tokensmith',
@@ -1439,6 +1443,43 @@ export function App() {
       cancelled = true
     }
   }, [])
+
+  const chatSettings = useMemo(() => {
+    const settings = appState.settings
+    if (!settings.application.advancedMathEnabled || advancedMathModelInstalled(mathStatus)) return settings
+    return { ...settings, application: { ...settings.application, advancedMathEnabled: false } }
+  }, [appState.settings, mathStatus])
+
+  function synchronizeMathStatus(status: OllamaStatus | null) {
+    setMathStatus(status)
+    updateAppState(current => {
+      const application = current.settings.application
+      const advancedMathEnabled = reconcileAdvancedMathEnabled(application.advancedMathEnabled, status)
+      return advancedMathEnabled === application.advancedMathEnabled ? current : {
+        ...current, settings: { ...current.settings, application: { ...application, advancedMathEnabled } }
+      }
+    })
+  }
+
+  const mathModelState = appState.models.filter(model => model.ollamaModelName === advancedMathModelName)
+    .map(model => model.status).join(',')
+  useEffect(() => {
+    if (!hasLoadedState || !window.tokensmith) return
+    let cancelled = false
+    let sequence = 0
+    async function refresh() {
+      const check = ++sequence
+      try {
+        const status = await window.tokensmith!.getOllamaStatus()
+        if (!cancelled && check === sequence) synchronizeMathStatus(status)
+      } catch {
+        if (!cancelled && check === sequence) synchronizeMathStatus(null)
+      }
+    }
+    void refresh()
+    window.addEventListener('focus', refresh)
+    return () => { cancelled = true; window.removeEventListener('focus', refresh) }
+  }, [hasLoadedState, appState.activeScreen, mathModelState])
 
   useEffect(() => {
     if (!hasLoadedStateRef.current) {
@@ -1880,7 +1921,7 @@ export function App() {
     }
   }
 
-  function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl) {
+  function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl, selectAfterInstall = true) {
     const target = studyModelTarget(appState)
     const normalizedModelName = modelName.trim()
     if (!normalizedModelName || !window.tokensmith?.pullOllamaModel) {
@@ -1960,7 +2001,7 @@ export function App() {
             id: modelId,
             addedAt: existingModel?.addedAt ?? new Date().toISOString()
           },
-          true, 'models', target
+          selectAfterInstall, 'models', target
         )
       })
       .catch((error) => {
@@ -2234,7 +2275,7 @@ export function App() {
             embeddingModels={embeddingModels}
             isSetupCardDismissed={isChatSetupCardDismissed}
             selectedModel={selectedModel}
-            settings={appState.settings}
+            settings={chatSettings}
             onChatStateChange={updateChatState}
             onDismissSetupCard={() => setChatSetupCardDismissed(true)}
             onInstallOllamaChatModel={installOllamaChatModel}
@@ -2294,10 +2335,14 @@ export function App() {
             selectedModelId={(practiceState.mode === 'practice' ? practiceModelId : activeConversation?.modelId) ?? ''}
             modelSelectionLocked={practiceState.mode === 'practice' && Boolean(practiceState.activeSessionId)}
             onConnectCloud={openCloudSetup}
+            onOllamaStatusChange={synchronizeMathStatus}
           />
         )}
         {hasLoadedState && activeScreen === 'settings' && (
-          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} isIndexing={appState.materials.some(material => material.status === 'indexing')} />
+          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings}
+            isIndexing={appState.materials.some(material => material.status === 'indexing')}
+            mathStatus={mathStatus}
+            onOpenModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))} />
         )}
       </section>
       <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => ({
@@ -3776,15 +3821,19 @@ function ChatScreen({
           model: selectedModel,
           settings,
           applicationSettings: settings.application,
-          modelSettings: activeModelSettings
+          modelSettings: activeModelSettings,
+          advancedMathEnabled: settings.application.advancedMathEnabled
         }, {
           resolve: (request) => tokensmith.resolveChatQuestion(request),
-          search: (query) => {
+          search: (query, plan) => {
             const reference = activeConversation.practiceReference
             if (history.length === 0 && reference && passage?.messageId === reference.questionId) return Promise.resolve(sourcesInScope(reference.sources, documentScope))
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
-            return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
+            const sourceLimit = plan?.route === 'math'
+              ? modelAwareRetrievalLimit(settings.maxSources, plan.model, plan.modelSettings)
+              : retrievalSourceLimit
+            return tokensmith.searchLibrary(query, activeMaterials, sourceLimit,
               searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
           }
         })
@@ -3817,11 +3866,34 @@ function ChatScreen({
         setPendingStatusText(null)
       }
 
+      if (window.tokensmith && activeMaterials.length === 0 && settings.application.advancedMathEnabled) {
+        setPendingStatusText('Choosing answer model…')
+        const resolution = await window.tokensmith.resolveChatQuestion({
+          requestId: progressId, prompt, selectedPassage: passage, messages: history, model: selectedModel,
+          modelSettings: activeModelSettings, settings, advancedMathEnabled: true
+        })
+        if (requestSequenceRef.current !== requestSequence) return
+        conversationContextMode = resolution.mode
+        if (resolution.mode === 'clarify') {
+          clarificationReply = { engineId: 'tokensmith', modelName: selectedModel.name, text: resolution.clarification, sources: [] }
+        } else {
+          rewrittenRequest = {
+            prompt, selectedPassage: passage, messages: history, model: selectedModel, modelSettings: activeModelSettings,
+            settings, applicationSettings: settings.application, materials: activeMaterials, retrievedSources: [],
+            conversationContextMode: resolution.mode, reasoning: resolution.reasoning, answerPrompt: prompt, advancedMathPlan: resolution.advancedMathPlan,
+            referenceExchange: resolution.mode === 'contextual' && !passage ? lastChatExchange(history) : undefined
+          }
+        }
+        setPendingStatusText(null)
+      }
+
       if (!window.tokensmith) {
         throw new Error('TokenSmith engine bridge is not available.')
       }
 
-      progress.stage(progressId, 'Writing answer')
+      const mathPlan = rewrittenRequest?.advancedMathPlan
+      progress.stage(progressId, mathPlan?.route === 'math' ? 'Calculating with Advanced Math' : 'Writing answer',
+        mathPlan?.model ? { model: mathPlan.model, settings: mathPlan.modelSettings } : undefined)
       const assistantId = createId('assistant')
       let answerDurationMs: number | undefined
       function publishAnswer(reply: EngineChatResponse) {
@@ -3831,6 +3903,8 @@ function ChatScreen({
           id: assistantId,
           role: 'assistant',
           text: reply.text,
+          answerModelName: reply.modelName,
+          advancedMathUsed: reply.advancedMathUsed,
           // Kept whatever the display setting is, so a retelling can reuse this evidence.
           sources: reply.sources,
           reasoning: reply.reasoning,
@@ -3877,7 +3951,8 @@ function ChatScreen({
         applicationSettings: settings.application,
         modelSettings: activeModelSettings,
         retrievedSources
-      }), requestId: progressId }, (answer, hasFollowUps) => {
+      }), advancedMathEnabled: settings.application.advancedMathEnabled,
+      requestId: progressId }, (answer, hasFollowUps) => {
         if (requestSequenceRef.current !== requestSequence) return
         answerDurationMs = Math.max(0, Math.round(performance.now() - responseStartedAt))
         publishAnswer(answer)
@@ -4502,9 +4577,10 @@ function AssistantMessage({
         <h3>
           TokenSmith
         </h3>
-        {(modeLabel || durationLabel || displayed.reasoning?.used) && (
+        {(modeLabel || durationLabel || message.advancedMathUsed || displayed.reasoning?.used) && (
           <div className="message-meta-labels" aria-label="Response details">
             {modeLabel && <span>{modeLabel}</span>}
+            {message.advancedMathUsed && <span title={message.answerModelName}>Advanced Math</span>}
             {durationLabel && <span>{durationLabel}</span>}
             {displayed.reasoning?.used && <span>Reasoning used</span>}
           </div>
@@ -5319,13 +5395,14 @@ function ModelsScreen({
   selectedEmbeddingModelId,
   selectedModelId,
   modelSelectionLocked,
-  onConnectCloud
+  onConnectCloud,
+  onOllamaStatusChange
 }: {
   engines: EngineInfo[]
   models: LocalModel[]
   onAddModel: (model: LocalModel) => void
   onCancelOllamaModelDownload: (modelName: string, baseUrl?: string) => void
-  onDownloadOllamaModel: (modelName: string, role: LocalModelRole, baseUrl?: string) => void
+  onDownloadOllamaModel: (modelName: string, role: LocalModelRole, baseUrl?: string, selectAfterInstall?: boolean) => void
   onRemoveModel: (model: LocalModel) => void
   onSelectEmbeddingModel: (modelId: string) => void
   onSelectModel: (modelId: string) => void
@@ -5333,6 +5410,7 @@ function ModelsScreen({
   selectedModelId: string
   modelSelectionLocked: boolean
   onConnectCloud: (model?: LocalModel) => void
+  onOllamaStatusChange: (status: OllamaStatus | null) => void
 }) {
   type RemoteProviderDraft = {
     apiKey: string
@@ -5344,7 +5422,7 @@ function ModelsScreen({
     error?: string
   }
 
-  const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
+  const [mode, setMode] = useState<'installed' | 'explore'>('installed')
   const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
   const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
     remoteProviderCatalog.reduce(
@@ -5386,17 +5464,7 @@ function ModelsScreen({
   )
 
   useEffect(() => {
-    if (models.length === 0) {
-      setMode('explore')
-      setExploreTab('ollama')
-    }
-  }, [models.length])
-
-  useEffect(() => {
-    const shouldRefreshOllamaStatus =
-      (mode === 'explore' && exploreTab === 'ollama') ||
-      models.some((model) => model.engine === 'ollama' || model.source === 'ollama')
-    if (!shouldRefreshOllamaStatus || !window.tokensmith?.getOllamaStatus) {
+    if (!window.tokensmith?.getOllamaStatus) {
       return
     }
 
@@ -5411,6 +5479,7 @@ function ModelsScreen({
           return
         }
         setOllamaStatus(status)
+        onOllamaStatusChange(status)
         setOllamaStatusState('idle')
         setOllamaError(status.error ? readableOllamaError(new Error(status.error), 'Ollama is not running yet.') : null)
       })
@@ -5418,6 +5487,7 @@ function ModelsScreen({
         if (cancelled) {
           return
         }
+        onOllamaStatusChange(null)
         setOllamaStatusState('error')
         setOllamaError(readableOllamaError(error, 'Could not check Ollama.'))
       })
@@ -5503,9 +5573,11 @@ function ModelsScreen({
     try {
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
+      onOllamaStatusChange(status)
       setOllamaStatusState('idle')
       setOllamaError(status.error ? readableOllamaError(new Error(status.error), 'Ollama is not running yet.') : null)
     } catch (error) {
+      onOllamaStatusChange(null)
       setOllamaStatusState('error')
       setOllamaError(readableOllamaError(error, 'Could not check Ollama.'))
     }
@@ -5627,11 +5699,11 @@ function ModelsScreen({
     setMode('installed')
   }
 
-  function modelStats(model: LocalModel) {
+  function modelStats(model: LocalModel, roleLabel?: string) {
     if (model.engine === 'ollama') {
       const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
       const stats = [
-        { label: 'Role', value: isOllamaEmbedder ? 'Embedder Model' : 'Chat Model' },
+        { label: 'Role', value: roleLabel ?? (isOllamaEmbedder ? 'Embedder Model' : 'Chat Model') },
         { label: 'Provider', value: 'Ollama' },
         { label: 'Model', value: model.ollamaModelName ?? model.name },
         { label: 'Endpoint', value: (model.ollamaBaseUrl ?? defaultOllamaBaseUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '') }
@@ -5915,7 +5987,14 @@ function ModelsScreen({
     )
   }
 
-  const installedModels = models.filter((model) => isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
+  function isDedicatedMathModel(model: LocalModel) {
+    return model.engine === 'ollama' && modelCanGenerate(model) &&
+      model.ollamaModelName?.toLowerCase() === advancedMathModelName &&
+      (model.ollamaBaseUrl ?? defaultOllamaBaseUrl).replace(/\/+$/, '') === defaultOllamaBaseUrl
+  }
+
+  const installedModels = models.filter((model) => !isDedicatedMathModel(model) &&
+    (isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing')))
 
   function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
     const draft = remoteDrafts[provider.id]
@@ -6151,7 +6230,7 @@ function ModelsScreen({
     ]
     const policyModelNames = new Set(modelCards.map((card) => card.modelName.toLowerCase()))
     const otherInstalledModels = (ollamaStatus?.models ?? []).filter(
-      (model) => !policyModelNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
+      (model) => model.name.toLowerCase() !== advancedMathModelName && !policyModelNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
     )
     const customModelName = ollamaDraftName.trim()
     const hasSearchResults = ollamaSearchResults.length > 0
@@ -6159,7 +6238,7 @@ function ModelsScreen({
     return (
       <>
         <p className="model-explore-copy">
-          Download or connect Ollama models for local chat and PDF search.
+          Download local models for chat and document search.
         </p>
 
         <DeviceRecommendationPanel
@@ -6261,6 +6340,59 @@ function ModelsScreen({
     )
   }
 
+  async function startMathOllama() {
+    try {
+      const result = await window.tokensmith?.startOllamaService()
+      if (!result?.opened) { setOllamaError(result?.message ?? 'Could not start Ollama.'); return }
+      await refreshOllamaModels()
+    } catch (error) {
+      setOllamaError(readableOllamaError(error, 'Could not start Ollama.'))
+    }
+  }
+
+  function renderMathModel() {
+    const installed = advancedMathModelInstalled(ollamaStatus)
+    const existingModel = models.find(isDedicatedMathModel)
+    const model = withOllamaInfo(existingModel ?? createOllamaChatModel(advancedMathModelName, defaultOllamaBaseUrl,
+      ollamaInfoForModel(advancedMathModelName), installed ? 'ready' : 'missing'), ollamaInfoForModel(advancedMathModelName))
+    const downloading = model.status === 'downloading'
+    return <section className="model-card">
+      <div className="model-card-main">
+        <div className="model-title-row">
+          <div className="model-title-heading">
+            <h2>Ollama qwen2.5-Coder 7B</h2>
+            <span className="model-role-badge is-math">Math Model</span>
+          </div>
+          <p>{advancedMathModelName}</p>
+        </div>
+        <ul className="model-description-list">
+          <li>Local math model served by Ollama</li>
+          <li>Runs JavaScript for multi-step calculations and explains the results</li>
+          <li>Works with enabled PDFs prepared by TokenSmith</li>
+        </ul>
+        {renderStats(modelStats(model, 'Math Model'))}
+      </div>
+      <aside className="model-action-box">
+        {downloading ? <button className="model-action-button" type="button"
+          onClick={() => onCancelOllamaModelDownload(advancedMathModelName, defaultOllamaBaseUrl)}>Pause</button>
+          : installed ? <button className="model-action-button is-selected" type="button" disabled>
+            <Check size={17} aria-hidden="true" /><span>Active Model</span>
+          </button> : <button className="model-action-button is-download" type="button"
+            disabled={!ollamaStatus?.running || ollamaStatusState === 'checking'}
+            onClick={() => onDownloadOllamaModel(advancedMathModelName, 'generator', defaultOllamaBaseUrl, false)}>
+            <DownloadIcon size={17} aria-hidden="true" /><span>{model.status === 'incomplete' || model.status === 'downloadError' ? 'Resume' : 'Download'}</span>
+          </button>}
+        {existingModel && !downloading && <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(existingModel)}>
+          <Trash2 size={16} aria-hidden="true" /><span>Remove</span>
+        </button>}
+        {!downloading && <small>{installed ? 'Used when Advanced Math is enabled in Settings' : ollamaStatus?.running ? '4.7 GB download' : 'Start Ollama first'}</small>}
+        {downloading || model.status === 'incomplete' || model.status === 'downloadError' ? renderDownloadProgress(model.download) : null}
+        {!ollamaStatus?.running && <button className="model-action-button" type="button" disabled={ollamaStatusState === 'checking'} onClick={() => void startMathOllama()}>Start Ollama</button>}
+        {ollamaError && <small className="model-download-error">{ollamaError}</small>}
+      </aside>
+    </section>
+  }
+
   if (mode === 'explore') {
     return (
       <div className="view-frame standard-frame">
@@ -6311,7 +6443,7 @@ function ModelsScreen({
         <div>
           <p className="section-kicker">Models</p>
           <h1>Your models</h1>
-          <p>Chat models answer questions. Embedder models build and search collection vectors.</p>
+          <p>Chat models answer everyday questions. Math models handle multi-step calculations. Embedder models prepare and search your documents.</p>
         </div>
         <div className="model-header-actions">
           <button className="primary-action" type="button" onClick={() => onConnectCloud()}><Plus size={18} /><span>Connect cloud model</span></button>
@@ -6323,13 +6455,14 @@ function ModelsScreen({
       </header>
 
       <div className="model-list">
+        {renderMathModel()}
         {installedModels.map((model) => renderInstalledModelCard(model))}
       </div>
 
-      {installedModels.length === 0 && (
+      {installedModels.length === 0 && !advancedMathModelInstalled(ollamaStatus) && (
         <div className="model-empty-state">
           <h2>No Models Installed</h2>
-          <p>Add or connect a chat model for answers and an embedder model for collection search.</p>
+          <p>Add a chat model for everyday answers and an embedder model for document search. The math model is optional.</p>
         </div>
       )}
     </div>
@@ -6340,13 +6473,18 @@ function SettingsScreen({
   models,
   onSettingsChange,
   settings,
-  isIndexing
+  isIndexing,
+  mathStatus,
+  onOpenModels
 }: {
   models: LocalModel[]
   onSettingsChange: (settings: Partial<TokenSmithSettings>) => void
   settings: TokenSmithSettings
   isIndexing: boolean
+  mathStatus: OllamaStatus | null
+  onOpenModels: () => void
 }) {
+  const mathAvailable = advancedMathModelInstalled(mathStatus)
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
   const generatorModels = useMemo(() => models.filter(isAnswerModel), [models])
   const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId)
@@ -6500,6 +6638,19 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="Advanced">
+              <SettingsRow
+                label="Advanced Math"
+                description={mathAvailable
+                  ? 'Uses a local model to generate and run JavaScript for multi-step calculations, then explain the results. Simple questions use your chat model.'
+                  : <>Install Advanced Math model in <a href="#models" onClick={event => { event.preventDefault(); onOpenModels() }}>Models</a> tab to enable multi-step calculations.</>}
+              >
+                <CheckboxField
+                  ariaLabel="Advanced Math"
+                  checked={mathAvailable && settings.application.advancedMathEnabled}
+                  disabled={!mathAvailable}
+                  onChange={(advancedMathEnabled) => updateApplicationSettings({ advancedMathEnabled })}
+                />
+              </SettingsRow>
               <SettingsRow
                 label="Search Mode"
                 description="How library sources are retrieved: meaning (vector) matches on topic, keyword (BM25) matches on exact words, and hybrid blends both."
@@ -6761,7 +6912,7 @@ function SettingsRow({
   wide = false
 }: {
   children: ReactNode
-  description: string
+  description: ReactNode
   label: string
   wide?: boolean
 }) {
