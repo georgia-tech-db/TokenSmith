@@ -130,19 +130,32 @@ export const confidenceThresholds = {
 }
 
 /**
- * Cut-offs on the NLI model's probabilities. Chosen on the synthetic cases in
- * tests/benchmarks/buzzdb_nli_cases.json and confirmed on held-out real chat
- * answers. Run `npm run test:nli-benchmark` before and after changing them.
+ * Cut-offs on the NLI model's probabilities. Swept over the 35 questions (210
+ * answers) in tests/benchmarks/buzzdb_nli_cases.json with
+ * tests/benchmarks/sweep_nli_thresholds.py: picked on the "dev" questions,
+ * then checked on the "heldout" ones. Run `npm run test:nli-benchmark` before
+ * and after changing them.
  */
 export const verificationThresholds = {
   /** A claim reads as supported only at or above this entailment. */
-  supported: 0.8,
-  /** Below this entailment a claim counts as not carried by the passages. */
-  entailed: 0.6,
-  /** A claim not entailed and contradicted at least this strongly is contradicted. */
+  supported: 0.85,
+  /**
+   * Below this entailment a claim counts as not carried by the passages.
+   * Negated answers routinely score 0.6-0.8 because they reuse the passage's
+   * words, so a lower bar lets them through.
+   */
+  entailed: 0.8,
+  /**
+   * A claim contradicted at least this strongly is contradicted, unless a
+   * passage entails it more strongly still.
+   */
   contradicted: 0.5,
-  /** Below this share of entailed claims the answer reads as not supported. */
-  minEntailedShare: 0.67
+  /**
+   * Below this share of entailed claims the answer reads as not supported.
+   * With the stricter `entailed` bar, half is enough: one sound claim out of
+   * two no longer sinks a correct two-sentence paraphrase.
+   */
+  minEntailedShare: 0.5
 }
 
 const stopWords = new Set([
@@ -291,6 +304,13 @@ function maxOver(passages: PassageEntailment[], key: 'entailment' | 'contradicti
 export function claimVerdict(entailment: number, contradiction: number): ClaimVerdict {
   const { supported, entailed, contradicted } = verificationThresholds
 
+  // When one passage contradicts the claim at least as strongly as another
+  // entails it, the passages disagree with each other about it and the
+  // contradiction wins: "neighboring keys are stored next to each other"
+  // scores 0.83 entailment and 0.85 contradiction.
+  if (contradiction >= contradicted && contradiction >= entailment) {
+    return 'contradicted'
+  }
   if (entailment >= supported) {
     return 'supported'
   }

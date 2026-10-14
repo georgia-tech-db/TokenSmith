@@ -100,11 +100,15 @@ test('retrievalConfidence blends similarity with question overlap', () => {
 
 test('claimVerdict separates supported, likely, contradicted and unsupported', () => {
   assert.equal(claimVerdict(0.95, 0.01), 'supported')
-  assert.equal(claimVerdict(0.7, 0.1), 'likely')
+  assert.equal(claimVerdict(0.82, 0.1), 'likely')
   assert.equal(claimVerdict(0.1, 0.9), 'contradicted')
   assert.equal(claimVerdict(0.1, 0.2), 'unsupported')
-  // Entailment from one passage outweighs a contradiction found in another.
-  assert.equal(claimVerdict(0.9, 0.9), 'supported')
+  // Negations that reuse the passage's words land around 0.6-0.8 entailment.
+  assert.equal(claimVerdict(0.7, 0.1), 'unsupported')
+  // Entailment from one passage outweighs a weaker contradiction in another...
+  assert.equal(claimVerdict(0.9, 0.6), 'supported')
+  // ...but when the contradiction is at least as strong, it wins.
+  assert.equal(claimVerdict(0.83, 0.85), 'contradicted')
 })
 
 test('gradeClaims takes the strongest reading across passages', () => {
@@ -333,7 +337,7 @@ test('sourceContributions credits the passage that entails each claim', () => {
   const shares = sourceContributions(
     [
       claim('Transactions preserve atomicity.', [[0.9, 0], [0.1, 0]]),
-      claim('Transactions preserve durability.', [[0.8, 0], [0.7, 0]])
+      claim('Transactions preserve durability.', [[0.9, 0], [0.85, 0]])
     ],
     2
   )

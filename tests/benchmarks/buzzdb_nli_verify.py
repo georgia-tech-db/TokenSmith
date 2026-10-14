@@ -36,7 +36,13 @@ def main() -> None:
 
     results = []
     for group in json.loads(NLI_CASES_PATH.read_text(encoding="utf-8")):
-        case = grounding[group["caseId"]]
+        # Older cases borrow their question and passages from the grounding
+        # benchmark; newer ones carry their own.
+        case = grounding.get(group["caseId"]) or {
+            "question": group["question"],
+            "expectedChunkIds": group["chunkIds"],
+            "forbiddenChunkIds": group.get("distractorChunkIds", []),
+        }
         # The passages retrieval should return, plus the known distractors, so
         # every answer is checked against on-topic and off-topic text alike.
         chunk_ids = case["expectedChunkIds"] + case.get("forbiddenChunkIds", [])
@@ -48,6 +54,7 @@ def main() -> None:
             results.append(
                 {
                     "caseId": group["caseId"],
+                    "split": group.get("split", "dev"),
                     "kind": answer["kind"],
                     "expect": answer["expect"],
                     "question": question,
