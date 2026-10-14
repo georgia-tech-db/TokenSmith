@@ -1,0 +1,112 @@
+[
+  {
+    "caseId": "pinning_needed",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "Pinning makes an in-use page ineligible for eviction. Without it, an executor's page pointer could refer to invalid or reused memory, causing corruption or a crash." },
+      { "kind": "paraphrase", "expect": "answer", "text": "While a component is using a page, it pins it so the replacement policy cannot pick that page as a victim. If the page were evicted mid-scan, the executor would read garbage from whatever page was loaded into the frame." },
+      { "kind": "negation", "expect": "abstain", "text": "Pinning does not make an in-use page ineligible for eviction. The buffer manager's replacement policy is free to choose a pinned page as a victim." },
+      { "kind": "fabricated", "expect": "abstain", "text": "Pinning is needed so the buffer manager can compress pages before flushing them. Pinned pages are written to disk immediately to guarantee durability." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Pinning makes an in-use page ineligible for eviction. BuzzDB tracks pins with an atomic reference counter stored in every page header." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "Who wrote the novel Pride and Prejudice?", "text": "Pride and Prejudice was written by Jane Austen and published in 1813." }
+    ]
+  },
+  {
+    "caseId": "lru_sequential_scan",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "A scan larger than the buffer pool admits a stream of pages that are used once and displaces useful cached pages. LRU relies on temporal locality, which a sequential scan lacks." },
+      { "kind": "paraphrase", "expect": "answer", "text": "When a sequential scan reads a table bigger than the buffer pool, each new page pushes older pages out, so every access misses the cache. LRU assumes recently used pages will be reused soon, but scan pages are used exactly once." },
+      { "kind": "negation", "expect": "abstain", "text": "Sequential flooding makes LRU achieve a very high hit rate. Scan pages have strong temporal locality, so LRU keeps exactly the right pages cached." },
+      { "kind": "fabricated", "expect": "abstain", "text": "Sequential flooding happens when too many threads write to the log at once. LRU fails because it cannot order log records by their sequence numbers." },
+      { "kind": "mixed", "expect": "not-supported", "text": "During sequential flooding, scan pages push useful pages out of the buffer pool. PostgreSQL solved this in 1996 by switching all of its caches to MRU." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What is the boiling point of water at sea level?", "text": "Water boils at 100 degrees Celsius at sea level." }
+    ]
+  },
+  {
+    "caseId": "bplus_vs_binary_tree",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "A B+ tree packs many keys and child pointers into page-sized nodes. Its high fanout keeps the tree shallow, so a lookup needs far fewer disk reads than a binary search tree." },
+      { "kind": "paraphrase", "expect": "answer", "text": "A balanced binary tree over a billion rows is about 30 levels deep, so one lookup could take 30 separate disk reads. B+ tree nodes are the size of a disk page and hold hundreds of keys, which keeps the tree's height small." },
+      { "kind": "negation", "expect": "abstain", "text": "A B+ tree uses small nodes and a very deep tree. Each node holds only one key and two pointers, just like a binary search tree." },
+      { "kind": "fabricated", "expect": "abstain", "text": "B+ trees are preferred because they store every record twice for redundancy. Binary search trees cannot be stored on SSDs at all." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Each B+ tree node is sized to fit a disk page. B+ trees were invented at IBM in 1985 specifically for BuzzDB." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What is the capital of Australia?", "text": "The capital of Australia is Canberra." }
+    ]
+  },
+  {
+    "caseId": "hash_range_queries",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "The hash function destroys the natural ordering of the keys. Neighboring keys like 1000 and 1001 end up in unrelated locations, so a range query has to fall back to a brute-force search." },
+      { "kind": "paraphrase", "expect": "answer", "text": "To spread keys evenly, hashing scatters adjacent keys across the index. With no order preserved, the index cannot jump to the start of a range and must inspect every slot instead." },
+      { "kind": "negation", "expect": "abstain", "text": "A hash index preserves the natural ordering of the keys. Neighboring keys like 1000 and 1001 are stored next to each other." },
+      { "kind": "fabricated", "expect": "abstain", "text": "Hash indexes struggle with range queries because they only support string keys. Range queries also require a separate lock for every bucket." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Hashing scatters neighboring keys to unpredictable locations. Modern hash indexes fix this by keeping a sorted copy of every bucket in RAM." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "Who painted the Mona Lisa?", "text": "Leonardo da Vinci painted the Mona Lisa in the early sixteenth century." }
+    ]
+  },
+  {
+    "caseId": "bplus_sequence_set",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "The sequence set is a linked list that connects the B+ tree's leaves through next pointers. A range scan finds the starting leaf and then follows those links, avoiding repeated traversals from the root." },
+      { "kind": "paraphrase", "expect": "answer", "text": "After locating the first leaf, the scan moves sideways along the leaf-level linked list instead of going back down from the root for each key. This keeps the I/O pattern largely sequential." },
+      { "kind": "negation", "expect": "abstain", "text": "The B+ tree's leaves are not linked together. A range scan must traverse the tree from the root for every key in the range." },
+      { "kind": "fabricated", "expect": "abstain", "text": "The sequence set is a bitmap that records which leaves are dirty. Range scans are fast because the bitmap lets the tree skip the disk entirely." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Leaves in a B+ tree are connected by next pointers. BuzzDB stores the sequence set in a separate file that is rebuilt every night." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "How many players are on a soccer team?", "text": "A soccer team fields eleven players, including the goalkeeper." }
+    ]
+  },
+  {
+    "caseId": "aggregation_grouping",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "HashAggregationOperator uses an std::unordered_map whose key is the grouping key and whose value holds the running state of each aggregate. It builds all groups in a single pass over the input." },
+      { "kind": "paraphrase", "expect": "answer", "text": "The operator keeps a hash table from GROUP BY values to a vector of in-progress aggregates such as COUNT and SUM. The key can be a vector of fields, so composite keys like department and job title work." },
+      { "kind": "negation", "expect": "abstain", "text": "HashAggregationOperator does not use a hash table. It sorts the entire input by the grouping columns before computing any aggregates." },
+      { "kind": "fabricated", "expect": "abstain", "text": "BuzzDB implements GROUP BY by sending each group to a separate worker process. The results are merged with a B+ tree at the end." },
+      { "kind": "mixed", "expect": "not-supported", "text": "The hash table maps grouping keys to running aggregate states. BuzzDB spills the hash table to disk whenever it exceeds 64 megabytes." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What year did the Berlin Wall fall?", "text": "The Berlin Wall fell in 1989." }
+    ]
+  },
+  {
+    "caseId": "wal_write_ordering",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "Write-ahead logging requires the log record describing a change to reach persistent storage before the changed page is written. The buffer manager enforces this by refusing to write a dirty page until its log records are flushed." },
+      { "kind": "paraphrase", "expect": "answer", "text": "The operating system's file cache flushes dirty blocks on its own schedule and cannot guarantee that log writes land before data writes. A custom buffer manager can hold a dirty page in memory until the matching log records are on disk, which keeps crash recovery possible." },
+      { "kind": "negation", "expect": "abstain", "text": "Write-ahead logging requires data pages to be written to disk before their log records. The order of writes does not matter for crash recovery." },
+      { "kind": "fabricated", "expect": "abstain", "text": "Write ordering control exists so the buffer manager can encrypt pages before writing them. The log is only used for query statistics." },
+      { "kind": "mixed", "expect": "not-supported", "text": "The log record for a change must be written before the page itself. BuzzDB writes its log to a remote server over the network for extra safety." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What is the tallest mountain on Earth?", "text": "Mount Everest is the tallest mountain on Earth above sea level." }
+    ]
+  },
+  {
+    "caseId": "oltp_vs_olap",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "OLTP is a high volume of small, rapid transactions such as updating a cart or an inventory count. OLAP runs complex queries that scan and aggregate large amounts of historical data to derive insights." },
+      { "kind": "paraphrase", "expect": "answer", "text": "Day-to-day operations like adding a book to a cart are OLTP work and need responses within a fraction of a second. Questions like total revenue for a region over a season are OLAP work, where query response time is the key metric." },
+      { "kind": "negation", "expect": "abstain", "text": "OLTP runs complex queries that scan billions of historical records. OLAP handles a high volume of tiny transactions like updating a shopping cart." },
+      { "kind": "fabricated", "expect": "abstain", "text": "OLTP and OLAP are two names for the same workload. The only difference is that OLAP systems must be written in Java." },
+      { "kind": "mixed", "expect": "not-supported", "text": "OLTP consists of many small, fast transactions. OLAP systems are always cheaper to run because they never use disks." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What is the chemical symbol for gold?", "text": "The chemical symbol for gold is Au." }
+    ]
+  },
+  {
+    "caseId": "column_store_analytics",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "A column store groups all values of one attribute together, so a query reads only the columns it needs. That avoids reading whole rows and discarding most of the data, which reduces I/O." },
+      { "kind": "paraphrase", "expect": "answer", "text": "If a query needs 2 of 8 columns, a column store only has to read about a quarter of the data a row store would. That reduction in I/O is the main reason column stores win on analytical workloads." },
+      { "kind": "negation", "expect": "abstain", "text": "A column store stores all attributes of a record together, so a query must read every column. Column stores increase the amount of I/O for analytical queries." },
+      { "kind": "fabricated", "expect": "abstain", "text": "Column stores are faster because they keep the entire table in the CPU cache. They also skip filtering entirely for analytical queries." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Column stores read only the columns a query needs. BuzzDB's column store uses GPU acceleration for every query." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "How many continents are there?", "text": "There are seven continents on Earth." }
+    ]
+  },
+  {
+    "caseId": "volcano_iterator_model_alias",
+    "answers": [
+      { "kind": "reference", "expect": "answer", "text": "The Volcano model processes one tuple at a time, paying a virtual function call for each operator on every tuple. The constant jumping between code disrupts the CPU's instruction cache and branch predictor." },
+      { "kind": "paraphrase", "expect": "answer", "text": "Handling a single tuple per call means the per-tuple overhead of calls and context switching dwarfs the actual work. Once I/O is no longer the bottleneck, this CPU inefficiency dominates analytical queries." },
+      { "kind": "negation", "expect": "abstain", "text": "The Volcano model processes large batches of tuples at once. It avoids virtual function calls and keeps the CPU's instruction cache warm." },
+      { "kind": "fabricated", "expect": "abstain", "text": "The Volcano model is inefficient because it stores tuples in JSON. It also requires a network round trip for every operator." },
+      { "kind": "mixed", "expect": "not-supported", "text": "Tuple-at-a-time processing adds a virtual function call per tuple. BuzzDB replaced the Volcano model with a Rust rewrite in version 2." },
+      { "kind": "unanswerable", "expect": "abstain", "question": "What language is spoken in Brazil?", "text": "The official language of Brazil is Portuguese." }
+    ]
+  }
+]

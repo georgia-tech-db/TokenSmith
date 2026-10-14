@@ -1,6 +1,7 @@
 import {
   getPythonEngineHealth,
   starterSourcesWithPython,
+  verifyAnswerWithPython,
   writeTokenSmithLog
 } from '../python/python-engine-service'
 import type {
@@ -15,7 +16,9 @@ import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared
 import { modelWithRememberedRemoteApiKey } from './remote-model-secrets'
 import { resolveRemoteChatQuestion } from './remote-chat-service'
 import type { ChatSource } from '../../shared/app-state'
+import type { AnswerConfidence } from '../../shared/confidence'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
+import { prepareAnswer, scoreAnswer } from './answer-confidence'
 import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine } from './ollama-service'
 import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
 
@@ -51,17 +54,26 @@ export async function sendChatMessage(request: EngineChatRequest, options: Engin
     ...chatRequestLogDetails(request)
   })
 
-  const response = await sendStudyChatMessage(request, {
+  const rawResponse = await sendStudyChatMessage(request, {
     getPythonEngineHealth,
     generateOllamaStudyQuestionSuggestions,
     runOllamaStudyEngine
-  }, options)
+  }, {
+    ...options,
+    // The early answer goes through the same abstention handling as the final one.
+    onAnswer: options.onAnswer && ((answer, hasFollowUps) => {
+      const prepared = prepareAnswer(request, answer)
+      options.onAnswer?.(prepared, hasFollowUps && !prepared.confidence?.abstained)
+    })
+  })
+  const response = prepareAnswer(request, rawResponse)
 
   writeTokenSmithLog('chat_response_context', {
     requestId: request.requestId,
     modelName: response.modelName,
     text: response.text,
     sourceCount: response.sources.length,
+    confidence: response.confidence,
     sources: response.sources.map(logSource)
   })
   if (response.latencyTrace) {
@@ -72,6 +84,24 @@ export async function sendChatMessage(request: EngineChatRequest, options: Engin
   }
 
   return response
+}
+
+/**
+ * Checks an answer that is already on screen. Kept separate from
+ * `sendChatMessage` so the student reads the answer while this runs.
+ */
+export async function scoreChatAnswer(request: EngineChatRequest, response: EngineChatResponse): Promise<AnswerConfidence> {
+  const started = Date.now()
+  const confidence = await scoreAnswer(request, response, verifyAnswerWithPython)
+
+  writeTokenSmithLog('chat_answer_verification', {
+    durationMs: Date.now() - started,
+    score: confidence.score,
+    status: confidence.status,
+    claimCount: confidence.claims?.length ?? 0
+  })
+
+  return confidence
 }
 
 export async function resolveChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {

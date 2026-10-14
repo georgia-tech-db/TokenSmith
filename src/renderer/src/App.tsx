@@ -22,6 +22,7 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
 import { MessageAvatar } from './MessageAvatar'
 import { MessageComposer } from './MessageComposer'
+import { withCitationMarkers } from './citations'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
@@ -79,6 +80,7 @@ import {
   type CleaningProfileId,
   type CleaningRuleId
 } from '@shared/cleaning'
+import type { AnswerConfidence, DocumentConfidence, SourceConfidence } from '@shared/confidence'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -117,6 +119,7 @@ import {
   Database,
   Download as DownloadIcon,
   FileText,
+  Info,
   Library,
   Loader2,
   MessageSquare,
@@ -1118,6 +1121,38 @@ function compactChunkSizeLabel(chunkSize?: number) {
   return chunkSize >= 1000 ? `${chunkSize / 1000}K` : `${chunkSize}`
 }
 
+/** The answer version currently on screen, matching `answerForDisplay`. */
+function displayedAnswerView(message: ChatMessage): AnswerView {
+  if (message.explanationView === 'reasoning' && message.reasoningAnswer) return 'reasoning'
+  return message.explanationView === 'simple' && message.simplerExplanation ? 'simple' : 'original'
+}
+
+/** Keys a confidence check by the answer version it scores. */
+function scoringKey(messageId: string, view: AnswerView = 'original') {
+  return `${messageId}:${view}`
+}
+
+/**
+ * An answer is published twice (before and after its follow-ups). The second
+ * publish keeps a score the background check already produced for that text.
+ */
+function withKeptConfidence<T extends { text: string; confidence?: AnswerConfidence }>(previous: T | undefined, next: T): T {
+  return next.confidence || !previous?.confidence || previous.text !== next.text
+    ? next
+    : { ...next, confidence: previous.confidence }
+}
+
+/** The first sentence of a claim's evidence, short enough for the viewer's search. */
+function evidenceSearchTerm(evidence?: string | null) {
+  const text = evidence?.replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return undefined
+  }
+
+  const sentence = text.split(/(?<=[.!?])\s+/).find((part) => part.length >= 24) ?? text
+  return sentence.slice(0, 120).trim()
+}
+
 function searchTermForSource(source: ChatSource) {
   const excerpt = source.excerpt.replace(/\s+/g, ' ').replace(/^\.\.\./, '').replace(/\.\.\.$/, '').trim()
   if (!excerpt) {
@@ -1128,13 +1163,13 @@ function searchTermForSource(source: ChatSource) {
   return sentence.slice(0, 120).trim()
 }
 
-async function readSourceDocument(source: ChatSource): Promise<AnswerSourceDocument> {
+async function readSourceDocument(source: ChatSource, searchTerm?: string): Promise<AnswerSourceDocument> {
   if (isMarkdownSource(source) && window.tokensmith?.getMarkdownForSource) {
     const document = await window.tokensmith.getMarkdownForSource(source)
     return { kind: 'markdown', document: { ...document, title: cleanMaterialTitle(document.title) || document.title } }
   }
   if (isPdfSource(source) && window.tokensmith?.getPdfForSource) {
-    return { kind: 'pdf', document: { ...await window.tokensmith.getPdfForSource(source), searchTerm: searchTermForSource(source) } }
+    return { kind: 'pdf', document: { ...await window.tokensmith.getPdfForSource(source), searchTerm: searchTerm || searchTermForSource(source) } }
   }
   throw new Error('This source cannot be opened in the reader.')
 }
@@ -2401,6 +2436,7 @@ function ChatScreen({
   const [pendingExplanationId, setPendingExplanationId] = useState<string | null>(null)
   const [explanationError, setExplanationError] = useState<{ answerId: string; text: string; view: AnswerView } | null>(null)
   const explanationInFlightRef = useRef(false)
+  const [scoringMessageIds, setScoringMessageIds] = useState<ReadonlySet<string>>(() => new Set())
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
@@ -3545,6 +3581,13 @@ function ChatScreen({
     void reader.open(source, sources)
   }
 
+  /** Opens the passage behind a cited sentence, searching for the claim's evidence. */
+  function handleOpenCitation(source: ChatSource, sources: ChatSource[], searchTerm?: string) {
+    sourcePreview.dismiss()
+    setSourceTrayError(null)
+    void reader.open(source, sources, { searchTerm })
+  }
+
   function moveAutomaticSource(direction: number) {
     if (!automaticSource) return
     const source = automaticSource.sources[automaticSource.index + direction]
@@ -3562,6 +3605,57 @@ function ChatScreen({
       ) } : conversation
     ) }))
     setFocusedAnswerId(answerId)
+  }
+
+  /**
+   * Checks an answer against its sources after it is on screen, so the
+   * student never waits on the check. The bar shows as loading meanwhile.
+   * Simpler and reasoning versions of an answer are scored on their own.
+   */
+  function scoreAnswerInBackground(
+    conversationId: string,
+    messageId: string,
+    request: EngineChatRequest,
+    reply: EngineChatResponse,
+    view: AnswerView = 'original'
+  ) {
+    if (reply.confidence || !reply.text.trim() || !window.tokensmith?.scoreChatAnswer) {
+      return
+    }
+
+    const key = scoringKey(messageId, view)
+    setScoringMessageIds((current) => new Set(current).add(key))
+    window.tokensmith
+      .scoreChatAnswer(request, reply)
+      .then((confidence) => {
+        onChatStateChange((current) => ({
+          ...current,
+          conversations: current.conversations.map((conversation) =>
+            conversation.id === conversationId
+              ? {
+                  ...conversation,
+                  messages: conversation.messages.map((message) => {
+                    if (message.id !== messageId) return message
+                    if (view === 'original') return message.text === reply.text ? { ...message, confidence } : message
+                    const variantKey = view === 'reasoning' ? 'reasoningAnswer' : 'simplerExplanation'
+                    const variant = message[variantKey]
+                    return variant && variant.text === reply.text
+                      ? { ...message, [variantKey]: { ...variant, confidence } }
+                      : message
+                  })
+                }
+              : conversation
+          )
+        }))
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setScoringMessageIds((current) => {
+          const next = new Set(current)
+          next.delete(key)
+          return next
+        })
+      })
   }
 
   async function improveAnswer(answerId: string, view: 'simple' | 'reasoning') {
@@ -3588,20 +3682,29 @@ function ChatScreen({
     previewFirstSource(progressId, request.retrievedSources ?? [])
     try {
       let responseDurationMs: number | undefined
+      let scoringStarted = false
       const publish = (reply: EngineChatResponse) => {
         if (requestSequenceRef.current !== requestSequence || !reply.text.trim()) return
         responseDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
         sourcePreview.finish(progressId)
         const latencyTrace = combineLatencyTrace(progressId, undefined, reply.latencyTrace)
         const variant = { text: reply.text, sources: reply.sources, responseDurationMs,
-          reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
+          reasoning: reply.reasoning, confidence: reply.confidence,
+          followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
           ...(latencyTrace ? { latencyTrace } : {}) }
         onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
           conversation.id === targetConversationId ? { ...conversation, messages: conversation.messages.map(message =>
             message.id === answerId ? { ...message, explanationView: view,
-              ...(view === 'reasoning' ? { reasoningAnswer: variant } : { simplerExplanation: variant }) } : message
+              ...(view === 'reasoning'
+                ? { reasoningAnswer: withKeptConfidence(message.reasoningAnswer, variant) }
+                : { simplerExplanation: withKeptConfidence(message.simplerExplanation, variant) }) } : message
           ) } : conversation
         ) }))
+        // Score the first published version; a later publish of the same text keeps the score.
+        if (!scoringStarted) {
+          scoringStarted = true
+          scoreAnswerInBackground(targetConversationId, answerId, request, reply, view)
+        }
       }
       const reply = await window.tokensmith.sendChatMessage({ ...request, requestId: progressId }, (answer, hasFollowUps) => {
         if (requestSequenceRef.current !== requestSequence) return
@@ -3757,6 +3860,19 @@ function ChatScreen({
       progress.stage(progressId, 'Writing answer')
       const assistantId = createId('assistant')
       let answerDurationMs: number | undefined
+      const chatRequest: EngineChatRequest = rewrittenRequest ?? {
+        prompt,
+        selectedPassage: passage,
+        conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
+        messages: history,
+        materials: activeMaterials,
+        model: selectedModel,
+        settings,
+        applicationSettings: settings.application,
+        modelSettings: activeModelSettings,
+        retrievedSources
+      }
+      let scoringStarted = false
       function publishAnswer(reply: EngineChatResponse) {
         if (requestSequenceRef.current !== requestSequence) return
         sourcePreview.finish(progressId)
@@ -3768,6 +3884,7 @@ function ChatScreen({
           // Kept whatever the display setting is, so a retelling can reuse this evidence.
           sources: reply.sources,
           reasoning: reply.reasoning,
+          confidence: reply.confidence,
           conversationContextMode,
           answerContext: {
             selectedPassage: passage,
@@ -3795,24 +3912,18 @@ function ChatScreen({
             return {
               ...conversation,
               messages: conversation.messages.some(m => m.id === assistantId)
-                ? conversation.messages.map(m => m.id === assistantId ? assistantMessage : m)
+                ? conversation.messages.map(m => m.id === assistantId ? withKeptConfidence(m, assistantMessage) : m)
                 : [...conversation.messages, assistantMessage]
             }
           })
         }))
+        // Score the first published answer; a later publish of the same text keeps the score.
+        if (!clarificationReply && !scoringStarted) {
+          scoringStarted = true
+          scoreAnswerInBackground(targetConversationId, assistantId, chatRequest, reply)
+        }
       }
-      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...(rewrittenRequest ?? {
-        prompt,
-        selectedPassage: passage,
-        conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
-        messages: history,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: settings.application,
-        modelSettings: activeModelSettings,
-        retrievedSources
-      }), requestId: progressId }, (answer, hasFollowUps) => {
+      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...chatRequest, requestId: progressId }, (answer, hasFollowUps) => {
         if (requestSequenceRef.current !== requestSequence) return
         answerDurationMs = Math.max(0, Math.round(performance.now() - responseStartedAt))
         publishAnswer(answer)
@@ -3898,6 +4009,8 @@ function ChatScreen({
                     key={message.id}
                     message={message}
                     showSources={settings.application.showSources}
+                    scoring={scoringMessageIds.has(scoringKey(message.id, displayedAnswerView(message)))}
+                    onOpenCitation={(source, sources, evidence) => handleOpenCitation(source, sources, evidence)}
                     suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId) || selectedModel?.status !== 'ready'}
                     onExplainSimpler={
                       canExplainSimpler(message) && message.explanationView !== 'reasoning'
@@ -4241,6 +4354,8 @@ function AssistantMessage({
   expanded,
   message,
   showSources,
+  scoring,
+  onOpenCitation,
   suggestionsDisabled,
   onExplainSimpler,
   onPractice,
@@ -4256,6 +4371,8 @@ function AssistantMessage({
   expanded: boolean
   message: ChatMessage
   showSources: boolean
+  scoring: boolean
+  onOpenCitation: (source: ChatSource, sources: ChatSource[], evidence?: string) => void
   suggestionsDisabled: boolean
   onExplainSimpler?: () => void
   onPractice?: () => void
@@ -4272,6 +4389,16 @@ function AssistantMessage({
   const sources = showSources ? displayed.sources ?? [] : []
   const suggestionOwner = message.explanationView === 'reasoning' && message.reasoningAnswer ? message.reasoningAnswer : message
   const suggestions = suggestionOwner.followUpSuggestions ?? []
+  const confidence = displayed.confidence
+  const claims = sources.length > 0 ? confidence?.claims ?? [] : []
+  const citedText = claims.length > 0 ? withCitationMarkers(displayed.text, claims) : undefined
+  const openCitation = (claimIndex: number) => {
+    const claim = claims[claimIndex]
+    const source = claim?.sourceIndex === undefined ? undefined : sources[claim.sourceIndex]
+    if (source) {
+      onOpenCitation(source, sources, evidenceSearchTerm(claim.evidence))
+    }
+  }
   const modeLabel = contextModeLabel(message.conversationContextMode)
   const durationLabel = responseDurationLabel(displayed.responseDurationMs)
 
@@ -4289,9 +4416,11 @@ function AssistantMessage({
             {displayed.reasoning?.used && <span>Reasoning used</span>}
           </div>
         )}
+        {scoring ? <ConfidenceLoading /> : confidence && <ConfidenceBadge confidence={confidence} />}
         <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
           errorView={explanationErrorView} disabled={suggestionsDisabled} onSimplify={onExplainSimpler}
-          onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView} />
+          onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView}
+          displayText={citedText} onCite={claims.length > 0 ? openCitation : undefined} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4329,12 +4458,14 @@ function AssistantMessage({
               </span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
+            {expanded && <DocumentContributions documents={confidence?.documents} />}
             {expanded && (
               <div className="source-list">
-                {sources.map((source) => (
+                {sources.map((source, index) => (
                   <div className="source-card" key={`${source.title}-${source.locator}`}>
                     <strong>{source.title}</strong>
                     <span>{source.locator}</span>
+                    <SourceContribution confidence={confidence?.sources?.[index]} />
                     {isMarkdownSource(source) ? (
                       <pre>{sourceDisplayText(source)}</pre>
                     ) : (
@@ -4351,6 +4482,117 @@ function AssistantMessage({
   )
 }
 
+/**
+ * Which of the student's documents the answer came out of, and in what
+ * proportion. Retrieval works in passages, but "where did this come from" is a
+ * question about the document, so the rollup leads and the passage-level
+ * numbers sit underneath it.
+ */
+function DocumentContributions({ documents }: { documents?: DocumentConfidence[] }) {
+  if (!documents || documents.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="document-contributions" aria-label="Answer contribution by document">
+      {documents.map((document) => {
+        const percent = Math.round(document.contribution * 100)
+
+        return (
+          <div
+            className={document.leading ? 'document-contribution leading' : 'document-contribution'}
+            key={document.title}
+          >
+            <span className="document-contribution-title">{document.title}</span>
+            <span className="document-contribution-passages">
+              {document.passages} {document.passages === 1 ? 'passage' : 'passages'}
+            </span>
+            <span className="document-contribution-bar" aria-hidden="true">
+              <span className="document-contribution-fill" style={{ width: `${percent}%` }} />
+            </span>
+            <span className="document-contribution-percent">{percent}%</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * How much of the answer this one passage carried. A student checking an answer
+ * reads the passage that actually supports it first, and a passage that was
+ * retrieved but contributed nothing is worth knowing about too.
+ */
+function SourceContribution({ confidence }: { confidence?: SourceConfidence }) {
+  if (!confidence) {
+    return null
+  }
+
+  const percent = Math.round(confidence.contribution * 100)
+  const match = Math.round(confidence.retrievalScore * 100)
+  const summary = percent > 0 ? `Carries ${percent}% of this answer` : 'Not used in this answer'
+
+  return (
+    <div
+      className={confidence.leading ? 'source-contribution leading' : 'source-contribution'}
+      title={`${summary} · Question match ${match}%`}
+    >
+      <span className="source-contribution-bar" aria-hidden="true">
+        <span className="source-contribution-fill" style={{ width: `${percent}%` }} />
+      </span>
+      <span className="source-contribution-label">{summary}</span>
+      {confidence.leading && <span className="source-contribution-lead">main source</span>}
+    </div>
+  )
+}
+
+/** Red at 0%, yellow at 50%, green at 100%. */
+function confidenceColor(score: number): string {
+  return `hsl(${Math.round(Math.min(1, Math.max(0, score)) * 120)} 62% 42%)`
+}
+
+const confidenceExplanation =
+  'Confidence score: an estimate of how well your sources support this answer.'
+
+function ConfidenceInfo() {
+  return (
+    <span className="confidence-info" tabIndex={0} role="note" aria-label={confidenceExplanation}>
+      <Info size={14} aria-hidden="true" />
+      <span className="confidence-info-tip" aria-hidden="true">{confidenceExplanation}</span>
+    </span>
+  )
+}
+
+function ConfidenceLoading() {
+  return (
+    <div className="confidence-badge" aria-label="Checking the answer against the sources">
+      <span className="confidence-bar" aria-hidden="true" />
+      <Loader2 className="spin" size={14} aria-hidden="true" />
+      <ConfidenceInfo />
+    </div>
+  )
+}
+
+function ConfidenceBadge({ confidence }: { confidence: AnswerConfidence }) {
+  if (confidence.status === 'unverified' || confidence.abstained) {
+    return null
+  }
+
+  const percent = Math.round(confidence.score * 100)
+  const claims = confidence.claims ?? []
+  const entailed = claims.filter((claim) => claim.verdict === 'supported' || claim.verdict === 'likely').length
+  const detail = `${entailed} of ${claims.length} claims backed by the sources`
+
+  return (
+    <div className="confidence-badge" title={detail} aria-label={`Confidence ${percent} percent. ${detail}`}>
+      <span className="confidence-bar" aria-hidden="true">
+        <span className="confidence-fill" style={{ width: `${percent}%`, background: confidenceColor(confidence.score) }} />
+      </span>
+      <span className="confidence-score">{percent}%</span>
+      <ConfidenceInfo />
+    </div>
+  )
+}
 
 function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
