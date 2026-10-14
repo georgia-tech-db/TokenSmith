@@ -1,0 +1,15 @@
+{
+  "tests/benchmarks/test_buzzdb_embeddings.py": "1ef3cca591fd9650d4f6a0a700235b776998d545dc8e26fafdf26c57766891a2",
+  "tests/benchmarks/test_buzzdb_grounding.py": "91c5e78911fac51e3f061d4b59ef64187c4310b46d157cf2a73af31b35766226",
+  "tests/benchmarks/embedding-model.json": "f7fe2dcd40b2272674837fcdd1cb14db93d02eeb44d210daf1106f6ce46ad875",
+  "tests/benchmarks/buzzdb_grounding_cases.json": "b3b530fe3dd28f002ea1d7da4710addf7b2f071e3d0aa06d275a87b241669bdf",
+  "tests/benchmarks/buzzdb_reasoning_cases.json": "75c17cff562dd5873e6d16546ce919cf5461c32257d0dd3268161c1c3a16e4b0",
+  "tests/fixtures/buzzdb/buzzdb-book.tokensmith.md": "98460b2571e08cdec8103213c85b041457f7009536ea82b1d5f509d793ac60d9",
+  "tests/experiments/pr153-retrieval-2026-10-14/passage-embeddings.npz": "a3865274aff24976b21d9968997a2684fd3049f660d7b1dbe90ec78682054d5a",
+  "tests/experiments/pr153-retrieval-2026-10-14/query-embeddings.json": "af1bf8fdb8f4b1087692dbbde505da88406c9ba89fb83c27b4efd6ec9e18c8df",
+  "tests/experiments/pr153-retrieval-2026-10-14/source/current/tokensmith_cleaning.py": "f7c6d7df3f1ade4708000742c32397bc27b185c5b72cb16704d643ae24fb3685",
+  "tests/experiments/pr153-retrieval-2026-10-14/source/current/tokensmith_engine.py": "e43a7b99acbc2dd12360bd1736ca85dd1f79730c1e833d24ce6a2e04c9d15851",
+  "tests/experiments/pr153-retrieval-2026-10-14/source/current/tokensmith_store.py": "851c5b8dd684d6f0394acc72de551d1ac4b333c3b1c0c77a6c835bf31b508b64",
+  "tests/experiments/pr153-retrieval-2026-10-14/source/pr/tokensmith_engine.py": "8b8ef26a850489959331f02dae16113b46f937bb8a2fb24dddc93aaebc8c902b",
+  "tests/experiments/pr153-retrieval-2026-10-14/source/pr/tokensmith_store.py": "3fec6ca535193aa2d94af39c8b951949e4431736a51d8224336cac78161ab028"
+}

@@ -1,0 +1,2457 @@
+from __future__ import annotations
+
+import difflib
+import hashlib
+import json
+import math
+import random
+import re
+import sqlite3
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+import numpy as np
+
+try:
+    import faiss  # type: ignore
+except Exception:  # pragma: no cover - optional until app runtime is installed
+    faiss = None  # type: ignore
+
+
+DB_NAME = "tokensmith.sqlite"
+FAISS_NAME = "tokensmith.faiss"
+SCHEMA_VERSION = 11
+ALIAS_EXTRACTION_VERSION = 1
+KEYWORD_STOPWORDS: Set[str] = {
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "all",
+    "also",
+    "am",
+    "always",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "bad",
+    "best",
+    "better",
+    "between",
+    "but",
+    "by",
+    "can",
+    "cant",
+    "cannot",
+    "could",
+    "did",
+    "do",
+    "does",
+    "doing",
+    "dont",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "good",
+    "had",
+    "has",
+    "have",
+    "having",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "just",
+    "may",
+    "me",
+    "mean",
+    "more",
+    "most",
+    "need",
+    "no",
+    "not",
+    "of",
+    "on",
+    "only",
+    "one",
+    "or",
+    "our",
+    "over",
+    "prefer",
+    "preferable",
+    "preferred",
+    "prefers",
+    "same",
+    "should",
+    "so",
+    "some",
+    "such",
+    "than",
+    "that",
+    "the",
+    "their",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "up",
+    "use",
+    "used",
+    "using",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "whether",
+    "which",
+    "while",
+    "who",
+    "why",
+    "will",
+    "with",
+    "would",
+    "worse",
+    "worst",
+}
+MAX_KEYWORD_QUERY_TERMS = 8
+MAX_ANCHOR_DF_RATIO = 0.20
+MIN_KEYWORD_CORRECTION_LENGTH = 4
+KEYWORD_CORRECTION_CUTOFF = 0.82
+KEYWORD_CORRECTION_LENGTH_WINDOW = 2
+MAX_ALIAS_TERMS_PER_SIDE = 8
+MAX_ALIAS_PAIRS_PER_CHUNK = 200
+MAX_KEYWORD_ALIAS_TERMS = 4
+MAX_ALIAS_FANOUT_PER_TERM = 3
+MAX_ALIAS_SEED_DF = 8
+ACRONYM_TOKEN_PATTERN = r"[A-Z][A-Z0-9]{1,12}"
+ACRONYM_IN_PARENS_RE = re.compile(rf"\b([^()\n.;:]{{3,120}}?)\s*\(({ACRONYM_TOKEN_PATTERN})\)")
+ACRONYM_OR_ALIAS_RE = re.compile(rf"\b([^()\n.;:]{{3,120}}?),\s+or\s+({ACRONYM_TOKEN_PATTERN})\b")
+STANDS_FOR_RE = re.compile(rf"\b({ACRONYM_TOKEN_PATTERN})\s+(?:stands\s+for|is\s+short\s+for)\s+([^.;:\n]{{3,120}})")
+ALSO_KNOWN_AS_RE = re.compile(
+    r"\b([^.;:\n]{3,120}?)\s*,?\s+(?:also\s+known\s+as|also\s+called|aka|a\.k\.a\.)\s+(?:the\s+)?([^.;:,\n]{2,120})",
+    re.IGNORECASE,
+)
+REFERENCE_ALIAS_SUBJECT_RE = re.compile(r"\b(?:this|that|these|those|it|its|the)\b", re.IGNORECASE)
+
+
+def db_path(user_data_path: str) -> Path:
+    return Path(user_data_path) / DB_NAME
+
+
+def faiss_path(user_data_path: str) -> Path:
+    return Path(user_data_path) / FAISS_NAME
+
+
+def connect(user_data_path: str) -> sqlite3.Connection:
+    path = db_path(user_data_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+def init_db(user_data_path: str) -> None:
+    with connect(user_data_path) as conn:
+        create_schema(conn)
+        ensure_column(conn, "tokensmith_collection_state", "embedding_model_id", "TEXT")
+        ensure_column(conn, "tokensmith_collection_state", "embedding_model_name", "TEXT")
+        ensure_column(conn, "tokensmith_collection_state", "cleaning_profile_id", "TEXT")
+        ensure_column(conn, "tokensmith_collection_state", "cleaning_profile_name", "TEXT")
+        ensure_column(conn, "tokensmith_collection_state", "cleaning_profile_version", "INTEGER")
+        ensure_column(conn, "tokensmith_collection_state", "cleaning_rule_ids_json", "TEXT")
+        ensure_column(conn, "tokensmith_collection_state", "chunk_size", "INTEGER")
+        ensure_column(conn, "tokensmith_collection_state", "preparation_json", "TEXT")
+        ensure_column(conn, "chunks", "page_end", "INTEGER")
+        ensure_column(conn, "chunks", "chunk_size", "INTEGER")
+        ensure_column(conn, "chunks", "section_header", "TEXT")
+        ensure_column(conn, "chunks", "stable_chunk_id", "TEXT")
+        ensure_column(conn, "chunks", "parent_id", "TEXT")
+        ensure_column(conn, "chunks", "unit_part", "INTEGER")
+        ensure_column(conn, "chunks", "unit_parts", "INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(document_id, parent_id, unit_part)")
+        ensure_column(conn, "chunks", "tokensmith_chunk_id", "TEXT")
+        ensure_column(conn, "chunks", "tokensmith_chapter", "TEXT")
+        ensure_column(conn, "chunks", "chunk_kind", "TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_stable_chunk_id ON chunks(stable_chunk_id)")
+        backfill_stable_chunk_ids(conn)
+        set_schema_value(conn, "version", str(SCHEMA_VERSION))
+
+
+def ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    if any(row["name"] == column_name for row in rows):
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def clean_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def safe_chunk_position(value: Any) -> Optional[int]:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def generated_stable_chunk_id(chunk: Dict[str, Any]) -> str:
+    position = (
+        safe_chunk_position(chunk.get("tokensmithChunkIndex"))
+        or safe_chunk_position(chunk.get("chunkIndex"))
+        or safe_chunk_position(chunk.get("pageStart"))
+        or safe_chunk_position(chunk.get("lineFrom"))
+    )
+    prefix = f"{position:06d}" if position is not None else "unknown"
+    digest_parts = [
+        chunk.get("path"),
+        chunk.get("pageStart"),
+        chunk.get("lineFrom"),
+        chunk.get("lineTo"),
+        chunk.get("text"),
+    ]
+    digest = hashlib.sha1(
+        "\0".join(str(part or "") for part in digest_parts).encode("utf-8", errors="ignore")
+    ).hexdigest()[:8]
+    return f"auto:{prefix}-{digest}"
+
+
+def stable_chunk_id_for_chunk(chunk: Dict[str, Any]) -> str:
+    return clean_optional_text(chunk.get("tokensmithChunkId")) or generated_stable_chunk_id(chunk)
+
+
+def chunk_metadata_values(chunk: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+    tokensmith_chunk_id = clean_optional_text(chunk.get("tokensmithChunkId"))
+    tokensmith_chapter = clean_optional_text(chunk.get("tokensmithChapter"))
+    chunk_kind = clean_optional_text(chunk.get("tokensmithChunkKind") or chunk.get("chunkKind"))
+    return (
+        stable_chunk_id_for_chunk(chunk),
+        tokensmith_chunk_id,
+        tokensmith_chapter,
+        chunk_kind,
+    )
+
+
+def backfill_stable_chunk_ids(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT
+            ch.id,
+            ch.chunk_text,
+            ch.page,
+            ch.line_from,
+            ch.line_to,
+            ch.chunk_size,
+            ch.stable_chunk_id,
+            ch.tokensmith_chunk_id,
+            d.document_path AS path
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        WHERE ch.stable_chunk_id IS NULL
+           OR TRIM(ch.stable_chunk_id) = ''
+        """
+    ).fetchall()
+
+    for row in rows:
+        stable_chunk_id = clean_optional_text(row["tokensmith_chunk_id"]) or generated_stable_chunk_id(
+            {
+                "path": row["path"],
+                "text": row["chunk_text"],
+                "pageStart": row["page"],
+                "lineFrom": row["line_from"],
+                "lineTo": row["line_to"],
+                "chunkSize": row["chunk_size"],
+                "chunkIndex": row["id"],
+            }
+        )
+        conn.execute(
+            "UPDATE chunks SET stable_chunk_id = ? WHERE id = ?",
+            (stable_chunk_id, row["id"]),
+        )
+
+
+def create_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS schema_info (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS collections (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            start_update_time INTEGER,
+            last_update_time INTEGER,
+            embedding_model TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS folders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT UNIQUE NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS collection_items (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            UNIQUE(collection_id, folder_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY,
+            folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            document_time INTEGER NOT NULL,
+            document_path TEXT UNIQUE NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            chunk_text TEXT NOT NULL,
+            file TEXT NOT NULL,
+            title TEXT,
+            author TEXT,
+            subject TEXT,
+            keywords TEXT,
+            page INTEGER,
+            line_from INTEGER,
+            line_to INTEGER,
+            words INTEGER NOT NULL DEFAULT 0,
+            tokens INTEGER NOT NULL DEFAULT 0,
+            chunk_size INTEGER,
+            section_header TEXT,
+            stable_chunk_id TEXT,
+            tokensmith_chunk_id TEXT,
+            tokensmith_chapter TEXT,
+            chunk_kind TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS embeddings (
+            model TEXT NOT NULL,
+            folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+            embedding BLOB NOT NULL,
+            PRIMARY KEY(model, folder_id, chunk_id),
+            UNIQUE(model, chunk_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS pdf_page_thumbnails (
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            page INTEGER NOT NULL,
+            thumbnail_path TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(document_id, page)
+        );
+
+        CREATE TABLE IF NOT EXISTS tokensmith_collection_state (
+            collection_id INTEGER PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'ready',
+            kind TEXT NOT NULL DEFAULT 'folder',
+            import_path TEXT,
+            embedding_model_id TEXT,
+            embedding_model_name TEXT,
+            cleaning_profile_id TEXT,
+            cleaning_profile_name TEXT,
+            cleaning_profile_version INTEGER,
+            cleaning_rule_ids_json TEXT,
+            detail TEXT,
+            added_at TEXT NOT NULL,
+            indexed_at TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            file_count INTEGER DEFAULT 0,
+            size_bytes INTEGER DEFAULT 0,
+            word_count INTEGER DEFAULT 0,
+            page_count INTEGER,
+            chunk_count INTEGER DEFAULT 0,
+            chunk_size INTEGER,
+            error TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_collection_items_collection_id ON collection_items(collection_id);
+        CREATE INDEX IF NOT EXISTS idx_collection_items_folder_id ON collection_items(folder_id);
+        CREATE INDEX IF NOT EXISTS idx_documents_folder_id ON documents(folder_id);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
+        CREATE INDEX IF NOT EXISTS idx_pdf_page_thumbnails_document_id ON pdf_page_thumbnails(document_id);
+        """
+    )
+    create_fts_schema(conn)
+
+
+def create_fts_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+        USING fts5(
+            id UNINDEXED,
+            document_id UNINDEXED,
+            chunk_text,
+            file,
+            title,
+            author,
+            subject,
+            keywords,
+            content='chunks',
+            content_rowid='id',
+            tokenize='porter'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+            INSERT INTO chunks_fts(rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
+            VALUES (new.id, new.id, new.document_id, new.chunk_text, new.file, new.title, new.author, new.subject, new.keywords);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
+            VALUES ('delete', old.id, old.id, old.document_id, old.chunk_text, old.file, old.title, old.author, old.subject, old.keywords);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
+            VALUES ('delete', old.id, old.id, old.document_id, old.chunk_text, old.file, old.title, old.author, old.subject, old.keywords);
+
+            INSERT INTO chunks_fts(rowid, id, document_id, chunk_text, file, title, author, subject, keywords)
+            VALUES (new.id, new.id, new.document_id, new.chunk_text, new.file, new.title, new.author, new.subject, new.keywords);
+        END;
+
+        CREATE TABLE IF NOT EXISTS chunk_terms (
+            chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+            term TEXT NOT NULL,
+            PRIMARY KEY(chunk_id, term)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chunk_terms_term ON chunk_terms(term);
+
+        CREATE TABLE IF NOT EXISTS chunk_term_aliases (
+            chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+            term TEXT NOT NULL,
+            alias_term TEXT NOT NULL,
+            PRIMARY KEY(chunk_id, term, alias_term)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chunk_term_aliases_term ON chunk_term_aliases(term);
+
+        CREATE TABLE IF NOT EXISTS chunk_search_index_state (
+            chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            alias_version INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def set_schema_value(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO schema_info(key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, value),
+    )
+
+
+def get_schema_value(user_data_path: str, key: str) -> Optional[str]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        row = conn.execute("SELECT value FROM schema_info WHERE key = ?", (key,)).fetchone()
+
+    return str(row["value"]) if row else None
+
+
+def vector_to_blob(vector: Iterable[float]) -> Tuple[bytes, int]:
+    arr = np.asarray(list(vector), dtype=np.float32)
+    return arr.tobytes(), int(arr.shape[0])
+
+
+def blob_to_vector(blob: bytes) -> np.ndarray:
+    return np.frombuffer(blob, dtype=np.float32)
+
+
+def normalize_matrix(vectors: np.ndarray) -> np.ndarray:
+    vectors = vectors.astype("float32")
+    if vectors.ndim == 1:
+        vectors = np.expand_dims(vectors, axis=0)
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return vectors / norms
+
+
+def collection_id_from_material_id(material_id: Any) -> Optional[int]:
+    if material_id is None:
+        return None
+    try:
+        value = int(str(material_id))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def path_candidates(path: Any) -> List[str]:
+    if not path:
+        return []
+    raw_path = str(path).replace("file://", "", 1)
+    candidates = [raw_path]
+    try:
+        candidates.append(str(Path(raw_path).expanduser().resolve()))
+    except Exception:
+        pass
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def folder_path_for_import(import_path: str, kind: str) -> str:
+    path = Path(import_path)
+    if kind == "folder":
+        return str(path)
+    return str(path.parent)
+
+
+def upsert_folder(conn: sqlite3.Connection, folder_path: str) -> int:
+    conn.execute("INSERT OR IGNORE INTO folders(path) VALUES (?)", (folder_path,))
+    row = conn.execute("SELECT id FROM folders WHERE path = ?", (folder_path,)).fetchone()
+    return int(row["id"])
+
+
+def unique_collection_name(conn: sqlite3.Connection, desired_name: str, collection_id: Optional[int] = None) -> str:
+    base = desired_name.strip() or "Course materials"
+    candidate = base
+    counter = 2
+
+    while True:
+        row = conn.execute("SELECT id FROM collections WHERE name = ?", (candidate,)).fetchone()
+        if not row or (collection_id is not None and int(row["id"]) == collection_id):
+            return candidate
+        candidate = f"{base} ({counter})"
+        counter += 1
+
+
+def collection_ids_for_import_path(conn: sqlite3.Connection, import_path: str) -> List[int]:
+    candidates = path_candidates(import_path)
+    if not candidates:
+        return []
+
+    placeholders = ",".join("?" for _ in candidates)
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT c.id
+        FROM collections c
+        LEFT JOIN tokensmith_collection_state s ON s.collection_id = c.id
+        LEFT JOIN collection_items ci ON ci.collection_id = c.id
+        LEFT JOIN folders f ON f.id = ci.folder_id
+        LEFT JOIN documents d ON d.folder_id = f.id
+        WHERE s.import_path IN ({placeholders})
+           OR f.path IN ({placeholders})
+           OR d.document_path IN ({placeholders})
+        """,
+        [*candidates, *candidates, *candidates],
+    ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
+def embedding_models_for_collections(conn: sqlite3.Connection, collection_ids: Sequence[int]) -> List[str]:
+    if not collection_ids:
+        return []
+    placeholders = ",".join("?" for _ in collection_ids)
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT e.model
+        FROM embeddings e
+        JOIN folders f ON f.id = e.folder_id
+        JOIN collection_items ci ON ci.folder_id = f.id
+        WHERE ci.collection_id IN ({placeholders})
+        """,
+        list(collection_ids),
+    ).fetchall()
+    return [str(row["model"]) for row in rows if row["model"]]
+
+
+def embedding_models_by_collection_ids(user_data_path: str, collection_ids: Sequence[str]) -> Dict[str, str]:
+    init_db(user_data_path)
+    numeric_ids = []
+    for collection_id in collection_ids:
+        try:
+            numeric_ids.append(int(collection_id))
+        except (TypeError, ValueError):
+            continue
+
+    if not numeric_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in numeric_ids)
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, embedding_model
+            FROM collections
+            WHERE id IN ({placeholders})
+              AND embedding_model IS NOT NULL
+              AND embedding_model != ''
+            """,
+            numeric_ids,
+        ).fetchall()
+
+    return {str(row["id"]): str(row["embedding_model"]) for row in rows if row["embedding_model"]}
+
+
+def embedded_chunk_signatures(
+    user_data_path: str,
+    import_path: str,
+    embedding_model: str,
+) -> Set[Tuple[str, str, Optional[int], Optional[int], Optional[int], Optional[int]]]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        collection_ids = collection_ids_for_import_path(conn, import_path)
+        if not collection_ids or not embedding_model:
+            return set()
+
+        placeholders = ",".join("?" for _ in collection_ids)
+        rows = conn.execute(
+            f"""
+            SELECT d.document_path, c.chunk_text, c.page, c.line_from, c.line_to, c.chunk_size
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            JOIN folders f ON f.id = d.folder_id
+            JOIN collection_items ci ON ci.folder_id = f.id
+            JOIN embeddings e ON e.chunk_id = c.id
+                             AND e.folder_id = f.id
+                             AND e.model = ?
+            WHERE ci.collection_id IN ({placeholders})
+            """,
+            [embedding_model, *collection_ids],
+        ).fetchall()
+
+    return {
+        (
+            str(row["document_path"]),
+            str(row["chunk_text"]),
+            row["page"],
+            row["line_from"],
+            row["line_to"],
+            row["chunk_size"],
+        )
+        for row in rows
+    }
+
+
+def delete_collection_ids(conn: sqlite3.Connection, collection_ids: Sequence[int]) -> bool:
+    if not collection_ids:
+        return False
+
+    unique_ids = list(dict.fromkeys(int(collection_id) for collection_id in collection_ids))
+    placeholders = ",".join("?" for _ in unique_ids)
+    folder_rows = conn.execute(
+        f"""
+        SELECT DISTINCT folder_id
+        FROM collection_items
+        WHERE collection_id IN ({placeholders})
+        """,
+        unique_ids,
+    ).fetchall()
+    folder_ids = [int(row["folder_id"]) for row in folder_rows]
+
+    cursor = conn.execute(f"DELETE FROM collections WHERE id IN ({placeholders})", unique_ids)
+
+    for folder_id in folder_ids:
+        still_used = conn.execute(
+            """
+            SELECT 1
+            FROM collection_items
+            WHERE folder_id = ?
+            LIMIT 1
+            """,
+            (folder_id,),
+        ).fetchone()
+        if still_used is None:
+            conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+
+    return cursor.rowcount > 0
+
+
+def delete_material_by_import_path(conn: sqlite3.Connection, import_path: str) -> bool:
+    return delete_collection_ids(conn, collection_ids_for_import_path(conn, import_path))
+
+
+def delete_material(user_data_path: str, material_id: str, import_path: Optional[str] = None) -> bool:
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material_id)
+
+    with connect(user_data_path) as conn:
+        collection_ids = [collection_id] if collection_id is not None else []
+        if import_path:
+            collection_ids.extend(collection_ids_for_import_path(conn, import_path))
+        collection_ids = list(dict.fromkeys(collection_ids))
+        embedding_models = embedding_models_for_collections(conn, collection_ids)
+        deleted = delete_collection_ids(conn, collection_ids)
+
+    if deleted:
+        for embedding_model in embedding_models:
+            rebuild_faiss(user_data_path, embedding_model)
+
+    return deleted
+
+
+def find_material_id_by_import_path(user_data_path: str, import_path: str) -> Optional[str]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        collection_ids = collection_ids_for_import_path(conn, import_path)
+
+    return str(collection_ids[0]) if collection_ids else None
+
+
+def upsert_collection_state(
+    conn: sqlite3.Connection,
+    collection_id: int,
+    material: Dict[str, Any],
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO tokensmith_collection_state (
+            collection_id, status, kind, import_path, embedding_model_id, embedding_model_name,
+            cleaning_profile_id, cleaning_profile_name, cleaning_profile_version, cleaning_rule_ids_json,
+            detail, added_at, indexed_at, is_active, file_count, size_bytes, word_count, page_count,
+            chunk_count, chunk_size, error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(collection_id) DO UPDATE SET
+            status = excluded.status,
+            kind = excluded.kind,
+            import_path = excluded.import_path,
+            embedding_model_id = excluded.embedding_model_id,
+            embedding_model_name = excluded.embedding_model_name,
+            cleaning_profile_id = excluded.cleaning_profile_id,
+            cleaning_profile_name = excluded.cleaning_profile_name,
+            cleaning_profile_version = excluded.cleaning_profile_version,
+            cleaning_rule_ids_json = excluded.cleaning_rule_ids_json,
+            detail = excluded.detail,
+            added_at = excluded.added_at,
+            indexed_at = excluded.indexed_at,
+            is_active = excluded.is_active,
+            file_count = excluded.file_count,
+            size_bytes = excluded.size_bytes,
+            word_count = excluded.word_count,
+            page_count = excluded.page_count,
+            chunk_count = excluded.chunk_count,
+            chunk_size = excluded.chunk_size,
+            error = excluded.error
+        """,
+        (
+            collection_id,
+            material.get("status") or "ready",
+            material.get("kind") or "folder",
+            material.get("path"),
+            material.get("embeddingModelId"),
+            material.get("embeddingModelName"),
+            material.get("cleaningProfileId"),
+            material.get("cleaningProfileName"),
+            material.get("cleaningProfileVersion"),
+            json.dumps(material.get("cleaningRuleIds") or []),
+            material.get("detail"),
+            material.get("addedAt") or now_iso(),
+            material.get("indexedAt"),
+            1 if material.get("isActive", True) is not False else 0,
+            material.get("fileCount") or 0,
+            material.get("sizeBytes") or 0,
+            material.get("wordCount") or 0,
+            material.get("pageCount"),
+            material.get("chunkCount") or 0,
+            material.get("chunkSize"),
+            material.get("error"),
+        ),
+    )
+
+    conn.execute("UPDATE tokensmith_collection_state SET preparation_json = ? WHERE collection_id = ?",
+                 (json.dumps({"settings": material.get("preparation"), "issueCount": material.get("preparationIssueCount", 0),
+                              "modelName": material.get("preparationModelName")}), collection_id))
+
+
+def insert_document(conn: sqlite3.Connection, folder_id: int, document_path: str) -> int:
+    try:
+        document_time = int(Path(document_path).stat().st_mtime)
+    except Exception:
+        document_time = int(time.time())
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO documents(folder_id, document_time, document_path)
+        VALUES (?, ?, ?)
+        """,
+        (folder_id, document_time, document_path),
+    )
+    conn.execute(
+        """
+        UPDATE documents
+        SET folder_id = ?, document_time = ?
+        WHERE document_path = ?
+        """,
+        (folder_id, document_time, document_path),
+    )
+    row = conn.execute("SELECT id FROM documents WHERE document_path = ?", (document_path,)).fetchone()
+    return int(row["id"])
+
+
+def ordered_vocabulary_terms(*parts: Any) -> List[str]:
+    terms: List[str] = []
+    seen: Set[str] = set()
+    for part in parts:
+        for raw_term in re.findall(r"[0-9A-Za-z]+", str(part or "")):
+            term = raw_term.casefold()
+            if len(term) < 2 or term in KEYWORD_STOPWORDS or term in seen:
+                continue
+            terms.append(term)
+            seen.add(term)
+    return terms
+
+
+def chunk_vocabulary_terms(*parts: Any) -> Set[str]:
+    return set(ordered_vocabulary_terms(*parts))
+
+
+def alias_phrase_terms(value: Any, *, from_end: bool = False) -> List[str]:
+    terms = ordered_vocabulary_terms(value)
+    if from_end:
+        terms = terms[-MAX_ALIAS_TERMS_PER_SIDE:]
+    else:
+        terms = terms[:MAX_ALIAS_TERMS_PER_SIDE]
+    return terms
+
+
+def alias_antecedent_phrase(before_text: str, head_terms: Sequence[str]) -> Optional[str]:
+    if not head_terms:
+        return None
+
+    head = head_terms[-1]
+    nearby_text = before_text[-320:]
+    emphasis_matches = list(re.finditer(r"[*_`]+([^*_`\n]{3,100})[*_`]+", nearby_text))
+    for match in reversed(emphasis_matches):
+        terms = alias_phrase_terms(match.group(1), from_end=True)
+        if len(terms) > 1 and terms[-1] == head:
+            return " ".join(terms)
+
+    terms = ordered_vocabulary_terms(nearby_text)
+    for index in range(len(terms) - 1, -1, -1):
+        if terms[index] != head:
+            continue
+        candidate_terms = terms[max(0, index - 4):index + 1]
+        if len(candidate_terms) > 1:
+            return " ".join(candidate_terms)
+
+    return None
+
+
+def chunk_term_alias_pairs(*parts: Any) -> Set[Tuple[str, str]]:
+    text = " ".join(str(part or "") for part in parts)
+    pairs: Set[Tuple[str, str]] = set()
+
+    def add_pair(left_text: Any, right_text: Any, *, left_from_end: bool = False) -> None:
+        left_terms = alias_phrase_terms(left_text, from_end=left_from_end)
+        right_terms = alias_phrase_terms(right_text)
+        if not left_terms or not right_terms:
+            return
+
+        for left_term in left_terms:
+            for right_term in right_terms:
+                if left_term == right_term:
+                    continue
+                pairs.add((left_term, right_term))
+                pairs.add((right_term, left_term))
+                if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+                    return
+
+    for pattern in (ACRONYM_IN_PARENS_RE, ACRONYM_OR_ALIAS_RE):
+        for match in pattern.finditer(text):
+            add_pair(match.group(1), match.group(2), left_from_end=True)
+            if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+                return pairs
+
+    for match in STANDS_FOR_RE.finditer(text):
+        add_pair(match.group(1), match.group(2))
+        if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+            return pairs
+
+    for match in ALSO_KNOWN_AS_RE.finditer(text):
+        left_text = match.group(1)
+        left_terms = alias_phrase_terms(left_text, from_end=True)
+        antecedent = alias_antecedent_phrase(text[:match.start()], left_terms) \
+            if REFERENCE_ALIAS_SUBJECT_RE.search(left_text) else None
+        add_pair(antecedent or left_text, match.group(2), left_from_end=True)
+        if len(pairs) >= MAX_ALIAS_PAIRS_PER_CHUNK:
+            return pairs
+
+    return pairs
+
+
+def replace_chunk_term_aliases(conn: sqlite3.Connection, chunk_id: int, *parts: Any) -> None:
+    pairs = sorted(chunk_term_alias_pairs(*parts))
+    conn.execute("DELETE FROM chunk_term_aliases WHERE chunk_id = ?", (chunk_id,))
+    if pairs:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO chunk_term_aliases(chunk_id, term, alias_term)
+            VALUES (?, ?, ?)
+            """,
+            [(chunk_id, term, alias_term) for term, alias_term in pairs],
+        )
+    conn.execute(
+        """
+        INSERT INTO chunk_search_index_state(chunk_id, alias_version)
+        VALUES (?, ?)
+        ON CONFLICT(chunk_id) DO UPDATE SET alias_version = excluded.alias_version
+        """,
+        (chunk_id, ALIAS_EXTRACTION_VERSION),
+    )
+
+
+def replace_chunk_terms(conn: sqlite3.Connection, chunk_id: int, *parts: Any) -> None:
+    terms = sorted(chunk_vocabulary_terms(*parts))
+    conn.execute("DELETE FROM chunk_terms WHERE chunk_id = ?", (chunk_id,))
+    if terms:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO chunk_terms(chunk_id, term)
+            VALUES (?, ?)
+            """,
+            [(chunk_id, term) for term in terms],
+        )
+    replace_chunk_term_aliases(conn, chunk_id, *parts)
+
+
+def replace_chunk_terms_for_row(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    replace_chunk_terms(
+        conn,
+        int(row["id"]),
+        row["chunk_text"],
+        row["file"],
+        row["title"],
+        row["author"],
+        row["subject"],
+        row["keywords"],
+        row["section_header"],
+    )
+
+
+def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> int:
+    text = str(chunk.get("text") or "")
+    word_count = int(chunk.get("wordCount") or len(text.split()))
+    stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind = chunk_metadata_values(chunk)
+    cursor = conn.execute(
+        """
+        INSERT INTO chunks (
+            document_id, chunk_text, file, title, author, subject, keywords,
+            page, line_from, line_to, words, tokens, chunk_size, section_header,
+            stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            document_id,
+            text,
+            str(chunk.get("path") or ""),
+            chunk.get("documentTitle"),
+            None,
+            None,
+            None,
+            chunk.get("pageStart"),
+            chunk.get("lineFrom"),
+            chunk.get("lineTo"),
+            word_count,
+            int(chunk.get("tokens") or word_count),
+            chunk.get("chunkSize"),
+            chunk.get("sectionHeader"),
+            stable_chunk_id,
+            tokensmith_chunk_id,
+            tokensmith_chapter,
+            chunk_kind,
+        ),
+    )
+    conn.execute("UPDATE chunks SET page_end = ? WHERE id = ?", (chunk.get("pageEnd"), cursor.lastrowid))
+    update_chunk_unit(conn, int(cursor.lastrowid), chunk)
+    return int(cursor.lastrowid)
+
+
+def update_chunk_unit(conn: sqlite3.Connection, chunk_id: int, chunk: Dict[str, Any]) -> None:
+    conn.execute("UPDATE chunks SET parent_id = ?, unit_part = ?, unit_parts = ? WHERE id = ?",
+                 (chunk.get('parentId'), chunk.get('part'), chunk.get('parts'), chunk_id))
+
+
+def find_existing_chunk_id(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> Optional[int]:
+    text = str(chunk.get("text") or "")
+    row = conn.execute(
+        """
+        SELECT id
+        FROM chunks
+        WHERE document_id = ?
+          AND chunk_text = ?
+          AND COALESCE(page, -1) = COALESCE(?, -1)
+          AND COALESCE(line_from, -1) = COALESCE(?, -1)
+          AND COALESCE(line_to, -1) = COALESCE(?, -1)
+          AND COALESCE(chunk_size, -1) = COALESCE(?, -1)
+        LIMIT 1
+        """,
+        (
+            document_id,
+            text,
+            chunk.get("pageStart"),
+            chunk.get("lineFrom"),
+            chunk.get("lineTo"),
+            chunk.get("chunkSize"),
+        ),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, Any]) -> int:
+    chunk_id = find_existing_chunk_id(conn, document_id, chunk)
+    if chunk_id is None:
+        return insert_chunk(conn, document_id, chunk)
+
+    stable_chunk_id, tokensmith_chunk_id, tokensmith_chapter, chunk_kind = chunk_metadata_values(chunk)
+    conn.execute(
+        """
+        UPDATE chunks
+        SET stable_chunk_id = ?,
+            tokensmith_chunk_id = ?,
+            tokensmith_chapter = ?,
+            chunk_kind = ?,
+            page_end = ?,
+            section_header = COALESCE(?, section_header)
+        WHERE id = ?
+        """,
+        (
+            stable_chunk_id,
+            tokensmith_chunk_id,
+            tokensmith_chapter,
+            chunk_kind,
+            chunk.get("pageEnd"),
+            chunk.get("sectionHeader"),
+            chunk_id,
+        ),
+    )
+    update_chunk_unit(conn, chunk_id, chunk)
+    return chunk_id
+
+
+def replace_document_thumbnails(conn: sqlite3.Connection, document_id: int, thumbnails: Sequence[Dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM pdf_page_thumbnails WHERE document_id = ?", (document_id,))
+
+    for thumbnail in thumbnails:
+        page = thumbnail.get("page")
+        thumbnail_path = thumbnail.get("path")
+        if not page or not thumbnail_path:
+            continue
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO pdf_page_thumbnails(document_id, page, thumbnail_path, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (document_id, int(page), str(thumbnail_path), now_iso()),
+        )
+
+
+def material_folder_id(conn: sqlite3.Connection, collection_id: int) -> Optional[int]:
+    row = conn.execute(
+        """
+        SELECT folder_id
+        FROM collection_items
+        WHERE collection_id = ?
+        LIMIT 1
+        """,
+        (collection_id,),
+    ).fetchone()
+    return int(row["folder_id"]) if row else None
+
+
+def upsert_material_header(
+    conn: sqlite3.Connection,
+    material: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+    replace_existing: bool = True,
+    replace_thumbnails: bool = True,
+) -> Tuple[int, int, Dict[str, int], Dict[str, int], List[str]]:
+    deleted_embedding_models: List[str] = []
+
+    target_collection_id = collection_id_from_material_id(material.get("id"))
+    if replace_existing:
+        delete_ids = [target_collection_id] if target_collection_id is not None else collection_ids_for_import_path(
+            conn,
+            str(material.get("path") or ""),
+        )
+        deleted_embedding_models = embedding_models_for_collections(conn, [collection_id for collection_id in delete_ids if collection_id])
+        delete_collection_ids(conn, [collection_id for collection_id in delete_ids if collection_id])
+    elif target_collection_id is None:
+        existing_ids = collection_ids_for_import_path(conn, str(material.get("path") or ""))
+        target_collection_id = existing_ids[0] if existing_ids else None
+
+    collection_name = unique_collection_name(conn, material["title"], target_collection_id)
+    update_time = now_ms()
+    if target_collection_id is not None:
+        conn.execute(
+            """
+            INSERT INTO collections(id, name, start_update_time, last_update_time, embedding_model)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                last_update_time = excluded.last_update_time,
+                embedding_model = excluded.embedding_model
+            """,
+            (target_collection_id, collection_name, update_time, update_time, embedding_model),
+        )
+        collection_id = target_collection_id
+    else:
+        cursor = conn.execute(
+            """
+            INSERT INTO collections(name, start_update_time, last_update_time, embedding_model)
+            VALUES (?, ?, ?, ?)
+            """,
+            (collection_name, update_time, update_time, embedding_model),
+        )
+        collection_id = int(cursor.lastrowid)
+
+    material["id"] = str(collection_id)
+    material["title"] = collection_name
+    folder_id = upsert_folder(conn, folder_path_for_import(str(material["path"]), str(material.get("kind") or "folder")))
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO collection_items(collection_id, folder_id)
+        VALUES (?, ?)
+        """,
+        (collection_id, folder_id),
+    )
+    upsert_collection_state(conn, collection_id, material)
+
+    document_id_by_source_id: Dict[str, int] = {}
+    document_id_by_path: Dict[str, int] = {}
+    for document in documents:
+        document_path = str(document["path"])
+        document_id = insert_document(conn, folder_id, document_path)
+        if replace_thumbnails:
+            replace_document_thumbnails(conn, document_id, document.get("thumbnails") or [])
+        document_id_by_source_id[str(document["id"])] = document_id
+        document_id_by_path[document_path] = document_id
+
+    return collection_id, folder_id, document_id_by_source_id, document_id_by_path, deleted_embedding_models
+
+
+def upsert_material(
+    user_data_path: str,
+    material: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    chunks: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+    replace_existing: bool = True,
+    rebuild_index: bool = True,
+) -> None:
+    init_db(user_data_path)
+    deleted_embedding_models: List[str] = []
+
+    with connect(user_data_path) as conn:
+        _collection_id, folder_id, document_id_by_source_id, document_id_by_path, deleted_embedding_models = upsert_material_header(
+            conn,
+            material,
+            documents,
+            embedding_model=embedding_model,
+            replace_existing=replace_existing,
+            replace_thumbnails=True,
+        )
+
+        for chunk in chunks:
+            document_id = document_id_by_source_id.get(str(chunk.get("documentId"))) or document_id_by_path.get(str(chunk["path"]))
+            if not document_id:
+                continue
+
+            chunk_id = upsert_chunk(conn, document_id, chunk)
+            replace_chunk_terms(
+                conn,
+                chunk_id,
+                chunk.get("text"),
+                chunk.get("path"),
+                chunk.get("documentTitle"),
+                chunk.get("sectionHeader"),
+            )
+            embedding = chunk.get("embedding")
+            if embedding:
+                blob, _dim = vector_to_blob(embedding)
+                chunk_embedding_model = chunk.get("embeddingModel") or embedding_model
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO embeddings(model, folder_id, chunk_id, embedding)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (chunk_embedding_model, folder_id, chunk_id, blob),
+                )
+
+    if rebuild_index:
+        for deleted_embedding_model in deleted_embedding_models:
+            if deleted_embedding_model != embedding_model:
+                rebuild_faiss(user_data_path, deleted_embedding_model)
+        rebuild_faiss(user_data_path, embedding_model)
+
+
+def begin_material_index(
+    user_data_path: str,
+    material: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+    replace_existing: bool = True,
+) -> List[str]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        _collection_id, _folder_id, _source_ids, _path_ids, deleted_embedding_models = upsert_material_header(
+            conn,
+            material,
+            documents,
+            embedding_model=embedding_model,
+            replace_existing=replace_existing,
+            replace_thumbnails=True,
+        )
+
+    return deleted_embedding_models
+
+
+def append_material_chunks(
+    user_data_path: str,
+    material_id: str,
+    chunks: List[Dict[str, Any]],
+    *,
+    embedding_model: str,
+) -> None:
+    if not chunks:
+        return
+
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material_id)
+    if collection_id is None:
+        raise ValueError("A saved material id is required before chunks can be appended.")
+
+    with connect(user_data_path) as conn:
+        folder_id = material_folder_id(conn, collection_id)
+        if folder_id is None:
+            raise ValueError("The material folder was not initialized before chunks were appended.")
+
+        document_paths = sorted({str(chunk.get("path") or "") for chunk in chunks if chunk.get("path")})
+        document_id_by_path: Dict[str, int] = {}
+        for document_path in document_paths:
+            row = conn.execute("SELECT id FROM documents WHERE document_path = ?", (document_path,)).fetchone()
+            document_id_by_path[document_path] = int(row["id"]) if row else insert_document(conn, folder_id, document_path)
+
+        for chunk in chunks:
+            document_id = document_id_by_path.get(str(chunk.get("path") or ""))
+            if not document_id:
+                continue
+
+            chunk_id = upsert_chunk(conn, document_id, chunk)
+            replace_chunk_terms(
+                conn,
+                chunk_id,
+                chunk.get("text"),
+                chunk.get("path"),
+                chunk.get("documentTitle"),
+                chunk.get("sectionHeader"),
+            )
+            embedding = chunk.get("embedding")
+            if not embedding:
+                continue
+
+            blob, _dim = vector_to_blob(embedding)
+            chunk_embedding_model = chunk.get("embeddingModel") or embedding_model
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO embeddings(model, folder_id, chunk_id, embedding)
+                VALUES (?, ?, ?, ?)
+                """,
+                (chunk_embedding_model, folder_id, chunk_id, blob),
+            )
+
+
+def update_material_index_state(
+    user_data_path: str,
+    material: Dict[str, Any],
+    *,
+    embedding_model: str,
+    rebuild_index: bool = False,
+    deleted_embedding_models: Optional[Sequence[str]] = None,
+) -> None:
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material.get("id"))
+    if collection_id is None:
+        raise ValueError("A saved material id is required before material state can be updated.")
+
+    with connect(user_data_path) as conn:
+        conn.execute(
+            """
+            UPDATE collections
+            SET last_update_time = ?, embedding_model = ?
+            WHERE id = ?
+            """,
+            (now_ms(), embedding_model, collection_id),
+        )
+        upsert_collection_state(conn, collection_id, material)
+
+    if rebuild_index:
+        for deleted_embedding_model in deleted_embedding_models or []:
+            if deleted_embedding_model != embedding_model:
+                rebuild_faiss(user_data_path, deleted_embedding_model)
+        rebuild_faiss(user_data_path, embedding_model)
+
+
+def rebuild_faiss(user_data_path: str, embedding_model: str) -> None:
+    init_db(user_data_path)
+    path = faiss_path(user_data_path)
+
+    if faiss is None:
+        if path.exists():
+            path.unlink()
+        return
+
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT chunk_id, embedding
+            FROM embeddings
+            WHERE model = ?
+            ORDER BY chunk_id
+            """,
+            (embedding_model,),
+        ).fetchall()
+
+    if not rows:
+        if path.exists():
+            path.unlink()
+        with connect(user_data_path) as conn:
+            set_schema_value(conn, "faiss_embedding_model", "")
+        return
+
+    ids = np.asarray([int(row["chunk_id"]) for row in rows], dtype=np.int64)
+    vectors = np.vstack([blob_to_vector(row["embedding"]) for row in rows]).astype("float32")
+    vectors = normalize_matrix(vectors)
+
+    index = faiss.IndexIDMap2(faiss.IndexFlatIP(vectors.shape[1]))
+    index.add_with_ids(vectors, ids)
+    faiss.write_index(index, str(path))
+
+    with connect(user_data_path) as conn:
+        set_schema_value(conn, "faiss_embedding_model", embedding_model)
+
+
+def ensure_faiss(user_data_path: str, embedding_model: str):
+    path = faiss_path(user_data_path)
+    indexed_model = get_schema_value(user_data_path, "faiss_embedding_model")
+
+    if indexed_model != embedding_model or not path.exists():
+        rebuild_faiss(user_data_path, embedding_model)
+
+    if faiss is None or not path.exists():
+        return None
+
+    return faiss.read_index(str(path))
+
+
+def source_row_select() -> str:
+    return """
+        SELECT
+            ch.id AS rowid,
+            ch.id AS id,
+            d.id AS document_id,
+            CAST(col.id AS TEXT) AS material_id,
+            col.name AS material_title,
+            COALESCE(ch.title, '') AS document_title,
+            d.document_path AS path,
+            ch.chunk_text AS text,
+            ch.words AS word_count,
+            ch.page AS page_start,
+            COALESCE(ch.page_end, ch.page) AS page_end,
+            ch.line_from AS line_from,
+            ch.line_to AS line_to,
+            COALESCE(ch.stable_chunk_id, CAST(ch.id AS TEXT)) AS stable_chunk_id,
+            ch.tokensmith_chunk_id AS tokensmith_chunk_id,
+            ch.tokensmith_chapter AS tokensmith_chapter,
+            ch.chunk_kind AS chunk_kind,
+            ch.parent_id AS parent_id,
+            ch.unit_part AS unit_part,
+            ch.unit_parts AS unit_parts,
+            ch.id AS chunk_index,
+            ch.chunk_size AS chunk_size,
+            ch.section_header AS section_header,
+            col.embedding_model AS embedding_model,
+            pt.thumbnail_path AS thumbnail_path
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN folders f ON f.id = d.folder_id
+        JOIN collection_items ci ON ci.folder_id = f.id
+        JOIN collections col ON col.id = ci.collection_id
+        JOIN tokensmith_collection_state s ON s.collection_id = col.id
+        LEFT JOIN pdf_page_thumbnails pt ON pt.document_id = d.id AND pt.page = ch.page
+    """
+
+
+def expand_source_units(
+    user_data_path: str, rows: List[Dict[str, Any]], active_material_ids: Sequence[str],
+    max_chars: int = 12000,
+) -> List[Dict[str, Any]]:
+    """Expand bounded source units, scoped by collection and document, before selection."""
+    expanded, seen = [], set()
+    active_ids = {str(value) for value in active_material_ids}
+    with connect(user_data_path) as conn:
+        for hit in rows:
+            if str(hit['material_id']) not in active_ids:
+                continue
+            parent = hit.get('parent_id')
+            key = (hit['material_id'], hit['document_id'], parent)
+            if not parent:
+                expanded.append(hit)
+                continue
+            if key in seen:
+                continue
+            size = conn.execute(
+                'SELECT SUM(LENGTH(chunk_text)) FROM chunks WHERE document_id = ? AND parent_id = ?',
+                (hit['document_id'], parent),
+            ).fetchone()[0] or 0
+            if size > max_chars:
+                # Large units stay as matching parts; prompt packing has the final token budget.
+                expanded.append({**hit, 'unit_complete': False})
+                continue
+            parts = [dict(row) for row in conn.execute(
+                f"""{source_row_select()}
+                    WHERE CAST(col.id AS TEXT) = ? AND d.id = ? AND ch.parent_id = ?
+                    AND s.status = 'ready' AND s.is_active = 1 ORDER BY ch.unit_part, ch.id""",
+                key,
+            ).fetchall()]
+            if not parts or [p['unit_part'] for p in parts] != list(range(1, len(parts) + 1)) or any(
+                p['unit_parts'] != len(parts) for p in parts
+            ):
+                expanded.append({**hit, 'unit_complete': False})
+                continue
+            seen.add(key)
+            text = ''.join(part['text'] for part in parts)
+            expanded.append({**parts[0], 'score': hit.get('score'), 'text': text,
+                'query_embedding_model': hit.get('query_embedding_model'),
+                'chunk_size': len(text), 'word_count': len(text.split()),
+                'page_end': parts[-1]['page_end'], 'line_to': parts[-1]['line_to'],
+                'unit_complete': True, 'source_chunk_ids': [p['stable_chunk_id'] for p in parts]})
+    return expanded
+def get_chunks_by_material_id(
+    user_data_path: str,
+    material_id: Any,
+) -> List[Dict[str, Any]]:
+    """Fetch all chunks for a material with their database rowids and embeddings."""
+    init_db(user_data_path)
+    
+    # Convert material_id to integer if it's already an int or can be converted
+    try:
+        col_id = int(material_id)
+    except (ValueError, TypeError):
+        # If it's a string like "material-xxx", try to look it up
+        col_id = collection_id_from_material_id(material_id)
+    
+    if col_id is None or col_id <= 0:
+        return []
+    
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            {source_row_select()}
+            WHERE col.id = ?
+              AND s.status = 'ready'
+            """,
+            (col_id,),
+        ).fetchall()
+    
+    result = []
+    for row in rows:
+        chunk_dict = dict(row)
+        # Fetch embedding if it exists
+        with connect(user_data_path) as conn:
+            embedding_row = conn.execute(
+                "SELECT embedding FROM embeddings WHERE chunk_id = ? LIMIT 1",
+                (chunk_dict.get("rowid"),),
+            ).fetchone()
+        if embedding_row and embedding_row["embedding"]:
+            chunk_dict["embedding"] = blob_to_vector(embedding_row["embedding"])
+        result.append(chunk_dict)
+    
+    return result
+
+
+def get_chunks_by_rowids(
+    user_data_path: str,
+    rowids: List[int],
+    active_material_ids: Sequence[str],
+) -> List[Dict[str, Any]]:
+    if not rowids or not active_material_ids:
+        return []
+
+    row_placeholders = ",".join("?" for _ in rowids)
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            {source_row_select()}
+            WHERE ch.id IN ({row_placeholders})
+              AND CAST(col.id AS TEXT) IN ({active_placeholders})
+              AND s.status = 'ready'
+              AND s.is_active = 1
+            """,
+            [*rowids, *active_material_ids],
+        ).fetchall()
+
+    by_id = {int(row["rowid"]): dict(row) for row in rows}
+    return [by_id[rowid] for rowid in rowids if rowid in by_id]
+
+
+def vector_search(
+    user_data_path: str,
+    query_embedding: Iterable[float],
+    active_material_ids: Sequence[str],
+    limit: int,
+    embedding_model: str,
+) -> List[Tuple[int, float]]:
+    if not active_material_ids:
+        return []
+
+    index = ensure_faiss(user_data_path, embedding_model)
+    if index is None:
+        return []
+
+    q = np.asarray([list(query_embedding)], dtype=np.float32)
+    q = normalize_matrix(q)
+
+    try:
+        distances, labels = index.search(q, max(limit * 8, limit))
+    except Exception:
+        return []
+
+    raw = [
+        (int(label), float(score))
+        for label, score in zip(labels[0], distances[0])
+        if int(label) >= 0
+    ]
+
+    rowids = [rowid for rowid, _score in raw]
+    allowed_chunks = get_chunks_by_rowids(user_data_path, rowids, active_material_ids)
+    allowed = {int(chunk["rowid"]) for chunk in allowed_chunks}
+
+    return [(rowid, score) for rowid, score in raw if rowid in allowed][:limit]
+
+
+def _active_chunks_filter(active_material_ids: Sequence[str]) -> Tuple[str, List[str]]:
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    return (
+        f"""
+        EXISTS (
+            SELECT 1
+            FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN collection_items ci ON ci.folder_id = d.folder_id
+            JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+            WHERE ch.id = chunks_fts.rowid
+              AND CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+              AND s.status = 'ready'
+              AND s.is_active = 1
+        )
+        """,
+        [str(material_id) for material_id in active_material_ids],
+    )
+
+
+def keyword_query_terms(query: str) -> List[str]:
+    terms: List[str] = []
+    seen: Set[str] = set()
+    for raw_term in re.findall(r"[0-9A-Za-z]+", query or ""):
+        term = raw_term.casefold()
+        if len(term) < 2 or term in KEYWORD_STOPWORDS or term in seen:
+            continue
+        terms.append(term)
+        seen.add(term)
+    return terms
+
+
+def build_fts_match_query(terms: Sequence[str], operator: str = "OR") -> str:
+    safe_terms = []
+    for term in terms:
+        normalized = str(term).casefold()
+        if re.fullmatch(r"[0-9a-z]+", normalized):
+            safe_terms.append(normalized)
+    if not safe_terms:
+        return ""
+    joiner = " " if operator == "AND" else " OR "
+    return joiner.join(f'"{term}"' for term in safe_terms)
+
+
+def _keyword_term_document_frequency(
+    conn: sqlite3.Connection,
+    term: str,
+    active_filter: str,
+    active_params: Sequence[str],
+) -> int:
+    match_query = build_fts_match_query([term])
+    if not match_query:
+        return 0
+
+    try:
+        return int(
+            conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT chunks_fts.rowid)
+                FROM chunks_fts
+                WHERE chunks_fts MATCH ?
+                  AND {active_filter}
+                """,
+                [match_query, *active_params],
+            ).fetchone()[0]
+        )
+    except sqlite3.OperationalError:
+        return 0
+
+
+def ensure_chunk_terms_for_active_materials(
+    conn: sqlite3.Connection,
+    active_material_ids: Sequence[str],
+) -> None:
+    if not active_material_ids:
+        return
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    rows = conn.execute(
+        f"""
+        SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM chunk_terms ct
+              WHERE ct.chunk_id = ch.id
+          )
+        """,
+        [str(material_id) for material_id in active_material_ids],
+    ).fetchall()
+
+    for row in rows:
+        replace_chunk_terms_for_row(conn, row)
+
+
+def ensure_chunk_aliases_for_active_materials(
+    conn: sqlite3.Connection,
+    active_material_ids: Sequence[str],
+) -> None:
+    if not active_material_ids:
+        return
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    rows = conn.execute(
+        f"""
+        SELECT ch.id, ch.chunk_text, ch.file, ch.title, ch.author, ch.subject, ch.keywords, ch.section_header
+        FROM chunks ch
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        LEFT JOIN chunk_search_index_state sis ON sis.chunk_id = ch.id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND COALESCE(sis.alias_version, 0) < ?
+        """,
+        [*[str(material_id) for material_id in active_material_ids], ALIAS_EXTRACTION_VERSION],
+    ).fetchall()
+
+    for row in rows:
+        replace_chunk_term_aliases(
+            conn,
+            int(row["id"]),
+            row["chunk_text"],
+            row["file"],
+            row["title"],
+            row["author"],
+            row["subject"],
+            row["keywords"],
+            row["section_header"],
+        )
+
+
+def active_vocabulary_terms_near(
+    conn: sqlite3.Connection,
+    term: str,
+    active_material_ids: Sequence[str],
+) -> List[str]:
+    if (
+        len(term) < MIN_KEYWORD_CORRECTION_LENGTH
+        or not re.fullmatch(r"[a-z]+", term)
+        or not active_material_ids
+    ):
+        return []
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    min_length = max(MIN_KEYWORD_CORRECTION_LENGTH, len(term) - KEYWORD_CORRECTION_LENGTH_WINDOW)
+    max_length = len(term) + KEYWORD_CORRECTION_LENGTH_WINDOW
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT ct.term
+        FROM chunk_terms ct
+        JOIN chunks ch ON ch.id = ct.chunk_id
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND length(ct.term) BETWEEN ? AND ?
+        """,
+        [*[str(material_id) for material_id in active_material_ids], min_length, max_length],
+    ).fetchall()
+    return [
+        str(row["term"])
+        for row in rows
+        if re.fullmatch(r"[a-z]+", str(row["term"]))
+    ]
+
+
+def is_single_edit_or_transposition(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+
+    if len(left) == len(right):
+        mismatches = [index for index, (left_char, right_char) in enumerate(zip(left, right)) if left_char != right_char]
+        return (
+            len(mismatches) <= 1
+            or (
+                len(mismatches) == 2
+                and mismatches[1] == mismatches[0] + 1
+                and left[mismatches[0]] == right[mismatches[1]]
+                and left[mismatches[1]] == right[mismatches[0]]
+            )
+        )
+
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    short_index = 0
+    long_index = 0
+    skipped = False
+    while short_index < len(shorter) and long_index < len(longer):
+        if shorter[short_index] == longer[long_index]:
+            short_index += 1
+            long_index += 1
+            continue
+        if skipped:
+            return False
+        skipped = True
+        long_index += 1
+
+    return True
+
+
+def corrected_keyword_term(
+    conn: sqlite3.Connection,
+    term: str,
+    active_material_ids: Sequence[str],
+) -> Optional[str]:
+    candidates = active_vocabulary_terms_near(conn, term, active_material_ids)
+    edit_matches = [candidate for candidate in candidates if is_single_edit_or_transposition(term, candidate)]
+    if edit_matches:
+        return difflib.get_close_matches(term, edit_matches, n=1, cutoff=0.0)[0]
+
+    matches = difflib.get_close_matches(term, candidates, n=1, cutoff=KEYWORD_CORRECTION_CUTOFF)
+    return matches[0] if matches and matches[0] != term else None
+
+
+def collection_alias_terms_for_query_terms(
+    conn: sqlite3.Connection,
+    terms: Sequence[str],
+    active_material_ids: Sequence[str],
+    active_filter: str,
+    active_params: Sequence[str],
+    max_terms: int = MAX_KEYWORD_ALIAS_TERMS,
+) -> List[str]:
+    if not terms or not active_material_ids or max_terms <= 0:
+        return []
+
+    active_placeholders = ",".join("?" for _ in active_material_ids)
+    term_placeholders = ",".join("?" for _ in terms)
+    rows = conn.execute(
+        f"""
+        SELECT cta.term, cta.alias_term, COUNT(DISTINCT cta.chunk_id) AS alias_hits
+        FROM chunk_term_aliases cta
+        JOIN chunks ch ON ch.id = cta.chunk_id
+        JOIN documents d ON d.id = ch.document_id
+        JOIN collection_items ci ON ci.folder_id = d.folder_id
+        JOIN tokensmith_collection_state s ON s.collection_id = ci.collection_id
+        WHERE CAST(ci.collection_id AS TEXT) IN ({active_placeholders})
+          AND s.status = 'ready'
+          AND s.is_active = 1
+          AND cta.term IN ({term_placeholders})
+        GROUP BY cta.term, cta.alias_term
+        ORDER BY alias_hits DESC, cta.alias_term ASC
+        """,
+        [*[str(material_id) for material_id in active_material_ids], *terms],
+    ).fetchall()
+
+    aliases_by_term: Dict[str, List[sqlite3.Row]] = {}
+    for row in rows:
+        term = str(row["term"] or "").casefold()
+        aliases_by_term.setdefault(term, []).append(row)
+
+    aliases: List[Tuple[str, int, int]] = []
+    seen = set(terms)
+    for term in terms:
+        term_rows = aliases_by_term.get(term, [])
+        if len(term_rows) > MAX_ALIAS_FANOUT_PER_TERM:
+            continue
+        for row in term_rows:
+            alias_term = str(row["alias_term"] or "").casefold()
+            if alias_term in seen or not re.fullmatch(r"[0-9a-z]+", alias_term):
+                continue
+            df = _keyword_term_document_frequency(conn, alias_term, active_filter, active_params)
+            if df <= 0:
+                continue
+            aliases.append((alias_term, df, int(row["alias_hits"] or 0)))
+            seen.add(alias_term)
+
+    aliases.sort(key=lambda item: (item[1], -item[2], item[0]))
+    return [alias_term for alias_term, _df, _hits in aliases[:max_terms]]
+
+
+def keyword_terms_for_query(
+    user_data_path: str,
+    query: str,
+    active_material_ids: Sequence[str],
+    max_terms: int = MAX_KEYWORD_QUERY_TERMS,
+) -> List[str]:
+    terms = keyword_query_terms(query)
+    if not terms or not active_material_ids or max_terms <= 0:
+        return []
+
+    active_filter, active_params = _active_chunks_filter(active_material_ids)
+    with connect(user_data_path) as conn:
+        ensure_chunk_terms_for_active_materials(conn, active_material_ids)
+        ensure_chunk_aliases_for_active_materials(conn, active_material_ids)
+        total_chunks = conn.execute(
+            f"""
+            SELECT COUNT(DISTINCT chunks_fts.rowid)
+            FROM chunks_fts
+            WHERE {active_filter}
+            """,
+            active_params,
+        ).fetchone()[0]
+
+        if not total_chunks:
+            return []
+
+        ranked_terms: List[Tuple[str, float, int, int]] = []
+        fallback_terms: List[Tuple[str, float, int, int]] = []
+        seen_ranked_terms: Set[str] = set()
+        for index, term in enumerate(terms):
+            df = _keyword_term_document_frequency(conn, term, active_filter, active_params)
+            chosen_term = term
+            if df <= 0:
+                corrected_term = corrected_keyword_term(conn, term, active_material_ids)
+                if corrected_term:
+                    corrected_df = _keyword_term_document_frequency(conn, corrected_term, active_filter, active_params)
+                    if corrected_df > 0:
+                        chosen_term = corrected_term
+                        df = corrected_df
+
+            if df <= 0:
+                continue
+            if chosen_term in seen_ranked_terms:
+                continue
+
+            idf = math.log((float(total_chunks) + 1.0) / (float(df) + 1.0)) + 1.0
+            term_rank = (chosen_term, idf, df, index)
+            seen_ranked_terms.add(chosen_term)
+            fallback_terms.append(term_rank)
+            if df / float(total_chunks) <= MAX_ANCHOR_DF_RATIO or len(chosen_term) >= 4:
+                ranked_terms.append(term_rank)
+
+        chosen_terms = ranked_terms or fallback_terms
+        chosen_terms.sort(key=lambda item: (-item[1], item[2], item[3]))
+        base_terms = [term for term, _idf, _df, _index in chosen_terms[:max_terms]]
+        alias_seed_terms = [
+            term
+            for term, _idf, df, _index in chosen_terms
+            if df <= MAX_ALIAS_SEED_DF
+        ][:max_terms]
+        alias_terms = collection_alias_terms_for_query_terms(
+            conn,
+            alias_seed_terms,
+            active_material_ids,
+            active_filter,
+            active_params,
+            max_terms=max(0, min(MAX_KEYWORD_ALIAS_TERMS, max_terms - len(base_terms))),
+        )
+
+    return list(dict.fromkeys([*base_terms, *(term for term in alias_terms if term not in base_terms)]))
+
+
+def keyword_search_with_match_query(
+    user_data_path: str,
+    match_query: str,
+    active_material_ids: Sequence[str],
+    limit: int,
+) -> List[Tuple[int, float]]:
+    if not active_material_ids or not match_query:
+        return []
+
+    active_filter, active_params = _active_chunks_filter(active_material_ids)
+
+    with connect(user_data_path) as conn:
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT rowid AS rowid, bm25(chunks_fts) AS score
+                FROM chunks_fts
+                WHERE chunks_fts MATCH ?
+                  AND {active_filter}
+                ORDER BY score
+                LIMIT ?
+                """,
+                [match_query, *active_params, limit],
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+    # bm25() is lower-is-better; flip the sign so higher means more relevant, like the vector scores.
+    return [(int(row["rowid"]), -float(row["score"])) for row in rows]
+
+
+def keyword_search(
+    user_data_path: str,
+    query: str,
+    active_material_ids: Sequence[str],
+    limit: int,
+    terms: Optional[Sequence[str]] = None,
+) -> List[Tuple[int, float]]:
+    """Rank chunks by BM25 relevance over the chunks_fts index."""
+    if not active_material_ids:
+        return []
+
+    match_terms = list(terms) if terms is not None else keyword_terms_for_query(user_data_path, query, active_material_ids)
+    if not match_terms:
+        return []
+
+    match_queries = []
+    if len(match_terms) > 1:
+        match_queries.append(build_fts_match_query(match_terms, "AND"))
+    match_queries.append(build_fts_match_query(match_terms, "OR"))
+
+    seen: Set[int] = set()
+    hits: List[Tuple[int, float]] = []
+    for match_query in match_queries:
+        for rowid, score in keyword_search_with_match_query(user_data_path, match_query, active_material_ids, limit):
+            if rowid in seen:
+                continue
+            hits.append((rowid, score))
+            seen.add(rowid)
+            if len(hits) >= limit:
+                return hits
+
+    return hits
+
+
+def fetch_sources(
+    user_data_path: str,
+    scored_rowids: List[Tuple[int, float]],
+    active_material_ids: Optional[Sequence[str]] = None,
+) -> List[Dict[str, Any]]:
+    if not scored_rowids:
+        return []
+
+    rowids = [rowid for rowid, _score in scored_rowids]
+    placeholders = ",".join("?" for _ in rowids)
+    active_filter = ""
+    params: List[Any] = list(rowids)
+    if active_material_ids:
+        active_placeholders = ",".join("?" for _ in active_material_ids)
+        active_filter = f" AND CAST(col.id AS TEXT) IN ({active_placeholders})"
+        params.extend(active_material_ids)
+
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            {source_row_select()}
+            WHERE ch.id IN ({placeholders})
+              AND s.status = 'ready'
+              {active_filter}
+            """,
+            params,
+        ).fetchall()
+
+    by_id = {int(row["rowid"]): dict(row) for row in rows}
+    result: List[Dict[str, Any]] = []
+
+    for rowid, score in scored_rowids:
+        row = by_id.get(rowid)
+        if not row:
+            continue
+        row["score"] = score
+        if not row.get("document_title"):
+            row["document_title"] = Path(str(row.get("path") or "")).stem
+        result.append(row)
+
+    return result
+
+
+def starter_source_rows(
+    user_data_path: str,
+    active_material_ids: Sequence[str],
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    init_db(user_data_path)
+
+    if limit <= 0 or not active_material_ids:
+        return []
+
+    material_ids = [str(material_id) for material_id in active_material_ids if str(material_id).strip()]
+    if not material_ids:
+        return []
+
+    with connect(user_data_path) as conn:
+        for material_id in material_ids:
+            document = conn.execute(
+                """
+                SELECT d.id
+                FROM documents d
+                JOIN folders f ON f.id = d.folder_id
+                JOIN collection_items ci ON ci.folder_id = f.id
+                JOIN collections col ON col.id = ci.collection_id
+                JOIN tokensmith_collection_state s ON s.collection_id = col.id
+                WHERE CAST(col.id AS TEXT) = ?
+                  AND s.status = 'ready'
+                  AND s.is_active = 1
+                  AND EXISTS (
+                      SELECT 1
+                      FROM chunks ch
+                      WHERE ch.document_id = d.id
+                  )
+                ORDER BY d.document_path COLLATE NOCASE, d.id
+                LIMIT 1
+                """,
+                (material_id,),
+            ).fetchone()
+
+            if not document:
+                continue
+
+            rows = conn.execute(
+                f"""
+                {source_row_select()}
+                WHERE d.id = ?
+                  AND CAST(col.id AS TEXT) = ?
+                  AND s.status = 'ready'
+                  AND s.is_active = 1
+                ORDER BY COALESCE(ch.page, 0), ch.id
+                """,
+                (document["id"], material_id),
+            ).fetchall()
+
+            result: List[Dict[str, Any]] = []
+            sampled_rows = rows if len(rows) <= limit else random.sample(list(rows), limit)
+            sampled_rows = sorted(sampled_rows, key=lambda row: (row["page_start"] or 0, row["rowid"]))
+            for row in sampled_rows:
+                source_row = dict(row)
+                source_row["score"] = 0.0
+                if not source_row.get("document_title"):
+                    source_row["document_title"] = Path(str(source_row.get("path") or "")).stem
+                result.append(source_row)
+            if result:
+                return result
+
+    return []
+
+
+def source_document_for_source(user_data_path: str, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    init_db(user_data_path)
+
+    chunk_id = None
+    for key in ("chunkRowid", "chunkId"):
+        value = source.get(key)
+        try:
+            if value is not None and str(value).strip():
+                chunk_id = int(value)
+                break
+        except (TypeError, ValueError):
+            continue
+
+    stable_chunk_id = None
+    for key in ("chunkId", "stableChunkId", "tokensmithChunkId"):
+        value = clean_optional_text(source.get(key))
+        if not value:
+            continue
+        try:
+            int(value)
+            continue
+        except (TypeError, ValueError):
+            stable_chunk_id = value
+            break
+
+    material_id = clean_optional_text(source.get("materialId"))
+    document_id = None
+    try:
+        if source.get("documentId") is not None and str(source.get("documentId")).strip():
+            document_id = int(source["documentId"])
+    except (TypeError, ValueError):
+        document_id = None
+
+    source_path = source.get("path")
+    document_path = str(Path(str(source_path)).expanduser().resolve()) if source_path else None
+    page = None
+    try:
+        if source.get("pageStart") is not None:
+            page = int(source["pageStart"])
+    except (TypeError, ValueError):
+        page = None
+
+    where_clauses: List[str] = []
+    params: List[Any] = []
+    if chunk_id is not None:
+        where_clauses.append("ch.id = ?")
+        params.append(chunk_id)
+    if stable_chunk_id and material_id:
+        where_clauses.append("(CAST(col.id AS TEXT) = ? AND ch.stable_chunk_id = ?)")
+        params.extend([material_id, stable_chunk_id])
+    if document_id is not None:
+        if page is not None:
+            where_clauses.append("(d.id = ? AND ch.page = ?)")
+            params.extend([document_id, page])
+        else:
+            where_clauses.append("d.id = ?")
+            params.append(document_id)
+    if document_path:
+        if stable_chunk_id:
+            where_clauses.append("(d.document_path = ? AND ch.stable_chunk_id = ?)")
+            params.extend([document_path, stable_chunk_id])
+        if page is not None:
+            where_clauses.append("(d.document_path = ? AND ch.page = ?)")
+            params.extend([document_path, page])
+        else:
+            where_clauses.append("d.document_path = ?")
+            params.append(document_path)
+
+    if not where_clauses:
+        return None
+
+    with connect(user_data_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                ch.id AS chunk_id,
+                ch.stable_chunk_id AS stable_chunk_id,
+                ch.tokensmith_chunk_id AS tokensmith_chunk_id,
+                ch.tokensmith_chapter AS tokensmith_chapter,
+                ch.chunk_kind AS chunk_kind,
+                d.id AS document_id,
+                d.document_path AS path,
+                COALESCE(ch.title, '') AS title,
+                ch.page AS page,
+            ch.page_end AS page_end,
+                ch.line_from AS line_from,
+                ch.line_to AS line_to,
+                col.name AS collection_name,
+                pt.thumbnail_path AS thumbnail_path
+            FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN folders f ON f.id = d.folder_id
+            JOIN collection_items ci ON ci.folder_id = f.id
+            JOIN collections col ON col.id = ci.collection_id
+            LEFT JOIN pdf_page_thumbnails pt ON pt.document_id = d.id AND pt.page = ch.page
+            WHERE ({' OR '.join(where_clauses)})
+            ORDER BY CASE WHEN ch.id = ? THEN 0 ELSE 1 END, ch.id
+            LIMIT 1
+            """,
+            [*params, chunk_id if chunk_id is not None else -1],
+        ).fetchone()
+
+    if not row:
+        return None
+
+    title = str(row["title"] or "") or Path(str(row["path"])).stem
+    return {
+        "chunkId": row["stable_chunk_id"] or str(row["chunk_id"]),
+        "chunkRowid": int(row["chunk_id"]),
+        "chunkKind": row["chunk_kind"],
+        "tokensmithChunkId": row["tokensmith_chunk_id"],
+        "tokensmithChapter": row["tokensmith_chapter"],
+        "tokensmithChunkKind": row["chunk_kind"],
+        "documentId": int(row["document_id"]),
+        "path": str(row["path"]),
+        "title": title,
+        "page": int(row["page"]) if row["page"] is not None else None,
+        "lineFrom": int(row["line_from"]) if row["line_from"] is not None else None,
+        "lineTo": int(row["line_to"]) if row["line_to"] is not None else None,
+        "collectionName": row["collection_name"],
+        "thumbnailPath": row["thumbnail_path"],
+    }
+
+
+def enabled_material_ids(user_data_path: str, requested_material_ids: Sequence[str]) -> List[str]:
+    init_db(user_data_path)
+
+    if not requested_material_ids:
+        return []
+
+    unique_requested = list(dict.fromkeys(material_id for material_id in requested_material_ids if material_id))
+    if not unique_requested:
+        return []
+
+    placeholders = ",".join("?" for _ in unique_requested)
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT CAST(c.id AS TEXT) AS id
+            FROM collections c
+            JOIN tokensmith_collection_state s ON s.collection_id = c.id
+            WHERE CAST(c.id AS TEXT) IN ({placeholders})
+              AND s.status = 'ready'
+              AND s.is_active = 1
+            """,
+            unique_requested,
+        ).fetchall()
+
+    allowed = {str(row["id"]) for row in rows}
+    return [material_id for material_id in unique_requested if material_id in allowed]
+
+
+def enabled_material_ids_for_requests(user_data_path: str, requested_materials: Sequence[Dict[str, Any]]) -> List[str]:
+    requested_ids = [str(material.get("id")) for material in requested_materials if material.get("id")]
+    return enabled_material_ids(user_data_path, requested_ids)
+
+
+def parse_json_string_list(value: Any) -> List[str]:
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(str(value))
+    except Exception:
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    return [str(item) for item in parsed if isinstance(item, str)]
+
+
+def list_materials(user_data_path: str) -> List[Dict[str, Any]]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.name,
+                c.start_update_time,
+                c.last_update_time,
+                c.embedding_model,
+                s.status,
+                s.kind,
+                s.import_path,
+                s.embedding_model_id,
+                s.embedding_model_name,
+                s.cleaning_profile_id,
+                s.cleaning_profile_name,
+                s.cleaning_profile_version,
+                s.cleaning_rule_ids_json,
+                s.detail,
+                s.added_at,
+                s.indexed_at,
+                s.is_active,
+                s.file_count,
+                s.size_bytes,
+                s.word_count,
+                s.page_count,
+                s.chunk_count,
+                s.chunk_size,
+                s.preparation_json,
+                s.error,
+                MIN(f.path) AS folder_path
+            FROM collections c
+            LEFT JOIN tokensmith_collection_state s ON s.collection_id = c.id
+            LEFT JOIN collection_items ci ON ci.collection_id = c.id
+            LEFT JOIN folders f ON f.id = ci.folder_id
+            GROUP BY c.id
+            ORDER BY COALESCE(s.indexed_at, s.added_at, CAST(c.last_update_time AS TEXT)) DESC
+            """
+        ).fetchall()
+
+    materials: List[Dict[str, Any]] = []
+    for row in rows:
+        title = str(row["name"])
+        path_value = row["import_path"] or row["folder_path"]
+        file_count = int(row["file_count"] or 0)
+        word_count = int(row["word_count"] or 0)
+        chunk_count = int(row["chunk_count"] or 0)
+        detail = row["detail"] or (
+            f"{file_count} {'file' if file_count == 1 else 'files'} - "
+            f"{word_count:,} words - {chunk_count:,} chunks"
+        )
+        status = row["status"] or ("ready" if chunk_count else "needsReview")
+
+        materials.append(
+            {
+                "id": str(row["id"]),
+                "title": title,
+                "detail": detail,
+                "status": status,
+                "kind": row["kind"] or "folder",
+                "path": path_value,
+                "addedAt": row["added_at"] or now_iso(),
+                "indexedAt": row["indexed_at"],
+                "isActive": bool(row["is_active"]) if row["is_active"] is not None else status == "ready",
+                "fileCount": file_count,
+                "sizeBytes": int(row["size_bytes"] or 0),
+                "wordCount": word_count,
+                "pageCount": row["page_count"],
+                "chunkCount": chunk_count,
+                "chunkSize": row["chunk_size"],
+                "preparation": json.loads(row["preparation_json"] or "{}").get("settings"),
+                "preparationIssueCount": json.loads(row["preparation_json"] or "{}").get("issueCount", 0),
+                "preparationModelName": json.loads(row["preparation_json"] or "{}").get("modelName"),
+                "embeddingModel": row["embedding_model"],
+                "embeddingModelId": row["embedding_model_id"],
+                "embeddingModelName": row["embedding_model_name"],
+                "cleaningProfileId": row["cleaning_profile_id"],
+                "cleaningProfileName": row["cleaning_profile_name"],
+                "cleaningProfileVersion": row["cleaning_profile_version"],
+                "cleaningRuleIds": parse_json_string_list(row["cleaning_rule_ids_json"]),
+                "error": row["error"],
+            }
+        )
+
+    return materials
+
+
+def set_material_active(user_data_path: str, material_id: str, is_active: bool) -> None:
+    init_db(user_data_path)
+    collection_id = collection_id_from_material_id(material_id)
+    if collection_id is None:
+        return
+
+    with connect(user_data_path) as conn:
+        row = conn.execute("SELECT id, name FROM collections WHERE id = ?", (collection_id,)).fetchone()
+        if not row:
+            return
+        conn.execute(
+            """
+            INSERT INTO tokensmith_collection_state(collection_id, status, kind, added_at, is_active)
+            VALUES (?, 'ready', 'folder', ?, ?)
+            ON CONFLICT(collection_id) DO UPDATE SET is_active = excluded.is_active
+            """,
+            (collection_id, now_iso(), 1 if is_active else 0),
+        )
+
+
+def has_chunks(user_data_path: str, material_ids: Optional[Sequence[str]] = None) -> bool:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        if not material_ids:
+            row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
+        else:
+            placeholders = ",".join("?" for _ in material_ids)
+            row = conn.execute(
+                f"""
+                SELECT 1
+                FROM chunks ch
+                JOIN documents d ON d.id = ch.document_id
+                JOIN folders f ON f.id = d.folder_id
+                JOIN collection_items ci ON ci.folder_id = f.id
+                WHERE CAST(ci.collection_id AS TEXT) IN ({placeholders})
+                LIMIT 1
+                """,
+                list(material_ids),
+            ).fetchone()
+
+    return row is not None
+
+
+def dump_index(user_data_path: str) -> Dict[str, Any]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        documents = [dict(row) for row in conn.execute("SELECT * FROM documents ORDER BY document_path").fetchall()]
+        chunk_rows = conn.execute(
+            """
+            SELECT
+                ch.*,
+                e.model AS embedding_model,
+                e.embedding AS embedding,
+                CAST(ci.collection_id AS TEXT) AS material_id,
+                col.name AS material_title,
+                d.document_path AS path
+            FROM chunks ch
+            JOIN documents d ON d.id = ch.document_id
+            JOIN folders f ON f.id = d.folder_id
+            LEFT JOIN collection_items ci ON ci.folder_id = f.id
+            LEFT JOIN collections col ON col.id = ci.collection_id
+            LEFT JOIN embeddings e ON e.chunk_id = ch.id
+            ORDER BY ch.id
+            """
+        ).fetchall()
+
+    chunks: List[Dict[str, Any]] = []
+    for row in chunk_rows:
+        chunk = dict(row)
+        embedding = chunk.pop("embedding", None)
+        embedding_model = chunk.get("embedding_model")
+        if embedding and embedding_model:
+            chunk["embeddings"] = {embedding_model: blob_to_vector(embedding).astype(float).tolist()}
+        chunk["rowid"] = chunk["id"]
+        chunk["text"] = chunk["chunk_text"]
+        chunk["document_title"] = chunk.get("title") or Path(str(chunk.get("path") or "")).stem
+        chunk["sectionHeader"] = chunk.get("section_header")
+        chunks.append(chunk)
+
+    return {"version": SCHEMA_VERSION, "documents": documents, "chunks": chunks, "updatedAt": now_iso()}

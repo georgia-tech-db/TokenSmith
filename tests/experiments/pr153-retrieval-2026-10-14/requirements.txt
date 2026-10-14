@@ -1,0 +1,17 @@
+# Exact Python package versions recorded for the original run. Python 3.12.
+numpy==2.5.2
+faiss-cpu==1.15.0
+networkx==3.1
+bokeh==3.4.1
+pandas==3.0.6
+PyYAML==6.0.3
+contourpy==1.4.0
+xyzservices==2026.9.1
+tornado==6.5.10
+python-dateutil==2.9.0.post0
+pytz==2026.5
+tzdata==2026.5
+six==1.17.0
+Jinja2==3.1.6
+packaging==26.3
+Pillow==12.3.0
