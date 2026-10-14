@@ -2,6 +2,7 @@ import type { ChatSource } from './app-state'
 import { practiceSourceKey, type PracticeAttempt, type PracticeFeedback, type PracticeRubric,
   type PracticeQuestion, type PracticeQuestionFormat, type PracticeTrueFalseFeedback, type PracticeTopic } from './practice'
 import { trimReferenceExchange } from './study-chat-pipeline'
+import { trueFalseStatementIssue } from './true-false-statement'
 import { hasSupportingQuote } from './practice-evidence'
 
 export type PracticeTask = 'question' | 'true_false_question' | 'feedback' | 'topics'
@@ -18,6 +19,7 @@ const questionSchema = object({
   explanation: string, hint: string
 })
 const trueFalseSchema = object({ ...questionSchema.properties,
+  question: { ...string, description: 'One declarative statement to judge True or False. Never an open-ended question, an instruction, or a sentence ending in a question mark.' },
   correctAnswer: { type: 'boolean', description: 'Whether the statement is true under its stated conditions, based only on the evidence.' },
   questionAssessment: { ...string, description: 'Check that the statement has a single defensible truth value and the evidence supports the answer key.' },
   questionIssue: { ...string, description: 'Empty only if the statement is unambiguous and its truth value is supported. Otherwise explain the problem.' }
@@ -56,6 +58,7 @@ export function practiceSystemPrompt(task: PracticeTask): string {
     'Prefer a short supporting sentence in prose when possible. Preserve the original math and markup inside evidence quotes, even if you format the formula differently in the question or explanation.',
     'Give a concise worked explanation connecting the essential ideas, with an example only when useful and supported. The hint should point to a reasoning step without revealing the solution. Keep answers and hints out of the question text.',
     ...(task === 'true_false_question' ? [
+      'Write a declarative sentence ending with a period. Do not ask what, why, how, or which; do not request an explanation or name a property. Even when the Chat reference is a question, turn the learning objective into a claim the student can judge True or False.',
       'Use one factual proposition with explicit scope, not a compound claim, double negative, subjective judgment, or trick wording. Vary true and false statements. Preserve necessary qualifications.',
       'Set correctAnswer to a JSON boolean, never a string. For a true statement, the cited passages must support it. For a false statement, they must contradict it; absence of evidence is not evidence of falsity. Explain the correction clearly.',
       'Before finalizing, use questionAssessment to check the statement, answer key, explanation and cited evidence agree. If its truth depends on unstated conditions or the evidence is insufficient, put the issue in questionIssue rather than inventing a definite answer. Otherwise set questionIssue to an empty string.'
@@ -90,10 +93,11 @@ export function parsePracticeTopics(raw: string, sources: ChatSource[]): Practic
   } catch { throw new Error('The model did not return usable topic suggestions. Enter a topic or try again.') }
 }
 
-export function quizQuestionPrompt({ questionNumber, previousQuestions = [], topic }: {
-  questionNumber: number; previousQuestions?: string[]; topic?: PracticeTopic
+export function quizQuestionPrompt({ questionNumber, previousQuestions = [], topic, correction }: {
+  questionNumber: number; previousQuestions?: string[]; topic?: PracticeTopic; correction?: string
 }): string {
-  return JSON.stringify({ task: 'Prepare a source-backed question package', questionNumber, previousQuestions,
+  return JSON.stringify({ task: 'Prepare one source-backed True/False statement package. The question field must contain a declarative statement, not a question.', questionNumber, previousQuestions,
+    ...(correction ? { correction } : {}),
     ...(topic ? { topic: topic.title, ...(topic.question && topic.answer ? {
       chatReference: trimReferenceExchange({ question: topic.question, answer: topic.answer }, 3000) } : {}) } : {}) })
 }
@@ -125,12 +129,20 @@ function array(value: unknown, min: number, max: number): unknown[] {
   return value
 }
 
+export class PracticeQuestionValidationError extends Error {
+  constructor(readonly reason: string) {
+    super('The model did not return a valid question with verifiable supporting passages. Try preparing the question again.')
+  }
+}
+
 export function parsePracticeQuestion(raw: string, sources: ChatSource[], format: PracticeQuestionFormat = 'short_answer'): {
   text: string; format: PracticeQuestionFormat; correctAnswer?: boolean; rubric: PracticeRubric; referenceAnswer: string; hint: string; sources: ChatSource[]
 } {
   try {
     const value = record(JSON.parse(raw))
     if (format === 'true_false') {
+      const issue = trueFalseStatementIssue(text(value.question))
+      if (issue) throw new Error(issue)
       text(value.questionAssessment)
       if (typeof value.correctAnswer !== 'boolean' || text(value.questionIssue, false)) throw new Error('No supported, unambiguous answer key.')
     }
@@ -155,8 +167,8 @@ export function parsePracticeQuestion(raw: string, sources: ChatSource[], format
       assumptions: array(value.assumptions, 0, 3).map(item => text(item)) },
       referenceAnswer: text(value.explanation), hint: text(value.hint),
       sources: sources.filter(source => cited.has(practiceSourceKey(source))) }
-  } catch {
-    throw new Error('The model did not return a valid question with verifiable supporting passages. Try preparing the question again.')
+  } catch (error) {
+    throw new PracticeQuestionValidationError(error instanceof Error ? error.message : 'Invalid question package.')
   }
 }
 
@@ -164,6 +176,8 @@ export function gradeTrueFalse(question: PracticeQuestion, answer: string): Prac
   if (question.format !== 'true_false' || typeof question.correctAnswer !== 'boolean' || !question.referenceAnswer?.trim() || !question.sources.length) {
     throw new Error('This question has no usable True/False answer key. Prepare another question.')
   }
+  const issue = trueFalseStatementIssue(question.text)
+  if (issue) throw new Error(issue)
   if (answer !== 'True' && answer !== 'False') throw new Error('Choose True or False before checking your answer.')
   return { kind: 'true_false', correct: (answer === 'True') === question.correctAnswer, explanation: question.referenceAnswer }
 }

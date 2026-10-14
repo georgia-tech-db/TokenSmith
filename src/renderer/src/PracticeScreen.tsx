@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw } from 'lucide-react'
 import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import { practiceAssisted, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
+import { practiceAssisted, practiceQuestionIssue, practiceAttemptFeedback, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
   type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
 import { gradeTrueFalse } from '@shared/quiz'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -229,7 +229,7 @@ export function PracticeScreen(props: Props) {
           {session.questions.map((item, index) => <details className="practice-recap-question" key={item.id}>
             <summary><span>{practiceQuestionText(item)}</span><span className="practice-muted">{practiceReviewLabel(item)}</span></summary>
             {item.rubric && <p className="practice-muted">{item.rubric.objective}</p>}
-            {item.attempts.at(-1) && <><h3>Your answer</h3><MessageText text={item.attempts.at(-1)!.answer} /><h3>Feedback</h3><PracticeFeedbackView feedback={item.attempts.at(-1)!.feedback} /></>}
+            {item.attempts.at(-1) && <><h3>Your answer</h3><MessageText text={item.attempts.at(-1)!.answer} /><h3>Feedback</h3><PracticeFeedbackView feedback={practiceAttemptFeedback(item, item.attempts.at(-1)!)} /></>}
             {item.answerRevealed && <p className="practice-muted">Explanation viewed</p>}
             <button type="button" className="practice-link" onClick={() => continueQuestion(index)}>Review question<ArrowRight size={16} /></button>
           </details>)}
@@ -243,8 +243,8 @@ export function PracticeScreen(props: Props) {
             busy={Boolean(pending)} sourcesOpen={index === session.currentIndex && materialsOpen}
             onShowSources={canShowSources(item) ? () => { continueQuestion(index); setMaterialsOpen(true) } : undefined}
             actions={index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
-          {(!question || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
-            <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />Retry question</button></div>}
+          {(!question || practiceQuestionIssue(question) || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
+            <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />{question && practiceQuestionIssue(question) ? 'Prepare another question' : 'Retry question'}</button></div>}
         </ConversationViewport>
       </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
         disabled={!scopeReady || !available} scope={scope} materials={props.materials} model={model} settings={settings}

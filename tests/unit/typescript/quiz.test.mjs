@@ -138,3 +138,28 @@ test('ambiguous questions are not graded and invented first-attempt progress is 
   assert.equal(parsePracticeFeedback(JSON.stringify({ ...feedback, improvement: 'Invented progress.' }), question.rubric, false).improvement, '')
   assert.equal(parsePracticeFeedback(JSON.stringify({ ...feedback, improvement: 'You now explain the ordering.' }), question.rubric, true).improvement, 'You now explain the ordering.')
 })
+
+test('True/False rejects open-ended prompts even when the model supplies a confident answer key', () => {
+  const binary = { ...packageData, correctAnswer: true, questionAssessment: 'Supported.', questionIssue: '' }
+  for (const question of [
+    'If a crash happens after updating the table but before updating the index, what state results?',
+    'What foundational guarantee ensures that neither change will be visible',
+    'Explain why partial updates are unsafe.',
+    'Assuming the table was written first, which property is needed?',
+    'Is the table consistent?',
+    'When does a leaf node split',
+    'Where are records stored',
+    'True/False: Describe what happens after a crash.'
+  ]) {
+    assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...binary, question }), [source], 'true_false'), /valid question/)
+    assert.throws(() => gradeTrueFalse({ ...binary, text: question, format: 'true_false', referenceAnswer: binary.explanation, sources: [source] }, 'False'), /cannot be graded/)
+  }
+  for (const statement of [
+    'A partial table update can leave an index inconsistent.',
+    'When a leaf node splits, the parent may need a new separator key.',
+    'Where no usable index exists, a full scan may be necessary.',
+    'The operator `?` is part of the expression.',
+    'The text "What happens?" is stored as a string.',
+    'A query explains how the data is selected.'
+  ]) assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify({ ...binary, question: statement }), [source], 'true_false'))
+})

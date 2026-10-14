@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Database, PanelRightOpen } from 'lucide-react'
-import { practiceQuestionText, practiceTimeline, type PracticeTopic, type PracticeQuestion } from '@shared/practice'
+import { practiceQuestionText, practiceQuestionIssue, practiceAttemptFeedback, practiceTimeline, type PracticeTopic, type PracticeQuestion } from '@shared/practice'
 import { MessageText } from './MessageText'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
 import { SelectedPassagePreview } from './SelectedPassagePreview'
@@ -23,6 +23,7 @@ export function PracticeQuestionView({ question, index, active, busy, onShowSour
     <div className="practice-question-messages">
       <PracticeMessage id={question.id}>
         <MessageText text={practiceQuestionText(question)} />
+        {!question.attempts.length && practiceQuestionIssue(question) && <p className="practice-muted">{practiceQuestionIssue(question)}</p>}
         {question.format !== 'true_false' && <p className="practice-muted">Saved short-answer exercise. Choose Next question for True/False practice.</p>}
       </PracticeMessage>
       {practiceTimeline(question).map((activity, eventIndex) => {
@@ -36,7 +37,7 @@ export function PracticeQuestionView({ question, index, active, busy, onShowSour
             <PracticeMessage id={`${attempt.id}:feedback`}>
               <section className="practice-feedback" aria-label="Practice feedback">
                 {attempt.assisted && <p className="practice-muted">With help or revision</p>}
-                <PracticeFeedbackView feedback={attempt.feedback} />
+                <PracticeFeedbackView feedback={practiceAttemptFeedback(question, attempt)} />
               </section>
             </PracticeMessage>
           </div>

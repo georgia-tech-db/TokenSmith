@@ -3,7 +3,7 @@ import type { TokenSmithBridge } from '@shared/bridge'
 import type { PracticeQuestion, PracticeSession } from '@shared/practice'
 import { practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
-import { parsePracticeQuestion, parsePracticeTopics, quizQuestionPrompt } from '../../shared/quiz'
+import { parsePracticeQuestion, PracticeQuestionValidationError, parsePracticeTopics, quizQuestionPrompt } from '../../shared/quiz'
 import { sourcesInScope, type StudyDocumentRef } from '../../shared/study-scope'
 
 export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel, settings: TokenSmithSettings,
@@ -67,13 +67,23 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
           session.questions.flatMap(question => question.sources.map(practiceSourceKey)), session.questions.length)
       signal.throwIfAborted()
       if (!sources.length) return null
-      const reply = await send(session, requestId,
-        quizQuestionPrompt({ questionNumber: session.questions.length + 1,
-          previousQuestions: session.questions.slice(-12).map(practiceQuestionText), topic: session.topic }), sources)
-      signal.throwIfAborted()
-      const prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false')
+      const prompt = { questionNumber: session.questions.length + 1,
+        previousQuestions: session.questions.slice(-12).map(practiceQuestionText), topic: session.topic }
+      let prepared: ReturnType<typeof parsePracticeQuestion> | undefined
+      let correction: string | undefined
+      for (let attempt = 0; attempt < 2; attempt++) {
+        signal.throwIfAborted()
+        const reply = await send(session, requestId, quizQuestionPrompt({ ...prompt, correction }), sources)
+        signal.throwIfAborted()
+        try { prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false'); break }
+        catch (error) {
+          if (!(error instanceof PracticeQuestionValidationError) || attempt === 1) throw error
+          correction = `The previous package failed validation: ${error.reason} Return a fresh, declarative True/False statement with a period, not a question or instruction. For each citation, copy a short exact quote and its Evidence ID from the SAME supplied passage. Do not combine quotes or alter their markup. Recheck the answer key against that evidence.`
+        }
+      }
+      if (!prepared) throw new Error('Could not prepare a True/False statement. Try again.')
       if (session.topic && session.questions.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase())) {
-        throw new Error('The model repeated an earlier question. Use the arrow to try another, or choose Practice another topic.')
+        throw new Error('The model repeated an earlier question. Try another question, or choose Practice another topic.')
       }
       return { id: crypto.randomUUID(), ...prepared,
         draft: '', attempts: [], reviewing: false, timeline: [] }

@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatSelectedPassage, ChatSource, Conversation, ModelRuntimeSettings } from './app-state'
 import type { StudyDocument, StudyDocumentRef } from './study-scope'
+import { trueFalseStatementIssue } from './true-false-statement'
 import { migratedContextMode } from './model-context'
 
 export type StudyMode = 'chat' | 'practice'
@@ -136,7 +137,7 @@ export function practiceMessages(question: PracticeQuestion): ChatMessage[] {
     if (activity.kind === 'attempt') {
       const attempt = question.attempts.find(item => item.id === activity.id)
       return attempt ? [{ id: attempt.id, role: 'user', text: attempt.answer },
-        { id: `${attempt.id}:feedback`, role: 'assistant', text: practiceFeedbackText(attempt.feedback) }] : []
+        { id: `${attempt.id}:feedback`, role: 'assistant', text: practiceFeedbackText(practiceAttemptFeedback(question, attempt)) }] : []
     }
     if (activity.kind === 'discussion') {
       const discussion = question.discussions?.find(item => item.id === activity.id)
@@ -148,8 +149,18 @@ export function practiceMessages(question: PracticeQuestion): ChatMessage[] {
   })]
 }
 
+export function practiceQuestionIssue(question: PracticeQuestion): string {
+  return question.format === 'true_false' ? trueFalseStatementIssue(question.text) : ''
+}
+
+// Preserve saved attempts, but never present a known malformed statement as a
+// correct/incorrect result, including in history or a handoff to Chat.
+export function practiceAttemptFeedback(question: PracticeQuestion, attempt: PracticeAttempt): PracticeAnswerFeedback {
+  return practiceQuestionIssue(question) || attempt.feedback
+}
+
 export function practiceQuestionText(question: PracticeQuestion): string {
-  return question.format === 'true_false' ? `True/False: ${question.text}` : question.text
+  return question.format === 'true_false' && !practiceQuestionIssue(question) ? `True/False: ${question.text}` : question.text
 }
 
 export function isTrueFalseFeedback(feedback: PracticeAnswerFeedback): feedback is PracticeTrueFalseFeedback {
@@ -164,6 +175,7 @@ export function practiceFeedbackText(feedback: PracticeAnswerFeedback): string {
 }
 
 export function practiceReviewLabel(question: PracticeQuestion): string {
+  if (practiceQuestionIssue(question)) return 'Question needs review'
   const attempt = question.attempts.at(-1)
   if (!attempt) return question.answerRevealed ? 'Explanation viewed' : 'Not answered'
   if (typeof attempt.feedback === 'string') return 'Feedback saved'
@@ -180,7 +192,7 @@ export function practiceReference(session: PracticeSession, question: PracticeQu
   const attempt = question.attempts.at(-1)
   return { sessionId: session.id, questionId: question.id, question: practiceQuestionText(question),
     answer: attempt?.answer ?? question.draft,
-    feedback: attempt ? practiceFeedbackText(attempt.feedback) : question.answerRevealed ? question.referenceAnswer ?? '' : question.hintUsed ? question.hint ?? '' : '', sources: question.sources,
+    feedback: practiceQuestionIssue(question) || (attempt ? practiceFeedbackText(practiceAttemptFeedback(question, attempt)) : question.answerRevealed ? question.referenceAnswer ?? '' : question.hintUsed ? question.hint ?? '' : ''), sources: question.sources,
     documents: session.documents.map(({ materialId, documentId }) => ({ materialId, documentId })) }
 }
 

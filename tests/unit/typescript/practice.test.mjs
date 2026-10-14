@@ -324,3 +324,51 @@ test('timeline keeps feedback, help and later revisions in order with stable sel
   assert.equal(practiceTimeline({ ...value, timeline: undefined }).length, 4)
   assert.deepEqual(normalizePracticeState({ mode: 'practice', sessions: [{ ...session, questions: [value] }] }).sessions[0].questions[0], value)
 })
+
+test('invalid statement or quotation gets one targeted retry while a valid package needs one call', async () => {
+  for (const invalid of [
+    { ...trueFalseData, question: 'If a crash interrupts an update, what state results?' },
+    { ...trueFalseData, criteria: [{ ...trueFalseData.criteria[0], evidence: [{ sourceKey: 'c1:8:unit.1', quote: 'Not in this passage.' }] }] }
+  ]) {
+    const requests = []
+    const { client } = harness({ sendChatMessage: async request => {
+      requests.push(request)
+      return { text: JSON.stringify(requests.length === 1 ? invalid : trueFalseData), sources: [source] }
+    } })
+    const result = await client.question(session, 'repair', new AbortController().signal)
+    assert.equal(result.text, trueFalseData.question)
+    assert.equal(requests.length, 2)
+    const correction = JSON.parse(requests[1].prompt).correction
+    assert.match(correction, /failed validation/)
+    assert.match(correction, /declarative True\/False statement/)
+    assert.match(correction, /SAME supplied passage/)
+    assert.deepEqual(requests[0].retrievedSources, requests[1].retrievedSources)
+    assert.equal(requests[0].requestId, requests[1].requestId, 'Stop controls the entire preparation including its retry')
+  }
+})
+
+test('repair stops after two invalid packages and cancellation prevents a repair request', async () => {
+  const invalid = { ...trueFalseData, question: 'What happens after a crash?' }
+  let count = 0
+  const { client } = harness({ sendChatMessage: async () => { count++; return { text: JSON.stringify(invalid), sources: [source] } } })
+  await assert.rejects(client.question(session, 'bad', new AbortController().signal), /valid question/)
+  assert.equal(count, 2)
+  const controller = new AbortController()
+  const cancelled = harness({ sendChatMessage: async () => { count++; controller.abort(); return { text: JSON.stringify(invalid), sources: [source] } } })
+  await assert.rejects(cancelled.client.question(session, 'cancel', controller.signal), { name: 'AbortError' })
+  assert.equal(count, 3)
+})
+
+test('saved malformed True/False attempts are retained but their incorrect verdict is suppressed everywhere', () => {
+  const saved = { ...question, format: 'true_false', correctAnswer: true,
+    text: 'If the crash happens between table and index updates, what state results?',
+    attempts: [{ id: 'old', answer: 'False', feedback: { kind: 'true_false', correct: false, explanation: 'Hidden invalid answer guide.' } }] }
+  const before = structuredClone(saved)
+  assert.equal(practiceReviewLabel(saved), 'Question needs review')
+  assert.match(practiceMessages(saved).at(-1).text, /cannot be graded/)
+  const copied = practiceChatConversation('fixed-chat', session, saved)
+  assert.match(copied.messages[0].text, /My answer: False/)
+  assert.match(copied.messages[1].text, /cannot be graded/)
+  assert.doesNotMatch(copied.messages[1].text, /Incorrect|Hidden invalid answer guide/)
+  assert.deepEqual(saved, before)
+})

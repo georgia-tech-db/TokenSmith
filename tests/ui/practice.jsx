@@ -132,6 +132,7 @@ window.tokensmith = {
         ? `The ancestor path lets insertion propagate a split to its parent${questionNumber > 2 && !params.has('duplicate-question') ? ` in insertion example ${questionNumber}` : ''}.`
         : `Insertion never uses the ancestor path to propagate a split to its parent${questionNumber > 2 ? ` in insertion example ${questionNumber}` : ''}.`
         : `Why does insertion keep track of ancestor nodes${questionCalls > 1 ? ` (question ${questionCalls})` : ''}?`,
+      ...(preparing && (params.has('open-question-always') || (params.has('open-question-first') && questionCalls === 1)) ? { question: 'If a crash interrupts the table update, what state results?' } : {}),
       ...(binary ? { correctAnswer: params.has('bad-true-false-key') ? 'true' : correctAnswer,
         questionAssessment: 'The passage directly supports or contradicts this statement.',
         questionIssue: params.has('ambiguous-true-false') ? 'The statement is ambiguous.' : '' } : {}),
