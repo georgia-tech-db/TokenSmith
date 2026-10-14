@@ -150,7 +150,8 @@ export function PracticeScreen(props: Props) {
     if (window.innerWidth <= 800) setSidebarOpen(false)
     const previous = state.sessions.find(item => item.id === id)
     if (previous) props.onScopeChange(scopeRefs(previous.documents))
-    onChange(current => ({ ...current, draftTopic: undefined, activeSessionId: id }))
+    onChange(current => ({ ...current, draftTopic: undefined, activeSessionId: id,
+      ...(id ? {} : { draftModelId: settings.application.defaultModelId }) }))
   }
   function deleteSession(id: string) {
     const target = state.sessions.find(item => item.id === id)
@@ -212,7 +213,7 @@ export function PracticeScreen(props: Props) {
     <section className="practice-main">
       <StudyHeader mode="practice" onModeChange={props.onModeChange} historyOpen={sidebarOpen} onHistoryToggle={() => setSidebarOpen(!sidebarOpen)}
         materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(!materialsOpen)} count={scope.length}>
-        <ChatModelPicker models={models} selectedModel={model} disabled={Boolean(pending) || Boolean(session)}
+        <ChatModelPicker models={models} selectedModel={model} selectedModelId={session ? session.modelId : state.draftModelId} disabled={Boolean(pending) || Boolean(session)}
           onSelect={props.onSelectModel} onConnect={props.onConnectCloud} onManage={props.onManageModels} />
         {session && <button className="icon-button subtle" type="button" aria-label="Review progress" title="Review progress"
           aria-pressed={reviewOpen} disabled={Boolean(pending)} onClick={() => setReviewOpen(open => !open)}><ChartColumn size={18} aria-hidden="true" /></button>}

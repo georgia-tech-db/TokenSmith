@@ -98,6 +98,7 @@ export interface PracticeState {
   draftScope?: StudyDocumentRef[]
   draftTopic?: PracticeTopic
   topicSuggestions?: { key: string; topics: PracticeTopic[] }
+  draftModelId?: string
 }
 
 export interface PracticeReference {
@@ -199,7 +200,7 @@ export function practiceChatConversation(id: string, session: PracticeSession, q
   // Copy only feedback the student has already seen, never the hidden answer guide.
   if (reference.feedback) messages.push({ id: `${id}:feedback`, role: 'assistant',
     text: reference.feedback, sources: reference.sources })
-  return { id, title: `Practice: ${question.text.slice(0, 65)}`, period: 'Today', messages,
+  return { id, modelId: session.modelId, title: `Practice: ${question.text.slice(0, 65)}`, period: 'Today', messages,
     practiceReference: reference, documentScope: reference.documents }
 }
 
@@ -209,7 +210,7 @@ export function normalizePracticeState(value?: PracticeState): PracticeState {
     Array.isArray(session.documents) && Array.isArray(session.questions) && session.modelSettings)
     .map(session => ({ ...session, modelSettings: { ...session.modelSettings,
       contextLengthMode: migratedContextMode(session.modelSettings) } }))
-  return { mode: value.mode === 'practice' ? 'practice' : 'chat', sessions, ...(value.draftScope ? { draftScope: value.draftScope } : {}),
+  return { mode: value.mode === 'practice' ? 'practice' : 'chat', sessions, draftModelId: value.draftModelId, ...(value.draftScope ? { draftScope: value.draftScope } : {}),
     ...(value.draftTopic?.title?.trim() ? { draftTopic: value.draftTopic } : {}),
     ...(value.topicSuggestions ? { topicSuggestions: value.topicSuggestions } : {}),
     activeSessionId: sessions.some(session => session.id === value.activeSessionId) ? value.activeSessionId : undefined }

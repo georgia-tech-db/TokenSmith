@@ -8,6 +8,9 @@ import { requireTranspiledTs } from '../unit/typescript/ts-module-loader.mjs'
 
 const { createEmbeddingDeviceManager } = requireTranspiledTs('src/main/engine/embedding-device.ts')
 const prepareDevice = createEmbeddingDeviceManager()
+const expectedDevice = process.env.TOKENSMITH_TEST_EXPECT_DEVICE
+assert.ok(expectedDevice === undefined || ['cpu', 'gpu'].includes(expectedDevice),
+  'TOKENSMITH_TEST_EXPECT_DEVICE must be cpu or gpu when set')
 const base = process.env.TOKENSMITH_TEST_OLLAMA_URL || 'http://127.0.0.1:11434'
 const model = { id: 'nomic-test', name: 'Nomic', engine: 'ollama', role: 'embedder',
   ollamaModelName: 'nomic-embed-text:latest', ollamaBaseUrl: base }
@@ -60,8 +63,12 @@ try {
     const ps = await fetch(`${base}/api/ps`).then(response => response.json())
     const loaded = ps.models.find(item => item.name === model.ollamaModelName)
     assert.ok(loaded, 'Embedding model must be loaded after the query')
-    if (enabled === false) assert.equal(loaded.size_vram, 0, 'CPU mode must use no GPU memory')
-    if (label === 'gpu' && results[0].gpuBytes > 0) assert.ok(loaded.size_vram > 0, 'Returning to GPU must not reuse the CPU runner')
+    assert.ok(Number.isFinite(loaded.size_vram) && loaded.size_vram >= 0, 'Ollama must report GPU residency')
+    if (enabled === false || expectedDevice === 'cpu') {
+      assert.equal(loaded.size_vram, 0, `${label}: CPU execution must use no GPU memory`)
+    } else if (expectedDevice === 'gpu' || (label === 'gpu' && results[0].gpuBytes > 0)) {
+      assert.ok(loaded.size_vram > 0, `${label}: automatic acceleration must use the available GPU, including after CPU mode`)
+    }
     const measurement = { mode: label, gpuBytes: loaded.size_vram, totalMs: Math.round(performance.now() - start), ...data }
     results.push(measurement)
     console.log(JSON.stringify(measurement))

@@ -3,6 +3,8 @@ const params = new URLSearchParams(location.search)
 const storageKey = `practice-ui-test:${params.get('run') || 'default'}`
 const model = { id: 'test', name: 'Practice test model', engine: 'ollama', role: 'both', status: 'ready', ollamaModelName: 'ui-test', addedAt: '', contextLength: 8192 }
 if (params.has('model-unavailable')) model.status = 'missing'
+const cloud = { id: 'cloud', name: 'Cloud test model', engine: 'remote', role: 'generator', status: 'ready',
+  providerId: 'custom', providerName: 'Test provider', remoteModelName: 'cloud-test', cloudCredentialStatus: 'connected', addedAt: '', contextLength: 16384 }
 const materials = [
   { id: 'c1', title: 'Database Systems', status: 'ready', kind: 'folder', isActive: true, path: '/fixture/db', indexedAt: '2026-10-06' },
   { id: 'c2', title: 'Poems', status: 'ready', kind: 'folder', isActive: false, path: '/fixture/poems', indexedAt: '2026-10-06' }
@@ -23,12 +25,21 @@ if (params.has('long-catalog')) {
 }
 let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   appVersion: 'UI test', activeScreen: 'chat', activeConversationId: 'chat-test',
-  conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }],
+  conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }, ...(params.has('model-selection') ? [
+    { id: 'a', title: 'Local conversation', period: 'Today', modelId: model.id, messages: [] },
+    { id: 'b', title: 'Cloud conversation', period: 'Today', modelId: cloud.id, messages: [] },
+    { id: 'missing', title: 'Removed model conversation', period: 'Today', modelId: 'removed', messages: [] },
+    { id: 'disconnected', title: 'Disconnected conversation', period: 'Today', modelId: 'disconnected', messages: [] }
+  ] : [])],
   practice: { mode: params.has('practice') ? 'practice' : 'chat', sessions: [] },
-  models: [model], selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials,
-  settings: { application: { suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources') }, modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 } } }
+  models: params.has('model-selection') ? [model, cloud, { ...cloud, id: 'disconnected', remoteModelName: 'cloud-disconnected', cloudCredentialStatus: 'reconnect', status: 'needsRuntime' },
+    { id: 'search', name: 'Search only', role: 'embedder', engine: 'ollama', ollamaModelName: 'search-only', status: 'ready' }] : [model],
+  selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials,
+  settings: { application: { defaultModelId: model.id, suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources') },
+    modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 }, cloud: { contextLength: 16384, maxLength: 2048 } } }
 }
 const calls = []
+const progressListeners = new Set()
 let questionCalls = 0
 const sourceFor = (document, index) => ({
   title: document.title, documentTitle: document.title, materialId: document.materialId, documentId: document.documentId,
@@ -36,7 +47,9 @@ const sourceFor = (document, index) => ({
   excerpt: 'The ancestor path allows a split to propagate to parent nodes.',
   context: 'The ancestor path allows a split to propagate to parent nodes.', lineFrom: 1, lineTo: 4
 })
-window.practiceTest = { calls, state: () => state }
+window.practiceTest = { calls, state: () => state,
+  removeLocalModel: () => progressListeners.forEach(listener => listener({ model: 'ui-test', status: 'removed', percent: 0 })),
+  disconnectCloud: () => { state.models = state.models.map(model => model.id === 'cloud' ? { ...model, status: 'needsRuntime', cloudCredentialStatus: 'reconnect' } : model); sessionStorage.setItem(storageKey, JSON.stringify(state)) } }
 window.tokensmith = {
   getAppVersion: async () => params.has('new-version') ? 'UI test next' : 'UI test',
   loadAppState: async () => state,
@@ -49,7 +62,7 @@ window.tokensmith = {
     return { path: '/fixture/logs/tokensmith.log', text, sizeBytes: text.length, maxBytes: 10000, truncated: false }
   },
   listEngines: async () => [], listMaterials: async () => state.materials,
-  onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: () => () => {},
+  onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: listener => { progressListeners.add(listener); return () => progressListeners.delete(listener) },
   cancelChatRequest: async id => { calls.push({ kind: 'cancel', id }); return true },
   studyDocuments: async () => {
     if (params.has('catalog-error')) throw new Error('The document catalog is temporarily unavailable.')
@@ -57,6 +70,7 @@ window.tokensmith = {
   },
   searchLibrary: async (query, materials, limit, models, mode, options) => {
     calls.push({ kind: 'search', query, mode, options })
+    if (params.has('slow-search')) await new Promise(resolve => setTimeout(resolve, 1500))
     if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))
     if (params.has('no-passages')) return []
     return Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, index) => {
@@ -82,7 +96,7 @@ window.tokensmith = {
     if (params.has('no-passages') || (params.has('exhausted') && index >= 1)) return []
     return Array.from({ length: params.has('many-sources') ? 6 : 1 }, (_, i) => sourceFor(selected[index % selected.length], index * 10 + i))
   },
-  resolveChatQuestion: async () => ({ mode: 'contextual', query: 'Explain ancestor paths during insertion.', clarification: '', reasoning: false }),
+  resolveChatQuestion: async request => { calls.push({ kind: 'rewrite', request }); return { mode: 'contextual', query: 'Explain ancestor paths during insertion.', clarification: '', reasoning: false } },
   sendChatMessage: async request => {
     const kind = request.practiceTask || 'discussion'
     if (kind === 'question' || kind === 'feedback') throw new Error('Short-answer practice is retired.')

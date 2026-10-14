@@ -221,6 +221,7 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string
+  modelId: string
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
@@ -246,7 +247,6 @@ export interface AppStateSnapshot {
   studyScope?: StudyDocumentRef[]
   materials: CourseMaterial[]
   models: LocalModel[]
-  selectedModelId: string
   selectedEmbeddingModelId: string
   settings: TokenSmithSettings
   updatedAt: string

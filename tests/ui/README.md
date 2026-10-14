@@ -29,6 +29,14 @@ component failed both checks before the fix.
 
 ## Cloud generator setup
 
+Run `node tests/ui/chat-model-selection-check.mjs` against the preview server (set
+`PRACTICE_UI_URL` when using a port other than 5188). It checks per-chat model
+memory, restart persistence, default changes, deleted/disconnected models,
+Practice model isolation and discussion handoff, model/settings capture during
+an in-flight request, cloud setup, first-run selection, and desktop/mobile layouts.
+The bridge is simulated; no real cloud requests or credentials are used. Set
+`PLAYWRIGHT_MODULE` and `CHROME_PATH` when Playwright/Chrome are installed externally.
+
 With the same preview server, open `/tests/ui/cloud-generators.html`. This uses the production App, picker, and connection sheet with a disposable fake bridge. Use demo strings only; no real key or network request is needed.
 
 - Open the chat model picker, choose “Connect a cloud model,” select a provider, enter `demo-key`, choose a model, and use it. Verify the draft, previous messages, and selected book remain, with focus returning to the composer. Nomic must stay out of the chat picker.

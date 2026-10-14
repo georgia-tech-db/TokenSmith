@@ -1,20 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Check, ChevronDown, Cloud, Laptop, Plus, Search, Settings2 } from 'lucide-react'
 import type { LocalModel } from '@shared/app-state'
-import { isCloudGenerator } from '@shared/cloud-generators'
+import { isAnswerModel } from '@shared/chat-model-selection'
 
-export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onConnect, onManage }: {
-  models: LocalModel[]; selectedModel?: LocalModel; disabled: boolean
+export function ChatModelPicker({ models, selectedModel, selectedModelId, disabled, onSelect, onConnect, onManage }: {
+  models: LocalModel[]; selectedModel?: LocalModel; selectedModelId?: string; disabled: boolean
   onSelect: (id: string) => void; onConnect: (model?: LocalModel) => void; onManage: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const menuId = useId()
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const label = (model: LocalModel) => model.remoteModelName || model.ollamaModelName || model.name
-  const choices = models.filter(model => isCloudGenerator(model) ||
-    (model.engine === 'ollama' && model.role !== 'embedder' && model.status === 'ready'))
+  const choices = models.filter(isAnswerModel)
   const filtered = choices.filter(model => `${label(model)} ${model.providerName || ''}`.toLowerCase().includes(query.toLowerCase()))
   function close() { setOpen(false); trigger.current?.focus() }
   useEffect(() => {
@@ -36,12 +36,12 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
     }
   }}>
     <button ref={trigger} className="chat-model-trigger" type="button" disabled={disabled}
-      aria-label="Choose chat model" aria-expanded={open} aria-controls="chat-model-menu"
+      aria-label="Choose chat model" aria-expanded={open} aria-controls={menuId}
       onClick={() => { setOpen(!open); setQuery('') }}>
       {selectedModel?.engine === 'remote' ? <Cloud size={17} /> : <Laptop size={17} />}
-      <span>{selectedModel ? label(selectedModel) : 'Choose a model'}</span><ChevronDown size={16} />
+      <span>{selectedModel ? label(selectedModel) : selectedModelId ? 'Model unavailable' : 'Choose a model'}</span><ChevronDown size={16} />
     </button>
-    {open && <div className="chat-model-menu" id="chat-model-menu" aria-label="Chat models">
+    {open && <div className="chat-model-menu" id={menuId} aria-label="Chat models">
       <label className="cloud-search"><Search size={16} /><input ref={search} type="search" aria-label="Find a chat model" placeholder="Find a model…" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <div className="chat-model-options">
         {(['device', 'cloud'] as const).map(group => {
@@ -49,14 +49,14 @@ export function ChatModelPicker({ models, selectedModel, disabled, onSelect, onC
           return entries.length > 0 && <div key={group}>
             <p className="cloud-eyebrow">{group === 'cloud' ? 'Cloud' : 'On this device'}</p>
             {entries.map(model => <button type="button" className="chat-model-option" key={model.id}
-              aria-label={`${label(model)}${model.status !== 'ready' ? ', API key required' : ''}`}
-              onClick={() => { close(); model.status === 'ready' ? onSelect(model.id) : onConnect(model) }}>
-              <span><strong>{label(model)}</strong><small>{model.status !== 'ready' ? 'API key required' : model.providerName || 'Ollama'}</small></span>
+              aria-label={`${label(model)}${model.status !== 'ready' ? ', unavailable' : ''}`}
+              onClick={() => { close(); model.engine === 'remote' && model.status !== 'ready' ? onConnect(model) : onSelect(model.id) }}>
+              <span><strong>{label(model)}</strong><small>{model.status !== 'ready' ? model.engine === 'remote' ? 'Reconnect' : 'Unavailable' : model.providerName || 'Ollama'}</small></span>
               {selectedModel?.id === model.id && <Check size={17} aria-label="Selected" />}
             </button>)}
           </div>
         })}
-        {!filtered.length && <p className="cloud-muted">{choices.length ? 'No matching models.' : 'Choose a cloud model to get started.'}</p>}
+        {!filtered.length && <p className="cloud-muted">{choices.length ? 'No matching models.' : 'No chat models configured.'}</p>}
       </div>
       <div className="chat-model-menu-footer">
         <button type="button" onClick={() => { close(); onConnect() }}><Plus size={17} /><span>Connect a cloud model</span></button>

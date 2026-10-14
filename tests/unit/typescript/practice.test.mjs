@@ -87,12 +87,14 @@ test('topic discovery uses one model call and preserves full source text only fo
 test('Chat copies the selected exercise and visible feedback without revealing an unanswered key', () => {
   const binary = { ...question, ...parsePracticeQuestion(JSON.stringify(trueFalseData), [source], 'true_false'), draft: 'False' }
   const unanswered = practiceChatConversation('chat-1', session, binary)
+  assert.equal(unanswered.modelId, session.modelId)
   assert.equal(unanswered.messages.length, 1)
   assert.match(unanswered.messages[0].text, /My selected answer: False/)
   assert.equal(unanswered.messages.some(message => message.text.includes(binary.referenceAnswer)), false)
   const checked = { ...binary, attempts: [{ id: 'a1', answer: 'False', feedback: gradeTrueFalse(binary, 'False'), assisted: false, durationMs: 0 }] }
   const before = structuredClone(checked)
   const copied = practiceChatConversation('chat-2', session, checked)
+  assert.equal(copied.modelId, session.modelId)
   assert.deepEqual(copied.messages.map(message => message.role), ['user', 'assistant'])
   assert.match(copied.messages[0].text, /My answer: False/)
   assert.match(copied.messages[1].text, /^Incorrect\n\n/)
@@ -105,7 +107,7 @@ test('Chat copies the selected exercise and visible feedback without revealing a
 test('practice state preserves saved attempts, scopes, and old transcripts across reloads', () => {
   assert.deepEqual(normalizePracticeState(), emptyPracticeState())
   assert.deepEqual(normalizePracticeState({ sessions: null }), emptyPracticeState())
-  const saved = { mode: 'practice', activeSessionId: session.id, sessions: [session] }
+  const saved = { mode: 'practice', activeSessionId: session.id, draftModelId: model.id, sessions: [session] }
   assert.deepEqual(normalizePracticeState(JSON.parse(JSON.stringify(saved))), saved)
   assert.equal(normalizePracticeState({ ...saved, activeSessionId: 'missing' }).activeSessionId, undefined)
 })

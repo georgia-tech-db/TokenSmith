@@ -4,7 +4,8 @@ import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const runtimeDir = join(process.cwd(), '.coverage-ts-runtime')
+// Node runs test files in parallel processes, so each process needs its own generated modules.
+const runtimeDir = join(process.cwd(), '.coverage-ts-runtime', String(process.pid))
 
 export function requireTranspiledTs(sourcePath) {
   mkdirSync(runtimeDir, { recursive: true })
@@ -35,7 +36,7 @@ export function requireTranspiledTs(sourcePath) {
     })
 
     mkdirSync(dirname(outputPath), { recursive: true })
-    // Parallel test processes share this cache; readers must never see a partial module.
+    // Publish each generated module only after its contents have been written.
     const temporaryPath = `${outputPath}.${process.pid}.tmp`
     writeFileSync(temporaryPath, output.outputText, 'utf8')
     renameSync(temporaryPath, outputPath)
