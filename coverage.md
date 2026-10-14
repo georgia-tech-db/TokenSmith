@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 5025/16843 | 29.8% |
+| Frontend / Electron (TypeScript / TSX) | 5330/17300 | 30.8% |
 | Backend (Python) | 2174/2408 | 90.3% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -30,7 +30,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/remote-chat-service.ts` | 322/378 | 85.2% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
-| `src/main/engine/study-chat-format.ts` | 842/870 | 96.8% |
+| `src/main/engine/study-chat-format.ts` | 880/904 | 97.3% |
 | `src/main/engine/study-engine-core.ts` | 86/93 | 92.5% |
 | `src/main/index.ts` | 0/608 | 0.0% |
 | `src/main/python/python-engine-service.ts` | 207/824 | 25.1% |
@@ -44,15 +44,15 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
 | `src/preload/index.ts` | 0/155 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
-| `src/renderer/src/AnswerExplanation.tsx` | 0/54 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6914 | 0.0% |
+| `src/renderer/src/AnswerExplanation.tsx` | 0/60 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6606 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
 | `src/renderer/src/CloudGeneratorDialog.tsx` | 0/204 | 0.0% |
 | `src/renderer/src/components/DeviceRecommendationPanel.tsx` | 0/97 | 0.0% |
-| `src/renderer/src/ConversationViewport.tsx` | 0/231 | 0.0% |
-| `src/renderer/src/GenerationStatus.tsx` | 0/27 | 0.0% |
+| `src/renderer/src/ConversationViewport.tsx` | 0/252 | 0.0% |
+| `src/renderer/src/GenerationStatus.tsx` | 0/28 | 0.0% |
 | `src/renderer/src/hooks/useDeviceCapabilities.ts` | 0/51 | 0.0% |
 | `src/renderer/src/hooks/useGenerationProgress.ts` | 0/83 | 0.0% |
 | `src/renderer/src/hooks/useSourceReader.ts` | 0/52 | 0.0% |
@@ -61,22 +61,30 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 107/107 | 100.0% |
 | `src/renderer/src/MarkdownSourceViewer.tsx` | 95/150 | 63.3% |
+| `src/renderer/src/MessageAvatar.tsx` | 0/8 | 0.0% |
+| `src/renderer/src/MessageComposer.tsx` | 0/37 | 0.0% |
 | `src/renderer/src/MessageText.tsx` | 35/36 | 97.2% |
-| `src/renderer/src/practice-client.ts` | 39/39 | 100.0% |
-| `src/renderer/src/PracticeFeedbackView.tsx` | 0/22 | 0.0% |
-| `src/renderer/src/PracticeQuestionView.tsx` | 0/75 | 0.0% |
-| `src/renderer/src/PracticeScreen.tsx` | 0/212 | 0.0% |
+| `src/renderer/src/practice-client.ts` | 106/106 | 100.0% |
+| `src/renderer/src/PracticeChatSuggestions.tsx` | 0/57 | 0.0% |
+| `src/renderer/src/PracticeComposer.tsx` | 0/33 | 0.0% |
+| `src/renderer/src/PracticeFeedbackView.tsx` | 0/26 | 0.0% |
+| `src/renderer/src/PracticeQuestionView.tsx` | 0/79 | 0.0% |
+| `src/renderer/src/PracticeScreen.tsx` | 0/266 | 0.0% |
+| `src/renderer/src/PracticeTopicPicker.tsx` | 0/68 | 0.0% |
 | `src/renderer/src/QuestionEditor.tsx` | 0/63 | 0.0% |
 | `src/renderer/src/remark-model-math.ts` | 128/128 | 100.0% |
-| `src/renderer/src/SelectedPassagePreview.tsx` | 0/21 | 0.0% |
+| `src/renderer/src/SelectedPassagePreview.tsx` | 0/22 | 0.0% |
+| `src/renderer/src/source-display.ts` | 0/18 | 0.0% |
 | `src/renderer/src/source-navigation.ts` | 30/30 | 100.0% |
 | `src/renderer/src/SourceNavigation.tsx` | 22/23 | 95.7% |
-| `src/renderer/src/StudyDocumentPicker.tsx` | 0/39 | 0.0% |
-| `src/renderer/src/StudyHeader.tsx` | 0/27 | 0.0% |
-| `src/renderer/src/StudyMaterialsPane.tsx` | 0/32 | 0.0% |
+| `src/renderer/src/SourceTray.tsx` | 0/80 | 0.0% |
+| `src/renderer/src/StudyDocumentPicker.tsx` | 0/44 | 0.0% |
+| `src/renderer/src/StudyHeader.tsx` | 0/35 | 0.0% |
+| `src/renderer/src/StudyMaterialsPane.tsx` | 0/34 | 0.0% |
 | `src/renderer/src/StudyModeTabs.tsx` | 0/10 | 0.0% |
+| `src/renderer/src/StudySidebar.tsx` | 0/59 | 0.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
-| `src/shared/app-state.ts` | 0/252 | 0.0% |
+| `src/shared/app-state.ts` | 0/253 | 0.0% |
 | `src/shared/bridge.ts` | 0/97 | 0.0% |
 | `src/shared/chat-model-selection.ts` | 38/38 | 100.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
@@ -90,22 +98,23 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/generation-estimate.ts` | 82/82 | 100.0% |
 | `src/shared/model-catalog.ts` | 29/34 | 85.3% |
 | `src/shared/model-context.ts` | 62/66 | 93.9% |
-| `src/shared/model-defaults.ts` | 87/87 | 100.0% |
+| `src/shared/model-defaults.ts` | 100/100 | 100.0% |
 | `src/shared/model-providers.ts` | 52/52 | 100.0% |
 | `src/shared/model-recommendation.ts` | 58/60 | 96.7% |
 | `src/shared/ollama.ts` | 66/66 | 100.0% |
-| `src/shared/practice.ts` | 119/122 | 97.5% |
+| `src/shared/practice-evidence.ts` | 29/29 | 100.0% |
+| `src/shared/practice.ts` | 217/217 | 100.0% |
 | `src/shared/preparation.ts` | 51/51 | 100.0% |
-| `src/shared/quiz.ts` | 145/145 | 100.0% |
+| `src/shared/quiz.ts` | 198/198 | 100.0% |
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
 | `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
 | `src/shared/study-chat-pipeline.ts` | 79/79 | 100.0% |
-| `src/shared/study-scope.ts` | 40/40 | 100.0% |
+| `src/shared/study-scope.ts` | 47/47 | 100.0% |
 | `src/shared/typography.ts` | 15/15 | 100.0% |
 
 </details>
 
-Measured commit: a6d3d8a9b36052a236b2e61cff1f3cc2d56fce49
+Measured commit: 79c6bfefa46a9f378525968297cf088e73094cf3
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38408831094)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/38517167104)
