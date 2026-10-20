@@ -75,8 +75,13 @@ These checks verify behavior, not prediction accuracy. Predictions improve throu
 Use `/tests/ui/generation-progress.html?preview=markdown` (or `?preview=pdf`) with the same preview server. These variants supply tiny fixture documents through the fake bridge; no user files are opened.
 
 - Send a question. The first source opens automatically at its passage/page inside Chat, with navigation and the bottom progress strip still accessible.
-- **Deliver answer** closes the automatic reader immediately while the strip continues Preparing follow-ups. **Finish suggestions** updates the same answer.
-- Close the reader yourself during generation; it must remain closed. Stop or fail the request; the automatic reader must close. Visit Settings; it must not remain above Settings or reopen when the answer arrives.
+- **Deliver answer** closes the automatic reader immediately unless **Keep open** was selected. The progress strip continues to show **Preparing follow-ups**. **Finish suggestions** updates the same answer.
+- Select **Keep open**, scroll through the source, then select **Deliver answer**. The reader must stay open at the same scroll position, with **Stays open** and **Answer ready** visible. **Return to chat** closes it. Start another request, select **Keep open**, then select **Stop**. The reader must stay open and show **Generation stopped**.
+- Close the reader during generation. It must stay closed when the answer arrives. Without **Keep open**, stopping or failing the request must close the automatic reader. Opening **Settings** must also close the reader and prevent it from reopening when the answer arrives.
+- Close the reader during generation, visit **Settings**, return to **Chat**, then reopen a supporting passage. The reader must show the original question, and delivering the answer must show **Answer ready**. Close and reopen it while follow-ups are pending. The original question and **Answer ready** must remain visible. Check both Markdown and PDF sources.
+- Simplify an older answer or retry it with reasoning. Close its reader, open **Sources** on another answer, and reopen a supporting passage. The reader must still show the question and evidence for the answer being regenerated. Check both Markdown and PDF sources.
+- For an automatic PDF reader, press Escape immediately after it opens without clicking inside it. The reader must close and stay closed when the answer arrives.
+- Keep the PDF reader open during simplification or a reasoning retry. When the answer finishes, Escape must still close the reader. If focus is in its search box, completion must leave it there.
 - Add `&slow-source`, send, deliver the answer, then click **Finish source load**. The late load must not open a reader. Repeat with Stop and a conversation switch.
 - Add `&answer-delay`, send, and dismiss the automatic reader. Click **Deliver answer**, then immediately open Second source manually. After the two-second answer delay, that manually opened source must remain visible. Close it and verify the answer is already present.
 - Turn Show Sources off: no automatic reader should open. With no retrieved source or an unavailable document, answer generation must continue normally.
@@ -93,7 +98,7 @@ Service tests separately cover encrypted restart persistence, endpoint isolation
 
 Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies two Markdown files and two PDFs, both as retrieved sources and as a Library collection.
 
-- Expand Contents, click the second Details entry, and verify that it jumps to the second matching section. Summary uses Setext syntax and must appear; `# Not a heading` inside the code fence must not. Back to chunk returns to the highlighted passage. Collapse Contents, reopen another Markdown source, and confirm the preference is remembered.
+- Expand Contents, click the second Details entry, and verify that it jumps to the second matching section. Summary uses Setext syntax and must appear; `# Not a heading` inside the code fence must not. **Jump to passage** returns to the highlighted passage. Collapse Contents, reopen another Markdown source, and confirm the preference is remembered.
 - Next source visits PDF, Markdown, then PDF, showing Source 1–4 of 4. Previous visits the reverse order. Boundary buttons are disabled. PDF page navigation remains independent.
 - Navigate to a different source while generation is pending, then Deliver answer. The chosen reader must stay open.
 - In Library, open Course book, select slides.pdf, and open Page 1. It starts at Source 2 of 4; Next opens exercises.md and then appendix.pdf, regardless of which document's chunks are selected behind the reader.
@@ -101,6 +106,21 @@ Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies t
 - Check 866px and 390px widths. The header controls remain visible; Contents becomes a panel above the text in narrow windows.
 
 Parsed heading targets and mixed-source ordering also run in the TypeScript unit suite.
+
+To run the automated source reader checks, start the preview server above, then run:
+
+```sh
+PRACTICE_UI_URL=http://127.0.0.1:5186/tests/ui/practice.html node tests/ui/source-preview-check.mjs
+```
+
+This check requires Playwright. If Playwright is installed outside this checkout, set `PLAYWRIGHT_MODULE` to its module entry point. Set `CHROME_PATH` to use a specific installed browser.
+
+The check uses fixture documents to verify:
+
+- The original question, section-title fallbacks, and passage navigation.
+- Retained scroll position, automatic closing, and PDF keyboard focus and Escape handling.
+- Reopening Markdown and PDF sources during answer and follow-up generation, including simplification and reasoning retries for earlier answers.
+- Both app themes, narrow layouts, and navigation back to the cited PDF page.
 
 ## Query plans
 

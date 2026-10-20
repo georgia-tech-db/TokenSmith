@@ -54,6 +54,10 @@ window.tokensmith={
   getAppVersion:async()=> 'UI test',loadAppState:async()=>state,
   saveAppState:async next=>{state=next;sessionStorage.setItem(storageKey,JSON.stringify(next));return next},
   listEngines:async()=>[],listMaterials:async()=>state.materials,
+  studyDocuments:async()=>materials.flatMap(material=>(params.has('mixed')?mixedSources:[source]).map((item,index)=>({
+    materialId:material.id,documentId:index+1,title:item.title,path:item.path??'/fixture/book.md',
+    collectionName:material.title,chunkCount:1
+  }))),
   onMaterialIndexProgress:()=>()=>{},onOllamaPullProgress:()=>()=>{},
   preparationReport:async()=>({documents:mixedSources.map(source=>({path:source.path,title:source.title,status:'ready',chunkCount:1,chunks:[{text:source.excerpt,pageStart:source.pageStart,pageEnd:source.pageEnd,lineFrom:source.lineFrom,lineTo:source.lineTo}]}))}),
   getOllamaStatus:async()=>({running:true,models:[]}),

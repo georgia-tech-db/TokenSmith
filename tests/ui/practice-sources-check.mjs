@@ -119,7 +119,7 @@ try {
   await chat.locator('.source-tray-card').first().click()
   await reader.waitFor()
   assert.match(await reader.innerText(), /ancestor path/)
-  await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
+  await page.getByRole('button', { name: 'Return to chat', exact: true }).click()
   await chat.getByRole('button', { name: 'Practice', exact: true }).click()
   await cards.waitFor()
   assert.equal(await cards.count(), 1)

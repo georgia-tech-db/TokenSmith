@@ -27,6 +27,7 @@ async function checkScrolling(frame, label) {
   const documents = panel.getByRole('region', { name: 'Folders and documents', exact: true })
   const sources = panel.getByRole('region', { name: 'Source passages', exact: true })
   const heading = panel.getByRole('heading', { name: 'Sources', exact: true })
+  await heading.waitFor()
   assert.equal(await heading.count(), 1)
   assert.equal(await panel.getByText('Supporting passages', { exact: true }).count(), 0)
   assert.equal(await panel.getByText('Top sources', { exact: true }).count(), 0)
@@ -64,7 +65,7 @@ async function checkScrolling(frame, label) {
   const cards = sources.locator('.source-tray-card')
   await cards.last().click()
   await page.getByRole('dialog', { name: 'Source Markdown viewer' }).waitFor()
-  await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
+  await page.getByRole('button', { name: frame === chat ? 'Return to chat' : 'Close Markdown viewer', exact: true }).click()
   await page.screenshot({ path: `${output}/${label}.png` })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight), true)
   return { documents: await documents.boundingBox(), sources: await sources.boundingBox(), header, footer }

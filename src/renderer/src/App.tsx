@@ -8,10 +8,12 @@ import { useStudyDocuments, type StudyCatalog } from './hooks/useStudyDocuments'
 import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
 import { PracticeChatSuggestions } from './PracticeChatSuggestions'
 import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, practiceChatConversation, type PracticeTopic, type PracticeSession, type PracticeQuestion, type PracticeState, type StudyMode } from '@shared/practice'
-import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
+import type { SourceNavigationProps } from './SourceNavigation'
+import { SourceViewerHeader, type SourceReadingControls } from './SourceViewerHeader'
 import { sourceEntryKey, sourceNavigationList } from './source-navigation'
 import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
-import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-source-preview'
+import { questionForSourceAnswer, type AnswerSourceDocument } from './answer-source-preview'
+import { useAnswerSourcePreview } from './hooks/useAnswerSourcePreview'
 import { GenerationStatus } from './GenerationStatus'
 import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
 import type { GenerationKind } from '@shared/generation-estimate'
@@ -1139,13 +1141,15 @@ async function readSourceDocument(source: ChatSource): Promise<AnswerSourceDocum
   throw new Error('This source cannot be opened in the reader.')
 }
 
-function SourceDocumentReader({ state, navigation, onClose }: {
-  state: SourceReaderState; navigation?: SourceNavigationProps; onClose: () => void
+function SourceDocumentReader({ state, navigation, onClose, reading, generationPending }: {
+  state: SourceReaderState; navigation?: SourceNavigationProps; onClose: () => void; reading?: SourceReadingControls; generationPending?: boolean
 }) {
-  const key = sourceEntryKey(state.sources[state.index])
+  const source = state.sources[state.index]
+  const key = sourceEntryKey(source)
   const viewer = state.document.kind === 'pdf'
-    ? <PdfSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
-    : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
+    ? <PdfSourceViewer key={key} viewer={state.document.document} sectionHeader={source.sectionHeader} locator={source.locator}
+        automatic={state.inline} navigation={navigation} reading={reading} generationPending={generationPending} onClose={onClose} />
+    : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} reading={reading} onClose={onClose} />
   return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
 }
 
@@ -2406,12 +2410,16 @@ function ChatScreen({
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
   const reader = useSourceReader(readSourceDocument)
-  const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
-  const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  const sourcePreview = useAnswerSourcePreview()
+  const automaticSource = sourcePreview.source
+  function closeSourceReader() {
+    sourcePreview.dismiss()
+    reader.close()
+  }
   useLayoutEffect(() => {
     sourcePreview.dismiss()
     reader.close()
-  }, [isActive, activeConversationId, sourcePreview, reader.close])
+  }, [isActive, activeConversationId, sourcePreview.dismiss, reader.close])
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaSetupPhase, setOllamaSetupPhase] = useState<'idle' | 'checking' | 'opening' | 'starting' | 'error'>('idle')
@@ -3530,18 +3538,25 @@ function ChatScreen({
     )
   }
 
-  function previewFirstSource(requestId: string, sources: ChatSource[]) {
+  function previewFirstSource(requestId: string, sources: ChatSource[], question: string) {
     const source = sources[0]
     if (!settings.application.showSources || !source || !canOpenSource(source)) return
-    void sourcePreview.open(requestId, async () => ({
+    void sourcePreview.open(requestId, question, async () => ({
       document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
     }))
   }
 
   function handleOpenSource(source: ChatSource) {
-    sourcePreview.dismiss()
     setSourceTrayError(null)
     const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
+    const answer = isPending && pendingExplanationId
+      ? activeConversation.messages.find(message => message.id === pendingExplanationId)
+      : selectedSourceMessage
+    const question = isPending && !pendingExplanationId
+      ? activeConversation.messages.slice().reverse().find(message => message.role === 'user')?.text
+      : questionForSourceAnswer(activeConversation.messages, answer)
+    sourcePreview.openManual(question, isPending && !isPreparingFollowUps ? 'preparing' : 'ready',
+      isPending ? foregroundRequestRef.current : null)
     void reader.open(source, sources)
   }
 
@@ -3551,7 +3566,7 @@ function ChatScreen({
     if (!source) return
     // Choosing another source makes this a manual reading session. Keep the
     // existing page visible while loading, and leave it open when the answer arrives.
-    sourcePreview.dismiss()
+    sourcePreview.transferToManual()
     void reader.open(source, automaticSource.sources, { inline: true, initial: automaticSource })
   }
 
@@ -3585,13 +3600,13 @@ function ChatScreen({
     setFocusedAnswerId(answerId)
     setExplanationError(null)
     setChatError(null)
-    previewFirstSource(progressId, request.retrievedSources ?? [])
+    previewFirstSource(progressId, request.retrievedSources ?? [], request.prompt)
     try {
       let responseDurationMs: number | undefined
       const publish = (reply: EngineChatResponse) => {
         if (requestSequenceRef.current !== requestSequence || !reply.text.trim()) return
         responseDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
-        sourcePreview.finish(progressId)
+        sourcePreview.finish(progressId, 'ready')
         const latencyTrace = combineLatencyTrace(progressId, undefined, reply.latencyTrace)
         const variant = { text: reply.text, sources: reply.sources, responseDurationMs,
           reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
@@ -3736,7 +3751,7 @@ function ChatScreen({
         }
 
         setPendingSources(settings.application.showSources ? retrievedSources : [])
-        previewFirstSource(progressId, retrievedSources ?? [])
+        previewFirstSource(progressId, retrievedSources ?? [], prompt)
         progress.stage(progressId, 'Preparing answer', { inputChars: prompt.length + (retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), contextual: conversationContextMode === 'contextual' })
         const searchDisplayMs = performance.now() - searchStartedAt
         if (searchDisplayMs < 450) {
@@ -3759,7 +3774,7 @@ function ChatScreen({
       let answerDurationMs: number | undefined
       function publishAnswer(reply: EngineChatResponse) {
         if (requestSequenceRef.current !== requestSequence) return
-        sourcePreview.finish(progressId)
+        sourcePreview.finish(progressId, 'ready')
         const latencyTrace = combineLatencyTrace(progressId, clientLatencySpans, reply.latencyTrace)
         const assistantMessage: ChatMessage = {
           id: assistantId,
@@ -3960,10 +3975,12 @@ function ChatScreen({
         onClose={() => setMaterialsOpen(false)} onManage={onOpenLibrary}>
         {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />}
       </StudyMaterialsPane>
-      {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={sourcePreview.dismiss}
+      {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={closeSourceReader} generationPending={isPending}
+        reading={sourcePreview.reading ? { ...sourcePreview.reading, onKeepOpen: sourcePreview.keepOpen } : undefined}
         navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
           onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
-      {isActive && reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
+      {isActive && reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} generationPending={isPending}
+        reading={sourcePreview.reading ?? undefined} onClose={closeSourceReader} />}
     </div>
   )
 }
@@ -4352,7 +4369,11 @@ function AssistantMessage({
 }
 
 
-function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
+function PdfSourceViewer({ viewer, onClose, automatic = false, navigation, reading, sectionHeader, locator, generationPending }: {
+  viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps
+  reading?: SourceReadingControls; sectionHeader?: string; locator?: string; generationPending?: boolean
+}) {
+  const viewerRef = useRef<HTMLDivElement>(null)
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [currentPage, setCurrentPage] = useState(viewer.page ?? 1)
   const [renderedPage, setRenderedPage] = useState<PdfRenderedPage | null>(null)
@@ -4362,6 +4383,14 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
   const [isSearching, setIsSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
   const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    if (!automatic || !reading?.status || reading.status === 'preparing') return
+    const panel = viewerRef.current
+    // A completed retry focuses its answer controls. Keep keyboard navigation
+    // in a retained reader, without disturbing focus already inside it.
+    if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
+  }, [automatic, reading?.status, generationPending])
 
   useEffect(() => {
     let isCancelled = false
@@ -4479,6 +4508,10 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
     setCurrentPage((page) => clampPage(page + direction, pdfDocument.numPages))
   }
 
+  function returnToCitedPage() {
+    if (pdfDocument) setCurrentPage(clampPage(viewer.page ?? 1, pdfDocument.numPages))
+  }
+
   useEffect(() => {
     if (!pdfDocument) {
       return undefined
@@ -4511,18 +4544,12 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
   }, [pdfDocument])
 
   return (
-    <div className="pdf-viewer-backdrop" role="dialog" aria-modal={!automatic} aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
+    <div ref={viewerRef} tabIndex={-1} className="pdf-viewer-backdrop" role="dialog" aria-modal={!automatic} aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
       <section className="pdf-viewer-panel">
-        <header className="pdf-viewer-header">
-          <div>
-            <strong>{cleanMaterialTitle(viewer.title) || viewer.title}</strong>
-            <span>Page {currentPage}{pdfDocument ? ` of ${pdfDocument.numPages}` : ''}</span>
-          </div>
-          <SourceNavigation navigation={navigation} />
-          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" autoFocus={automatic} onClick={onClose}>
-            <X size={18} aria-hidden="true" />
-          </button>
-        </header>
+        <SourceViewerHeader title={cleanMaterialTitle(viewer.title) || viewer.title} path={viewer.path}
+          sectionHeader={currentPage === (viewer.page ?? 1) ? sectionHeader : undefined}
+          location={`Page ${currentPage}${pdfDocument ? ` of ${pdfDocument.numPages}` : ''}`}
+          details={locator} navigation={navigation} reading={reading} autoFocusClose={automatic} onClose={onClose} />
         <form
           className="pdf-viewer-search"
           onSubmit={(event) => {
@@ -4554,7 +4581,7 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
             disabled={isSearching || searchMatches.length === 0}
             onClick={() => goToSearchMatch(-1)}
           >
-            Previous
+            Previous match
           </button>
           <button
             className="pdf-viewer-search-button"
@@ -4562,7 +4589,11 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
             disabled={isSearching || searchMatches.length === 0}
             onClick={() => goToSearchMatch(1)}
           >
-            Next
+            Next match
+          </button>
+          <button className="pdf-viewer-search-button" type="button" disabled={!pdfDocument}
+            onClick={returnToCitedPage}>
+            Back to cited page
           </button>
           <button className="pdf-viewer-search-button" type="button" disabled={!pdfDocument || currentPage <= 1} onClick={() => goToPage(-1)}>
             Prev page

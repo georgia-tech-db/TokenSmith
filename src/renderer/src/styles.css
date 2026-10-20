@@ -1853,7 +1853,6 @@ button {
 
 .pdf-viewer-search {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
