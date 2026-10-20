@@ -9,7 +9,7 @@ import ts from 'typescript'
 
 const runtime = resolve('.coverage-ts-runtime/markdown-source-viewer')
 mkdirSync(runtime, { recursive: true })
-for (const filename of ['markdown-source.ts', 'SourceNavigation.tsx', 'MarkdownSourceViewer.tsx']) {
+for (const filename of ['markdown-source.ts', 'SourceNavigation.tsx', 'SourceViewerHeader.tsx', 'MarkdownSourceViewer.tsx']) {
   const sourcePath = resolve('src/renderer/src', filename)
   const output = ts.transpileModule(readFileSync(sourcePath, 'utf8'), {
     fileName: sourcePath,
@@ -17,7 +17,7 @@ for (const filename of ['markdown-source.ts', 'SourceNavigation.tsx', 'MarkdownS
       module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
       inlineSourceMap: true, inlineSources: true, sourceRoot: `${dirname(sourcePath)}/`
     }
-  }).outputText.replace("from './markdown-source'", "from './markdown-source.mjs'").replace("from './SourceNavigation'", "from './SourceNavigation.mjs'")
+  }).outputText.replace("from './markdown-source'", "from './markdown-source.mjs'").replace("from './SourceNavigation'", "from './SourceNavigation.mjs'").replace("from './SourceViewerHeader'", "from './SourceViewerHeader.mjs'")
   writeFileSync(resolve(runtime, filename.replace(/\.tsx?$/, '.mjs')), output)
 }
 const { resolveSourceLineRange, sourceAnchorIndex } = await import(pathToFileURL(resolve(runtime, 'markdown-source.mjs')).href)
@@ -74,7 +74,8 @@ test('handles CRLF, missing offsets, invalid ranges, and unmatched chunks honest
   assert.deepEqual(resolveSourceLineRange(text, -1, 100, 'Second line.'), { from: 4, to: 4 })
   assert.equal(resolveSourceLineRange(text, 500, 600, 'Unknown chunk'), undefined)
   const html = render(text, undefined, undefined, 'Unknown chunk')
-  assert.match(html, /Chunk position unavailable/)
+  assert.match(html, /A highlight is unavailable for this source/)
+  assert.match(html, /Full document/)
   assert.doesNotMatch(html, /data-source-selected/)
 })
 
@@ -103,4 +104,15 @@ test('the outline anchors actual headings, including Setext, formatting and dupl
   assert.equal((html.match(/data-source-heading-label="Details"/g) || []).length, 2)
   assert.doesNotMatch(html, /data-source-heading-label="Not a heading|data-source-heading-label="Hidden/)
   assert.match(html, /data-source-heading-label="x\^2 cost"/)
+})
+
+
+test('source header uses recorded sections and honest document-name fallbacks', async () => {
+  const { sourceViewerHeading } = await import(pathToFileURL(resolve(runtime, 'SourceViewerHeader.mjs')).href)
+  assert.deepEqual(sourceViewerHeading('Lecture notes', '/study/notes.pdf', '  Buffer policies  '),
+    { heading: 'Buffer policies', documentTitle: 'Lecture notes', hasSection: true })
+  assert.deepEqual(sourceViewerHeading('Lecture notes', '/study/notes.pdf', '  '),
+    { heading: 'Lecture notes', documentTitle: 'Lecture notes', hasSection: false })
+  assert.equal(sourceViewerHeading('', '/study/project_notes.txt').heading, 'project notes')
+  assert.equal(sourceViewerHeading('', '').heading, 'Source passage')
 })

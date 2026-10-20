@@ -3,12 +3,24 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { ChevronDown, ChevronRight, LocateFixed, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, LocateFixed } from 'lucide-react'
 import type { MarkdownSourceDocument } from '@shared/engine'
-import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
+import type { SourceNavigationProps } from './SourceNavigation'
+import { SourceViewerHeader, type SourceReadingControls } from './SourceViewerHeader'
 import { rehypeSourceHeadings, rehypeSourceLines, resolveSourceLineRange, sourceAnchorIndex } from './markdown-source'
 
-export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: MarkdownSourceDocument; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
+interface MarkdownSourceViewerProps {
+  viewer: MarkdownSourceDocument
+  onClose: () => void
+  automatic?: boolean
+  navigation?: SourceNavigationProps
+  reading?: SourceReadingControls
+}
+
+// Leave enough space above the passage to retain its surrounding heading.
+const highlightedPassageScrollOffset = 56
+
+export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navigation, reading }: MarkdownSourceViewerProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const tocId = useId()
@@ -36,7 +48,6 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
   }
   const range = useMemo(() => resolveSourceLineRange(viewer.text, viewer.lineFrom, viewer.lineTo, viewer.chunkText),
     [viewer.text, viewer.lineFrom, viewer.lineTo, viewer.chunkText])
-  const subtitle = [viewer.sectionHeader, viewer.locator].filter(Boolean).join(' · ')
   const lineLabel = range ? range.to > range.from ? `Lines ${range.from}–${range.to}` : `Line ${range.from}` : ''
 
   const renderedDocument = useMemo(() => (
@@ -59,7 +70,7 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
     </div>
   ), [viewer.text, range])
 
-  const jumpToChunk = useCallback(() => {
+  const jumpToPassage = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport || !range) return
     const blocks = Array.from(viewport.querySelectorAll<HTMLElement>('[data-source-line-start]'))
@@ -68,7 +79,7 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
     })), range.from)
     const target = blocks[index]
     if (!target) return
-    viewport.scrollTo({ top: viewport.scrollTop + target.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 28 })
+    viewport.scrollTo({ top: viewport.scrollTop + target.getBoundingClientRect().top - viewport.getBoundingClientRect().top - highlightedPassageScrollOffset })
   }, [range])
 
   useLayoutEffect(() => {
@@ -84,9 +95,9 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
     setHeadings(Array.from(viewportRef.current?.querySelectorAll<HTMLElement>('[data-source-heading-depth]') ?? []).map(heading => ({
       id: heading.id, label: heading.dataset.sourceHeadingLabel || '', depth: Number(heading.dataset.sourceHeadingDepth)
     })))
-    if (range) jumpToChunk()
+    if (range) jumpToPassage()
     else viewportRef.current?.scrollTo({ top: 0 })
-  }, [jumpToChunk, viewer.text, range])
+  }, [jumpToPassage, viewer.text, range])
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -98,7 +109,7 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
     viewport.addEventListener('pointerdown', cancel)
     viewport.addEventListener('keydown', cancel)
     // Math fonts can change the heights of blocks above the selected passage.
-    void window.document.fonts.ready.then(() => { if (!cancelled && !userNavigated.current) jumpToChunk() })
+    void window.document.fonts.ready.then(() => { if (!cancelled && !userNavigated.current) jumpToPassage() })
     return () => {
       cancel()
       viewport.removeEventListener('wheel', cancel)
@@ -106,30 +117,25 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
       viewport.removeEventListener('pointerdown', cancel)
       viewport.removeEventListener('keydown', cancel)
     }
-  }, [jumpToChunk, viewer.text])
+  }, [jumpToPassage, viewer.text])
 
   return (
     <dialog ref={dialogRef} className="markdown-source-dialog" aria-label="Source Markdown viewer" aria-modal={!automatic}
       onKeyDown={event => { if (automatic && event.key === 'Escape') { event.preventDefault(); onClose() } }}
       onCancel={(event) => { event.preventDefault(); onClose() }}>
       <section className="markdown-viewer-panel">
-        <header className="pdf-viewer-header">
-          <div>
-            <strong>{viewer.title}</strong>
-            {subtitle && <span>{subtitle}</span>}
-          </div>
-          <SourceNavigation navigation={navigation} />
-          <button className="icon-button subtle" type="button" aria-label="Close Markdown viewer" onClick={onClose}>
-            <X size={18} aria-hidden="true" />
-          </button>
-        </header>
+        <SourceViewerHeader title={viewer.title} path={viewer.path} sectionHeader={viewer.sectionHeader}
+          location={range ? undefined : 'Full document'}
+          details={[viewer.locator, lineLabel].filter(Boolean).join(' · ')}
+          navigation={navigation} reading={reading} onClose={onClose} />
         <div className="markdown-source-toolbar">
-          <button type="button" className="markdown-source-jump" aria-expanded={tocOpen} aria-controls={tocId} onClick={toggleToc} disabled={headings.length === 0}>
+          <button type="button" className="markdown-source-jump is-quiet" aria-expanded={tocOpen} aria-controls={tocId} onClick={toggleToc} disabled={headings.length === 0}>
             {tocOpen ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />} Contents
           </button>
-          <span>{range ? `Highlighted passage · ${lineLabel}` : 'Full document · Chunk position unavailable'}</span>
-          <button type="button" className="markdown-source-jump" onClick={() => { userNavigated.current = true; jumpToChunk() }} disabled={!range}>
-            <LocateFixed size={16} aria-hidden="true" /> Back to chunk
+          {!range && <span>A highlight is unavailable for this source.</span>}
+          <button type="button" className="markdown-source-jump is-quiet" aria-label="Jump to highlighted passage"
+            title="Back to highlighted passage" onClick={() => { userNavigated.current = true; jumpToPassage() }} disabled={!range}>
+            <LocateFixed size={16} aria-hidden="true" /> Jump to passage
           </button>
         </div>
         <div className={`markdown-source-body${tocOpen && headings.length ? ' has-toc' : ''}`}>

@@ -1,0 +1,64 @@
+/* Source reader polish uses the same surfaces, controls and accents as Chat. */
+.source-viewer-header { flex-wrap: wrap; }
+.source-viewer-header > .source-viewer-heading:first-child { flex: 1 1 240px; min-width: min(240px, 100%); gap: 4px; }
+.source-viewer-header .source-viewer-heading strong { font-size: 1rem; line-height: 1.4; }
+.markdown-viewer-panel .source-viewer-heading strong { white-space: normal; }
+.source-viewer-details { color: var(--muted); font-size: .76rem; }
+.source-viewer-details summary { width: fit-content; cursor: pointer; }
+.source-viewer-details[open] > span { display: block; margin-top: 4px; }
+.pdf-viewer-header .source-viewer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.source-viewer-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 34px; padding: 6px 11px; border: 1px solid var(--line-strong); border-radius: 7px;
+  background: var(--panel); color: var(--green-strong); font: inherit; font-size: .82rem;
+  font-weight: 600; cursor: pointer;
+}
+.source-viewer-button:hover { background: var(--green-soft); }
+.source-viewer-button.is-quiet,
+.markdown-source-jump.is-quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.source-viewer-button.is-quiet:hover,
+.markdown-source-jump.is-quiet:hover:not(:disabled) { background: var(--panel-soft); color: var(--ink); }
+.markdown-source-jump.is-quiet[aria-expanded="true"] { background: var(--green-soft); color: var(--green-strong); }
+.source-viewer-header .source-viewer-retained {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 3px;
+  color: var(--muted); font-size: .82rem; white-space: nowrap;
+}
+.source-viewer-button:focus-visible,
+.source-viewer-details summary:focus-visible,
+.source-viewer-question summary:focus-visible { outline: 2px solid var(--green-strong); outline-offset: 3px; }
+.source-viewer-header .source-viewer-status { color: var(--green-strong); font-size: .82rem; white-space: nowrap; }
+.source-viewer-question {
+  flex: 1 0 100%; order: 4; min-width: 0; margin-top: 2px; padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.source-viewer-question summary {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start;
+  gap: 10px; list-style: none; cursor: pointer;
+}
+.source-viewer-question summary::-webkit-details-marker { display: none; }
+.source-viewer-question summary > svg { margin-top: 2px; color: var(--muted); }
+.source-viewer-question[open] summary > svg { transform: rotate(180deg); }
+.source-viewer-header .source-viewer-question-label { color: var(--muted); font-size: .82rem; font-weight: 600; }
+.source-viewer-header .source-viewer-question-preview {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  color: var(--ink); font-size: .86rem; line-height: 1.5;
+}
+.markdown-viewer-panel .source-viewer-question span { white-space: normal; }
+.source-viewer-question[open] .source-viewer-question-preview { display: none; }
+.source-viewer-question[open] summary { grid-template-columns: minmax(0, 1fr) auto; }
+.source-viewer-question p {
+  max-height: 20vh; overflow: auto; margin: 8px 0 0; color: var(--ink);
+  font-size: .86rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.markdown-source-toolbar { gap: 8px 12px; padding-block: 6px; }
+.markdown-source-toolbar > span { flex: 1 1 180px; font-size: .8rem; }
+.pdf-viewer-search { display: flex; flex-wrap: wrap; }
+.pdf-viewer-search input { flex: 1 1 180px; width: auto; }
+@media (max-width: 900px) {
+  .source-viewer-header > .source-viewer-heading:first-child { flex-basis: 100%; }
+  .source-viewer-header > .source-navigation { order: 3; flex-basis: 100%; }
+  .source-viewer-header .source-viewer-actions { flex: 1 1 auto; justify-content: space-between; }
+  .source-viewer-question summary { gap: 8px; }
+  .markdown-source-toolbar > span { order: 3; flex-basis: 100%; }
+  .markdown-source-content { padding: 24px 20px 48px; }
+}
