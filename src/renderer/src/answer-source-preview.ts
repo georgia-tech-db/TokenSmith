@@ -24,8 +24,8 @@ export function questionForSourceAnswer(messages: ChatMessage[], answer?: ChatMe
   return undefined
 }
 
-// A preview belongs to one pending answer. Late loads and manual dismissal must
-// never reopen it, or close a source the student opened themselves.
+// A preview belongs to one pending answer. Late loads and completions must never
+// reopen a dismissed preview or close a source the student opened manually.
 export function createAnswerSourcePreview<T>(publish: (document: T | null) => void) {
   let owner: string | null = null
   let revision = 0
