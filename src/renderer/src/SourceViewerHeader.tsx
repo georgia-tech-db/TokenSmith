@@ -36,7 +36,7 @@ function SourceReadingActions({ reading, onClose, closeLabel, autoFocusClose }: 
 
   return <div className="source-viewer-actions">
     {statusLabel && <span className="source-viewer-status" role="status">{statusLabel}</span>}
-    {reading?.keptOpen ? <span className="source-viewer-retained" title="This passage stays open until you return to chat">
+    {reading?.keptOpen ? <span className="source-viewer-retained" title="This passage stays open when the answer arrives">
       <Pin size={15} aria-hidden="true" /> Stays open
     </span> : reading?.onKeepOpen && <button type="button" className="source-viewer-button is-quiet"
       onClick={reading.onKeepOpen} title="Keep this passage open when the answer arrives">
