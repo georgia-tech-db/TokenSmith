@@ -132,9 +132,9 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
           <button type="button" className="markdown-source-jump is-quiet" aria-expanded={tocOpen} aria-controls={tocId} onClick={toggleToc} disabled={headings.length === 0}>
             {tocOpen ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />} Contents
           </button>
-          {!range && <span>A highlight is unavailable for this source.</span>}
+          {!range && <span>No highlight is available for this source.</span>}
           <button type="button" className="markdown-source-jump is-quiet" aria-label="Jump to highlighted passage"
-            title="Back to highlighted passage" onClick={() => { userNavigated.current = true; jumpToPassage() }} disabled={!range}>
+            title="Jump to highlighted passage" onClick={() => { userNavigated.current = true; jumpToPassage() }} disabled={!range}>
             <LocateFixed size={16} aria-hidden="true" /> Jump to passage
           </button>
         </div>
