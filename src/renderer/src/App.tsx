@@ -1,9 +1,13 @@
 import { PracticeScreen } from './PracticeScreen'
-import { StudyHeader } from './StudyHeader'
+import { StudyHeader, type StudyPanels } from './StudyHeader'
+import { StudySidebar } from './StudySidebar'
 import { StudyMaterialsPane } from './StudyMaterialsPane'
+import { SourceTray, maxSourceTrayCards } from './SourceTray'
+import { canOpenSource, cleanMaterialTitle, isMarkdownSource, isPdfSource } from './source-display'
 import { useStudyDocuments, type StudyCatalog } from './hooks/useStudyDocuments'
-import { currentStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
-import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, type PracticeReference, type PracticeState, type StudyMode } from '@shared/practice'
+import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
+import { PracticeChatSuggestions } from './PracticeChatSuggestions'
+import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, practiceChatConversation, type PracticeTopic, type PracticeSession, type PracticeQuestion, type PracticeState, type StudyMode } from '@shared/practice'
 import type { SourceNavigationProps } from './SourceNavigation'
 import { SourceViewerHeader, type SourceReadingControls } from './SourceViewerHeader'
 import { sourceEntryKey, sourceNavigationList } from './source-navigation'
@@ -18,6 +22,8 @@ import { defaultPreparation, type IndexMaterialOptions } from '../../shared/prep
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
+import { MessageAvatar } from './MessageAvatar'
+import { MessageComposer } from './MessageComposer'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
@@ -31,7 +37,8 @@ import { ChatDepthPicker } from './ChatDepthPicker'
 import { AnswerExplanation } from './AnswerExplanation'
 import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
-import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import { answerModel, isAnswerModel, migrateConversationModels, selectStudyModel, studyModelTarget, type ModelSelectionTarget } from '@shared/chat-model-selection'
+import { attachCloudProviderConnection, disconnectCloudConnectionModels, isCloudGenerator, mergeCloudConnectionModel } from '@shared/cloud-generators'
 import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
@@ -62,7 +69,6 @@ import type {
   EngineChatResponse,
   MarkdownSourceDocument,
   PdfSourceDocument,
-  PdfSourceThumbnail,
   TokenSmithLogFile
 } from '@shared/engine'
 import {
@@ -89,11 +95,6 @@ import { recommendModel, type ModelRecommendation } from '@shared/model-recommen
 import { defaultDeviceTierPolicy } from '@shared/device-tier-policy'
 import { fontSizeOptions, normalizeFontSize } from '@shared/typography'
 import {
-  remoteProviderCatalog,
-  type RemoteProviderCatalogItem,
-  type RemoteProviderId
-} from '@shared/model-providers'
-import {
   defaultFollowUpSuggestionCount,
   defaultStarterQuestionPrompt,
   defaultSuggestedFollowUpPrompt,
@@ -108,13 +109,12 @@ import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
   reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
-import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
+import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
   BookOpen,
   Check,
   ChevronDown,
-  CircleUserRound,
   Copy,
   Database,
   Download as DownloadIcon,
@@ -127,17 +127,11 @@ import {
   Plus,
   RefreshCw,
   Search,
-  SendHorizonal,
   Settings,
   Sparkles,
   Trash2,
   X
 } from 'lucide-react'
-import providerCustomLogo from './assets/provider-custom.svg'
-import providerGeminiLogo from './assets/provider-gemini.svg'
-import providerGroqLogo from './assets/provider-groq.svg'
-import providerMistralLogo from './assets/provider-mistral.svg'
-import providerOpenAiLogo from './assets/provider-openai.svg'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -148,7 +142,6 @@ interface NavItem {
 }
 
 type PdfViewerState = PdfSourceDocument & { searchTerm?: string }
-type SourceThumbnailState = Record<string, PdfSourceThumbnail>
 type PdfRenderedTextItem = {
   index: number
   text: string
@@ -184,7 +177,6 @@ const navItems: NavItem[] = [
 ]
 
 const stateStorageKey = 'tokensmith-app-state-v1'
-const maxSourceTrayCards = 5
 const defaultCollectionChunkSize = 1000
 const pdfViewerRenderScale = 1.45
 // React Strict Mode immediately runs an effect setup/cleanup cycle in development.
@@ -192,14 +184,6 @@ const pdfViewerRenderScale = 1.45
 const starterQuestionDebounceMs = 150
 
 const defaultMaterials: CourseMaterial[] = []
-
-const remoteProviderLogoSources: Record<RemoteProviderId, string> = {
-  groq: providerGroqLogo,
-  openai: providerOpenAiLogo,
-  gemini: providerGeminiLogo,
-  mistral: providerMistralLogo,
-  custom: providerCustomLogo
-}
 
 const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   systemMessage: '',
@@ -241,6 +225,7 @@ const defaultModels: LocalModel[] = []
 const starterConversations: Conversation[] = [
   {
     id: 'starter-study-chat',
+    modelId: '',
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -255,15 +240,15 @@ const defaultAppState: AppStateSnapshot = {
   conversations: starterConversations,
   materials: defaultMaterials,
   models: defaultModels,
-  selectedModelId: '',
   selectedEmbeddingModelId: '',
   settings: defaultSettings,
   updatedAt: new Date(0).toISOString()
 }
 
-function createFreshConversation(): Conversation {
+function createFreshConversation(modelId: string): Conversation {
   return {
     id: createId('conversation'),
+    modelId,
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -515,14 +500,6 @@ function modelCanEmbed(model: LocalModel) {
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
 }
 
-function firstGeneratorModel(models: LocalModel[]) {
-  return models.find(modelCanGenerate)
-}
-
-function firstEmbeddingModel(models: LocalModel[]) {
-  return models.find(modelCanEmbed)
-}
-
 function ollamaChatModelId(modelName: string) {
   return `ollama:${modelName.trim().toLowerCase() || recommendedOllamaChatModel}`
 }
@@ -605,7 +582,7 @@ function createOllamaEmbedderModel(
       'Local embedding model served by Ollama',
       'Prepares PDFs for search',
       'Embeds questions before source retrieval',
-      'Collections record the embedder used during indexing'
+      'Folders record the embedder used during indexing'
     ],
     download,
     addedAt: new Date().toISOString()
@@ -756,7 +733,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
       }
 
       {
-        const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudGenerator(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
+        const hasApiKey = Boolean(model.apiKey?.trim() || model.cloudCredentialStatus === 'connected')
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
         return {
           id: model.id ?? createId('model'),
@@ -819,13 +796,8 @@ function normalizeFollowUpSuggestionCount(value: unknown, suggestionMode: Sugges
   return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
 }
 
-function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, models: LocalModel[] = defaultModels): ApplicationSettings {
-  const generatorModels = models.filter(modelCanGenerate)
-  const firstAvailableModel = firstGeneratorModel(models)
-  const defaultModelId =
-    typeof settings?.defaultModelId === 'string' && generatorModels.some((model) => model.id === settings.defaultModelId)
-      ? settings.defaultModelId
-      : firstAvailableModel?.id ?? ''
+function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): ApplicationSettings {
+  const defaultModelId = typeof settings?.defaultModelId === 'string' ? settings.defaultModelId : ''
   const suggestionMode = normalizeSuggestionMode(settings?.suggestionMode)
 
   return {
@@ -890,7 +862,7 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
   }
 }
 
-function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, models: LocalModel[]): TokenSmithSettings {
+function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined): TokenSmithSettings {
   const incomingSettings = settings ?? {}
   const modelDefaults = normalizeModelRuntimeSettings(incomingSettings.modelDefaults)
   const modelSettingsById = Object.fromEntries(
@@ -907,7 +879,7 @@ function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, mo
 
   return {
     maxSources: Math.round(clampNumber(incomingSettings.maxSources, defaultSettings.maxSources, 1, 10)),
-    application: normalizeApplicationSettings(incomingSettings.application, models),
+    application: normalizeApplicationSettings(incomingSettings.application),
     modelDefaults,
     modelSettingsById
   }
@@ -924,8 +896,8 @@ function isFreshConversation(conversation: Conversation) {
   return conversation.messages.length === 0 && conversation.title === 'New Study Chat'
 }
 
-function startWithFreshConversation(conversations: Conversation[]) {
-  const savedConversations = conversations.length > 0 ? conversations : structuredClone(starterConversations)
+function startWithFreshConversation(conversations: Conversation[], defaultModelId: string) {
+  const savedConversations = conversations.length > 0 ? conversations : [createFreshConversation(defaultModelId)]
   const existingFresh = savedConversations.find(isFreshConversation)
 
   if (existingFresh) {
@@ -938,7 +910,7 @@ function startWithFreshConversation(conversations: Conversation[]) {
     }
   }
 
-  const freshConversation = createFreshConversation()
+  const freshConversation = createFreshConversation(defaultModelId)
 
   return {
     activeConversationId: freshConversation.id,
@@ -951,37 +923,42 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     return createDefaultAppState(appVersion)
   }
 
+  const { selectedModelId: legacyModelId, ...saved } = savedState as AppStateSnapshot & { selectedModelId?: string }
+  const models = normalizeModels(saved.models)
+  const settings = normalizeSettings(saved.settings)
+  if (saved.settings?.application?.defaultModelId === undefined && typeof legacyModelId === 'string') {
+    settings.application.defaultModelId = legacyModelId
+  }
+  const practice = normalizePracticeState(saved.practice)
+  if (practice.mode === 'practice' && practice.draftModelId === undefined) {
+    practice.draftModelId = settings.application.defaultModelId
+  }
   const conversations = Array.isArray(savedState.conversations)
-    ? savedState.conversations.map(({ id, title, period, messages, practiceReference, documentScope }) => ({
-        id, title, period, practiceReference, documentScope,
+    ? savedState.conversations.map(({ id, modelId, title, period, messages, practiceReference, practiceSuggestions, documentScope }) => ({
+        id, modelId, title, period, practiceReference, practiceSuggestions, documentScope,
         messages: messages.filter(message => !('quiz' in message) && !('kind' in message && String(message.kind).startsWith('quiz')))
       }))
     : structuredClone(starterConversations)
-  const freshChatState = startWithFreshConversation(conversations)
+  const freshChatState = startWithFreshConversation(migrateConversationModels(conversations,
+    typeof legacyModelId === 'string' ? legacyModelId : ''), settings.application.defaultModelId)
   const materials = normalizeMaterials(savedState.materials).map((material) =>
     material.status === 'indexing' && material.preparation
       ? { ...material, status: 'paused' as const, detail: 'Preparation paused. Resume to continue from saved progress.' }
       : material)
-  const models = normalizeModels(savedState.models)
-  const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model)))
   const selectedEmbeddingModelId = (savedState as Partial<AppStateSnapshot>).selectedEmbeddingModelId
-  const selectedEmbeddingModelExists =
-    typeof selectedEmbeddingModelId === 'string' &&
-    models.some((model) => model.id === selectedEmbeddingModelId && modelCanEmbed(model))
 
   return {
     ...createDefaultAppState(appVersion),
-    ...savedState,
+    ...saved,
     appVersion,
     activeScreen: 'chat',
     activeConversationId: freshChatState.activeConversationId,
     conversations: freshChatState.conversations,
-    practice: normalizePracticeState(savedState.practice),
+    practice,
     materials,
     models,
-    selectedModelId: selectedModelExists ? savedState.selectedModelId : firstGeneratorModel(models)?.id ?? '',
-    selectedEmbeddingModelId: selectedEmbeddingModelExists ? selectedEmbeddingModelId : firstEmbeddingModel(models)?.id ?? '',
-    settings: normalizeSettings(savedState.settings, models),
+    selectedEmbeddingModelId: typeof selectedEmbeddingModelId === 'string' ? selectedEmbeddingModelId : '',
+    settings,
     version: 1
   }
 }
@@ -1098,13 +1075,6 @@ function readableOllamaError(error: unknown, fallback = 'Could not reach Ollama.
   return message
 }
 
-function cleanMaterialTitle(title?: string) {
-  return (title ?? '')
-    .replace(/\.(pdf|md|markdown|txt)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 function compactModelToken(label?: string) {
   const normalized = modelNameFromPath(label) ?? label?.trim()
   const token = normalized
@@ -1138,53 +1108,8 @@ function materialEmbedderLabel(material: CourseMaterial) {
   return `${collectionName}-${embedderName}`
 }
 
-function isPdfSource(source: ChatSource) {
-  return Boolean(source.path?.toLowerCase().endsWith('.pdf'))
-}
-
-function isMarkdownSource(source: ChatSource) {
-  const path = source.path?.toLowerCase() ?? ''
-  return path.endsWith('.md') || path.endsWith('.markdown') || path.endsWith('.txt')
-}
-
-function canOpenSource(source: ChatSource) {
-  return isPdfSource(source) || isMarkdownSource(source)
-}
-
-function sourceFileTypeLabel(source: ChatSource) {
-  if (isMarkdownSource(source)) {
-    return 'MD'
-  }
-
-  if (isPdfSource(source)) {
-    return 'PDF'
-  }
-
-  return 'TXT'
-}
-
 function sourceDisplayText(source: ChatSource) {
   return isMarkdownSource(source) ? source.context || source.excerpt : source.excerpt
-}
-
-function sourcePageLabel(source: ChatSource) {
-  if (source.pageStart && source.pageEnd && source.pageEnd > source.pageStart) {
-    return `Pages ${source.pageStart}-${source.pageEnd}`
-  }
-
-  if (source.pageStart) {
-    return `Page ${source.pageStart}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom && source.lineTo && source.lineTo > source.lineFrom) {
-    return `Lines ${source.lineFrom}-${source.lineTo}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom) {
-    return `Line ${source.lineFrom}`
-  }
-
-  return source.locator
 }
 
 function compactChunkSizeLabel(chunkSize?: number) {
@@ -1228,15 +1153,6 @@ function SourceDocumentReader({ state, navigation, onClose, reading, generationP
   return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
 }
 
-function sourceDocumentTitle(source: ChatSource) {
-  const rawTitle = source.documentTitle || source.title
-  return cleanMaterialTitle(rawTitle) || 'Source'
-}
-
-function sourceTrayKey(source: ChatSource, index: number) {
-  return `${source.sourceId ?? source.chunkId ?? source.chunkRowid ?? source.path ?? source.title}-${index}`
-}
-
 function modelStatusFromDownload(progress: ModelDownloadProgress): LocalModel['status'] {
   if (progress.status === 'complete') {
     return 'ready'
@@ -1277,22 +1193,70 @@ export function App() {
   const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
   const practiceState = appState.practice ?? emptyPracticeState()
+  const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 800)
+  const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
+  const [collectionExpansion, setCollectionExpansion] = useState<Record<string, boolean>>({})
+  const studyPanels: StudyPanels = { historyOpen, onHistoryOpenChange: setHistoryOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen,
+    collectionExpansion, onCollectionExpansionChange: (id, expanded) => setCollectionExpansion(current =>
+      (current[id] ?? true) === expanded ? current : { ...current, [id]: expanded }) }
+  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
+  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
+  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [logError, setLogError] = useState<string | null>(null)
+  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
+  async function refreshLogFile() {
+    if (!window.tokensmith?.getLogFile) {
+      setLogStatus('error')
+      setLogError('TokenSmith log is not available in this build.')
+      return
+    }
+    setLogStatus('loading')
+    setLogError(null)
+    try {
+      setLogFile(await window.tokensmith.getLogFile())
+      setLogStatus('idle')
+    } catch (error) {
+      setLogStatus('error')
+      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
+    }
+  }
+  function openLog() { setIsLogCardOpen(true); void refreshLogFile() }
   const practiceReader = useSourceReader(readSourceDocument)
-  useEffect(() => { practiceReader.close() }, [practiceState.mode, appState.activeScreen, practiceReader.close])
+  const activePracticeSession = practiceState.sessions.find(item => item.id === practiceState.activeSessionId)
+  const activePracticeQuestionId = activePracticeSession?.questions[activePracticeSession.currentIndex]?.id
+  useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
+  }
+  const [practiceChatDraft, setPracticeChatDraft] = useState<{ conversationId: string; draft: ChatDraft }>()
+  function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
+    const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
+    setPracticeChatDraft({ conversationId: conversation.id,
+      draft: { text: question.helpDraft ?? '', selectedPassage: passage ?? question.helpPassage } })
+    updateAppState(current => {
+      const next = changeStudyScope(current, session.documents)
+      const practice = next.practice ?? emptyPracticeState()
+      return { ...next, activeScreen: 'chat', activeConversationId: conversation.id,
+        conversations: [conversation, ...next.conversations],
+        practice: { ...practice, mode: 'chat', activeSessionId: session.id,
+          sessions: practice.sessions.map(item => item.id !== session.id ? item : { ...item,
+            currentIndex: item.questions.findIndex(value => value.id === question.id),
+            questions: item.questions.map(value => value.id === question.id ? { ...value, chatOpened: true } : value) }) } }
+    })
+  }
+  function practiceTopic(topic: PracticeTopic) {
+    updatePractice(current => ({ ...current, mode: 'practice', activeSessionId: undefined, draftTopic: topic,
+      draftModelId: appState.settings.application.defaultModelId }))
   }
   function setStudyMode(mode: StudyMode) {
     updateAppState(current => {
       const practice = current.practice ?? emptyPracticeState()
       return { ...current, practice: { ...practice, mode,
-        ...(mode === 'practice' && !practice.activeSessionId && current.studyScope !== undefined ? { draftScope: current.studyScope } : {}) } }
+        ...(mode === 'practice' && practice.draftModelId === undefined ? { draftModelId: current.settings.application.defaultModelId } : {}) } }
     })
   }
-  function discussPractice(reference: PracticeReference) {
-    const conversation: Conversation = { id: createId('discussion'), title: 'Practice discussion', period: 'Today', messages: [], practiceReference: reference, documentScope: reference.documents }
-    updateAppState(current => ({ ...current, activeScreen: 'chat', activeConversationId: conversation.id,
-      conversations: [conversation, ...current.conversations], practice: { ...(current.practice ?? emptyPracticeState()), mode: 'chat' } }))
+  function setStudyScope(scope: StudyDocumentRef[]) {
+    updateAppState(current => changeStudyScope(current, scope))
   }
   const [appVersion, setAppVersion] = useState<string>('dev')
   const [engines, setEngines] = useState<EngineInfo[]>([
@@ -1327,7 +1291,7 @@ export function App() {
   }, [studyCatalog.status, studyCatalog.documents])
   const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
   const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
-  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel } | null>(null)
+  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel; target: ModelSelectionTarget } | null>(null)
   const [cloudNotice, setCloudNotice] = useState('')
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
@@ -1342,15 +1306,32 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [cloudNotice])
 
-  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model }) }
+  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model, target: studyModelTarget(appState) }) }
 
   function connectedCloudGenerator(model: LocalModel) {
+    if (!cloudSetup) return
+    const target = cloudSetup.target
     updateAppState(current => {
-      const models = mergeCloudGenerator(current.models, model)
-      return { ...current, models, selectedModelId: models[0].id }
+      const migrated = attachCloudProviderConnection(current.models, model)
+      const models = mergeCloudConnectionModel(migrated, model)
+      const connected = models.find(candidate => candidate.connectionId === model.connectionId &&
+        candidate.remoteModelName === model.remoteModelName && (candidate.role ?? 'generator') === model.role)
+      if (!connected) return current
+      const modelId = connected.id
+      return model.role === 'embedder'
+        ? { ...current, models, selectedEmbeddingModelId: modelId }
+        : selectStudyModel({ ...current, models }, modelId, target)
     })
     setCloudSetup(null)
     setCloudNotice(`Connected · ${model.remoteModelName}`)
+  }
+
+  function forgotCloudConnections(connectionIds: string[]) {
+    updateAppState(current => ({
+      ...current,
+      models: disconnectCloudConnectionModels(current.models, connectionIds)
+    }))
+    setCloudNotice('API key removed · reconnect a model to continue')
   }
 
   useLayoutEffect(() => {
@@ -1533,19 +1514,11 @@ export function App() {
       const download = ollamaProgressToModelDownloadProgress(progress)
       updateAppState((current) => {
         if (download.status === 'removed') {
-          const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
-          const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
           const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, download))
 
           return {
             ...current,
-            models: remainingModels,
-            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, download)
-              ? firstGeneratorModel(remainingModels)?.id ?? ''
-              : current.selectedModelId,
-            selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, download)
-              ? firstEmbeddingModel(remainingModels)?.id ?? ''
-              : current.selectedEmbeddingModelId
+            models: remainingModels
           }
         }
 
@@ -1589,7 +1562,7 @@ export function App() {
   function updateAppState(updater: (current: AppStateSnapshot) => AppStateSnapshot) {
     setAppState(current => {
       const next = updater(current)
-      return { ...next, studyScope: currentStudyScope(next) ?? next.studyScope, updatedAt: new Date().toISOString() }
+      return { ...next, updatedAt: new Date().toISOString() }
     })
   }
 
@@ -1613,16 +1586,10 @@ export function App() {
       const nextSettings = normalizeSettings({
         ...current.settings,
         ...settings
-      }, current.models)
-      const requestedDefaultModelId = settings.application?.defaultModelId
-      const selectedModelId =
-        requestedDefaultModelId && current.models.some((model) => model.id === requestedDefaultModelId && modelCanGenerate(model))
-          ? requestedDefaultModelId
-          : current.selectedModelId
+      })
 
       return {
         ...current,
-        selectedModelId,
         settings: nextSettings
       }
     })
@@ -1672,13 +1639,10 @@ export function App() {
     indexRequestSequenceRef.current.set(materialId, requestSequence)
 
     const indexingMaterial = appState.materials.find((material) => material.id === materialId)
-    const embeddingModel =
-      (embeddingModelOverride && modelCanEmbed(embeddingModelOverride) ? embeddingModelOverride : undefined) ??
-      appState.models.find((model) => model.id === indexingMaterial?.embeddingModelId && modelCanEmbed(model)) ??
-      appState.models.find((model) => model.id === appState.selectedEmbeddingModelId && modelCanEmbed(model)) ??
-      firstEmbeddingModel(appState.models)
+    const embeddingModel = embeddingModelOverride ?? appState.models.find(model =>
+      model.id === (indexingMaterial?.embeddingModelId || appState.selectedEmbeddingModelId))
 
-    if (!embeddingModel) {
+    if (!embeddingModel || !modelCanEmbed(embeddingModel)) {
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((material) =>
@@ -1687,7 +1651,7 @@ export function App() {
                 ...material,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download the Nomic Embedder Model before preparing PDFs.',
+                error: 'Reconnect the selected search model or choose an available embedding model in Library settings.',
                 indexing: undefined,
                 isActive: material.indexedAt ? material.isActive : false
               }
@@ -1700,7 +1664,7 @@ export function App() {
     const preparation = options.preparation ?? indexingMaterial?.preparation ?? defaultPreparation()
     const preparationModel = preparation.mode === 'ai'
       ? options.preparationModel ?? appState.models.find(model =>
-        model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+        model.id === (preparation.modelId || appState.settings.application.defaultModelId) && model.role !== 'embedder')
       : undefined
     updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === materialId ? {
       ...item, preparation, status: 'indexing', error: undefined,
@@ -1810,7 +1774,7 @@ export function App() {
     upsertModel(model, true)
   }
 
-  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models') {
+  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models', target = studyModelTarget(appState)) {
     updateAppState((current) => {
       const modelFile = normalizeModelFilename(modelFilename(model))
       const isSameModel = (existingModel: LocalModel) => {
@@ -1849,13 +1813,13 @@ export function App() {
         return !isSameModel(existingModel)
       })
 
-      return {
+      const next = {
         ...current,
         activeScreen: nextScreen ?? current.activeScreen,
         models: [model, ...existingModels],
-        selectedModelId: shouldSelect && model.status === 'ready' && modelCanGenerate(model) ? model.id : current.selectedModelId,
         selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
       }
+      return shouldSelect && model.status === 'ready' && isAnswerModel(model) ? selectStudyModel(next, model.id, target) : next
     })
   }
 
@@ -1889,6 +1853,7 @@ export function App() {
   }
 
   function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl) {
+    const target = studyModelTarget(appState)
     const normalizedModelName = modelName.trim()
     if (!normalizedModelName || !window.tokensmith?.pullOllamaModel) {
       return
@@ -1967,7 +1932,7 @@ export function App() {
             id: modelId,
             addedAt: existingModel?.addedAt ?? new Date().toISOString()
           },
-          true
+          true, 'models', target
         )
       })
       .catch((error) => {
@@ -2002,16 +1967,7 @@ export function App() {
   }
 
   function selectModel(modelId: string) {
-    updateAppState((current) => {
-      if (!current.models.some((model) => model.id === modelId && modelCanGenerate(model))) {
-        return current
-      }
-
-      return {
-        ...current,
-        selectedModelId: modelId
-      }
-    })
+    updateAppState(current => selectStudyModel(current, modelId, studyModelTarget(current)))
   }
 
   function selectEmbeddingModel(modelId: string) {
@@ -2028,26 +1984,20 @@ export function App() {
   }
 
   function removeModel(model: LocalModel) {
-    const selectedModelWillBeRemoved = appState.selectedModelId === model.id
-    const selectedEmbeddingModelWillBeRemoved = appState.selectedEmbeddingModelId === model.id
     const shouldRestoreOnRemoveFailure = !(model.engine === 'ollama' && model.status !== 'ready')
 
     updateAppState((current) => {
       const remainingModels = current.models.filter((item) => item.id !== model.id)
       return {
         ...current,
-        models: remainingModels,
-        selectedModelId: selectedModelWillBeRemoved ? firstGeneratorModel(remainingModels)?.id ?? '' : current.selectedModelId,
-        selectedEmbeddingModelId: selectedEmbeddingModelWillBeRemoved
-          ? firstEmbeddingModel(remainingModels)?.id ?? ''
-          : current.selectedEmbeddingModelId
+        models: remainingModels
       }
     })
 
     void window.tokensmith?.removeModel(model).catch(() => {
       setSaveStatus('error')
       if (shouldRestoreOnRemoveFailure) {
-        upsertModel(model, selectedModelWillBeRemoved || selectedEmbeddingModelWillBeRemoved)
+        upsertModel(model, false, null)
       }
     })
   }
@@ -2084,12 +2034,10 @@ export function App() {
       )
     }))
 
-    const embeddingModel =
-      appState.models.find((model) => model.id === material.embeddingModelId && modelCanEmbed(model)) ??
-      appState.models.find((model) => model.id === appState.selectedEmbeddingModelId && modelCanEmbed(model)) ??
-      firstEmbeddingModel(appState.models)
+    const embeddingModel = appState.models.find(model =>
+      model.id === (material.embeddingModelId || appState.selectedEmbeddingModelId))
 
-    if (!embeddingModel) {
+    if (!embeddingModel || !modelCanEmbed(embeddingModel)) {
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((item) =>
@@ -2098,7 +2046,7 @@ export function App() {
                 ...item,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download the Nomic Embedder Model before preparing PDFs.',
+                error: 'Reconnect the selected search model or choose an available embedding model in Library settings.',
                 indexing: undefined,
                 isActive: item.indexedAt ? item.isActive : false
               }
@@ -2191,9 +2139,10 @@ export function App() {
   }
 
   const activeScreen = appState.activeScreen
-  const selectedModel =
-    appState.models.find((model) => model.id === appState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model))) ??
-    firstGeneratorModel(appState.models)
+  const activeConversation = appState.conversations.find(chat => chat.id === appState.activeConversationId)
+  const selectedModel = answerModel(appState.models, activeConversation?.modelId)
+  const practiceModelId = practiceState.activeSessionId
+    ? practiceState.sessions.find(session => session.id === practiceState.activeSessionId)?.modelId : practiceState.draftModelId
   const embeddingModels = appState.models.filter(modelCanEmbed)
   const activeTitle = useMemo(
     () => navItems.find((item) => item.id === activeScreen)?.label ?? 'Chat',
@@ -2239,10 +2188,11 @@ export function App() {
         {!hasLoadedState && <LoadingScreen />}
         {hasLoadedState && (
           <ChatScreen
+            {...studyPanels} onViewLog={openLog}
             progress={generation.api}
             isActive={activeScreen === 'chat' && practiceState.mode === 'chat'}
-            onModeChange={setStudyMode}
-            catalog={studyCatalog} inheritScope={appState.studyScope ?? []}
+            onModeChange={setStudyMode} onPracticeTopic={practiceTopic} practiceChatDraft={practiceChatDraft}
+            catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope}
             activeConversationId={appState.activeConversationId}
             conversations={appState.conversations}
             materials={appState.materials}
@@ -2272,20 +2222,22 @@ export function App() {
           />
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
-          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode}
-          catalog={studyCatalog} inheritScope={appState.studyScope ?? []} models={appState.models} selectedModel={selectedModel} settings={appState.settings}
+          {...studyPanels} onViewLog={openLog}
+          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
+          materials={appState.materials} embeddingModels={embeddingModels}
+          catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
           onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
           onOpenLibrary={() => updateAppState(current => ({ ...current, activeScreen: 'library' }))}
-          onDiscuss={discussPractice} onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
+          onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
           sourceError={practiceReader.error} progress={generation.api} />}
         {activeScreen === 'chat' && practiceState.mode === 'practice' && practiceReader.state &&
           <SourceDocumentReader state={practiceReader.state} navigation={practiceReader.navigation} onClose={practiceReader.close} />}
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
             models={appState.models}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={appState.settings.application.defaultModelId}
             createRequest={libraryCreateRequest}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
@@ -2307,7 +2259,8 @@ export function App() {
             onSelectEmbeddingModel={selectEmbeddingModel}
             onSelectModel={selectModel}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={(practiceState.mode === 'practice' ? practiceModelId : activeConversation?.modelId) ?? ''}
+            modelSelectionLocked={practiceState.mode === 'practice' && Boolean(practiceState.activeSessionId)}
             onConnectCloud={openCloudSetup}
           />
         )}
@@ -2315,15 +2268,22 @@ export function App() {
           <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} isIndexing={appState.materials.some(material => material.status === 'indexing')} />
         )}
       </section>
-      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => ({
-        ...current, activeScreen: 'chat', activeConversationId: current.conversations.some(c => c.id === conversationId) ? conversationId : current.activeConversationId,
-        practice: { ...(current.practice ?? emptyPracticeState()),
-          mode: current.practice?.sessions.some(session => session.id === conversationId) ? 'practice' : 'chat',
-          activeSessionId: current.practice?.sessions.some(session => session.id === conversationId) ? conversationId : current.practice?.activeSessionId }
-      }))} />
+      {isLogCardOpen && <TokenSmithLogCard entries={logEntries} error={logError} logFile={logFile} status={logStatus}
+        onClose={() => setIsLogCardOpen(false)} onRefresh={refreshLogFile} />}
+      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => {
+        if (conversationId === 'practice-topics') return { ...current, activeScreen: 'chat',
+          practice: { ...(current.practice ?? emptyPracticeState()), mode: 'practice', activeSessionId: undefined } }
+        const session = current.practice?.sessions.find(item => item.id === conversationId)
+        const next = session ? changeStudyScope(current, session.documents) : current
+        return { ...next, activeScreen: 'chat',
+          activeConversationId: next.conversations.some(c => c.id === conversationId) ? conversationId : next.activeConversationId,
+          practice: { ...(next.practice ?? emptyPracticeState()), mode: session ? 'practice' : 'chat',
+            activeSessionId: session?.id ?? next.practice?.activeSessionId } }
+      })} />
       {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
         localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
-        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
+        configuredModels={appState.models}
+        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} onForgotten={forgotCloudConnections} />}
       {cloudNotice && <div className="cloud-connected-notice" role="status">{cloudNotice}</div>}
     </main>
   )
@@ -2342,11 +2302,21 @@ function LoadingScreen() {
 }
 
 function ChatScreen({
+  historyOpen: isSidebarOpen,
+  onHistoryOpenChange: setIsSidebarOpen,
+  materialsOpen,
+  onMaterialsOpenChange: setMaterialsOpen,
+  collectionExpansion,
+  onCollectionExpansionChange,
+  onViewLog,
   progress,
   isActive,
   onModeChange,
+  onPracticeTopic,
+  practiceChatDraft,
   catalog,
-  inheritScope,
+  scope: documentScope,
+  onScopeChange,
   activeConversationId,
   conversations,
   embeddingModels,
@@ -2368,9 +2338,13 @@ function ChatScreen({
 }: {
   progress: GenerationProgressApi
   isActive: boolean
+  onViewLog: () => void
   onModeChange: (mode: StudyMode) => void
+  onPracticeTopic: (topic: PracticeTopic) => void
+  practiceChatDraft?: { conversationId: string; draft: ChatDraft }
   catalog: StudyCatalog
-  inheritScope: StudyDocumentRef[]
+  scope: StudyDocumentRef[]
+  onScopeChange: (scope: StudyDocumentRef[]) => void
   activeConversationId: string
   conversations: Conversation[]
   embeddingModels: LocalModel[]
@@ -2394,11 +2368,9 @@ function ChatScreen({
       'activeConversationId' | 'conversations'
     >
   ) => void
-}) {
+} & StudyPanels) {
   const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({})
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 800)
-  const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const [isPreparingFollowUps, setIsPreparingFollowUps] = useState(false)
   const foregroundRequestRef = useRef<string | null>(null)
@@ -2449,8 +2421,6 @@ function ChatScreen({
     reader.close()
   }, [isActive, activeConversationId, sourcePreview.dismiss, reader.close])
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
-  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaSetupPhase, setOllamaSetupPhase] = useState<'idle' | 'checking' | 'opening' | 'starting' | 'error'>('idle')
   const [ollamaPullingModel, setOllamaPullingModel] = useState<'chat' | 'embedder' | null>(null)
@@ -2459,10 +2429,6 @@ function ChatScreen({
   const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
   const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [starterQuestionError, setStarterQuestionError] = useState<string | null>(null)
-  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
-  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
-  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
   const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -2481,13 +2447,29 @@ function ChatScreen({
   function clearDraft() {
     setDrafts((current) => ({ ...current, [activeConversation.id]: { text: '' } }))
   }
-  const documentScope = activeConversation.documentScope ?? inheritScope
+  useEffect(() => {
+    if (!practiceChatDraft) return
+    setDrafts(current => ({ ...current, [practiceChatDraft.conversationId]: practiceChatDraft.draft }))
+    composerInputRef.current?.focus()
+  }, [practiceChatDraft])
+  const readyDocuments = new Set(catalog.documents.map(item => `${item.materialId}:${item.documentId}`))
+  const practiceScopeReady = catalog.status === 'ready' && documentScope.length > 0 &&
+    documentScope.every(item => readyDocuments.has(`${item.materialId}:${item.documentId}`))
+  function practiceAnswer(message: ChatMessage) {
+    if (!practiceScopeReady) return
+    const index = activeConversation.messages.findIndex(item => item.id === message.id)
+    const question = activeConversation.messages.slice(0, index).reverse().find(item => item.role === 'user')
+    if (!question) return
+    const answer = answerForDisplay(message)
+    onPracticeTopic({ title: question.text.slice(0, 120), question: question.text, answer: answer.text,
+      conversationId: activeConversation.id, answerId: message.id, sources: sourcesInScope(answer.sources ?? [], documentScope) })
+  }
   const scopeMaterialIds = new Set(documentScope.map(item => item.materialId))
   const activeMaterials = materials.filter(material => scopeMaterialIds.has(material.id)).map(material => ({ ...material, isActive: true }))
   function changeDocumentScope(documentScope: StudyDocumentRef[]) {
+    handleStopResponse()
     stopStarterRef.current?.()
-    onChatStateChange(current => ({ ...current, conversations: current.conversations.map(chat =>
-      chat.id === activeConversation.id ? { ...chat, documentScope } : chat) }))
+    onScopeChange(documentScope)
   }
   const selectedModelLabel = selectedModel ? displayModelName(selectedModel) : 'Choose a model'
   const sourceMessages = activeConversation.messages.filter(
@@ -2503,8 +2485,16 @@ function ChatScreen({
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
   const activeMaterialKey = studyScopeKey(documentScope)
+  const previousScopeKey = useRef(activeMaterialKey)
+  useLayoutEffect(() => {
+    if (previousScopeKey.current === activeMaterialKey) return
+    previousScopeKey.current = activeMaterialKey
+    handleStopResponse()
+    sourcePreview.dismiss()
+    reader.close()
+    setChatError(null)
+  }, [activeMaterialKey])
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
   const canSuggestStarterQuestions =
     isActive &&
     !activeConversation.practiceReference &&
@@ -2543,23 +2533,15 @@ function ChatScreen({
     ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
     : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
   const composerPlaceholder = selectedModel
-      ? 'Ask about your materials...'
+      ? 'Ask about your documents...'
       : needsDocumentSetup
-        ? 'Add your materials, then choose a chat model...'
+        ? 'Add documents to Library, then choose a chat model...'
         : 'Choose a recommended model to ask questions...'
 
   useEffect(() => {
     setEditingQuestionId(null)
     setFocusedAnswerId(null)
   }, [activeConversation.id])
-
-  useLayoutEffect(() => {
-    if (!isActive) return
-    const input = composerInputRef.current
-    if (!input) return
-    input.style.height = 'auto'
-    input.style.height = `${Math.min(input.scrollHeight, 180)}px`
-  }, [draft, isActive])
 
   useEffect(() => {
     if (!isActive || (!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
@@ -2683,15 +2665,17 @@ function ChatScreen({
   ])
 
   function handleNewChat() {
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
     cancelForeground()
     requestSequenceRef.current += 1
 
     const newConversation: Conversation = {
       id: createId('conversation'),
+      modelId: settings.application.defaultModelId,
       title: 'New Study Chat',
       period: 'Today',
       messages: [],
-      documentScope: scopeRefs(inheritScope)
+      documentScope: scopeRefs(documentScope)
     }
 
     onChatStateChange((current) => ({
@@ -2708,8 +2692,6 @@ function ChatScreen({
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleStopResponse() {
@@ -2723,8 +2705,7 @@ function ChatScreen({
   }
 
   function handleSelectConversation(conversationId: string) {
-    setRenamingConversationId(null)
-    setRenameDraft('')
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
     reader.close()
     setSourceTrayError(null)
     setPendingSources([])
@@ -2735,47 +2716,13 @@ function ChatScreen({
     }))
   }
 
-  function handleStartRenameConversation(conversationId: string) {
-    const conversation = conversations.find((item) => item.id === conversationId)
-    if (!conversation) {
-      return
-    }
-
-    setRenamingConversationId(conversationId)
-    setRenameDraft(conversation.title)
-  }
-
-  function handleCommitRenameConversation() {
-    if (!renamingConversationId) {
-      return
-    }
-
-    const conversation = conversations.find((item) => item.id === renamingConversationId)
-    const nextTitle = renameDraft.trim()
-    const conversationId = renamingConversationId
-
-    setRenamingConversationId(null)
-    setRenameDraft('')
-
-    if (!conversation) {
-      return
-    }
-
-    if (!nextTitle || nextTitle === conversation.title) {
-      return
-    }
-
+  function handleRenameConversation(conversationId: string, title: string) {
     onChatStateChange((current) => ({
       ...current,
       conversations: current.conversations.map((item) =>
-        item.id === conversationId ? { ...item, title: nextTitle } : item
+        item.id === conversationId ? { ...item, title } : item
       )
     }))
-  }
-
-  function handleCancelRenameConversation() {
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleDeleteConversation(conversationId: string) {
@@ -2798,7 +2745,7 @@ function ChatScreen({
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
-      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }]
+      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(documentScope) }]
       const nextActiveConversationId =
         current.activeConversationId === conversationId ? nextConversations[0].id : current.activeConversationId
 
@@ -2815,10 +2762,6 @@ function ChatScreen({
       setPendingStatusText(null)
       setPendingSources([])
     }
-    if (renamingConversationId === conversationId) {
-      setRenamingConversationId(null)
-      setRenameDraft('')
-    }
     setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
@@ -2831,7 +2774,7 @@ function ChatScreen({
       return
     }
 
-    const freshConversation = { ...createFreshConversation(), documentScope: scopeRefs(inheritScope) }
+    const freshConversation = { ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(documentScope) }
     cancelForeground()
     requestSequenceRef.current += 1
 
@@ -2851,8 +2794,6 @@ function ChatScreen({
     reader.close()
     setSourceTrayError(null)
     setChatError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleCopyQuestion(text: string) {
@@ -2878,31 +2819,6 @@ function ChatScreen({
 
   function handleUseStarterQuestion(question: string) {
     void submitPrompt(question)
-  }
-
-  async function refreshLogFile() {
-    if (!window.tokensmith?.getLogFile) {
-      setLogStatus('error')
-      setLogError('TokenSmith log is not available in this build.')
-      return
-    }
-
-    setLogStatus('loading')
-    setLogError(null)
-
-    try {
-      const nextLogFile = await window.tokensmith.getLogFile()
-      setLogFile(nextLogFile)
-      setLogStatus('idle')
-    } catch (error) {
-      setLogStatus('error')
-      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
-    }
-  }
-
-  function handleOpenLogCard() {
-    setIsLogCardOpen(true)
-    void refreshLogFile()
   }
 
   async function refreshOllamaStatus() {
@@ -3691,8 +3607,10 @@ function ChatScreen({
         if (requestSequenceRef.current !== requestSequence || !reply.text.trim()) return
         responseDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
         sourcePreview.finish(progressId, 'ready')
+        const latencyTrace = combineLatencyTrace(progressId, undefined, reply.latencyTrace)
         const variant = { text: reply.text, sources: reply.sources, responseDurationMs,
-          reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError }
+          reasoning: reply.reasoning, followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {}) }
         onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
           conversation.id === targetConversationId ? { ...conversation, messages: conversation.messages.map(message =>
             message.id === answerId ? { ...message, explanationView: view,
@@ -3764,6 +3682,7 @@ function ChatScreen({
         return {
           ...conversation,
           title: history.length === 0 ? getConversationTitle(prompt) : conversation.title,
+          documentScope: scopeRefs(documentScope),
           messages: editedMessages ?? [...conversation.messages, userMessage],
         }
       })
@@ -3786,6 +3705,7 @@ function ChatScreen({
     let conversationContextMode: ChatMessage['conversationContextMode'] = passage ? 'contextual' : 'standalone'
     let rewrittenRequest: EngineChatRequest | undefined
     let clarificationReply: EngineChatResponse | undefined
+    let clientLatencySpans: LatencySpan[] = []
 
     try {
       if (window.tokensmith && (documentScope.length > 0 || activeConversation.practiceReference)) {
@@ -3806,13 +3726,16 @@ function ChatScreen({
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
             const reference = activeConversation.practiceReference
-            if (history.length === 0 && reference && passage?.messageId === reference.questionId) return Promise.resolve(sourcesInScope(reference.sources, documentScope))
+            if (history.length === 0 && reference && passage?.messageId === reference.questionId) {
+              return Promise.resolve({ sources: sourcesInScope(reference.sources, documentScope) })
+            }
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
               searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
           }
         })
+        clientLatencySpans = prepared.latencySpans
         conversationContextMode = prepared.resolution.mode
         rewrittenRequest = prepared.request
         retrievedSources = prepared.request?.retrievedSources ?? []
@@ -3852,6 +3775,7 @@ function ChatScreen({
       function publishAnswer(reply: EngineChatResponse) {
         if (requestSequenceRef.current !== requestSequence) return
         sourcePreview.finish(progressId, 'ready')
+        const latencyTrace = combineLatencyTrace(progressId, clientLatencySpans, reply.latencyTrace)
         const assistantMessage: ChatMessage = {
           id: assistantId,
           role: 'assistant',
@@ -3872,7 +3796,8 @@ function ChatScreen({
           explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
           responseDurationMs: answerDurationMs,
           followUpSuggestions: reply.followUpSuggestions ?? [],
-          followUpError: reply.followUpError
+          followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {})
         }
 
         onChatStateChange((current) => ({
@@ -3946,57 +3871,15 @@ function ChatScreen({
 
   return (
     <div hidden={!isActive} className={`view-frame study-frame chat-frame ${isSidebarOpen ? 'has-history' : ''} ${materialsOpen ? 'has-materials' : ''}`}>
-      {isSidebarOpen && (
-        <aside className="chat-sidebar" aria-label="Conversation list">
-          <button className="new-chat-button" type="button" onClick={handleNewChat}>
-            <Plus size={17} aria-hidden="true" />
-            <span>New Chat</span>
-          </button>
-          <div className="conversation-groups">
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="Today"
-              items={conversations.filter((chat) => chat.period === 'Today')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="This week"
-              items={conversations.filter((chat) => chat.period === 'This week')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-          </div>
-          <div className="chat-sidebar-footer">
-            <button className="view-log-button" type="button" onClick={handleOpenLogCard}>
-              <FileText size={15} aria-hidden="true" />
-              <span>View Log</span>
-            </button>
-            <button className="clear-chats-button" type="button" onClick={handleClearConversations}>
-              <Trash2 size={15} aria-hidden="true" />
-              <span>Clear All Chats</span>
-            </button>
-          </div>
-        </aside>
-      )}
+      {isSidebarOpen && <StudySidebar mode="chat" activeId={activeConversation.id}
+        groups={['Today', 'This week'].map(label => ({ label, items: conversations.filter(chat => chat.period === label) }))}
+        onNew={handleNewChat} onSelect={handleSelectConversation} onRename={handleRenameConversation}
+        onDelete={handleDeleteConversation} onClear={handleClearConversations} onViewLog={onViewLog} />}
 
       <section className="chat-main" aria-label="Study chat">
-        <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(value => !value)}
-          materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(value => !value)} count={documentScope.length}>
-          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+        <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(!materialsOpen)} count={documentScope.length}>
+          <ChatModelPicker models={models} selectedModel={selectedModel} selectedModelId={activeConversation.modelId} disabled={isPending}
             onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
           {settings.application.explanationDepthEnabled && <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending} onSelect={onExplanationDepthChange} />}
         </StudyHeader>
@@ -4036,6 +3919,8 @@ function ChatScreen({
                         ? () => void improveAnswer(message.id, 'simple')
                         : undefined
                     }
+                    onPractice={message.text.trim() && message.conversationContextMode !== 'clarify' ? () => practiceAnswer(message) : undefined}
+                    practiceDisabled={!practiceScopeReady}
                     onTryReasoning={canRetryWithReasoning(message, selectedModel)
                       ? () => void improveAnswer(message.id, 'reasoning') : undefined}
                     explanationPending={isPending && pendingExplanationId === message.id}
@@ -4051,65 +3936,45 @@ function ChatScreen({
                 )
               )
             )}
+            {activeConversation.practiceReference && activeConversation.messages.filter(message => message.role === 'user').length === 1 &&
+              <PracticeChatSuggestions key={activeConversation.id} conversation={activeConversation} model={selectedModel}
+                settings={settings} modelSettings={selectedModelSettings} isActive={isActive}
+                disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} progress={progress}
+                onUse={handleUseFollowUpSuggestion} onSave={questions => onChatStateChange(current => ({ ...current,
+                  conversations: current.conversations.map(conversation => conversation.id === activeConversation.id
+                    ? { ...conversation, practiceSuggestions: questions } : conversation) }))} />}
             {chatError && <div className="chat-error-banner"><p>{chatError}</p>
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
             {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
               <div className="chat-error-banner"><p>Enter an API key for {selectedModel.providerName || 'your online service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Enter API key</button></div>}
+            {activeConversation.modelId && (!selectedModel || (selectedModel.engine === 'ollama' && selectedModel.status !== 'ready')) &&
+              <div className="chat-error-banner" role="status"><p>This chat's model is unavailable. Choose another model or restore it in Models.</p>
+                <button className="secondary-action" type="button" onClick={onManageModels}>Manage models</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
             {selectedModel && !isPending && !isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' && (
               <span className="reload-chip"><RefreshCw size={15} aria-hidden="true" />Load - {selectedModelLabel}</span>
             )}
-            <div className="composer">
+            <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
+              label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
+              disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
+              submitDisabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
                 onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
-              <textarea
-                aria-label="Message"
-                rows={1}
-                disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
-                ref={composerInputRef}
-                onChange={(event) => updateDraft({ text: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
-                  }
-                }}
-                placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder}
-                value={draft}
-              />
-              <button
-                className="send-button"
-                disabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}
-                type="submit"
-                aria-label="Send message"
-                title="Send message"
-              >
-                <SendHorizonal size={21} aria-hidden="true" />
-              </button>
-            </div>
+            </MessageComposer>
           </form>
         </div>
       </section>
 
       <StudyMaterialsPane catalog={catalog} scope={documentScope} open={materialsOpen}
-        disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} onChange={changeDocumentScope}
+        collectionExpansion={collectionExpansion} onCollectionExpansionChange={onCollectionExpansionChange}
+        disabled={Boolean(editingQuestionId)} onChange={changeDocumentScope}
         onClose={() => setMaterialsOpen(false)} onManage={onOpenLibrary}>
         {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />}
       </StudyMaterialsPane>
-      {isLogCardOpen && (
-        <TokenSmithLogCard
-          entries={logEntries}
-          error={logError}
-          logFile={logFile}
-          status={logStatus}
-          onClose={() => setIsLogCardOpen(false)}
-          onRefresh={refreshLogFile}
-        />
-      )}
       {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={closeSourceReader} generationPending={isPending}
         reading={sourcePreview.reading ? { ...sourcePreview.reading, onKeepOpen: sourcePreview.keepOpen } : undefined}
         navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
@@ -4223,7 +4088,7 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
       {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
       {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
       {sources.length > 0 && <LogSources sources={sources} />}
-      {materials.length > 0 && <LogObjectList title="Materials" items={materials} />}
+      {materials.length > 0 && <LogObjectList title="Library folders" items={materials} />}
       {embeddingModels.length > 0 && <LogObjectList title="Embedding Models" items={embeddingModels} />}
 
       <details className="log-raw-details">
@@ -4330,102 +4195,6 @@ function LogObjectList({ items, title }: { items: Record<string, unknown>[]; tit
   )
 }
 
-function ConversationGroup({
-  activeConversationId,
-  label,
-  items,
-  renameDraft,
-  renamingConversationId,
-  onCancelRename,
-  onCommitRename,
-  onDelete,
-  onRenameDraftChange,
-  onRenameStart,
-  onSelect,
-}: {
-  activeConversationId: string
-  label: string
-  items: Conversation[]
-  renameDraft: string
-  renamingConversationId: string | null
-  onCancelRename: () => void
-  onCommitRename: () => void
-  onDelete: (id: string) => void
-  onRenameDraftChange: (value: string) => void
-  onRenameStart: (id: string) => void
-  onSelect: (id: string) => void
-}) {
-  if (items.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="conversation-group" aria-label={label}>
-      <h2>{label}</h2>
-      <div className="conversation-list">
-        {items.map((item) => {
-          const isSelected = item.id === activeConversationId
-          const isRenaming = item.id === renamingConversationId
-
-          return (
-            <div className={`conversation-item ${isSelected ? 'is-selected' : ''}`} key={item.id}>
-              {isRenaming ? (
-                <form
-                  className="conversation-rename-form"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    onCommitRename()
-                  }}
-                >
-                  <input
-                    aria-label="Chat name"
-                    autoFocus
-                    value={renameDraft}
-                    onBlur={onCommitRename}
-                    onChange={(event) => onRenameDraftChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        onCancelRename()
-                      }
-                    }}
-                  />
-                </form>
-              ) : (
-                <button className="conversation-select" type="button" onClick={() => onSelect(item.id)}>
-                  <span>{item.title}</span>
-                </button>
-              )}
-              {isSelected && !isRenaming && (
-                <div className="conversation-actions" aria-label={`${item.title} actions`}>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Rename ${item.title}`}
-                    title="Rename chat"
-                    onClick={() => onRenameStart(item.id)}
-                  >
-                    <Pencil size={17} aria-hidden="true" />
-                  </button>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Delete ${item.title}`}
-                    title="Delete chat"
-                    onClick={() => onDelete(item.id)}
-                  >
-                    <Trash2 size={18} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
 function contextModeLabel(mode?: ChatMessage['conversationContextMode']): string | undefined {
   if (mode === 'clarify') {
     return 'Clarification'
@@ -4461,7 +4230,7 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
 
   return (
     <article className="message-row" data-question-id={message.id} tabIndex={-1} aria-label="Your question">
-      <CircleUserRound className="message-avatar user" size={26} aria-hidden="true" />
+      <MessageAvatar role="user" />
       <div>
         <h3>
           You
@@ -4491,6 +4260,8 @@ function AssistantMessage({
   showSources,
   suggestionsDisabled,
   onExplainSimpler,
+  onPractice,
+  practiceDisabled,
   onTryReasoning,
   explanationPending,
   explanationError,
@@ -4504,6 +4275,8 @@ function AssistantMessage({
   showSources: boolean
   suggestionsDisabled: boolean
   onExplainSimpler?: () => void
+  onPractice?: () => void
+  practiceDisabled: boolean
   onTryReasoning?: () => void
   explanationPending: boolean
   explanationError?: string
@@ -4521,7 +4294,7 @@ function AssistantMessage({
 
   return (
     <article className="message-row">
-      <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
+      <MessageAvatar role="assistant" />
       <div>
         <h3>
           TokenSmith
@@ -4535,7 +4308,7 @@ function AssistantMessage({
         )}
         <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
           errorView={explanationErrorView} disabled={suggestionsDisabled} onSimplify={onExplainSimpler}
-          onReasoning={onTryReasoning} onSelectView={onSelectExplanationView} />
+          onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4595,108 +4368,6 @@ function AssistantMessage({
   )
 }
 
-function SourceTray({
-  error,
-  sources,
-  onOpenSource
-}: {
-  error: string | null
-  sources: ChatSource[]
-  onOpenSource: (source: ChatSource) => void
-}) {
-  const [thumbnails, setThumbnails] = useState<SourceThumbnailState>({})
-
-  useEffect(() => {
-    let canceled = false
-
-    setThumbnails({})
-
-    const bridge = window.tokensmith
-    if (!bridge?.getPdfThumbnailForSource) {
-      return () => {
-        canceled = true
-      }
-    }
-
-    sources.forEach((source, index) => {
-      if (!isPdfSource(source)) {
-        return
-      }
-
-      const key = sourceTrayKey(source, index)
-      void bridge
-        .getPdfThumbnailForSource(source)
-        .then((thumbnail) => {
-          if (canceled) {
-            return
-          }
-          setThumbnails((current) => ({ ...current, [key]: thumbnail }))
-        })
-        .catch(() => {
-          // Thumbnail rendering is best-effort; the source card still opens the PDF.
-        })
-    })
-
-    return () => {
-      canceled = true
-    }
-  }, [sources])
-
-  if (sources.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="source-tray" aria-label="Top answer sources">
-      <div className="source-tray-header">
-        <BookOpen size={15} aria-hidden="true" />
-        <span>Top sources</span>
-      </div>
-      <div className="source-tray-list">
-        {sources.map((source, index) => {
-          const canOpen = canOpenSource(source)
-          const pageLabel = sourcePageLabel(source)
-          const sourceKey = sourceTrayKey(source, index)
-          const thumbnail = thumbnails[sourceKey]
-          const sourceContextLabel = [source.collectionName, source.sectionHeader].filter(Boolean).join(' · ')
-          const sourceTypeLabel = sourceFileTypeLabel(source)
-
-          return (
-            <button
-              className={`source-tray-card ${canOpen ? '' : 'is-text-only'}`}
-              disabled={!canOpen}
-              key={sourceKey}
-              type="button"
-              onClick={() => onOpenSource(source)}
-            >
-              <span className="source-media" aria-hidden="true">
-                <span className={`source-thumbnail ${thumbnail ? 'has-image' : ''}`}>
-                  {thumbnail ? (
-                    <img src={thumbnail.dataUrl} alt="" />
-                  ) : (
-                    <>
-                      <FileText size={17} />
-                      <strong>{sourceTypeLabel}</strong>
-                    </>
-                  )}
-                </span>
-              </span>
-              <span className="source-tray-copy">
-                <strong>{sourceDocumentTitle(source)}</strong>
-                {sourceContextLabel && <small>{sourceContextLabel}</small>}
-                <span>{source.excerpt}</span>
-              </span>
-              <span className="source-card-badges">
-                <small className="source-page-label">{pageLabel}</small>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      {error && <p className="source-tray-error">{error}</p>}
-    </section>
-  )
-}
 
 function PdfSourceViewer({ viewer, onClose, automatic = false, navigation, reading, sectionHeader, locator, generationPending }: {
   viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps
@@ -5356,6 +5027,7 @@ function ModelsScreen({
   onSelectModel,
   selectedEmbeddingModelId,
   selectedModelId,
+  modelSelectionLocked,
   onConnectCloud
 }: {
   engines: EngineInfo[]
@@ -5368,37 +5040,11 @@ function ModelsScreen({
   onSelectModel: (modelId: string) => void
   selectedEmbeddingModelId: string
   selectedModelId: string
+  modelSelectionLocked: boolean
   onConnectCloud: (model?: LocalModel) => void
 }) {
-  type RemoteProviderDraft = {
-    apiKey: string
-    baseUrl: string
-    role: LocalModelRole
-    modelName: string
-    models: string[]
-    isLoading: boolean
-    error?: string
-  }
-
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
   const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
-  const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
-    remoteProviderCatalog.reduce(
-      (drafts, provider) => {
-        drafts[provider.id] = {
-          apiKey: '',
-          baseUrl: provider.baseUrl ?? '',
-          role: 'embedder',
-          modelName: '',
-          models: [],
-          isLoading: false
-        }
-
-        return drafts
-      },
-      {} as Record<RemoteProviderId, RemoteProviderDraft>
-    )
-  )
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaStatusState, setOllamaStatusState] = useState<'idle' | 'checking' | 'error'>('idle')
   const [ollamaError, setOllamaError] = useState<string | null>(null)
@@ -5577,90 +5223,6 @@ function ModelsScreen({
       setOllamaSearchStatus('error')
       setOllamaSearchError(error instanceof Error ? error.message : 'Ollama model search failed.')
     }
-  }
-
-  function updateRemoteDraft(providerId: RemoteProviderId, draft: Partial<(typeof remoteDrafts)[RemoteProviderId]>) {
-    setRemoteDrafts((current) => ({
-      ...current,
-      [providerId]: {
-        ...current[providerId],
-        ...draft
-      }
-    }))
-  }
-
-  async function loadRemoteProviderModels(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const baseUrl = draft.baseUrl.trim()
-    const apiKey = draft.apiKey.trim()
-
-    if (!window.tokensmith || !apiKey || !baseUrl) {
-      return
-    }
-
-    updateRemoteDraft(provider.id, { isLoading: true, error: undefined })
-
-    try {
-      const visibleModels = await window.tokensmith.listRemoteProviderModels(apiKey, baseUrl, draft.role)
-
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: visibleModels,
-        modelName: draft.modelName || visibleModels[0] || '',
-        error:
-          visibleModels.length === 0
-            ? `No compatible ${draft.role === 'embedder' ? 'embedding' : 'chat'} models were returned by this provider.`
-            : undefined
-      })
-    } catch (error) {
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: [],
-        error: error instanceof Error ? error.message : 'Could not load provider models.'
-      })
-    }
-  }
-
-  function installRemoteProviderModel(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const apiKey = draft.apiKey.trim()
-    const baseUrl = draft.baseUrl.trim()
-    const remoteModelName = draft.modelName.trim()
-
-    if (!apiKey || !baseUrl || !remoteModelName) {
-      updateRemoteDraft(provider.id, { error: 'API key, base URL, and model name are required.' })
-      return
-    }
-
-    const isEmbedder = draft.role === 'embedder'
-    const model: LocalModel = {
-      id: createId('model'),
-      name: provider.isCustom ? remoteModelName : `${provider.name} ${remoteModelName}`,
-      engine: 'remote',
-      role: draft.role,
-      status: 'ready',
-      source: 'remote',
-      providerId: provider.id,
-      providerName: provider.name,
-      baseUrl,
-      apiKey,
-      remoteModelName,
-      type: isEmbedder ? 'OpenAI-compatible embeddings' : 'OpenAI-compatible chat',
-      description: [
-        `${provider.name} remote ${isEmbedder ? 'embedding' : 'chat'} model`,
-        isEmbedder
-          ? 'Uses an OpenAI-compatible embeddings endpoint'
-          : 'Uses an OpenAI-compatible chat completions endpoint',
-        isEmbedder
-          ? 'Builds collection vectors and embeds questions for retrieval'
-          : 'Uses TokenSmith retrieval before sending source-backed prompts',
-        'API key is kept for this app session and redacted from saved state'
-      ],
-      addedAt: new Date().toISOString()
-    }
-
-    onAddModel(model)
-    setMode('installed')
   }
 
   function modelStats(model: LocalModel) {
@@ -5858,7 +5420,7 @@ function ModelsScreen({
             className={`model-action-button ${isSelected ? 'is-selected' : ''}`}
             type="button"
             onClick={() => isEmbedderOnly ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}
-            disabled={isSelected}
+            disabled={isSelected || (!isEmbedderOnly && modelSelectionLocked)}
           >
             <Check size={17} aria-hidden="true" />
             <span>{selectedLabel}</span>
@@ -5879,7 +5441,7 @@ function ModelsScreen({
                   ? 'Used for PDF search'
                   : 'Used for local chat answers'
               : isEmbedderOnly
-                ? 'Used for collection and question embeddings'
+                ? 'Used for document and question embeddings'
                 : runtimeDetail}
           </small>
         </aside>
@@ -5897,12 +5459,14 @@ function ModelsScreen({
   }
 
   function renderInstalledModelCard(model: LocalModel) {
-    if (isCloudGenerator(model)) {
+    if (model.engine === 'remote') {
+      const isEmbedder = modelRole(model) === 'embedder'
+      const selected = isEmbedder ? model.id === selectedEmbeddingModelId : model.id === selectedModelId
       return <section className="cloud-generator-entry" key={model.id}>
-        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Online'} · {model.status === 'ready' ? 'Ready' : 'API key required'}</p></div>
+        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {isEmbedder ? 'Embedding model' : 'Chat model'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
         <div className="model-header-actions">
-          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
-          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'API key settings' : 'Enter API key'}</button>
+          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={selected || (!isEmbedder && modelSelectionLocked)} onClick={() => isEmbedder ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}>{selected ? 'Selected' : isEmbedder ? 'Use for search' : 'Use in chat'}</button>}
+          <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'Connection settings' : 'Reconnect'}</button>
           <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
         </div>
       </section>
@@ -5951,109 +5515,7 @@ function ModelsScreen({
     )
   }
 
-  const installedModels = models.filter((model) => isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
-
-  function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const canInstall = Boolean(draft.apiKey.trim() && draft.baseUrl.trim() && draft.modelName.trim())
-    const modelListId = `remote-models-${provider.id}`
-
-    return (
-      <section className="remote-provider-card" key={provider.id}>
-        <div className="remote-provider-main">
-          <div className="remote-provider-heading">
-            <img className="remote-provider-logo" src={remoteProviderLogoSources[provider.id]} alt={`${provider.name} logo`} />
-            <h2>{provider.name}</h2>
-          </div>
-          <p>{provider.description}</p>
-          {provider.apiKeyUrl && (
-            <a href={provider.apiKeyUrl} rel="noreferrer" target="_blank">
-              Get your API key
-            </a>
-          )}
-        </div>
-
-        <div className="remote-provider-form">
-          <label>
-            <span>API Key</span>
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder="enter API key"
-              value={draft.apiKey}
-              onChange={(event) => updateRemoteDraft(provider.id, { apiKey: event.target.value, error: undefined })}
-            />
-          </label>
-
-          {provider.isCustom && (
-            <label>
-              <span>Base URL</span>
-              <input
-                type="url"
-                placeholder="https://host.example/v1"
-                value={draft.baseUrl}
-                onChange={(event) => updateRemoteDraft(provider.id, { baseUrl: event.target.value, error: undefined })}
-              />
-            </label>
-          )}
-
-          <label>
-            <span>Model Type</span>
-            <select
-              value={draft.role}
-              onChange={(event) => {
-                const role = event.target.value as LocalModelRole
-                updateRemoteDraft(provider.id, { role, modelName: '', models: [], error: undefined })
-              }}
-            >
-              <option value="embedder">Embedder Model</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Model Name</span>
-            <input
-              list={provider.isCustom ? undefined : modelListId}
-              placeholder={provider.isCustom ? 'enter model name' : 'load models or enter model name'}
-              value={draft.modelName}
-              onChange={(event) => updateRemoteDraft(provider.id, { modelName: event.target.value, error: undefined })}
-            />
-            {!provider.isCustom && (
-              <datalist id={modelListId}>
-                {draft.models.map((modelName) => (
-                  <option key={modelName} value={modelName} />
-                ))}
-              </datalist>
-            )}
-          </label>
-
-          {!provider.isCustom && (
-            <button
-              className="model-action-button"
-              type="button"
-              disabled={!draft.apiKey.trim() || draft.isLoading}
-              onClick={() => loadRemoteProviderModels(provider)}
-            >
-              <RefreshCw size={16} aria-hidden="true" />
-              <span>{draft.isLoading ? 'Loading...' : 'Load Models'}</span>
-            </button>
-          )}
-
-          <button
-            className="model-action-button is-download"
-            type="button"
-            disabled={!canInstall}
-            onClick={() => installRemoteProviderModel(provider)}
-          >
-            <Plus size={16} aria-hidden="true" />
-            <span>Install</span>
-          </button>
-
-          {draft.error && <small className="model-download-error">{draft.error}</small>}
-        </div>
-      </section>
-    )
-  }
+  const installedModels = models.filter((model) => model.engine === 'remote' || (model.status !== 'needsRuntime' && model.status !== 'missing'))
 
   function renderOllamaModelAction(model: LocalModel, isInstalledInOllama: boolean) {
     const isEmbedderOnly = modelCanEmbed(model) && !modelCanGenerate(model)
@@ -6328,12 +5790,9 @@ function ModelsScreen({
         {exploreTab === 'remote' && (
           <>
             <p className="model-explore-copy">
-              Connect a cloud service for chat answers. Your PDF search model is managed separately.
+              Connect a provider once, then add any compatible chat or embedding model with that same API key.
             </p>
-            <div className="cloud-generator-entry"><div><h2>Cloud chat models</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button></div>
-            <details className="cloud-generator-advanced"><summary>Advanced: remote embedding models</summary><div className="remote-provider-grid">
-              {remoteProviderCatalog.map((provider) => renderRemoteProviderCard(provider))}
-            </div></details>
+            <div className="cloud-generator-entry"><div><h2>Online providers</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a provider</button></div>
           </>
         )}
 
@@ -6347,7 +5806,7 @@ function ModelsScreen({
         <div>
           <p className="section-kicker">Models</p>
           <h1>Your models</h1>
-          <p>Chat models answer questions. Embedder models build and search collection vectors.</p>
+          <p>Chat models answer questions. Embedder models build and search document vectors.</p>
         </div>
         <div className="model-header-actions">
           <button className="primary-action" type="button" onClick={() => onConnectCloud()}><Plus size={18} /><span>Connect cloud model</span></button>
@@ -6365,7 +5824,7 @@ function ModelsScreen({
       {installedModels.length === 0 && (
         <div className="model-empty-state">
           <h2>No Models Installed</h2>
-          <p>Add or connect a chat model for answers and an embedder model for collection search.</p>
+          <p>Add or connect a chat model for answers and an embedder model for Library search.</p>
         </div>
       )}
     </div>
@@ -6384,17 +5843,12 @@ function SettingsScreen({
   isIndexing: boolean
 }) {
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
-  const generatorModels = useMemo(() => models.filter(modelCanGenerate), [models])
-  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId || generatorModels[0]?.id || '')
-  const selectedModel =
-    generatorModels.find((model) => model.id === selectedModelId) ?? firstGeneratorModel(generatorModels)
+  const generatorModels = useMemo(() => models.filter(isAnswerModel), [models])
+  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId)
+  const selectedModel = answerModel(generatorModels, selectedModelId)
   const activeModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-
-  useEffect(() => {
-    if (!generatorModels.some((model) => model.id === selectedModelId)) {
-      setSelectedModelId(firstGeneratorModel(generatorModels)?.id ?? '')
-    }
-  }, [generatorModels, selectedModelId])
+  const modelOptions = [{ label: 'Choose a model', value: '' }, ...generatorModels.map(model => ({
+    label: `${displayModelName(model)}${model.status === 'ready' ? '' : ' (unavailable)'}`, value: model.id }))]
 
   function updateApplicationSettings(application: Partial<ApplicationSettings>, root: Partial<TokenSmithSettings> = {}) {
     onSettingsChange({
@@ -6426,7 +5880,7 @@ function SettingsScreen({
     updateApplicationSettings(
       {
         ...defaultApplicationSettings,
-        defaultModelId: firstGeneratorModel(generatorModels)?.id ?? ''
+        defaultModelId: settings.application.defaultModelId
       },
       { maxSources: defaultSettings.maxSources }
     )
@@ -6483,17 +5937,14 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="General">
-              <SettingsRow label="Default Model" description="The preferred model for new chats.">
+              <SettingsRow label="Default Model" description="The model for new chats and practice sessions. Existing sessions keep their model.">
                 <SelectField
                   ariaLabel="Default model"
                   value={settings.application.defaultModelId}
                   onChange={(defaultModelId) => updateApplicationSettings({ defaultModelId })}
                   disabled={generatorModels.length === 0}
-                  options={
-                    generatorModels.length > 0
-                      ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                      : [{ label: 'No chat model configured', value: '' }]
-                  }
+                  options={settings.application.defaultModelId && !answerModel(generatorModels, settings.application.defaultModelId)
+                    ? [{ label: 'Selected model unavailable', value: settings.application.defaultModelId }, ...modelOptions] : modelOptions}
                 />
               </SettingsRow>
               <SettingsRow
@@ -6605,11 +6056,7 @@ function SettingsScreen({
                 value={selectedModel?.id ?? ''}
                 onChange={setSelectedModelId}
                 disabled={generatorModels.length === 0}
-                options={
-                  generatorModels.length > 0
-                    ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                    : [{ label: 'No chat model configured', value: '' }]
-                }
+                options={modelOptions}
               />
             </div>
 

@@ -71,14 +71,17 @@ await page.addInitScript(() => {
       return state
     }
     const search = bridge.searchLibrary
-    bridge.searchLibrary = async (...args) => (await search(...args)).map((source, i) => ({
-      ...source, title: 'BuzzDB', documentTitle: 'BuzzDB', locator: `Chunk ${100 + i}`,
-      sectionHeader: i === 0 ? 'Flushing Pages to Disk' : undefined,
-      context: 'BuzzDB flushes every evicted page, whether it changed or not.',
-      excerpt: 'BuzzDB flushes every evicted page, whether it changed or not.',
-      lineFrom: 7, lineTo: 12,
-      ...(params.has('pdf') ? { path: '/fixture/db/notes.pdf', pageStart: i + 1, pageEnd: i + 1 } : {})
-    }))
+    bridge.searchLibrary = async (...args) => {
+      const result = await search(...args)
+      return { ...result, sources: result.sources.slice(0, 2).map((source, i) => ({
+        ...source, title: 'BuzzDB', documentTitle: 'BuzzDB', locator: `Chunk ${100 + i}`,
+        sectionHeader: i === 0 ? 'Flushing Pages to Disk' : undefined,
+        context: 'BuzzDB flushes every evicted page, whether it changed or not.',
+        excerpt: 'BuzzDB flushes every evicted page, whether it changed or not.',
+        lineFrom: 7, lineTo: 12,
+        ...(params.has('pdf') ? { path: '/fixture/db/notes.pdf', pageStart: i + 1, pageEnd: i + 1 } : {})
+      })) }
+    }
     bridge.getMarkdownForSource = async source => {
       control.reads++
       return { title: 'BuzzDB', path: source.path, text, chunkText: source.context,
@@ -102,7 +105,7 @@ const chat = page.locator('.chat-frame')
 const preview = page.locator('.automatic-source-preview')
 const question = 'Why does BuzzDB flush an unchanged page during eviction?'
 async function open(suffix = '', prompt = question) {
-  await page.goto(`${base}?run=${crypto.randomUUID()}${suffix}`)
+  await page.goto(`${base}?run=${crypto.randomUUID()}&many-sources${suffix}`)
   await chat.getByLabel('Message', { exact: true }).fill(prompt)
   await chat.getByRole('button', { name: 'Send message', exact: true }).click()
   await preview.waitFor()

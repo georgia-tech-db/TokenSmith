@@ -1,5 +1,6 @@
 import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { LatencyTrace } from './latency-trace'
 import type { PracticeReference, PracticeState } from './practice'
 import type { StudyDocumentRef } from './study-scope'
 
@@ -189,6 +190,7 @@ export interface AnswerVariant {
   reasoning?: AnswerReasoning
   followUpSuggestions?: string[]
   followUpError?: string
+  latencyTrace?: LatencyTrace
 }
 
 export interface ChatMessage {
@@ -217,14 +219,17 @@ export interface ChatMessage {
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string
+  latencyTrace?: LatencyTrace
 }
 
 export interface Conversation {
   id: string
+  modelId: string
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
   practiceReference?: PracticeReference
+  practiceSuggestions?: string[]
   documentScope?: StudyDocumentRef[]
 }
 
@@ -245,7 +250,6 @@ export interface AppStateSnapshot {
   studyScope?: StudyDocumentRef[]
   materials: CourseMaterial[]
   models: LocalModel[]
-  selectedModelId: string
   selectedEmbeddingModelId: string
   settings: TokenSmithSettings
   updatedAt: string

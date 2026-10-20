@@ -33,13 +33,16 @@ function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
   }
 }
 
-export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true }: {
+export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true, navigationQuestions, focusQuestionId, onNavigate }: {
   messages: ChatMessage[]
   pending: boolean
   children: ReactNode
   onQuote: (passage: ChatSelectedPassage) => void
   canQuote: boolean
   isActive?: boolean
+  navigationQuestions?: { id: string; text: string }[]
+  focusQuestionId?: string
+  onNavigate?: (id: string) => void
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const navigatorRef = useRef<HTMLElement>(null)
@@ -50,7 +53,13 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
   const [atBottom, setAtBottom] = useState(true)
   const [selection, setSelection] = useState<SelectedText | null>(null)
   const [preview, setPreview] = useState<{ index: number; top: number; left: number } | null>(null)
-  const questions = useMemo(() => messages.filter((message) => message.role === 'user'), [messages])
+  const questions = useMemo(() => navigationQuestions ?? messages.filter((message) => message.role === 'user'), [messages, navigationQuestions])
+
+  function disclosureFocused() {
+    const control = document.activeElement
+    return control instanceof HTMLElement && viewportRef.current?.contains(control) &&
+      control.hasAttribute('aria-expanded') && control.hasAttribute('aria-controls')
+  }
 
   function updateScrollPosition() {
     if (!isActive) return
@@ -77,17 +86,27 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
       .map((element) => [element.dataset.questionId!, element]))
     const last = messages.at(-1)
     const newQuestion = last?.role === 'user' && last.id !== previousLastId.current
-    if (atBottomRef.current || newQuestion) viewport.scrollTop = viewport.scrollHeight
+    // Expanding inline content should leave its control in view, not jump to the end.
+    if ((atBottomRef.current && !disclosureFocused()) || newQuestion) viewport.scrollTop = viewport.scrollHeight
     previousLastId.current = last?.id
     updateScrollPosition()
   }, [messages, pending, isActive])
+
+  useLayoutEffect(() => {
+    if (!isActive || !focusQuestionId) return
+    const viewport = viewportRef.current
+    const element = questionElements.current.get(focusQuestionId)
+    if (!viewport || !element) return
+    viewport.scrollTop += element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 20
+    updateScrollPosition()
+  }, [focusQuestionId, isActive])
 
   useEffect(() => {
     if (!isActive) return
     const viewport = viewportRef.current
     if (!viewport) return
     const observer = new ResizeObserver(() => {
-      if (atBottomRef.current) viewport.scrollTop = viewport.scrollHeight
+      if (atBottomRef.current && !disclosureFocused()) viewport.scrollTop = viewport.scrollHeight
       updateScrollPosition()
     })
     observer.observe(viewport)
@@ -161,12 +180,13 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
         <div className="conversation-content">{children}</div>
       </div>
       {questions.length > 1 && (
-        <nav className="question-navigator" ref={navigatorRef} aria-label="Questions in this chat" onScroll={() => setPreview(null)}>
+        <nav className="question-navigator" ref={navigatorRef} aria-label={navigationQuestions ? 'Questions in this practice' : 'Questions in this chat'} onScroll={() => setPreview(null)}>
           {questions.map((question, index) => (
             <button
               className="question-marker"
               key={question.id}
               type="button"
+              disabled={Boolean(onNavigate) && pending}
               aria-label={`Question ${index + 1}: ${question.text}`}
               aria-current={activeId === question.id ? 'location' : undefined}
               onMouseEnter={(event) => {
@@ -183,6 +203,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
                 const element = questionElements.current.get(question.id)
                 const viewport = viewportRef.current
                 if (!element || !viewport) return
+                onNavigate?.(question.id)
                 viewport.scrollTo({
                   top: viewport.scrollTop + element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 20,
                   behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
@@ -200,7 +221,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           top: Math.max(8, Math.min(preview.top, window.innerHeight - 150)),
           left: Math.max(8, Math.min(preview.left, window.innerWidth - Math.min(300, window.innerWidth - 70) - 8))
         }}>
-          <strong>Question {preview.index + 1}</strong><span>{questions[preview.index].text}</span>
+          <strong>{navigationQuestions ? 'Practice question' : `Question ${preview.index + 1}`}</strong><span>{questions[preview.index].text}</span>
         </div>, document.body
       )}
       {!atBottom && questions.length > 0 && (

@@ -51,6 +51,49 @@ test('Ollama practice uses structured output and preserves JSON, with no follow-
   assert.deepEqual(result.sources, [source])
 })
 
+test('Auto practice keeps the enlarged measured context for the actual completion', async () => {
+  const contexts = []
+  const result = await mocked((url, body) => {
+    if (url.endsWith('/show')) return { model_info: { 'test.context_length': 262144 } }
+    contexts.push(body.options.num_ctx)
+    assert.equal(body.think, false)
+    if (body.options.num_predict === 1) return { prompt_eval_count: 7200 }
+    assert.equal(body.options.num_predict, 1024)
+    assert.ok(body.format.required.includes('checks'))
+    return { done_reason: 'stop', message: { content: raw } }
+  }, () => runOllamaStudyEngine({ ...base, model: { ...base.model, ollamaModelName: 'practice-auto-grow' },
+    modelSettings: { ...base.modelSettings, contextLengthMode: 'auto', contextLength: 2048 } }))
+  assert.deepEqual(contexts, [8192, 16384, 16384])
+  assert.equal(result.text, raw)
+  assert.deepEqual(result.sources, [source])
+})
+
+test('True/False preparation uses its dedicated schema on Ollama and prompt on remote providers', async () => {
+  const request = { ...base, practiceTask: 'true_false_question', prompt: '{"questionNumber":3}' }
+  const prepared = prepareStudyChatMessages(request)
+  assert.match(prepared.messages[0].content, /True\/False practice statement/)
+  assert.match(prepared.messages[0].content, /questionIssue/)
+  assert.equal(shouldGenerateFollowUps(request), false)
+  const binary = '{"correctAnswer":false,"questionIssue":""}'
+  const local = await mocked((url, body) => {
+    if (url.endsWith('/show')) return { capabilities: ['thinking'] }
+    if (body.options.num_predict === 1) return { prompt_eval_count: 2000 }
+    assert.equal(body.format.properties.correctAnswer.type, 'boolean')
+    assert.equal(body.think, false)
+    assert.equal(body.options.temperature, 0.3)
+    return { done_reason: 'stop', message: { content: binary } }
+  }, () => runOllamaStudyEngine(request))
+  assert.equal(local.text, binary)
+  const remote = await mocked((_url, body) => {
+    assert.match(body.messages[0].content, /True\/False practice statement/)
+    assert.match(body.messages[0].content, /"correctAnswer"/)
+    assert.equal(body.temperature, 0.3)
+    return { choices: [{ finish_reason: 'stop', message: { content: binary } }] }
+  }, () => runRemoteStudyEngine({ ...request, model: { ...request.model, engine: 'remote',
+    baseUrl: 'https://provider.example/v1', remoteModelName: 'test', apiKey: 'test' } }))
+  assert.equal(remote.text, binary)
+})
+
 test('Ollama grading refuses actual-token overflow instead of pruning rubric evidence', async () => {
   let completions = 0
   await assert.rejects(mocked((url, body) => {
