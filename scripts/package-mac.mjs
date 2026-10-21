@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
 import { copyFile, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 const execFileAsync = promisify(execFile)
-const rootDir = resolve(new URL('..', import.meta.url).pathname)
+const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const packageJson = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'))
 const appName = 'TokenSmith'
 const appVersion = packageJson.version
@@ -65,6 +66,29 @@ function requirePythonRuntime(appRuntimePath) {
   const pythonExecutable = join(appRuntimePath, 'python', 'bin', 'python')
   if (!existsSync(pythonExecutable)) {
     throw new Error('TokenSmith Python runtime was not found. Run npm run setup:python-runtime before packaging.')
+  }
+}
+
+async function verifyPackageArchitecture() {
+  const binaryArch = { x64: 'x86_64', arm64: 'arm64' }[arch]
+  if (!binaryArch) {
+    throw new Error(`macOS packaging does not support the ${arch} architecture.`)
+  }
+
+  requirePythonRuntime(join(rootDir, 'app_runtime'))
+  const binaries = [
+    join(rootDir, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
+    join(rootDir, 'app_runtime', 'python', 'bin', 'python')
+  ]
+  for (const binary of binaries) {
+    try {
+      await run('/usr/bin/lipo', [binary, '-verify_arch', binaryArch])
+    } catch {
+      throw new Error(
+        `The binary at ${binary} does not support macOS ${arch}. ` +
+        `Reinstall Node dependencies and run npm run setup:python-runtime with ${arch} Node.js before packaging.`
+      )
+    }
   }
 }
 
@@ -246,7 +270,8 @@ async function prepareAppBundle() {
     CFBundleName: appName,
     CFBundleShortVersionString: appVersion,
     CFBundleVersion: appVersion,
-    LSApplicationCategoryType: 'public.app-category.education'
+    LSApplicationCategoryType: 'public.app-category.education',
+    ...(arch === 'x64' ? { LSMinimumSystemVersion: '15.0' } : {})
   })
 
   await prepareAppPayload(resourcesPath)
@@ -317,6 +342,7 @@ if (process.platform !== 'darwin') {
 }
 
 log(`Building ${appName} ${appVersion} for macOS ${arch}.`)
+await verifyPackageArchitecture()
 await run('npm', ['run', 'build'])
 await prepareAppBundle()
 await signAppBundle()

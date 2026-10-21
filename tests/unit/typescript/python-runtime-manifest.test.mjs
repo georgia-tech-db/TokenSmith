@@ -12,6 +12,15 @@ test('selects the pinned Linux x64 runtime', () => {
   assert.match(runtime.sha256, /^[a-f0-9]{64}$/)
 })
 
+test('selects the pinned Intel Mac runtime without changing the Apple Silicon Python version', () => {
+  const runtime = standaloneRuntime('darwin', 'x64')
+  assert.equal(runtime.key, 'darwin-x64')
+  assert.equal(runtime.pythonVersion, standaloneRuntime('darwin', 'arm64').pythonVersion)
+  assert.match(runtime.filename, /x86_64-apple-darwin-install_only_stripped\.tar\.gz$/)
+  assert.match(runtime.url, /cpython-3\.12\.14%2B20260901-x86_64-apple-darwin/)
+  assert.equal(runtime.sha256, '65b195c9cedc1fef6767f044f9822069adbd1bd9204d424ece4628776fdc04bb')
+})
+
 test('selects platform-specific runtimes', () => {
   assert.match(standaloneRuntime('darwin', 'arm64').filename, /aarch64-apple-darwin/)
   assert.match(standaloneRuntime('win32', 'x64').filename, /x86_64-pc-windows-msvc/)
