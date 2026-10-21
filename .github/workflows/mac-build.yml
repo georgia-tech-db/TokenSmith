@@ -31,6 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: ${{ matrix.arch }}
           cache: npm
 
       - name: Install Node dependencies
@@ -39,15 +40,40 @@ jobs:
       - name: Build Python runtime
         run: npm run setup:python-runtime
 
+      - name: Test native Python runtime and platform selection
+        run: |
+          node --test tests/unit/typescript/python-runtime-manifest.test.mjs tests/unit/typescript/device-capability-parsers.test.mjs tests/unit/typescript/mac-package.test.mjs
+          npm run test:unit:python
+          npm run test:integration
+
       - name: Package macOS app
         run: npm run package:mac
 
       - name: Verify packaged Python runtime
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
+          node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+          BINARY_ARCH="$EXPECTED_ARCH"
+          if [ "$BINARY_ARCH" = x64 ]; then BINARY_ARCH=x86_64; fi
+          lipo release/mac/TokenSmith.app/Contents/MacOS/TokenSmith -verify_arch "$BINARY_ARCH"
           RUNTIME="release/mac/TokenSmith.app/Contents/Resources/app/app_runtime/python"
           test -x "$RUNTIME/bin/python"
-          PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" \
-            "$RUNTIME/bin/python" -c 'import faiss, numpy, pypdfium2, PIL'
+          lipo "$RUNTIME/bin/python" -verify_arch "$BINARY_ARCH"
+          PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" PYTHONDONTWRITEBYTECODE=1 \
+            "$RUNTIME/bin/python" - <<'PY'
+          import os, platform
+          import faiss, numpy, pypdfium2, PIL
+          assert platform.machine() == {"x64": "x86_64", "arm64": "arm64"}[os.environ["EXPECTED_ARCH"]]
+          vectors = numpy.eye(2, dtype="float32")
+          index = faiss.IndexFlatL2(2)
+          index.add(vectors)
+          assert index.search(vectors[:1], 1)[1][0, 0] == 0
+          PY
+          if [ "$EXPECTED_ARCH" = x64 ]; then
+            test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' release/mac/TokenSmith.app/Contents/Info.plist)" = 15.0
+          fi
+          codesign --verify --deep --strict release/mac/TokenSmith.app
 
       - name: Upload macOS package
         if: github.event_name == 'workflow_dispatch'

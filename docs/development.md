@@ -50,6 +50,7 @@ that command automatically and include the private runtime in each application,
 so students do not need to install Python.
 
 Run the packaging command on its matching operating system.
+On macOS, install Apple's Command Line Tools (`xcode-select --install`) first.
 
 Create a macOS DMG:
 
@@ -63,8 +64,14 @@ Intel Mac to create
 `release/TokenSmith-<version>-mac-arm64.dmg`. The Intel application declares
 macOS 15.0 as its minimum version.
 
+Use Node.js, Electron, and the Python runtime for the same architecture.
+Packaging checks the Electron and Python binaries before building the app;
+after changing Node.js architectures, reinstall Node dependencies and rerun
+`npm run setup:python-runtime`.
+
 The macOS release workflow builds both architectures on native GitHub
-runners, verifies the packaged runtime, and keeps their artifacts separate.
+runners, tests the native runtime, verifies packaged binary architectures and
+vector search, and keeps their artifacts separate.
 It runs manually or when a `v*` release tag is pushed.
 
 Create a Windows portable ZIP:

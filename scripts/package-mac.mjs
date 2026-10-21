@@ -69,6 +69,29 @@ function requirePythonRuntime(appRuntimePath) {
   }
 }
 
+async function verifyPackageArchitecture() {
+  const binaryArch = { x64: 'x86_64', arm64: 'arm64' }[arch]
+  if (!binaryArch) {
+    throw new Error(`macOS packaging does not support the ${arch} architecture.`)
+  }
+
+  requirePythonRuntime(join(rootDir, 'app_runtime'))
+  const binaries = [
+    join(rootDir, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
+    join(rootDir, 'app_runtime', 'python', 'bin', 'python')
+  ]
+  for (const binary of binaries) {
+    try {
+      await run('/usr/bin/lipo', [binary, '-verify_arch', binaryArch])
+    } catch {
+      throw new Error(
+        `The binary at ${binary} does not support macOS ${arch}. ` +
+        `Reinstall Node dependencies and run npm run setup:python-runtime with ${arch} Node.js before packaging.`
+      )
+    }
+  }
+}
+
 function runtimeMachOCandidates(directoryPath, pythonBinPath, candidates = []) {
   for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
     const entryPath = join(directoryPath, entry.name)
@@ -319,6 +342,7 @@ if (process.platform !== 'darwin') {
 }
 
 log(`Building ${appName} ${appVersion} for macOS ${arch}.`)
+await verifyPackageArchitecture()
 await run('npm', ['run', 'build'])
 await prepareAppBundle()
 await signAppBundle()
