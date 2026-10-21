@@ -259,9 +259,45 @@ test('invalid model output fails explicitly; older questions never get invented 
   assert.equal(await empty.client.question(session, 'r', new AbortController().signal), null)
   for (const reply of [{ text: '', sources: [source] }, { text: 'Question?', sources: [] },
     { text: JSON.stringify(packageData), sources: [source] }]) {
-    const { client } = harness({ sendChatMessage: async () => reply })
+    let sent = 0
+    const { client } = harness({ sendChatMessage: async () => { sent++; return reply } })
     await assert.rejects(client.question(session, 'r', new AbortController().signal), /valid question/)
+    assert.equal(sent, 2)
   }
+})
+
+test('a rejected question is logged and regenerated once from the same passages', async () => {
+  const rejected = []
+  let replies = 0
+  const { client, calls } = harness({
+    sendChatMessage: async request => { calls.push(['model', request]); replies++
+      return { text: replies === 1 ? '{"question": "Unsupported?"}' : JSON.stringify(trueFalseData), sources: [source] } },
+    logPracticeQuestionRejected: async detail => { rejected.push(detail) }
+  })
+  const generated = await client.question(session, 'r', new AbortController().signal)
+  assert.equal(generated.text, trueFalseData.question)
+  assert.equal(calls.filter(call => call[0] === 'sources').length, 1)
+  const requests = calls.filter(call => call[0] === 'model').map(call => call[1])
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[0].retrievedSources, requests[1].retrievedSources)
+  const [first, second] = requests.map(request => JSON.parse(request.prompt))
+  assert.equal(first.previousPackageRejected, undefined)
+  assert.equal(second.previousPackageRejected, `${rejected[0].reason}. Return a new package that fixes this problem.`)
+  assert.deepEqual({ ...second, previousPackageRejected: undefined }, { ...first, previousPackageRejected: undefined })
+  assert.deepEqual(rejected.map(item => [item.attempt, item.response]), [[1, '{"question": "Unsupported?"}']])
+  assert.ok(rejected[0].reason)
+})
+
+test('a cancelled or repeated question is not regenerated', async () => {
+  const controller = new AbortController()
+  const cancelled = harness({ sendChatMessage: async request => { cancelled.calls.push(['model', request]); controller.abort(); return { text: 'Question?', sources: [source] } } })
+  await assert.rejects(cancelled.client.question(session, 'r', controller.signal))
+  assert.equal(cancelled.calls.filter(call => call[0] === 'model').length, 1)
+  const topicSession = { ...session, topic: { title: 'Paths', sources: [source], prepared: true },
+    questions: [{ id: 'q0', text: trueFalseData.question, format: 'true_false', sources: [source], attempts: [] }] }
+  const repeated = harness()
+  await assert.rejects(repeated.client.question(topicSession, 'r', new AbortController().signal), /repeated an earlier question/)
+  assert.equal(repeated.calls.filter(call => call[0] === 'model').length, 1)
 })
 
 test('open-ended practice bounds question history while retaining all used source identities', async () => {

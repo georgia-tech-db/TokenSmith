@@ -1,4 +1,6 @@
 const whitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
+// PDF extraction often separates punctuation from the word before it, as in "N3 ."
+const punctuationSpacing = (value: string) => whitespace(value).replace(/ ([.,;:!?)\]])/g, '$1').replace(/([(\[]) /g, '$1')
 
 // Compare presentation syntax, never paraphrases or algebraic equivalence. Keep
 // identifiers, numbers, operators, subscripts and superscripts distinguishable.
@@ -24,6 +26,7 @@ export function hasSupportingQuote(passage: string, quote: string): boolean {
   const exact = whitespace(quote)
   if (!exact) return false
   if (whitespace(passage).includes(exact)) return true
+  if (punctuationSpacing(passage).includes(punctuationSpacing(quote))) return true
   const presented = presentationText(quote)
   return Boolean(presented) && presentationText(passage).includes(presented)
 }

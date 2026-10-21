@@ -55,6 +55,7 @@ export interface TokenSmithBridge {
   starterSources: (materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) => Promise<ChatSource[]>
   studyDocuments: () => Promise<StudyDocument[]>
   practiceSources: (documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) => Promise<ChatSource[]>
+  logPracticeQuestionRejected: (detail: { attempt: number; reason: string; response: string }) => Promise<void>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) => Promise<LibrarySearchResult>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
