@@ -39,6 +39,8 @@ let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
     modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 }, cloud: { contextLength: 16384, maxLength: 2048 } } }
 }
 const calls = []
+const tracking = []
+const mastery = new Map()
 const progressListeners = new Set()
 let questionCalls = 0
 const sourceFor = (document, index) => ({
@@ -47,7 +49,7 @@ const sourceFor = (document, index) => ({
   excerpt: 'The ancestor path allows a split to propagate to parent nodes.',
   context: 'The ancestor path allows a split to propagate to parent nodes.', lineFrom: 1, lineTo: 4
 })
-window.practiceTest = { calls, state: () => state,
+window.practiceTest = { calls, tracking, state: () => state,
   removeLocalModel: () => progressListeners.forEach(listener => listener({ model: 'ui-test', status: 'removed', percent: 0 })),
   disconnectCloud: () => { state.models = state.models.map(model => model.id === 'cloud' ? { ...model, status: 'needsRuntime', cloudCredentialStatus: 'reconnect' } : model); sessionStorage.setItem(storageKey, JSON.stringify(state)) } }
 window.tokensmith = {
@@ -90,6 +92,16 @@ window.tokensmith = {
     if (params.has('error-suggestions') && calls.filter(call => call.kind === 'suggestions').length === 1) throw new Error('Suggestions unavailable')
     return { suggestions: ['Why record ancestors during insertion?', 'How can a split reach the root?', 'What changes in the parent when a leaf splits?'], sources: [] }
   },
+  recordPracticeAttempt: async input => {
+    tracking.push({ kind: 'record-attempt', input })
+    const counts = mastery.get(input.topic)?.counts || { met: 1, missed: 1, attempts: 0 }
+    const next = { met: counts.met + (input.correct ? (input.assisted ? 0.5 : 1) : 0), missed: counts.missed + (input.correct ? 0 : 1), attempts: counts.attempts + 1 }
+    mastery.set(input.topic, { counts: next, entry: { topic: input.topic, mastery: next.met / (next.met + next.missed), attempts: next.attempts, updatedAt: '2026-10-20' } })
+    return mastery.get(input.topic).entry
+  },
+  listTopicMastery: async () => [...mastery.values()].map(value => value.entry),
+  logPracticeQuestionRejected: async detail => { tracking.push({ kind: 'question-rejected', detail }) },
+  warmModel: async (model, settings) => { tracking.push({ kind: 'warm', modelId: model.id, contextLength: settings.contextLength }) },
   practiceSources: async (selected, used, index) => {
     calls.push({ kind: 'sources', selected, used, index })
     if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))

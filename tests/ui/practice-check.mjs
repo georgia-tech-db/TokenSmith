@@ -53,6 +53,12 @@ try {
     assert.equal(await button(practice, 'True').isDisabled(), true)
     assert.equal((await session()).questions[0].attempts.length, 1)
     assert.equal((await session()).questions[0].attempts[0].assisted, false)
+    await practice.locator('.practice-topic-mastery').waitFor()
+    assert.equal(await practice.locator('.practice-topic-mastery').innerText(), 'Just started (33% mastery)')
+    const tracked = await page.evaluate(() => window.practiceTest.tracking)
+    assert.deepEqual(tracked.filter(c => c.kind === 'record-attempt').map(c => c.input),
+      [{ sessionId: original.id, questionId: original.questions[0].id, topic: 'B+ trees', correct: false, assisted: false }])
+    assert.ok(tracked.some(c => c.kind === 'warm' && c.modelId === original.modelId), 'Opening Practice loads the session model')
     const savedAttempt = (await session()).questions[0].attempts[0]
     await page.screenshot({ path: `${output}/feedback-${name}.png` })
     const practiceStyle = await button(practice, 'Chat about this question').evaluate(el => {

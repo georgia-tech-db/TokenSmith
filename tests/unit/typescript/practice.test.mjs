@@ -6,7 +6,9 @@ const { studyDocumentKey } = requireTranspiledTs('src/shared/study-scope.ts')
 const { emptyPracticeState, normalizePracticeState, practiceSourceKey, practiceAssisted, practiceReference,
   practiceDiscussionPassage, practiceChatConversation, practiceReviewLabel, practiceTimeline, practiceMessages, practiceFeedbackText } = requireTranspiledTs('src/shared/practice.ts')
 const { parsePracticeQuestion, gradeTrueFalse } = requireTranspiledTs('src/shared/quiz.ts')
-const { createPracticeClient } = requireTranspiledTs('src/renderer/src/practice-client.ts')
+const { createPracticeClient, loadTopicMastery, trackPracticeAttempt } = requireTranspiledTs('src/renderer/src/practice-client.ts')
+const { practiceTopic, practiceMasteryLabel, practiceMasteryPercent, practiceMasteryWeakestFirst, mergeTopicMastery } =
+  requireTranspiledTs('src/shared/practice.ts')
 const { prepareStudyChatMessages } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 
 const source = { materialId: 'c1', documentId: 8, chunkId: 'ch.1', sourceUnitId: 'unit.1', excerpt: 'Ancestor paths let insertion propagate splits to parents.' }
@@ -259,9 +261,45 @@ test('invalid model output fails explicitly; older questions never get invented 
   assert.equal(await empty.client.question(session, 'r', new AbortController().signal), null)
   for (const reply of [{ text: '', sources: [source] }, { text: 'Question?', sources: [] },
     { text: JSON.stringify(packageData), sources: [source] }]) {
-    const { client } = harness({ sendChatMessage: async () => reply })
+    let sent = 0
+    const { client } = harness({ sendChatMessage: async () => { sent++; return reply } })
     await assert.rejects(client.question(session, 'r', new AbortController().signal), /valid question/)
+    assert.equal(sent, 2)
   }
+})
+
+test('a rejected question is logged and regenerated once from the same passages', async () => {
+  const rejected = []
+  let replies = 0
+  const { client, calls } = harness({
+    sendChatMessage: async request => { calls.push(['model', request]); replies++
+      return { text: replies === 1 ? '{"question": "Unsupported?"}' : JSON.stringify(trueFalseData), sources: [source] } },
+    logPracticeQuestionRejected: async detail => { rejected.push(detail) }
+  })
+  const generated = await client.question(session, 'r', new AbortController().signal)
+  assert.equal(generated.text, trueFalseData.question)
+  assert.equal(calls.filter(call => call[0] === 'sources').length, 1)
+  const requests = calls.filter(call => call[0] === 'model').map(call => call[1])
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[0].retrievedSources, requests[1].retrievedSources)
+  const [first, second] = requests.map(request => JSON.parse(request.prompt))
+  assert.equal(first.previousPackageRejected, undefined)
+  assert.equal(second.previousPackageRejected, `${rejected[0].reason}. Return a new package that fixes this problem.`)
+  assert.deepEqual({ ...second, previousPackageRejected: undefined }, { ...first, previousPackageRejected: undefined })
+  assert.deepEqual(rejected.map(item => [item.attempt, item.response]), [[1, '{"question": "Unsupported?"}']])
+  assert.ok(rejected[0].reason)
+})
+
+test('a cancelled or repeated question is not regenerated', async () => {
+  const controller = new AbortController()
+  const cancelled = harness({ sendChatMessage: async request => { cancelled.calls.push(['model', request]); controller.abort(); return { text: 'Question?', sources: [source] } } })
+  await assert.rejects(cancelled.client.question(session, 'r', controller.signal))
+  assert.equal(cancelled.calls.filter(call => call[0] === 'model').length, 1)
+  const topicSession = { ...session, topic: { title: 'Paths', sources: [source], prepared: true },
+    questions: [{ id: 'q0', text: trueFalseData.question, format: 'true_false', sources: [source], attempts: [] }] }
+  const repeated = harness()
+  await assert.rejects(repeated.client.question(topicSession, 'r', new AbortController().signal), /repeated an earlier question/)
+  assert.equal(repeated.calls.filter(call => call[0] === 'model').length, 1)
 })
 
 test('open-ended practice bounds question history while retaining all used source identities', async () => {
@@ -323,4 +361,68 @@ test('timeline keeps feedback, help and later revisions in order with stable sel
   assert.equal(new Set(messages.map(message => message.id)).size, messages.length)
   assert.equal(practiceTimeline({ ...value, timeline: undefined }).length, 4)
   assert.deepEqual(normalizePracticeState({ mode: 'practice', sessions: [{ ...session, questions: [value] }] }).sessions[0].questions[0], value)
+})
+
+const trueFalse = correct => ({ kind: 'true_false', correct, explanation: 'Because the passage says so.' })
+const entry = (topic, mastery, attempts = 3) => ({ topic, mastery, attempts, updatedAt: '' })
+const trackedQuestion = { id: 'q1', text: 'Hash joins need sorted input.', format: 'true_false',
+  sources: [{ materialId: 'c1', documentId: 1, chunkId: 'ch', sectionHeader: 'Joins' }], attempts: [] }
+
+function masteryBridge(t, overrides = {}) {
+  const calls = []
+  globalThis.window = { tokensmith: {
+    recordPracticeAttempt: async input => { calls.push(input); return entry(input.topic, 0.6, 1) },
+    listTopicMastery: async () => [entry('Hash joins', 0.6, 1)],
+    ...overrides
+  } }
+  t.after(() => { delete globalThis.window })
+  return calls
+}
+
+test('practice topic prefers the chosen session topic, then the section, then the document', () => {
+  const sources = [{ sectionHeader: ' Joins ', documentTitle: 'db.md' }]
+  assert.equal(practiceTopic({ topic: { title: ' Hash joins ' } }, { sources }), 'Hash joins')
+  assert.equal(practiceTopic({}, { sources }), 'Joins')
+  assert.equal(practiceTopic({}, { sources: [{ sectionHeader: '', documentTitle: 'db.md' }] }), 'db.md')
+  assert.equal(practiceTopic({}, { sources: [] }), '')
+})
+
+test('mastery labels wait for enough attempts before judging a topic', () => {
+  assert.equal(practiceMasteryLabel(entry('a', 0.9, 2)), 'Just started')
+  assert.equal(practiceMasteryLabel(entry('a', 0.75)), 'Strong')
+  assert.equal(practiceMasteryLabel(entry('a', 0.5)), 'Developing')
+  assert.equal(practiceMasteryLabel(entry('a', 0.49)), 'Needs practice')
+  assert.equal(practiceMasteryPercent(entry('a', 2 / 3)), 67)
+})
+
+test('mastery lists put the weakest topic first and replace updated topics', () => {
+  const entries = [entry('b', 0.8), entry('c', 0.2), entry('a', 0.8)]
+  assert.deepEqual(practiceMasteryWeakestFirst(entries).map(item => item.topic), ['c', 'a', 'b'])
+  assert.equal(mergeTopicMastery(entries, null), entries)
+  assert.deepEqual(mergeTopicMastery(entries, entry('c', 0.6)).map(item => [item.topic, item.mastery]), [['b', 0.8], ['a', 0.8], ['c', 0.6]])
+})
+
+test('a true/false answer is recorded once under the session topic and returns the updated mastery', async t => {
+  const calls = masteryBridge(t)
+  const attempt = { id: 'a1', answer: 'False', feedback: trueFalse(false), assisted: true, durationMs: 0 }
+  const result = await trackPracticeAttempt({ id: 's1', topic: { title: 'Hash joins' } }, { ...trackedQuestion, attempts: [attempt] }, attempt)
+  assert.deepEqual(result, entry('Hash joins', 0.6, 1))
+  assert.deepEqual(calls, [{ sessionId: 's1', questionId: 'q1', topic: 'Hash joins', correct: false, assisted: true }])
+  assert.deepEqual(await loadTopicMastery(), [entry('Hash joins', 0.6, 1)])
+})
+
+test('answers without a true/false result are not recorded', async t => {
+  const calls = masteryBridge(t)
+  for (const feedback of ['Saved feedback.', { verdict: 'partial', checks: [], improvement: '', nextStep: '', questionIssue: '' }]) {
+    const attempt = { id: 'a1', answer: 'x', feedback, assisted: false, durationMs: 0 }
+    assert.equal(await trackPracticeAttempt({ id: 's1' }, trackedQuestion, attempt), null)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('tracking failures never interrupt practice', async t => {
+  masteryBridge(t, { recordPracticeAttempt: async () => { throw new Error('offline') }, listTopicMastery: async () => { throw new Error('offline') } })
+  const attempt = { id: 'a1', answer: 'True', feedback: trueFalse(true), assisted: false, durationMs: 0 }
+  assert.equal(await trackPracticeAttempt({ id: 's1' }, trackedQuestion, attempt), null)
+  assert.deepEqual(await loadTopicMastery(), [])
 })
