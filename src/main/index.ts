@@ -31,7 +31,9 @@ import {
   openOllamaApp,
   openOllamaDownloadPage,
   pullOllamaModel,
-  startOllamaService
+  startOllamaService,
+  unloadOllamaModels,
+  warmOllamaModel
 } from './engine/ollama-service'
 import { searchOllamaLibrary } from './engine/ollama-library-search'
 import { detectDeviceCapabilities } from './system/detect-device-capabilities'
@@ -41,7 +43,7 @@ import {
   modelWithRememberedRemoteApiKey,
   sanitizeAppStateSecrets
 } from './engine/remote-model-secrets'
-import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
+import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, ModelRuntimeSettings, SearchMode } from '../shared/app-state'
 import type { StudyDocumentRef, LibrarySearchOptions } from '../shared/study-scope'
 import { removeRetiredModelState } from '../shared/retired-model-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
@@ -533,6 +535,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('practice:log-question-rejected', (_event, detail: { attempt: number; reason: string; response: string }) =>
     writeTokenSmithLog('practice_question_validation_failed', detail)
   )
+  ipcMain.handle('engine:warm-model', (_event, model: LocalModel, modelSettings: ModelRuntimeSettings) =>
+    model.engine === 'ollama' ? warmOllamaModel(model, modelSettings) : undefined
+  )
   ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) =>
     searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options)
   )
@@ -598,6 +603,16 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow()
     }
+  })
+})
+
+let ollamaModelsReleased = false
+app.on('will-quit', event => {
+  if (ollamaModelsReleased) return
+  event.preventDefault()
+  void unloadOllamaModels().finally(() => {
+    ollamaModelsReleased = true
+    app.quit()
   })
 })
 

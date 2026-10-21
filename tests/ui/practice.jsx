@@ -92,6 +92,7 @@ window.tokensmith = {
     return { suggestions: ['Why record ancestors during insertion?', 'How can a split reach the root?', 'What changes in the parent when a leaf splits?'], sources: [] }
   },
   logPracticeQuestionRejected: async detail => { tracking.push({ kind: 'question-rejected', detail }) },
+  warmModel: async (model, settings) => { tracking.push({ kind: 'warm', modelId: model.id, contextLength: settings.contextLength }) },
   practiceSources: async (selected, used, index) => {
     calls.push({ kind: 'sources', selected, used, index })
     if (params.has('slow-sources')) await new Promise(resolve => setTimeout(resolve, 2000))

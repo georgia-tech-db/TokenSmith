@@ -48,6 +48,7 @@ const tokenSmithBridge: TokenSmithBridge = {
   practiceSources: (documents, usedSourceKeys, questionIndex) =>
     ipcRenderer.invoke('library:practice-sources', documents, usedSourceKeys, questionIndex),
   logPracticeQuestionRejected: (detail) => ipcRenderer.invoke('practice:log-question-rejected', detail),
+  warmModel: (model, modelSettings) => ipcRenderer.invoke('engine:warm-model', model, modelSettings),
   getPdfForSource: (source) =>
     ipcRenderer.invoke('library:get-pdf-for-source', source) as Promise<
       Awaited<ReturnType<TokenSmithBridge['getPdfForSource']>>

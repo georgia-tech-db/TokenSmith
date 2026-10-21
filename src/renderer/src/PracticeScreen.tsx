@@ -18,6 +18,7 @@ import { PracticeActions, PracticeComposer } from './PracticeComposer'
 import { ConversationViewport } from './ConversationViewport'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
 import { createPracticeClient } from './practice-client'
+import { useModelWarmup } from './hooks/useModelWarmup'
 import type { GenerationProgressApi } from './hooks/useGenerationProgress'
 import './practice.css'
 
@@ -64,6 +65,7 @@ export function PracticeScreen(props: Props) {
   const navigationQuestions = useMemo(() => session?.questions.map(item => ({ id: item.id, text: practiceQuestionText(item) })) ?? [], [session?.questions])
   const model = session ? models.find(item => item.id === session.modelId) : props.selectedModel
   const available = model?.status === 'ready'
+  useModelWarmup(isActive, model, model && (session?.modelSettings ?? props.modelSettingsFor(model.id)))
   const scope = props.scope
   const scopeKey = studyScopeKey(scope)
   const selected = scope.map(studyDocumentKey)

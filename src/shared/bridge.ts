@@ -7,6 +7,7 @@ import type {
   LocalModel,
   LocalModelRole,
   MaterialIndexProgress,
+  ModelRuntimeSettings,
   SearchMode
 } from './app-state'
 import type {
@@ -56,6 +57,7 @@ export interface TokenSmithBridge {
   studyDocuments: () => Promise<StudyDocument[]>
   practiceSources: (documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) => Promise<ChatSource[]>
   logPracticeQuestionRejected: (detail: { attempt: number; reason: string; response: string }) => Promise<void>
+  warmModel: (model: LocalModel, modelSettings: ModelRuntimeSettings) => Promise<void>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) => Promise<LibrarySearchResult>
   getPdfForSource: (source: ChatSource) => Promise<PdfSourceDocument>
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>

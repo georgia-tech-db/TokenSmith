@@ -103,6 +103,7 @@ import {
 } from '@shared/model-defaults'
 import { DeviceRecommendationPanel } from './components/DeviceRecommendationPanel'
 import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
+import { useModelWarmup } from './hooks/useModelWarmup'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
   reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
@@ -2487,6 +2488,7 @@ function ChatScreen({
     setChatError(null)
   }, [activeMaterialKey])
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
+  useModelWarmup(isActive, selectedModel, selectedModelSettings)
   const canSuggestStarterQuestions =
     isActive &&
     !activeConversation.practiceReference &&

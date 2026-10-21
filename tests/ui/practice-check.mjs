@@ -53,6 +53,8 @@ try {
     assert.equal(await button(practice, 'True').isDisabled(), true)
     assert.equal((await session()).questions[0].attempts.length, 1)
     assert.equal((await session()).questions[0].attempts[0].assisted, false)
+    const tracked = await page.evaluate(() => window.practiceTest.tracking)
+    assert.ok(tracked.some(c => c.kind === 'warm' && c.modelId === original.modelId), 'Opening Practice loads the session model')
     const savedAttempt = (await session()).questions[0].attempts[0]
     await page.screenshot({ path: `${output}/feedback-${name}.png` })
     const practiceStyle = await button(practice, 'Chat about this question').evaluate(el => {
