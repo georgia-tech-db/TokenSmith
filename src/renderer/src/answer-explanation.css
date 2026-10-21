@@ -29,7 +29,7 @@
   font-weight: 600;
 }
 .answer-simplify-action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0 4px; }
-.answer-simplify-action button {
+.answer-simplify-action button, .study-action-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -42,11 +42,11 @@
   font-weight: 600;
   cursor: pointer;
 }
-.answer-simplify-action button:hover { background: var(--surface-muted, #f1f2f1); }
-.answer-simplify-action button:disabled { opacity: 0.5; cursor: default; }
+.answer-simplify-action button:hover, .study-action-button:hover { background: var(--surface-muted, #f1f2f1); }
+.answer-simplify-action button:disabled, .study-action-button:disabled { opacity: 0.5; cursor: default; }
 .answer-simplifying { color: var(--content-muted, #4f5359); font-size: 0.82rem; line-height: 1.5; }
 .answer-simplifying { display: flex; align-items: center; gap: 9px; margin: 14px 0; }
 .answer-simplifying svg { flex: none; }
 .answer-simplifying small { display: block; font-size: inherit; }
 .answer-simplify-error { color: var(--danger, #a63428); font-size: 0.86rem; }
-.answer-version-switch button:focus-visible, .answer-simplify-action button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.answer-version-switch button:focus-visible, .answer-simplify-action button:focus-visible, .study-action-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }

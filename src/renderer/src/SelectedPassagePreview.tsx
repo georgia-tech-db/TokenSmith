@@ -1,15 +1,16 @@
 import { Quote, X } from 'lucide-react'
 import type { ChatSelectedPassage } from '@shared/app-state'
 
-export function SelectedPassagePreview({ passage, disabled, onRemove }: {
+export function SelectedPassagePreview({ passage, disabled, onRemove, label }: {
   passage: ChatSelectedPassage
   disabled?: boolean
   onRemove?: () => void
+  label?: string
 }) {
   return (
     <div className="selected-passage-preview" role="group" aria-label="Selected passage">
       <div className="selected-passage-heading">
-        <span><Quote size={14} aria-hidden="true" /> {passage.role === 'assistant' ? 'From TokenSmith\'s answer' : 'From your question'}</span>
+        <span><Quote size={14} aria-hidden="true" /> {label ?? (passage.role === 'assistant' ? 'From TokenSmith\'s answer' : 'From your question')}</span>
         {onRemove && <button type="button" className="selected-passage-remove" disabled={disabled}
           aria-label="Remove selected passage" title="Remove selected passage" onClick={onRemove}>
           <X size={16} aria-hidden="true" />

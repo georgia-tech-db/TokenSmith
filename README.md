@@ -40,6 +40,8 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 3. Add your course materials in **Library**. PDF, Markdown, and text files are supported.
 4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or switch to **Practice** and choose the documents you want to review.
 
+GPU acceleration for document indexing and search is on by default. Ollama uses a compatible GPU when available and otherwise runs on the CPU. Turn off **GPU Acceleration for Document Search** in Settings to use only the CPU for these tasks. This setting does not change chat models.
+
 ## Project Health
 
 [![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)
