@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw } from 'lucide-react'
 import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import { practiceAssisted, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
-  type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
+import { mergeTopicMastery, practiceAssisted, practiceMasteryLabel, practiceMasteryPercent, practiceMasteryWeakestFirst, practiceMessages,
+  practiceQuestionText, practiceTimeline, practiceTopic, practiceReviewLabel,
+  type PracticeAttempt, type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode, type TopicMastery } from '@shared/practice'
 import { gradeTrueFalse } from '@shared/quiz'
 import { ChatModelPicker } from './ChatModelPicker'
 import { MessageText } from './MessageText'
@@ -17,7 +18,8 @@ import { PracticeTopicPicker } from './PracticeTopicPicker'
 import { PracticeActions, PracticeComposer } from './PracticeComposer'
 import { ConversationViewport } from './ConversationViewport'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
-import { createPracticeClient } from './practice-client'
+import { PracticeMasteryList } from './PracticeMasteryList'
+import { createPracticeClient, loadTopicMastery, trackPracticeAttempt } from './practice-client'
 import { useModelWarmup } from './hooks/useModelWarmup'
 import type { GenerationProgressApi } from './hooks/useGenerationProgress'
 import './practice.css'
@@ -54,6 +56,7 @@ export function PracticeScreen(props: Props) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState<{ id: string } | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [mastery, setMastery] = useState<TopicMastery[]>([])
   const operation = useRef<{ id: string; controller: AbortController; sessionId: string; scopeKey: string } | null>(null)
   const session = state.sessions.find(item => item.id === state.activeSessionId)
   const question = session?.questions[session.currentIndex]
@@ -65,7 +68,16 @@ export function PracticeScreen(props: Props) {
   const navigationQuestions = useMemo(() => session?.questions.map(item => ({ id: item.id, text: practiceQuestionText(item) })) ?? [], [session?.questions])
   const model = session ? models.find(item => item.id === session.modelId) : props.selectedModel
   const available = model?.status === 'ready'
+  useEffect(() => {
+    if (!isActive) return
+    let stale = false
+    void loadTopicMastery().then(entries => { if (!stale) setMastery(entries) })
+    return () => { stale = true }
+  }, [isActive])
+  const noteMastery = (entry: TopicMastery | null) => setMastery(current => mergeTopicMastery(current, entry))
   useModelWarmup(isActive, model, model && (session?.modelSettings ?? props.modelSettingsFor(model.id)))
+  const sessionTopic = session && practiceTopic(session, session.questions[0] ?? { sources: [] })
+  const sessionMastery = mastery.find(entry => entry.topic === sessionTopic)
   const scope = props.scope
   const scopeKey = studyScopeKey(scope)
   const selected = scope.map(studyDocumentKey)
@@ -174,10 +186,12 @@ export function PracticeScreen(props: Props) {
     try {
       const feedback = gradeTrueFalse(question, answer)
       const id = crypto.randomUUID()
+      const attempt: PracticeAttempt = { id, answer, feedback, assisted, durationMs: 0 }
       const checked: PracticeQuestion = { ...question, draft: answer, reviewing: true, attempts: [...question.attempts,
-        { id, answer, feedback, assisted, durationMs: 0 }], timeline: [...practiceTimeline(question), { kind: 'attempt', id }] }
+        attempt], timeline: [...practiceTimeline(question), { kind: 'attempt', id }] }
       const updated = { ...session, questions: session.questions.map(item => item.id === question.id ? checked : item) }
       updateSession(session.id, () => updated)
+      void trackPracticeAttempt(session, checked, attempt).then(noteMastery)
       const nextIndex = updated.questions.findIndex((item, index) => index > updated.currentIndex && item.format === 'true_false')
       if (nextIndex >= 0) updateSession(session.id, current => ({ ...current, currentIndex: nextIndex }))
       else if (available && !session.sourcesExhausted) generate(updated)
@@ -221,6 +235,7 @@ export function PracticeScreen(props: Props) {
           aria-pressed={reviewOpen} disabled={Boolean(pending)} onClick={() => setReviewOpen(open => !open)}><ChartColumn size={18} aria-hidden="true" /></button>}
       </StudyHeader>
       {session && <div className="practice-topic-bar"><span title={session.topic?.title}>{session.topic?.title ?? 'Saved practice'}</span>
+        {sessionMastery && <span className="practice-topic-mastery">{practiceMasteryLabel(sessionMastery)} ({practiceMasteryPercent(sessionMastery)}% mastery)</span>}
         <button className="study-action-button" type="button" onClick={() => chooseSession()}>Practice another topic</button></div>}
       {session && reviewOpen ? <div className="practice-scroll"><div className="practice-content">
           <p className="practice-topic">{session.title}</p><h1>Your practice progress</h1>
@@ -232,6 +247,7 @@ export function PracticeScreen(props: Props) {
             {item.answerRevealed && <p className="practice-muted">Explanation viewed</p>}
             <button type="button" className="practice-link" onClick={() => continueQuestion(index)}>Review question<ArrowRight size={16} /></button>
           </details>)}
+          <PracticeMasteryList title="Topic mastery" entries={sessionMastery ? [sessionMastery] : []} />
           <div className="practice-footer"><button type="button" className="practice-button" onClick={() => setReviewOpen(false)}><ArrowLeft size={16} />Return to practice</button><button type="button" className="practice-button" onClick={() => chooseSession()}><Plus size={16} />New practice</button></div>
       </div></div> : session ? <>
         <ConversationViewport key={session.id} messages={messages} navigationQuestions={navigationQuestions} pending={Boolean(pending)} isActive={isActive}
@@ -248,7 +264,8 @@ export function PracticeScreen(props: Props) {
       </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
         disabled={!scopeReady || !available} scope={scope} materials={props.materials} model={model} settings={settings}
         modelSettings={model ? props.modelSettingsFor(model.id) : settings.modelDefaults} progress={progress}
-        cache={state.topicSuggestions} onCache={cache => onChange(current => ({ ...current, topicSuggestions: cache }))} onChoose={start} /></div>}
+        cache={state.topicSuggestions} onCache={cache => onChange(current => ({ ...current, topicSuggestions: cache }))} onChoose={start}
+        mastery={practiceMasteryWeakestFirst(mastery).slice(0, 8)} /></div>}
       <div className="practice-status">
         {error && <p className="practice-error" role="alert">{error}</p>}
         {!session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">{scope.length ? 'Selected documents are unavailable.' : 'No documents selected.'}</p>}

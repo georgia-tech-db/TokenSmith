@@ -40,6 +40,7 @@ let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
 }
 const calls = []
 const tracking = []
+const mastery = new Map()
 const progressListeners = new Set()
 let questionCalls = 0
 const sourceFor = (document, index) => ({
@@ -91,6 +92,14 @@ window.tokensmith = {
     if (params.has('error-suggestions') && calls.filter(call => call.kind === 'suggestions').length === 1) throw new Error('Suggestions unavailable')
     return { suggestions: ['Why record ancestors during insertion?', 'How can a split reach the root?', 'What changes in the parent when a leaf splits?'], sources: [] }
   },
+  recordPracticeAttempt: async input => {
+    tracking.push({ kind: 'record-attempt', input })
+    const counts = mastery.get(input.topic)?.counts || { met: 1, missed: 1, attempts: 0 }
+    const next = { met: counts.met + (input.correct ? (input.assisted ? 0.5 : 1) : 0), missed: counts.missed + (input.correct ? 0 : 1), attempts: counts.attempts + 1 }
+    mastery.set(input.topic, { counts: next, entry: { topic: input.topic, mastery: next.met / (next.met + next.missed), attempts: next.attempts, updatedAt: '2026-10-20' } })
+    return mastery.get(input.topic).entry
+  },
+  listTopicMastery: async () => [...mastery.values()].map(value => value.entry),
   logPracticeQuestionRejected: async detail => { tracking.push({ kind: 'question-rejected', detail }) },
   warmModel: async (model, settings) => { tracking.push({ kind: 'warm', modelId: model.id, contextLength: settings.contextLength }) },
   practiceSources: async (selected, used, index) => {

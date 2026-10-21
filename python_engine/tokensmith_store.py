@@ -22,8 +22,9 @@ except Exception:  # pragma: no cover - optional until app runtime is installed
 
 DB_NAME = "tokensmith.sqlite"
 FAISS_NAME = "tokensmith.faiss"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 13
 ALIAS_EXTRACTION_VERSION = 1
+PRACTICE_ASSISTED_CREDIT = 0.5
 KEYWORD_STOPWORDS: Set[str] = {
     "a",
     "about",
@@ -183,6 +184,7 @@ def connect(user_data_path: str) -> sqlite3.Connection:
 def init_db(user_data_path: str) -> None:
     with connect(user_data_path) as conn:
         create_schema(conn)
+        create_practice_schema(conn)
         ensure_column(conn, "tokensmith_collection_state", "embedding_model_id", "TEXT")
         ensure_column(conn, "tokensmith_collection_state", "embedding_model_name", "TEXT")
         ensure_column(conn, "tokensmith_collection_state", "cleaning_profile_id", "TEXT")
@@ -2511,3 +2513,93 @@ def dump_index(user_data_path: str) -> Dict[str, Any]:
         chunks.append(chunk)
 
     return {"version": SCHEMA_VERSION, "documents": documents, "chunks": chunks, "updatedAt": now_iso()}
+
+
+def create_practice_schema(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(practice_attempts)")}
+    legacy = "verdict" in columns
+    if legacy:
+        # Schema 12 logged every grading detail and kept a separate mastery table.
+        conn.execute("DROP INDEX IF EXISTS idx_practice_attempts_session_id")
+        conn.execute("DROP INDEX IF EXISTS idx_practice_attempts_topic")
+        conn.execute("ALTER TABLE practice_attempts RENAME TO practice_attempts_v12")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS practice_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            correct INTEGER NOT NULL,
+            assisted INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, question_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_practice_attempts_topic ON practice_attempts(topic);
+        """
+    )
+    if legacy:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO practice_attempts(session_id, question_id, topic, correct, assisted, created_at)
+            SELECT session_id, question_id, TRIM(topic), verdict = 'correct', assisted, created_at
+            FROM practice_attempts_v12
+            WHERE verdict IN ('correct', 'incorrect') AND TRIM(COALESCE(topic, '')) != ''
+            ORDER BY id
+            """
+        )
+        conn.execute("DROP TABLE practice_attempts_v12")
+    conn.execute("DROP TABLE IF EXISTS topic_mastery")
+
+
+def _topic_mastery(conn: sqlite3.Connection, topic: Optional[str] = None) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        f"""
+        SELECT
+            topic,
+            1 + SUM(CASE WHEN correct THEN (CASE WHEN assisted THEN ? ELSE 1 END) ELSE 0 END) AS met,
+            1 + SUM(CASE WHEN correct THEN 0 ELSE 1 END) AS missed,
+            COUNT(*) AS attempts,
+            MAX(created_at) AS updated_at
+        FROM practice_attempts
+        {"WHERE topic = ?" if topic is not None else ""}
+        GROUP BY topic
+        ORDER BY topic
+        """,
+        (PRACTICE_ASSISTED_CREDIT, *([topic] if topic is not None else [])),
+    ).fetchall()
+    return [
+        {
+            "topic": row["topic"],
+            "mastery": row["met"] / (row["met"] + row["missed"]),
+            "attempts": row["attempts"],
+            "updatedAt": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def record_practice_attempt(
+    user_data_path: str, session_id: str, question_id: str, topic: str, correct: bool, assisted: bool
+) -> Optional[Dict[str, Any]]:
+    topic = (topic or "").strip()
+    if not topic:
+        return None
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO practice_attempts(session_id, question_id, topic, correct, assisted, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, question_id, topic, 1 if correct else 0, 1 if assisted else 0, now_iso()),
+        )
+        return _topic_mastery(conn, topic)[0]
+
+
+def list_topic_mastery(user_data_path: str) -> List[Dict[str, Any]]:
+    init_db(user_data_path)
+
+    with connect(user_data_path) as conn:
+        return _topic_mastery(conn)

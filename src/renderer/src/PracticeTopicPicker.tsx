@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, SendHorizonal } from 'lucide-react'
 import type { CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import type { PracticeState, PracticeTopic } from '@shared/practice'
+import type { PracticeState, PracticeTopic, TopicMastery } from '@shared/practice'
 import { studyScopeKey, type StudyDocumentRef } from '@shared/study-scope'
 import type { GenerationProgressApi } from './hooks/useGenerationProgress'
 import { createPracticeClient } from './practice-client'
+import { PracticeMasteryList } from './PracticeMasteryList'
 
-export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, model, settings, modelSettings, progress, cache, onCache, onChoose }: {
+export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, model, settings, modelSettings, progress, cache, onCache, onChoose, mastery = [] }: {
   isActive: boolean; ready: boolean; disabled: boolean; scope: StudyDocumentRef[]; materials: CourseMaterial[]
   model?: LocalModel; settings: TokenSmithSettings; modelSettings: ModelRuntimeSettings; progress: GenerationProgressApi
   cache: PracticeState['topicSuggestions']; onCache: (cache: NonNullable<PracticeState['topicSuggestions']>) => void
-  onChoose: (topic: PracticeTopic) => void
+  onChoose: (topic: PracticeTopic) => void; mastery?: TopicMastery[]
 }) {
   const [text, setText] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -64,5 +65,6 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
         <button className="send-button" type="submit" disabled={disabled || !text.trim()} aria-label="Start practice" title="Start practice"><SendHorizonal size={21} aria-hidden="true" /></button>
       </div>
     </form>
+    <PracticeMasteryList title="Topics to revisit" entries={mastery} disabled={disabled} onChoose={title => onChoose({ title })} />
   </div>
 }

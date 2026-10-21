@@ -1,4 +1,5 @@
 import type { IndexMaterialOptions } from '../shared/preparation'
+import type { PracticeAttemptInput } from '../shared/practice'
 import { preparationReportWithPython, writeTokenSmithLog } from './python/python-engine-service'
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, shell } from 'electron'
 import { createHash } from 'node:crypto'
@@ -13,6 +14,8 @@ import {
   previewCleaningWithPython,
   studyDocumentsWithPython,
   practiceSourcesWithPython,
+  recordPracticeAttemptWithPython,
+  listTopicMasteryWithPython,
   removeMaterialWithPython,
   readTokenSmithLogFile,
   resolveSourceDocumentWithPython,
@@ -532,6 +535,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:practice-sources', (_event, documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) =>
     practiceSourcesWithPython(documents, usedSourceKeys, questionIndex)
   )
+  ipcMain.handle('practice:record-attempt', (_event, input: PracticeAttemptInput) => recordPracticeAttemptWithPython(input))
+  ipcMain.handle('practice:list-mastery', () => listTopicMasteryWithPython())
   ipcMain.handle('practice:log-question-rejected', (_event, detail: { attempt: number; reason: string; response: string }) =>
     writeTokenSmithLog('practice_question_validation_failed', detail)
   )

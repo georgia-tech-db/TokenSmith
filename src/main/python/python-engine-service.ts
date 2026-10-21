@@ -12,6 +12,7 @@ import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, Sea
 import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
+import type { PracticeAttemptInput, TopicMastery } from '../../shared/practice'
 
 interface PythonRequest {
   id: string
@@ -22,6 +23,8 @@ interface PythonRequest {
     | 'starter_sources'
     | 'study_documents'
     | 'practice_sources'
+    | 'practice_record_attempt'
+    | 'practice_list_mastery'
     | 'list_materials'
     | 'set_material_enabled'
     | 'remove_material'
@@ -833,6 +836,20 @@ export async function practiceSourcesWithPython(documents: StudyDocumentRef[], u
     userDataPath: app.getPath('userData'), documents, usedSourceKeys, questionIndex
   }, 30_000)
   return result.sources
+}
+
+export async function recordPracticeAttemptWithPython(input: PracticeAttemptInput): Promise<TopicMastery | null> {
+  const result = await requestPython<{ entry: TopicMastery | null }>('practice_record_attempt', {
+    userDataPath: app.getPath('userData'), ...input
+  }, 30_000)
+  return result.entry
+}
+
+export async function listTopicMasteryWithPython(): Promise<TopicMastery[]> {
+  const result = await requestPython<{ entries: TopicMastery[] }>('practice_list_mastery', {
+    userDataPath: app.getPath('userData')
+  }, 30_000)
+  return result.entries
 }
 
 export async function setMaterialEnabledWithPython(materialId: string, isActive: boolean): Promise<void> {

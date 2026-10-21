@@ -1,7 +1,7 @@
 import type { ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
 import type { TokenSmithBridge } from '@shared/bridge'
-import type { PracticeQuestion, PracticeSession } from '@shared/practice'
-import { practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText } from '../../shared/practice'
+import type { PracticeAttempt, PracticeQuestion, PracticeSession, TopicMastery } from '@shared/practice'
+import { isTrueFalseFeedback, practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText, practiceTopic } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { parsePracticeQuestion, parsePracticeTopics, quizQuestionPrompt } from '../../shared/quiz'
 import { sourcesInScope, type StudyDocumentRef } from '../../shared/study-scope'
@@ -116,5 +116,23 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       if (!reply.text.trim()) throw new Error('No explanation was returned. Your question is saved; try again.')
       return reply
     }
+  }
+}
+
+export async function loadTopicMastery(): Promise<TopicMastery[]> {
+  try {
+    return await window.tokensmith?.listTopicMastery() ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function trackPracticeAttempt(session: PracticeSession, question: PracticeQuestion, attempt: PracticeAttempt): Promise<TopicMastery | null> {
+  try {
+    if (!window.tokensmith || typeof attempt.feedback === 'string' || !isTrueFalseFeedback(attempt.feedback)) return null
+    return await window.tokensmith.recordPracticeAttempt({ sessionId: session.id, questionId: question.id,
+      topic: practiceTopic(session, question), correct: attempt.feedback.correct, assisted: attempt.assisted })
+  } catch {
+    return null
   }
 }

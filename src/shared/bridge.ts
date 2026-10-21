@@ -28,6 +28,7 @@ import type {
   TokenSmithLogFile
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { PracticeAttemptInput, TopicMastery } from './practice'
 import type { DeviceCapabilities } from './device-capabilities'
 import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult, ForgottenCloudConnections } from './cloud-generators'
 import type {
@@ -56,6 +57,8 @@ export interface TokenSmithBridge {
   starterSources: (materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) => Promise<ChatSource[]>
   studyDocuments: () => Promise<StudyDocument[]>
   practiceSources: (documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) => Promise<ChatSource[]>
+  recordPracticeAttempt: (input: PracticeAttemptInput) => Promise<TopicMastery | null>
+  listTopicMastery: () => Promise<TopicMastery[]>
   logPracticeQuestionRejected: (detail: { attempt: number; reason: string; response: string }) => Promise<void>
   warmModel: (model: LocalModel, modelSettings: ModelRuntimeSettings) => Promise<void>
   searchLibrary: (query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) => Promise<LibrarySearchResult>
