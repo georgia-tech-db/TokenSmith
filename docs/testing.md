@@ -19,6 +19,34 @@ embedding function. The exact model digest and Ollama version are pinned in
 of Ollama locally. A changed model tag fails validation instead of silently
 changing the benchmark.
 
+## Embedding Device Check
+
+With Ollama running and `nomic-embed-text:latest` installed:
+
+```sh
+npm run test:integration:ollama
+```
+
+This indexes temporary documents and runs hybrid search with the default setting,
+explicit CPU mode, and acceleration re-enabled. It verifies real vector retrieval
+and reads GPU memory residency from Ollama. The test switches only the Nomic
+embedding runner and leaves it in automatic mode; it does not change saved app
+settings or the user's library. Avoid running it during other indexing jobs.
+
+On a machine with a supported GPU, require actual GPU use in both default and
+re-enabled modes so an accidental CPU default cannot pass:
+
+```sh
+TOKENSMITH_TEST_EXPECT_DEVICE=gpu npm run test:integration:ollama
+```
+
+On a CPU-only Ollama server, use `TOKENSMITH_TEST_EXPECT_DEVICE=cpu` to verify that
+all three settings work with zero GPU residency. This validates automatic CPU
+fallback when acceleration is enabled; it does not simulate a GPU driver failure.
+The retrieval CI job runs this check against its CPU-only server before the book
+benchmark. Set `TOKENSMITH_TEST_OLLAMA_URL` to test another server and
+`TOKENSMITH_TEST_PYTHON` to use another prepared Python runtime.
+
 ## CI And Benchmarks
 
 Every pull request, push to `main`, and merge-queue change runs:

@@ -66,6 +66,11 @@
 .cloud-disclosure svg { margin-top: 2px; flex: none; }
 .cloud-disclosure p { margin: 0; font-size: 0.8571rem; line-height: 1.5; }
 .cloud-primary-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 12px 16px; border: 1px solid var(--ink); border-radius: 9px; background: var(--ink); color: var(--panel); cursor: pointer; font-weight: 600; }
+.cloud-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.cloud-confirm-cancel, .cloud-danger-button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 9px; cursor: pointer; font-weight: 600; }
+.cloud-confirm-cancel { border: 1px solid var(--line-strong); color: var(--ink); background: var(--panel); }
+.cloud-confirm-cancel:hover { background: var(--panel-soft); }
+.cloud-danger-button { border: 1px solid var(--danger); color: var(--panel); background: var(--danger); }
 .cloud-generator-dialog button:disabled { opacity: .5; cursor: default; }
 .cloud-text-button { border: 0; background: transparent; padding: 8px 0; text-decoration: underline; color: var(--muted); font-size: 0.8571rem; cursor: pointer; }
 .cloud-saved-connection { display: flex; align-items: center; gap: 9px; padding: 13px; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 9px; font-size: 0.9286rem; }

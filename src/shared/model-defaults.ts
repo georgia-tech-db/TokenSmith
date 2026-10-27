@@ -51,7 +51,7 @@ export const defaultStarterQuestionPrompt = [
   'Return fewer questions if there are fewer distinct topics. Return only a JSON array of question strings, without answers or explanations.'
 ].join('\n')
 
-export const defaultSuggestedFollowUpPrompt = [
+const answerAnchoredFollowUpPrompt = [
   'Suggest up to {count} short next questions an undergraduate student might ask after the latest answer.',
   'Choose a specific idea, mechanism, or claim in that answer that deserves further explanation. Do not repeat something already answered or already asked.',
   'Use subjects the answer has already introduced. Do not introduce new technical names or theories the student has not encountered in the answer.',
@@ -62,10 +62,23 @@ export const defaultSuggestedFollowUpPrompt = [
   'Return fewer questions when useful ideas run out. Return only a JSON array of question strings, without answers or explanations.'
 ].join('\n')
 
+export const defaultSuggestedFollowUpPrompt = [
+  'Suggest up to {count} short next questions an undergraduate student might ask after the latest answer.',
+  'Choose a specific idea, mechanism, or claim in that answer that deserves further explanation. Do not repeat something already answered or already asked.',
+  'Use the study material excerpts as factual evidence. The current question and latest answer are reference context and may contain mistakes; do not build on a premise that the excerpts do not support.',
+  'Keep questions connected to the current exchange and concepts supported by the excerpts. If no excerpts are supplied, avoid assuming undocumented details or introducing new factual claims.',
+  'Ask about a reason, a small example, an implementation detail, or a limitation when it naturally follows from the answer. Worked examples and contrasting conditions may be derived from the supported mechanisms; they need not appear verbatim in the excerpts.',
+  'Do not invent implementation details or judgments requiring missing measurements. Preserve meaningful differences between questions, including opposite comparison directions.',
+  'Use conversational language and one idea per question, ideally 6-12 words. Name the subject briefly, including in requests for examples or code.',
+  'Ask from the student to the tutor, not as a quiz. Avoid generic requests for more detail and references to sources or sections.',
+  'Return fewer questions when useful ideas run out. Return only a JSON array of question strings, without answers or explanations.'
+].join('\n')
+
 // Exact shipped defaults only: custom user instructions must survive upgrades.
 export const legacySuggestionPrompts = [
   legacySuggestedFollowUpPrompt,
   previousSuggestedFollowUpPrompt,
+  answerAnchoredFollowUpPrompt,
   previousStarterQuestionPrompt,
   [
     'Suggest {count} natural next questions a curious undergraduate student might ask after this answer.',

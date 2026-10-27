@@ -62,7 +62,9 @@ class StudyScopeTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT SUM(is_active) FROM tokensmith_collection_state').fetchone()[0], 0)
 
     def test_empty_or_invalid_scope_never_falls_back_to_whole_library(self):
-        self.assertEqual(self.search([]), {'sources': [], 'reason': 'no_selected_documents'})
+        self.assertEqual(self.search([]), {
+            'sources': [], 'reason': 'no_selected_documents', 'latencySpans': []
+        })
         self.assertEqual(engine.starter_sources({'userDataPath': self.root, 'documents': []}),
                          {'sources': [], 'reason': 'no_selected_documents'})
         for selected in [[{'materialId': 'other', 'documentId': self.selected[0]['documentId']}],

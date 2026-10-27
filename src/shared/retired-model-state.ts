@@ -18,7 +18,6 @@ export function removeRetiredModelState(state: AppStateSnapshot): AppStateSnapsh
     materials: (state.materials ?? []).filter(material => !retiredMaterials.has(material.id)),
     conversations,
     activeConversationId: conversations.some(item => item.id === state.activeConversationId) ? state.activeConversationId : conversations[0]?.id ?? '',
-    selectedModelId: retiredIds.has(state.selectedModelId) ? '' : state.selectedModelId,
     selectedEmbeddingModelId: retiredIds.has(state.selectedEmbeddingModelId) ? '' : state.selectedEmbeddingModelId,
     settings: state.settings ? {
       ...state.settings,
