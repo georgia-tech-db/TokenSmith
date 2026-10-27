@@ -23,10 +23,15 @@ function Fixture() {
   const [materials, setMaterials] = useState([{ id: '1', title: 'Mixed reference library', status: 'ready', indexedAt: '2026-09-13', path: '/sample/documents', isActive: true, fileCount: 5, chunkCount: 5, preparation }])
   const [notice, setNotice] = useState('')
   function start(id, path, model, options) {
-    if (options.preparation.mode === 'basic' && (options.preparationModel || options.preparation.modelId)) {
+    // Basic boundaries need no model; plain-language search terms do, in either mode.
+    if (options.preparation.mode === 'basic' && !options.preparation.plainLanguageTerms
+        && (options.preparationModel || options.preparation.modelId)) {
       throw new Error('Basic must not submit a preparation model')
     }
-    setNotice(`Started ${options.preparation.mode} preparation. Model: ${options.preparationModel?.name || 'None'}. Instructions: ${options.preparation.instructions || 'None'}`)
+    if (options.preparation.plainLanguageTerms && !options.preparationModel) {
+      throw new Error('Plain-language search terms must submit a preparation model')
+    }
+    setNotice(`Started ${options.preparation.mode} preparation. Model: ${options.preparationModel?.name || 'None'}. Terms: ${options.preparation.plainLanguageTerms ? 'On' : 'Off'}. Instructions: ${options.preparation.instructions || 'None'}`)
     setMaterials(items => items.map(m => m.id === id ? { ...m, status: 'ready', indexedAt: new Date().toISOString(), preparation: options.preparation, fileCount: 5, chunkCount: 5 } : m))
   }
   return <><div role="status">{notice}</div><LibraryWorkspace createRequest={0} materials={materials} models={models} selectedModelId="gemma" selectedEmbeddingModelId="nomic"

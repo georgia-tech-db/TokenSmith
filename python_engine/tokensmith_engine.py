@@ -677,6 +677,10 @@ def indexed_chunks(
     indexed: List[Dict[str, Any]] = []
     for index, chunk in enumerate(chunks, start=1):
         text = chunk["text"]
+        # Optional plain-language search terms are indexed and embedded with the passage, but they
+        # are never part of chunk_text, so the stored source and the answer window are unchanged.
+        search_terms = str(chunk.get("keywords") or "").strip()
+        embedding_input = f"{text}\n{search_terms}" if search_terms else text
         chunk_embedding_model = embedding_model
         signature = chunk_signature(path, chunk)
         if existing_embedding_signatures is not None and signature in existing_embedding_signatures:
@@ -705,6 +709,7 @@ def indexed_chunks(
                 "tokensmithChunkId": chunk.get("tokensmithChunkId"),
                 "tokensmithChapter": chunk.get("tokensmithChapter"),
                 "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+                "keywords": chunk.get("keywords"),
                 "parentId": chunk.get("parentId"),
                 "part": chunk.get("part"),
                 "parts": chunk.get("parts"),
@@ -721,11 +726,11 @@ def indexed_chunks(
             "chunk_embedding_start",
             path=str(path),
             chunkIndex=index,
-            chars=len(text),
+            chars=len(embedding_input),
             embeddingModel=embedding_model,
         )
         try:
-            embedding = embed_text(text)
+            embedding = embed_text(embedding_input)
             log_event(
                 "chunk_embedding_success",
                 path=str(path),
@@ -755,6 +760,7 @@ def indexed_chunks(
             "tokensmithChunkId": chunk.get("tokensmithChunkId"),
             "tokensmithChapter": chunk.get("tokensmithChapter"),
             "tokensmithChunkKind": chunk.get("tokensmithChunkKind"),
+            "keywords": chunk.get("keywords"),
             "parentId": chunk.get("parentId"),
             "part": chunk.get("part"),
             "parts": chunk.get("parts"),
@@ -1635,7 +1641,7 @@ def source_row_text(row: Dict[str, Any], *, strip_exercises: bool = False) -> st
     if strip_exercises:
         text = strip_embedded_exercise_text(text)
     metadata = " ".join(
-        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title")
+        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title", "keywords")
     )
     return f"{metadata} {text}"
 
