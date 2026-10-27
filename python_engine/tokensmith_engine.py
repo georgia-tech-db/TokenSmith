@@ -1618,7 +1618,7 @@ def source_row_text(row: Dict[str, Any], *, strip_exercises: bool = False) -> st
     if strip_exercises:
         text = strip_embedded_exercise_text(text)
     metadata = " ".join(
-        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title")
+        str(row.get(key) or "") for key in ("section_header", "document_title", "material_title", "keywords")
     )
     return f"{metadata} {text}"
 

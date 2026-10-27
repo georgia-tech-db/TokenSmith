@@ -1424,6 +1424,7 @@ def source_row_select() -> str:
             ch.id AS chunk_index,
             ch.chunk_size AS chunk_size,
             ch.section_header AS section_header,
+            ch.keywords AS keywords,
             col.embedding_model AS embedding_model,
             pt.thumbnail_path AS thumbnail_path
         FROM chunks ch
