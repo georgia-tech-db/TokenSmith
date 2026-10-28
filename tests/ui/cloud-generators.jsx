@@ -13,10 +13,14 @@ let state = {
     { id: 'nomic', name: 'Nomic', engine: 'ollama', role: 'embedder', status: 'ready', ollamaModelName: 'nomic-embed-text', addedAt: '' },
     { id: 'expired', name: 'Saved Gemini', engine: 'remote', role: 'generator', status: 'needsRuntime', providerId: 'gemini', remoteModelName: 'gemini-2.5-flash', addedAt: '' }
   ],
-  selectedModelId: 'gemma', selectedEmbeddingModelId: 'nomic', materials,
+  selectedModelId: params.has('empty') ? '' : 'gemma', selectedEmbeddingModelId: 'nomic', materials,
   settings: { application: { suggestionMode: 'off' } }
 }
-const connections = []
+if (params.has('persist') && sessionStorage.getItem('cloud-fixture-state')) state = JSON.parse(sessionStorage.getItem('cloud-fixture-state'))
+const connections = params.has('persist') ? JSON.parse(sessionStorage.getItem('cloud-fixture-connections') || '[]') : []
+const persistConnections = () => { if (params.has('persist')) sessionStorage.setItem('cloud-fixture-connections', JSON.stringify(connections)) }
+const calls = []
+window.cloudTest = { state: () => state, connections: () => connections, calls }
 const canceled = new Set()
 const error = (code, message) => ({ ok: false, error: { code, message } })
 const modelNames = { gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'], openai: ['gpt-4.1-mini', 'gpt-4.1'], groq: ['llama-3.3-70b-versatile'], mistral: ['mistral-small-latest'], custom: ['study-chat', 'study-chat-large'] }
@@ -27,27 +31,44 @@ async function pause(input) {
 window.tokensmith = {
   getAppVersion: async () => 'Cloud UI test',
   loadAppState: async () => state,
-  saveAppState: async next => { state = next; return next },
+  saveAppState: async next => { state = next; if (params.has('persist')) sessionStorage.setItem('cloud-fixture-state', JSON.stringify(next)); return next },
   listEngines: async () => [], listMaterials: async () => materials,
   getOllamaStatus: async () => ({ running: true, models: [], baseUrl: 'http://127.0.0.1:11434' }),
   onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: () => () => {},
   getCloudConnections: async () => ({ connections, secureStorageAvailable: !params.has('session') }),
   cancelCloudSetup: async id => { canceled.add(id) },
   discoverCloudModels: async input => {
+    calls.push({ kind: 'discover', input })
     await pause(input)
     if (input.apiKey === 'bad-key') return error('credentials', 'This API key was not accepted. Check it or create a new key.')
     if (params.get('error') === 'offline') return error('network', 'Could not reach the service. Check your connection and try again.')
-    return { ok: true, value: params.has('manual') ? [] : modelNames[input.providerId] }
+    return { ok: true, value: params.has('manual') ? [] : input.role === 'embedder' ? ['text-embedding-test'] : modelNames[input.providerId] }
   },
   connectCloudGenerator: async input => {
+    calls.push({ kind: 'connect', input })
     await pause(input)
+    if (input.apiKey === 'bad-key') return error('credentials', 'This API key was not accepted. Check it or create a new key.')
     if (params.get('error') === 'quota') return error('quota', 'This account has no API usage available. Check billing or quota with your service, then retry.')
-    const connectionId = input.connectionId || crypto.randomUUID()
-    if (!connections.some(c => c.id === connectionId)) connections.push({ id: connectionId, providerId: input.providerId, baseUrl: input.baseUrl, connected: true, remembered: input.remember })
-    return { ok: true, value: { id: input.modelId || `cloud:${connectionId}:${input.modelName}`, name: input.modelName,
-      engine: 'remote', source: 'remote', role: 'generator', status: 'ready', providerId: input.providerId,
-      providerName: input.providerId, remoteModelName: input.modelName, baseUrl: input.baseUrl,
+    const baseUrl = input.baseUrl.replace(/\/+$/, '')
+    const saved = connections.find(c => c.providerId === input.providerId && c.baseUrl === baseUrl)
+    const connectionId = saved?.id || crypto.randomUUID()
+    if (saved) Object.assign(saved, { connected: true, remembered: input.remember })
+    else connections.push({ id: connectionId, providerId: input.providerId, baseUrl, connected: true, remembered: input.remember })
+    persistConnections()
+    const role = input.role || 'generator'
+    return { ok: true, value: { id: input.modelId || `cloud:${connectionId}:${role}:${input.modelName}`, name: input.modelName,
+      engine: 'remote', source: 'remote', role, status: 'ready', providerId: input.providerId,
+      providerName: input.providerId, remoteModelName: input.modelName, baseUrl,
       connectionId, cloudCredentialStatus: 'connected', addedAt: '' } }
+  },
+  forgetCloudConnection: async id => {
+    calls.push({ kind: 'forget', id })
+    await new Promise(resolve => setTimeout(resolve, 450))
+    if (params.has('forget-error')) return error('storage', 'Could not remove the saved API key. Please try again.')
+    const index = connections.findIndex(c => c.id === id)
+    if (index >= 0) connections.splice(index, 1)
+    persistConnections()
+    return { ok: true, value: { connectionIds: [id] } }
   }
 }
 await import('../../src/renderer/src/main.tsx')

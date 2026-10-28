@@ -32,11 +32,11 @@ export async function runBuzzdbMultiturnBenchmark() {
         let calls = 0
         const query = turn.expectedMode === 'standalone' ? turn.prompt : `Fixture retrieval query: ${id}`
         const prepared = await prepareRewrittenStudyChat(request, {
-          resolve: async () => ({ mode: turn.expectedMode, query, clarification: '' }),
+          resolve: async () => ({ mode: turn.expectedMode, query, clarification: '', reasoning: false }),
           search: async (actualQuery) => {
             calls += 1
             assert.equal(actualQuery, messages.length ? query : turn.prompt)
-            return sources
+            return { sources }
           }
         })
         assert.equal(calls, 1, 'Exactly one retrieval, without a heuristic probing pass')
@@ -49,6 +49,7 @@ export async function runBuzzdbMultiturnBenchmark() {
           assert.deepEqual(prepared.request.referenceExchange, { question: previousQuestion, answer: previousAnswer })
           assert.ok(packed.includes('not factual evidence'))
           assert.ok(!packed.includes('Fixture retrieval query:'))
+          assert.equal(packed.split('\n\nQuestion:').at(-1).trim(), turn.prompt)
         } else {
           assert.equal(prepared.request.referenceExchange, undefined)
           assert.ok(!packed.includes('### Previous exchange'))

@@ -1,4 +1,7 @@
 import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
+import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from '../../shared/study-scope'
+import { normalizeEmbeddingGpuEnabled } from '../../shared/embedding-settings'
+import { createEmbeddingDeviceManager } from '../engine/embedding-device'
 import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -6,8 +9,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { delimiter, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
-import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
+import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
+import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
+import type { AnswerVerification } from '../../shared/confidence'
 
 interface PythonRequest {
   id: string
@@ -16,10 +21,13 @@ interface PythonRequest {
     | 'index_material'
     | 'search'
     | 'starter_sources'
+    | 'study_documents'
+    | 'practice_sources'
     | 'list_materials'
     | 'set_material_enabled'
     | 'remove_material'
     | 'resolve_source_document'
+    | 'verify_answer'
     | 'preview_cleaning'
     | 'preparation_report'
   payload: Record<string, unknown>
@@ -36,7 +44,6 @@ interface PythonResponse<T> {
 interface HealthResult {
   ok: boolean
   engine: 'python'
-  llamaCppAvailable: boolean
   supports: string[]
 }
 
@@ -46,8 +53,10 @@ interface IndexMaterialResult {
 
 interface SearchResult {
   sources: ChatSource[]
+  reason?: string
   queryTerms?: string[]
   keywordTerms?: string[]
+  latencySpans?: unknown[]
 }
 
 interface ListMaterialsResult {
@@ -75,7 +84,47 @@ interface ResolveSourceDocumentResult {
   source: ResolvedSourceDocument | null
 }
 
+const retrievalStageNames = new Set([
+  'Query encoding',
+  'Semantic search',
+  'Keyword search',
+  'Passage ranking',
+  'Query embedding',
+  'Vector search',
+  'Fusion and selection'
+])
+
+function pythonLatencySpan(value: unknown): LatencySpan | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Record<string, unknown>
+  if (typeof candidate.stage !== 'string' || !retrievalStageNames.has(candidate.stage)) return undefined
+  if (typeof candidate.startedAt !== 'number' || !Number.isFinite(candidate.startedAt)) return undefined
+  if (typeof candidate.durationMs !== 'number' || !Number.isFinite(candidate.durationMs) || candidate.durationMs < 0) return undefined
+  const status = candidate.status === 'ok' || candidate.status === 'error' || candidate.status === 'skipped'
+    ? candidate.status as LatencySpanStatus
+    : undefined
+  const inCount = typeof candidate.inCount === 'number' && Number.isFinite(candidate.inCount) && candidate.inCount >= 0
+    ? Math.floor(candidate.inCount)
+    : undefined
+  const outCount = typeof candidate.outCount === 'number' && Number.isFinite(candidate.outCount) && candidate.outCount >= 0
+    ? Math.floor(candidate.outCount)
+    : undefined
+  const details = candidate.details && typeof candidate.details === 'object' && !Array.isArray(candidate.details)
+    ? sanitizeLatencyDetails(candidate.details as Record<string, unknown>)
+    : undefined
+  return {
+    stage: normalizeLatencyStageName(candidate.stage),
+    startedAt: candidate.startedAt,
+    durationMs: candidate.durationMs,
+    ...(status ? { status } : {}),
+    ...(inCount !== undefined ? { inCount } : {}),
+    ...(outCount !== undefined ? { outCount } : {}),
+    ...(details ? { details } : {})
+  }
+}
+
 let worker: ChildProcessWithoutNullStreams | null = null
+const prepareEmbeddingDevice = createEmbeddingDeviceManager()
 let workerBuffer = ''
 const pendingRequests = new Map<
   string,
@@ -117,6 +166,8 @@ function localIsoTimestamp(date = new Date()): string {
 const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
+  'chat_latency_trace',
+  'chat_answer_verification',
   'chat_runtime_context_budget',
   'chat_question_rewrite',
   'follow_up_suggestions',
@@ -216,6 +267,13 @@ function getPythonRuntimeRoot(): string {
     : join(app.getAppPath(), 'app_runtime', 'python')
 }
 
+/** Must match `nliModel.name` in scripts/python-runtime-manifest.mjs. */
+const nliModelName = 'deberta-v3-base-tasksource-nli'
+
+function getNliModelDir(): string {
+  return join(dirname(getPythonRuntimeRoot()), 'models', nliModelName)
+}
+
 function getPythonExecutable(): string {
   const runtimeRoot = getPythonRuntimeRoot()
   const pythonExecutable = process.platform === 'win32'
@@ -252,19 +310,10 @@ function resolveEmbeddingModel(model?: LocalModel): LocalModel | undefined {
   }
 
   if (model.engine === 'remote' || model.engine === 'ollama') {
-    return model
+    return modelWithRememberedRemoteApiKey(model)
   }
 
-  const embeddingPath = model.path ?? model.embeddingPath
-  if (!embeddingPath) {
-    return undefined
-  }
-
-  return {
-    ...model,
-    role: model.role ?? 'embedder',
-    embeddingPath
-  }
+  return undefined
 }
 
 function resolveEmbeddingModels(models?: LocalModel[]): LocalModel[] {
@@ -557,6 +606,8 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
   indexingJobs.set(materialId, stop)
   const run = async (): Promise<T> => {
     if (cancelled) throw new Error('Indexing was cancelled.')
+    if (payload.model) await prepareEmbeddingDevice([payload.model as LocalModel], normalizeEmbeddingGpuEnabled(payload.embeddingGpuEnabled))
+    if (cancelled) throw new Error('Indexing was cancelled.')
     return new Promise<T>((resolve, reject) => {
       const python = getPythonExecutable()
       child = spawn(python, [getWorkerPath()], {
@@ -623,9 +674,10 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
-      model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
+      model: resolveEmbeddingModel(model),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
+      embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
       userDataPath: app.getPath('userData')
     },
     180_000,
@@ -692,13 +744,18 @@ export async function searchLibraryWithPython(
   materials: CourseMaterial[],
   limit: number,
   embeddingModels?: LocalModel[],
-  searchMode?: SearchMode
-): Promise<ChatSource[]> {
+  searchMode?: SearchMode,
+  options?: LibrarySearchOptions
+): Promise<LibrarySearchResult> {
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
+  const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
+  if (searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
   writeLog('library_search_request', {
     query,
     limit,
+    documents: options?.documents,
     searchMode,
+    embeddingGpuEnabled,
     materials: materials.map((material) => ({
       id: material.id,
       title: material.title,
@@ -720,9 +777,11 @@ export async function searchLibraryWithPython(
     {
       query,
       materials,
+      ...(options?.documents !== undefined ? { documents: options.documents } : {}),
       limit,
       embeddingModels: resolvedEmbeddingModels,
       searchMode,
+      embeddingGpuEnabled,
       userDataPath: app.getPath('userData')
     },
     30_000
@@ -736,14 +795,21 @@ export async function searchLibraryWithPython(
     sources: result.sources.map(logSource)
   })
 
-  return result.sources
+  return {
+    sources: result.sources,
+    ...(result.reason ? { reason: result.reason } : {}),
+    retrievalChildren: (result.latencySpans ?? [])
+      .map(pythonLatencySpan)
+      .filter((span): span is LatencySpan => Boolean(span))
+  }
 }
 
-export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4): Promise<ChatSource[]> {
+export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {
   const result = await requestPython<SearchResult>(
     'starter_sources',
     {
       materials,
+      ...(documents !== undefined ? { documents } : {}),
       limit,
       userDataPath: app.getPath('userData')
     },
@@ -763,6 +829,20 @@ export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]
   )
 
   return result.materials
+}
+
+export async function studyDocumentsWithPython(): Promise<StudyDocument[]> {
+  const result = await requestPython<{ documents: StudyDocument[] }>('study_documents', {
+    userDataPath: app.getPath('userData')
+  }, 30_000)
+  return result.documents
+}
+
+export async function practiceSourcesWithPython(documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number): Promise<ChatSource[]> {
+  const result = await requestPython<SearchResult>('practice_sources', {
+    userDataPath: app.getPath('userData'), documents, usedSourceKeys, questionIndex
+  }, 30_000)
+  return result.sources
 }
 
 export async function setMaterialEnabledWithPython(materialId: string, isActive: boolean): Promise<void> {
@@ -800,4 +880,21 @@ export async function resolveSourceDocumentWithPython(source: ChatSource): Promi
   )
 
   return result.source
+}
+
+export async function verifyAnswerWithPython(
+  question: string,
+  answer: string,
+  passages: string[]
+): Promise<AnswerVerification> {
+  return requestPython<AnswerVerification>(
+    'verify_answer',
+    {
+      question,
+      answer,
+      passages,
+      modelDir: getNliModelDir()
+    },
+    60_000
+  )
 }

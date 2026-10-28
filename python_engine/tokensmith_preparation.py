@@ -37,7 +37,7 @@ def digest(value: Any) -> str:
 
 def read_json(path: Path, default: Any = None) -> Any:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return default
 
@@ -45,7 +45,7 @@ def read_json(path: Path, default: Any = None) -> Any:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False))
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
     temporary.replace(path)
 
 
@@ -201,12 +201,8 @@ def prepare_blocks(blocks: list[dict], complete: Callable, cache: Path,
     return chunks
 
 
-def completion_client(model: dict, local_complete: Callable | None = None) -> Callable:
+def completion_client(model: dict) -> Callable:
     engine = model.get('engine')
-    if engine == 'python':
-        if not local_complete:
-            raise ValueError('A local preparation model is required.')
-        return local_complete
     if engine not in ('remote', 'ollama'):
         raise ValueError('Choose an available chat model for AI preparation in collection settings.')
     if engine == 'remote' and not model.get('apiKey'):

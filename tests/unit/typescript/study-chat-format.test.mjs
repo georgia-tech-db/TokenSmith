@@ -53,6 +53,7 @@ const ollamaChatModel = {
   status: 'ready',
   source: 'ollama',
   ollamaModelName: 'llama3',
+  contextLength: 8192,
   addedAt
 }
 
@@ -108,29 +109,31 @@ test('sourceContext prefers full chunk context over the short excerpt', () => {
   assert.doesNotMatch(context, /Short excerpt only/)
 })
 
-test('modelAwareRuntimeSettings uses discovered model context with a bounded automatic cap', () => {
+test('modelAwareRuntimeSettings uses the full discovered limit in Auto mode', () => {
   const runtimeSettings = modelAwareRuntimeSettings({
     model: {
       ...ollamaChatModel,
       contextLength: 16384
     },
     modelSettings: {
+      contextLengthMode: 'auto',
       contextLength: 2048,
       maxLength: 512
     }
   })
 
-  assert.equal(runtimeSettings.contextLength, 8192)
+  assert.equal(runtimeSettings.contextLength, 16384)
   assert.equal(runtimeSettings.maxLength, 512)
 })
 
-test('studyChatMessages budgets and clips source context around matched terms', () => {
+test('remote studyChatMessages budgets and clips source context around matched terms', () => {
   const request = {
     prompt: 'Why is pinning needed?',
     messages: [],
     materials: [],
     model: {
       ...ollamaChatModel,
+      engine: 'remote',
       contextLength: 2048
     },
     settings: {},
@@ -176,6 +179,62 @@ test('studyChatMessages budgets and clips source context around matched terms', 
   assert.match(prompt, /Pinning protects a page while it is in use/)
   assert.match(prompt, /Text: \.\.\./)
   assert.doesNotMatch(prompt, /LRU evicts cold pages after/)
+})
+
+function depthRequest(explanationDepth, explanationDepthEnabled = true) {
+  return {
+    prompt: 'What is a transaction?',
+    messages: [],
+    materials: [],
+    model: ollamaChatModel,
+    settings: {},
+    applicationSettings: {
+      suggestionMode: 'off',
+      followUpSuggestionCount: 0,
+      explanationDepthEnabled,
+      ...(explanationDepth ? { explanationDepth } : {})
+    },
+    modelSettings: {},
+    retrievedSources: [databaseSource]
+  }
+}
+
+test('standard explanation depth keeps the default prompt unchanged', () => {
+  const unset = studyChatMessages(depthRequest())
+  const standard = studyChatMessages(depthRequest('standard'))
+
+  assert.deepEqual(standard, unset)
+  assert.doesNotMatch(standard[0].content, /Explanation depth/)
+})
+
+test('a depth left selected does not shape answers while the setting is off', () => {
+  const off = studyChatMessages(depthRequest('detailed', false))
+
+  assert.doesNotMatch(off[0].content, /Explanation depth/)
+  assert.deepEqual(off, studyChatMessages(depthRequest('standard')))
+})
+
+test('explanation depth shapes the system prompt without touching the evidence block', () => {
+  const simple = studyChatMessages(depthRequest('simple'))
+  const detailed = studyChatMessages(depthRequest('detailed'))
+
+  assert.match(simple[0].content, /meeting this idea for the first time/)
+  assert.match(simple[0].content, /define any technical term/)
+  assert.match(detailed[0].content, /wants to sharpen it/)
+  assert.match(detailed[0].content, /conditions, assumptions, and limits/)
+
+  // Depth belongs to the instructions, never to the retrieved material the model cites.
+  assert.doesNotMatch(simple.at(-1).content, /Explanation depth/)
+  assert.doesNotMatch(detailed.at(-1).content, /Explanation depth/)
+  assert.equal(simple.at(-1).content, studyChatMessages(depthRequest()).at(-1).content)
+})
+
+test('source context budget accounts for the explanation depth instruction', () => {
+  const standard = sourceContextBudgetForRequest(depthRequest('standard'))
+  const simple = sourceContextBudgetForRequest(depthRequest('simple'))
+
+  assert.ok(simple.fixedPromptTokens > standard.fixedPromptTokens)
+  assert.ok(simple.sourceBudgetTokens < standard.sourceBudgetTokens)
 })
 
 test('studyChatMessages sends standalone source context without raw prior conversation', () => {
@@ -359,9 +418,12 @@ test('questionSuggestionMessages uses follow-up wording once a chat has history'
   assert.match(prompt, /6-12 words/i)
   assert.doesNotMatch(prompt, /first questions/)
   assert.doesNotMatch(prompt, /What part of this usually confuses people/)
+  assert.match(prompt, /What is atomicity\?/)
+  assert.match(prompt, /Atomicity means all-or-nothing execution/)
+  assert.match(prompt, /practice statement may be false/)
 })
 
-test('followUpSuggestionMessages uses only the current question and latest answer', () => {
+test('followUpSuggestionMessages checks the current question and latest answer against source passages', () => {
   const messages = followUpSuggestionMessages({
     prompt: "Isn't contention also a problem in 2Q?",
     answerPrompt: 'Previous question: Why does an operating system use LRU?\nCurrent question: Is contention also a problem?',
@@ -395,7 +457,8 @@ test('followUpSuggestionMessages uses only the current question and latest answe
   assert.match(messages[1].content, /Current question:\nIsn't contention also a problem in 2Q\?/)
   assert.match(messages[1].content, /Latest answer:\nNo\. The answer explains 2Q using FIFO and LRU lists\./)
   assert.doesNotMatch(messages[1].content, /Previous question/)
-  assert.doesNotMatch(messages[1].content, /MRU and scans/)
+  assert.match(messages[1].content, /MRU and scans/)
+  assert.doesNotMatch(messages[1].content, /Older answer about operating systems/)
 })
 
 test('migrates every known default but keeps the initial and custom follow-up prompts independent', () => {
@@ -504,4 +567,20 @@ test('filterSuggestedQuestions removes repeated current and recent questions', (
       'What trade-off does 2Q make compared with LRU?'
     ]
   )
+})
+
+
+test('simplification budgets the quoted answer and final task while bounding long reference text', () => {
+  const request = depthRequest('simple')
+  request.modelSettings = { contextLength: 8192, maxLength: 768 }
+  const before = sourceContextBudgetForRequest(request)
+  request.answerToSimplify = 'Long old answer. '.repeat(2000)
+  const budget = sourceContextBudgetForRequest(request)
+  const prompt = studyChatMessages(request).at(-1).content
+  assert.ok(budget.fixedPromptTokens > before.fixedPromptTokens)
+  assert.ok(budget.includedSourceCount > 0)
+  assert.ok(budget.estimatedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens <= budget.modelContextTokens)
+  assert.match(prompt, /\[truncated\]/)
+  assert.match(prompt, /Task: The student has already read the answer/)
+  assert.ok(prompt.length < request.answerToSimplify.length)
 })

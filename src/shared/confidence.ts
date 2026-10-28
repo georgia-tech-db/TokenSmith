@@ -1,17 +1,103 @@
 import type { ChatSource } from './app-state'
 
-export type AnswerStatus = 'supported' | 'partial' | 'unsupported'
+export type AnswerStatus = 'supported' | 'partial' | 'unsupported' | 'unverified'
+
+/** One claim graded against one passage by the NLI model, each in [0, 1]. */
+export interface PassageEntailment {
+  index: number
+  entailment: number
+  contradiction: number
+}
+
+/** The NLI model's reading of one sentence-level claim in the answer. */
+export interface ClaimCheck {
+  text: string
+  /** The passage span that entails the claim best. */
+  evidence?: string | null
+  /** Names or numbers the claim uses that no passage contains. */
+  missingTerms?: string[]
+  passages: PassageEntailment[]
+}
+
+/** What the engine's `verify_answer` command returns. */
+export interface AnswerVerification {
+  /** False when the NLI model could not run; nothing was checked. */
+  available: boolean
+  claims: ClaimCheck[]
+  error?: string
+}
+
+export type ClaimVerdict = 'supported' | 'likely' | 'unsupported' | 'contradicted'
+
+export interface ClaimConfidence {
+  text: string
+  verdict: ClaimVerdict
+  /** Strongest entailment any passage gives this claim, in [0, 1]. */
+  entailment: number
+  /** Strongest contradiction any passage gives this claim, in [0, 1]. */
+  contradiction: number
+  evidence?: string | null
+  missingTerms?: string[]
+  /** The source that entails this claim best, when one entails it at all. */
+  sourceIndex?: number
+}
+
+/**
+ * One retrieved passage's own grades. The combined `AnswerConfidence` says
+ * whether to trust the answer; this says which passage earned that trust, so a
+ * student can go read the one that actually carried it.
+ */
+export interface SourceConfidence {
+  /** Index of the passage in the answer's source list. */
+  index: number
+  /** How well this passage alone matches the question, in [0, 1]. */
+  retrievalScore: number
+  /** Share of the answer's claims this passage entails, in [0, 1]. */
+  alignmentScore: number
+  /**
+   * This passage's share of the grounded answer, in [0, 1]. Shares across the
+   * source list sum to 1 whenever any passage carries the answer at all, so
+   * they read directly as "how much of this answer came from here".
+   */
+  contribution: number
+  /** True for the single largest contributor, when one carries the answer. */
+  leading: boolean
+}
+
+/**
+ * One source document's share, summed over every passage retrieved from it.
+ * Retrieval works in passages, but a student asking "where did this come from"
+ * means the document, so the passage-level split is rolled up before display.
+ */
+export interface DocumentConfidence {
+  /** Document title, as the passages report it. */
+  title: string
+  /** This document's share of the grounded answer, in [0, 1]. */
+  contribution: number
+  /** Best question match among this document's passages, in [0, 1]. */
+  retrievalScore: number
+  /** How many retrieved passages came from this document. */
+  passages: number
+  /** True for the single largest contributing document. */
+  leading: boolean
+}
 
 export interface AnswerConfidence {
-  /** Combined grounding confidence in [0, 1]. */
+  /** Grounding confidence in [0, 1]: how strongly the passages entail the answer's claims. */
   score: number
   status: AnswerStatus
-  /** How well the retrieved passages match the question, in [0, 1]. */
+  /** How well the retrieved passages match the question, in [0, 1]. Topical only. */
   retrievalScore: number
-  /** How much of the answer is carried by those passages, in [0, 1]. */
+  /** Mean entailment of the answer's claims by the passages, in [0, 1]. */
   alignmentScore: number
-  /** True when the answer text was replaced by the abstention message. */
+  /** Per-claim NLI verdicts. Absent when verification did not run. */
+  claims?: ClaimConfidence[]
+  /** True when the model itself declined to answer. */
   abstained: boolean
+  /** Per-passage breakdown, in the order the passages were retrieved. */
+  sources?: SourceConfidence[]
+  /** Per-document rollup of that breakdown, largest share first. */
+  documents?: DocumentConfidence[]
 }
 
 export const abstentionAnswer =
@@ -35,21 +121,41 @@ export const retrievalCalibration = {
 }
 
 export const confidenceThresholds = {
-  /** At or above this combined score the answer reads as supported. */
-  supported: 0.62,
-  /** Below this combined score the answer is treated as unsupported. */
-  partial: 0.35,
-  /** Support also requires the passages themselves to be a real match. */
-  minRetrievalForSupport: 0.45,
-  /** Retrieval this weak means nothing relevant was found, whatever the model said. */
-  maxRetrievalForAbstention: 0.25,
   /**
-   * An answer whose wording is this closely carried by the passages came out of
-   * the material, so it is never abstained over a weak retrieval score. This is
-   * what saves a well-grounded answer to a question phrased in words the
-   * material never uses.
+   * Content words a question needs before lexical overlap carries its full
+   * weight in the retrieval score. "Tell me abt hwk" has three, so a single
+   * unmatched word would move the overlap by a third.
    */
-  strongAlignment: 0.8
+  overlapEvidenceWords: 6
+}
+
+/**
+ * Cut-offs on the NLI model's probabilities. Swept over the 35 questions (210
+ * answers) in tests/benchmarks/buzzdb_nli_cases.json with
+ * tests/benchmarks/sweep_nli_thresholds.py: picked on the "dev" questions,
+ * then checked on the "heldout" ones. Run `npm run test:nli-benchmark` before
+ * and after changing them.
+ */
+export const verificationThresholds = {
+  /** A claim reads as supported only at or above this entailment. */
+  supported: 0.85,
+  /**
+   * Below this entailment a claim counts as not carried by the passages.
+   * Negated answers routinely score 0.6-0.8 because they reuse the passage's
+   * words, so a lower bar lets them through.
+   */
+  entailed: 0.8,
+  /**
+   * A claim contradicted at least this strongly is contradicted, unless a
+   * passage entails it more strongly still.
+   */
+  contradicted: 0.5,
+  /**
+   * Below this share of entailed claims the answer reads as not supported.
+   * With the stricter `entailed` bar, half is enough: one sound claim out of
+   * two no longer sinks a correct two-sentence paraphrase.
+   */
+  minEntailedShare: 0.5
 }
 
 const stopWords = new Set([
@@ -160,88 +266,259 @@ export function questionContextOverlap(question: string, sources: ChatSource[]):
 }
 
 /**
+ * How far to trust lexical overlap for this question, in [0, 0.5].
+ *
+ * Overlap is a share of the question's content words, so a short question
+ * measures it from almost no evidence: "tell me abt hwk" yields three words,
+ * none of which a textbook contains, and the resulting zero says more about the
+ * student's shorthand than about the material. Scaling the weight with the
+ * number of words keeps a confident signal confident and lets a thin one fall
+ * back on embedding similarity, which does not care how the question was typed.
+ */
+export function overlapWeight(question: string): number {
+  const words = contentWords(question).length
+  if (words === 0) {
+    return 0
+  }
+
+  return clamp01(words / confidenceThresholds.overlapEvidenceWords) * 0.5
+}
+
+/**
  * Scores how well the retrieved passages match the question. Needs no model and
  * no extra dependency: it blends embedding similarity with lexical overlap,
  * because neither signal is reliable enough alone.
  */
 export function retrievalConfidence(question: string, sources: ChatSource[]): number {
-  return clamp01(embeddingMatchScore(sources) * 0.5 + questionContextOverlap(question, sources) * 0.5)
+  const weight = overlapWeight(question)
+
+  return clamp01(
+    embeddingMatchScore(sources) * (1 - weight) + questionContextOverlap(question, sources) * weight
+  )
+}
+
+function maxOver(passages: PassageEntailment[], key: 'entailment' | 'contradiction'): number {
+  return passages.reduce((best, passage) => Math.max(best, clamp01(passage[key])), 0)
+}
+
+export function claimVerdict(entailment: number, contradiction: number): ClaimVerdict {
+  const { supported, entailed, contradicted } = verificationThresholds
+
+  // When one passage contradicts the claim at least as strongly as another
+  // entails it, the passages disagree with each other about it and the
+  // contradiction wins: "neighboring keys are stored next to each other"
+  // scores 0.83 entailment and 0.85 contradiction.
+  if (contradiction >= contradicted && contradiction >= entailment) {
+    return 'contradicted'
+  }
+  if (entailment >= supported) {
+    return 'supported'
+  }
+  if (entailment >= entailed) {
+    return 'likely'
+  }
+
+  return contradiction >= contradicted ? 'contradicted' : 'unsupported'
+}
+
+export function gradeClaims(claims: ClaimCheck[]): ClaimConfidence[] {
+  return claims.map((claim) => {
+    const entailment = maxOver(claim.passages, 'entailment')
+    const contradiction = maxOver(claim.passages, 'contradiction')
+    const verdict = claimVerdict(entailment, contradiction)
+    const best = claim.passages.find((passage) => passage.entailment === entailment)
+
+    return {
+      text: claim.text,
+      verdict,
+      entailment,
+      contradiction,
+      evidence: claim.evidence ?? null,
+      ...(claim.missingTerms?.length ? { missingTerms: claim.missingTerms } : {}),
+      ...((verdict === 'supported' || verdict === 'likely') && best ? { sourceIndex: best.index } : {})
+    }
+  })
 }
 
 /**
- * Scores how much of the answer is actually carried by the retrieved passages,
- * as the share of the answer's content words that appear in them. This is the
- * lexical stand-in for NLI entailment: it catches an answer the model produced
- * from its own weights rather than from the material.
+ * Splits credit for the answer across the passages that entail it.
+ *
+ * Each entailed claim is worth the same, and its credit is divided evenly
+ * among every passage that entails it. Shares sum to 1 across the list, so a
+ * passage's number reads as its share of the grounded answer.
  */
-export function answerContextAlignment(answer: string, sources: ChatSource[]): number {
-  const answerWords = new Set(contentWords(answer))
-  if (answerWords.size === 0 || sources.length === 0) {
-    return 0
-  }
+export function sourceContributions(claims: ClaimCheck[], sourceCount: number): number[] {
+  const credit = Array.from({ length: sourceCount }, () => 0)
+  let total = 0
 
-  const contextWords = new Set(contentWords(sources.map((source) => source.excerpt ?? '').join(' ')))
-  if (contextWords.size === 0) {
-    return 0
-  }
+  for (const claim of claims) {
+    const holders = claim.passages
+      .filter((passage) => passage.index >= 0 && passage.index < sourceCount)
+      .filter((passage) => passage.entailment >= verificationThresholds.entailed)
+      .map((passage) => passage.index)
 
-  let matched = 0
-  for (const word of answerWords) {
-    if (contextWords.has(word)) {
-      matched += 1
+    if (holders.length === 0) {
+      continue
     }
+
+    for (const index of holders) {
+      credit[index] += 1 / holders.length
+    }
+    total += 1
   }
 
-  return clamp01(matched / answerWords.size)
+  return total === 0 ? credit : credit.map((value) => clamp01(value / total))
 }
 
-export function classifyAnswerStatus(
-  score: number,
-  retrievalScore: number,
-  alignmentScore: number
-): AnswerStatus {
-  const carriedByContext = alignmentScore >= confidenceThresholds.strongAlignment
-  const tooWeakToStand =
-    score < confidenceThresholds.partial || retrievalScore < confidenceThresholds.maxRetrievalForAbstention
+/** Share of the claims that passage `index` entails, in [0, 1]. */
+function passageAlignment(claims: ClaimCheck[], index: number): number {
+  if (claims.length === 0) {
+    return 0
+  }
 
-  if (!carriedByContext && tooWeakToStand) {
+  const entailed = claims.filter((claim) =>
+    claim.passages.some((passage) => passage.index === index && passage.entailment >= verificationThresholds.entailed)
+  )
+
+  return entailed.length / claims.length
+}
+
+/**
+ * Decides the answer's status from its claims alone. Retrieval similarity is
+ * deliberately left out: it measures topic, and an answer that contradicts a
+ * passage is as on-topic as one that repeats it.
+ */
+export function classifyAnswerStatus(claims: ClaimConfidence[]): AnswerStatus {
+  if (claims.length === 0) {
+    return 'unverified'
+  }
+
+  const entailed = claims.filter((claim) => claim.verdict === 'supported' || claim.verdict === 'likely')
+  const contradicted = claims.some((claim) => claim.verdict === 'contradicted')
+
+  if (contradicted || entailed.length / claims.length < verificationThresholds.minEntailedShare) {
     return 'unsupported'
   }
 
-  if (score >= confidenceThresholds.supported && retrievalScore >= confidenceThresholds.minRetrievalForSupport) {
-    return 'supported'
-  }
-
-  return 'partial'
+  return claims.every((claim) => claim.verdict === 'supported') ? 'supported' : 'partial'
 }
 
 /**
- * Grades one answer against the passages it was given. Combines the two halves
- * evenly: a confident answer needs both a real retrieval match and text that
- * stays inside the material.
+ * Grades each retrieved passage on its own, then splits credit for the answer
+ * between them.
+ */
+export function scoreSourceConfidences(
+  question: string,
+  claims: ClaimCheck[],
+  sources: ChatSource[]
+): SourceConfidence[] {
+  const contributions = sourceContributions(claims, sources.length)
+  let leadingIndex = -1
+
+  contributions.forEach((contribution, index) => {
+    if (contribution > 0 && (leadingIndex === -1 || contribution > contributions[leadingIndex])) {
+      leadingIndex = index
+    }
+  })
+
+  return sources.map((source, index) => ({
+    index,
+    retrievalScore: retrievalConfidence(question, [source]),
+    alignmentScore: passageAlignment(claims, index),
+    contribution: contributions[index] ?? 0,
+    leading: index === leadingIndex
+  }))
+}
+
+/**
+ * The title a passage belongs under. `documentTitle` is the whole document;
+ * `title` is the per-passage label, which for a PDF is the same document name,
+ * so it is the right fallback.
+ */
+export function sourceDocumentKey(source: ChatSource): string {
+  const title = (source.documentTitle ?? source.title ?? '').trim()
+
+  return title || 'Untitled source'
+}
+
+/**
+ * Rolls the passage-level split up to the documents the passages came from.
+ * Shares add, because a document's contribution is everything its passages
+ * carried; question match takes the best passage, because one strong passage
+ * is what makes a document worth opening.
+ */
+export function scoreDocumentConfidences(sources: ChatSource[], scored: SourceConfidence[]): DocumentConfidence[] {
+  const byTitle = new Map<string, DocumentConfidence>()
+
+  sources.forEach((source, index) => {
+    const title = sourceDocumentKey(source)
+    const passage = scored[index]
+    if (!passage) {
+      return
+    }
+
+    const current = byTitle.get(title)
+    if (current) {
+      current.contribution = clamp01(current.contribution + passage.contribution)
+      current.retrievalScore = Math.max(current.retrievalScore, passage.retrievalScore)
+      current.passages += 1
+      return
+    }
+
+    byTitle.set(title, {
+      title,
+      contribution: passage.contribution,
+      retrievalScore: passage.retrievalScore,
+      passages: 1,
+      leading: false
+    })
+  })
+
+  const documents = [...byTitle.values()].sort((left, right) => right.contribution - left.contribution)
+
+  if (documents.length > 0 && documents[0].contribution > 0) {
+    documents[0].leading = true
+  }
+
+  return documents
+}
+
+/**
+ * Grades one answer from the NLI model's verdicts on its claims. When the
+ * verification did not run, the answer is marked unverified rather than
+ * guessed at: no label claims support that was never checked.
  */
 export function scoreAnswerConfidence(
   question: string,
-  answer: string,
-  sources: ChatSource[]
+  sources: ChatSource[],
+  verification: AnswerVerification
 ): AnswerConfidence {
   const retrievalScore = retrievalConfidence(question, sources)
-  const alignmentScore = answerContextAlignment(answer, sources)
-  const score = clamp01(retrievalScore * 0.5 + alignmentScore * 0.5)
-  const status = classifyAnswerStatus(score, retrievalScore, alignmentScore)
+  const checked = verification.available ? verification.claims : []
+  const claims = gradeClaims(checked)
+  const alignmentScore = claims.length
+    ? claims.reduce((total, claim) => total + claim.entailment, 0) / claims.length
+    : 0
+  const scoredSources = scoreSourceConfidences(question, checked, sources)
 
   return {
-    score,
-    status,
+    score: clamp01(alignmentScore),
+    status: classifyAnswerStatus(claims),
     retrievalScore,
     alignmentScore,
-    abstained: false
+    abstained: false,
+    ...(verification.available ? { claims } : {}),
+    sources: scoredSources,
+    documents: scoreDocumentConfidences(sources, scoredSources)
   }
 }
 
 export function answerStatusLabel(status: AnswerStatus): string {
   if (status === 'supported') {
     return 'Supported'
+  }
+  if (status === 'unverified') {
+    return 'Not verified'
   }
 
   return status === 'partial' ? 'Partially supported' : 'Not supported'

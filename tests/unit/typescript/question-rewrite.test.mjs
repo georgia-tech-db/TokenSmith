@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { questionRewriteMessages, parseQuestionRewrite } = requireTranspiledTs('src/main/engine/question-rewrite.ts')
+const { questionRewriteMessages, parseQuestionRewrite, resolveQuestionRewriteText } = requireTranspiledTs('src/main/engine/question-rewrite.ts')
 const { prepareRewrittenStudyChat, lastChatExchange } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
 const { studyChatMessages, sourceContextBudgetForRequest, answerWithOrderedSources } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 const { resolveOllamaChatQuestion } = requireTranspiledTs('src/main/engine/ollama-service.ts')
@@ -35,34 +35,39 @@ test('an incomplete exchange is not replaced with older history', () => {
 })
 
 test('standalone resolution cannot replace the original question with model paraphrasing', () => {
-  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '' }), 'Original?').query, 'Original?')
+  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '', reasoning: false }), 'Original?').query, 'Original?')
 })
 
 test('invalid, contradictory, and truncated rewrite responses fail without a heuristic fallback', () => {
   for (const text of ['not json', '[]', '{"mode":',
-    JSON.stringify({ mode: 'other', query: 'question', clarification: '' }),
-    JSON.stringify({ mode: 'contextual', query: '', clarification: '' }),
-    JSON.stringify({ mode: 'standalone', query: 'question', clarification: 'Which?' }),
-    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?' })]) {
+    JSON.stringify({ mode: 'other', query: 'question', clarification: '', reasoning: false }),
+    JSON.stringify({ mode: 'contextual', query: '', clarification: '', reasoning: false }),
+    JSON.stringify({ mode: 'standalone', query: 'question', clarification: 'Which?', reasoning: false }),
+    JSON.stringify({ mode: 'clarify', query: 'guessed subject', clarification: 'Which?', reasoning: false })]) {
     assert.throws(() => parseQuestionRewrite(text, base.prompt))
   }
 })
 
-test('first turns skip the rewriter and still retrieve normally', async () => {
+test('first turns without Auto skip the rewriter and still retrieve normally', async () => {
   let queries = []
   const result = await prepareRewrittenStudyChat({ ...base, messages: [] }, {
     resolve: () => assert.fail('First turn should not call the model twice'),
-    search: async (query) => { queries.push(query); return [source] }
+    search: async (query) => { queries.push(query); return { sources: [source] } }
   })
   assert.deepEqual(queries, [base.prompt])
   assert.equal(result.rewriteMs, 0)
+  assert.equal(result.latencySpans[0].status, 'skipped')
+  assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Question understanding', 'Library search'])
   assert.equal(result.request.referenceExchange, undefined)
 })
 
 test('contextual rewrites affect retrieval but never replace the student task', async () => {
   const result = await prepareRewrittenStudyChat(base, {
-    resolve: async () => ({ mode: 'contextual', query: 'checkpoint record A example', clarification: '' }),
-    search: async (query) => { assert.equal(query, 'checkpoint record A example'); return [source] }
+    resolve: async () => ({ mode: 'contextual', query: 'checkpoint record A example', clarification: '', reasoning: false }),
+    search: async (query) => {
+      assert.equal(query, 'checkpoint record A example')
+      return { sources: [source], retrievalChildren: [{ stage: 'Vector search', startedAt: Date.now(), durationMs: 2, outCount: 1 }] }
+    }
   })
   assert.equal(result.request.prompt, base.prompt)
   assert.equal(result.request.answerPrompt, base.prompt)
@@ -72,12 +77,14 @@ test('contextual rewrites affect retrieval but never replace the student task', 
   assert.match(prompt, /not factual evidence/)
   assert.match(prompt, /records A and B/)
   assert.doesNotMatch(prompt, /checkpoint record A example/)
+  assert.equal(prompt.split('\n\nQuestion:').at(-1).trim(), base.prompt)
+  assert.equal(result.latencySpans[1].children[0].stage, 'Semantic search')
 })
 
 test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {
   const result = await prepareRewrittenStudyChat({ ...base, prompt: 'What is isolation?' }, {
-    resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '' }),
-    search: async (query) => { assert.equal(query, 'What is isolation?'); return [source] }
+    resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '', reasoning: false }),
+    search: async (query) => { assert.equal(query, 'What is isolation?'); return { sources: [source] } }
   })
   assert.equal(result.request.referenceExchange, undefined)
   assert.doesNotMatch(studyChatMessages(result.request).at(-1).content, /checkpoint|records A and B/)
@@ -85,7 +92,7 @@ test('a topic change excludes the previous answer and ignores a rewritten standa
 
 test('clarification stops before retrieval or answer generation', async () => {
   const result = await prepareRewrittenStudyChat(base, {
-    resolve: async () => ({ mode: 'clarify', query: '', clarification: 'Which record do you mean?' }),
+    resolve: async () => ({ mode: 'clarify', query: '', clarification: 'Which record do you mean?', reasoning: false }),
     search: () => assert.fail('Must not retrieve a guessed question')
   })
   assert.equal(result.request, undefined)
@@ -106,8 +113,10 @@ test('history consumes context budget and is bounded before source packing', () 
   const budget = sourceContextBudgetForRequest(contextual)
   assert.ok(budget.fixedPromptTokens > standalone.fixedPromptTokens)
   assert.ok(budget.sourceBudgetTokens < standalone.sourceBudgetTokens)
-  assert.ok(budget.fixedPromptTokens < 3000)
-  assert.match(studyChatMessages(contextual).at(-1).content, /\[truncated\]/)
+  assert.ok(budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens < budget.modelContextTokens)
+  const content = studyChatMessages(contextual).at(-1).content
+  assert.match(content, /\[truncated\]/)
+  assert.ok(content.split('### Context:')[0].length < 1536 * 4 + 512)
 })
 
 test('answer normalization preserves paragraphs, list indentation, code and tables', () => {
@@ -126,7 +135,7 @@ test('Ollama rewrite uses the selected model, schema, thinking off and a true te
       assert.equal(request.options.num_predict, 512)
       assert.equal(request.format.type, 'object')
       return { ok: true, json: async () => ({ done_reason: 'stop', message: { content: JSON.stringify({
-        mode: 'contextual', query: 'checkpoint example with record A', clarification: ''
+        mode: 'contextual', query: 'checkpoint example with record A', clarification: '', reasoning: false
       }) } }) }
     }
     const result = await resolveOllamaChatQuestion(base)
@@ -146,7 +155,7 @@ test('remote chat uses the same rewrite contract without a heuristic routing pat
       assert.equal(request.temperature, 0)
       assert.equal(request.messages[1].content, questionRewriteMessages(base)[1].content)
       return { ok: true, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-        mode: 'standalone', query: 'unwanted paraphrase', clarification: ''
+        mode: 'standalone', query: 'unwanted paraphrase', clarification: '', reasoning: false
       }) } }] }) }
     }
     const result = await resolveRemoteChatQuestion({ ...base, model: {
@@ -154,4 +163,132 @@ test('remote chat uses the same rewrite contract without a heuristic routing pat
     } })
     assert.equal(result.query, base.prompt)
   } finally { globalThis.fetch = originalFetch }
+})
+
+const selectedPassage = {
+  messageId: 'older-answer', role: 'assistant', question: 'Why do databases use slotted pages?',
+  text: 'The slot ID stays the same during compaction.'
+}
+
+test('an explicit selection replaces unrelated recent history in rewrite input', () => {
+  const messages = questionRewriteMessages({ ...base, prompt: 'Why is that necessary?', selectedPassage })
+  const input = JSON.parse(messages[1].content)
+  assert.deepEqual(input, {
+    current_question: 'Why is that necessary?', previous_exchange: null,
+    selected_passage: { role: 'assistant', original_question: selectedPassage.question, text: selectedPassage.text }
+  })
+  assert.match(messages[0].content, /not factual evidence/)
+  assert.doesNotMatch(messages[1].content, /checkpoint/)
+})
+
+test('the query resolved from a selection survives a standalone mode label', () => {
+  const result = parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'Why must slot IDs remain stable during compaction?', clarification: '', reasoning: false }), 'Why?', true)
+  assert.equal(result.mode, 'contextual')
+  assert.equal(result.query, 'Why must slot IDs remain stable during compaction?')
+})
+
+test('a selected older passage reaches retrieval and generation without replaying the latest answer', async () => {
+  const prompt = 'Why is that necessary?'
+  const result = await prepareRewrittenStudyChat({ ...base, prompt, selectedPassage }, {
+    resolve: async (request) => {
+      assert.deepEqual(request.selectedPassage, selectedPassage)
+      return { mode: 'standalone', query: 'Why must slotted page slot IDs remain stable during compaction?', clarification: '', reasoning: false }
+    },
+    search: async (query) => { assert.match(query, /slot IDs/); return { sources: [source] } }
+  })
+  assert.equal(result.resolution.mode, 'contextual')
+  assert.equal(result.request.prompt, prompt)
+  assert.equal(result.request.answerPrompt, prompt)
+  assert.equal(result.request.referenceExchange, undefined)
+  assert.deepEqual(result.request.selectedPassage, selectedPassage)
+  const content = studyChatMessages(result.request).at(-1).content
+  assert.match(content, /slot ID stays the same/)
+  assert.match(content, /not factual evidence/)
+  assert.match(content, /correct errors/)
+  assert.doesNotMatch(content, /checkpoint/)
+  assert.ok(content.endsWith(`Question: ${prompt}`))
+})
+
+test('a saved selection works even when its original message is absent', async () => {
+  let rewritten = false
+  const result = await prepareRewrittenStudyChat({ ...base, messages: [], selectedPassage }, {
+    resolve: async () => { rewritten = true; return { mode: 'contextual', query: 'slot ID stability', clarification: '', reasoning: false } },
+    search: async () => ({ sources: [] })
+  })
+  assert.ok(rewritten)
+  assert.match(studyChatMessages(result.request).at(-1).content, /slot ID stays the same/)
+})
+
+test('selection text is included in model budgeting, never silently dropped or truncated', () => {
+  const selected = { ...base, selectedPassage }
+  assert.ok(sourceContextBudgetForRequest(selected).sourceBudgetTokens < sourceContextBudgetForRequest(base).sourceBudgetTokens)
+  const oversized = { ...base, selectedPassage: { ...selectedPassage, text: 'Long selection '.repeat(10000) } }
+  assert.throws(() => questionRewriteMessages(oversized), /Select a shorter passage/)
+  assert.throws(() => studyChatMessages(oversized), /Select a shorter passage/)
+})
+
+test('the next follow-up retains a saved selected passage in its reference exchange', () => {
+  const exchange = lastChatExchange([
+    { role: 'user', text: 'Why is that necessary?', selectedPassage },
+    { role: 'assistant', text: 'It preserves record references.' }
+  ])
+  assert.match(exchange.question, /slot ID stays the same/)
+  assert.match(exchange.question, /Why is that necessary/)
+})
+
+test('Ollama and cloud rewriters honor selections without requiring a complete latest exchange', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  try {
+    globalThis.fetch = async (_url, options) => {
+      const payload = JSON.parse(options.body)
+      const input = JSON.parse(payload.messages[1].content)
+      assert.equal(input.selected_passage.text, selectedPassage.text)
+      assert.equal(input.previous_exchange, null)
+      calls++
+      const content = JSON.stringify({ mode: 'contextual', query: 'slot ID compaction', clarification: '', reasoning: false })
+      return { ok: true, json: async () => ({ done_reason: 'stop', message: { content }, choices: [{ finish_reason: 'stop', message: { content } }] }) }
+    }
+    assert.equal((await resolveOllamaChatQuestion({ ...base, messages: [], selectedPassage })).mode, 'contextual')
+    assert.equal((await resolveRemoteChatQuestion({ ...base, messages: [], selectedPassage, model: {
+      engine: 'remote', remoteModelName: 'remote-test', apiKey: 'test-key', baseUrl: 'https://provider.example/v1', contextLength: 8192
+    } })).mode, 'contextual')
+    assert.equal(calls, 2)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('resolveQuestionRewriteText searches the original question when clarify carries no question', () => {
+  // What llama3.2 actually returns for a vague follow-up: the mode without the payload.
+  const raw = '{"mode":"clarify","query":"","clarification":"","reasoning":false}'
+  const { rewrite, fallbackReason } = resolveQuestionRewriteText(raw, 'what is the project about')
+
+  assert.deepEqual(rewrite, {
+    mode: 'standalone',
+    query: 'what is the project about',
+    clarification: '',
+    reasoning: false
+  })
+  assert.match(fallbackReason, /inconsistent/)
+  assert.throws(() => parseQuestionRewrite(raw, 'what is the project about'))
+})
+
+test('resolveQuestionRewriteText falls back on malformed and non-JSON responses', () => {
+  for (const raw of ['not json at all', '[]', '{"mode":"standalone"}', '{"mode":"contextual","query":"","clarification":""}']) {
+    const { rewrite, fallbackReason } = resolveQuestionRewriteText(raw, 'original question')
+
+    assert.equal(rewrite.mode, 'standalone')
+    assert.equal(rewrite.query, 'original question')
+    assert.ok(fallbackReason, `expected a fallback reason for ${raw}`)
+  }
+})
+
+test('resolveQuestionRewriteText reports no fallback for a usable response', () => {
+  const { rewrite, fallbackReason } = resolveQuestionRewriteText(
+    '{"mode":"contextual","query":"How do checkpoints shorten recovery?","clarification":"","reasoning":false}',
+    'how does that help'
+  )
+
+  assert.equal(rewrite.mode, 'contextual')
+  assert.equal(rewrite.query, 'How do checkpoints shorten recovery?')
+  assert.equal(fallbackReason, undefined)
 })

@@ -2,12 +2,88 @@ import io
 import json
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from python_engine import tokensmith_preparation as prep
 from python_engine import tokensmith_engine as engine
 from python_engine import tokensmith_store as store
+from python_engine import tokensmith_preparation_job as job
+
+
+@contextmanager
+def non_utf8_locale(locale_encoding='cp1252'):
+    def text_encoding(encoding, stacklevel=2):
+        return locale_encoding if encoding in (None, 'locale') else encoding
+
+    with patch('io.text_encoding', side_effect=text_encoding), patch('locale.getencoding', return_value=locale_encoding):
+        yield
+
+
+class PreparationJsonTests(unittest.TestCase):
+    def test_unicode_json_is_always_written_and_read_as_utf8(self):
+        value = {'title': 'café', 'text': 'α + β ≤ 3; 中文; कविता', 'starts': [1, 8]}
+        for encoding in ('cp1252', 'ascii'):
+            with self.subTest(encoding=encoding), tempfile.TemporaryDirectory() as root, non_utf8_locale(encoding):
+                with self.assertRaises(UnicodeEncodeError):
+                    (Path(root) / 'locale-probe.txt').write_text('α')
+                path = Path(root) / 'documents' / 'chunks.json'
+                prep.write_json(path, value)
+                self.assertEqual(json.loads(path.read_bytes().decode('utf-8')), value)
+                self.assertEqual(prep.read_json(path), value)
+                self.assertFalse(path.with_suffix('.tmp').exists())
+
+    def test_existing_utf8_json_is_not_decoded_using_the_system_locale(self):
+        value = {'title': 'café', 'text': 'α + β ≤ 3; 中文'}
+        with tempfile.TemporaryDirectory() as root, non_utf8_locale():
+            path = Path(root) / 'chunks.json'
+            path.write_bytes(json.dumps(value, ensure_ascii=False).encode('utf-8'))
+            self.assertEqual(prep.read_json(path), value)
+
+    def test_non_utf8_json_is_a_cache_miss_until_regenerated(self):
+        with tempfile.TemporaryDirectory() as root, non_utf8_locale():
+            path = Path(root) / 'chunks.json'
+            value = [{'text': 'Un café coûte 2 €.', 'sectionHeader': 'Résumé'}]
+            data = json.dumps(value, ensure_ascii=False).encode('cp1252')
+            path.write_bytes(data)
+            sentinel = object()
+            self.assertIs(prep.read_json(path, sentinel), sentinel)
+            self.assertEqual(path.read_bytes(), data)
+            prep.write_json(path, value)
+            self.assertEqual(json.loads(path.read_bytes().decode('utf-8')), value)
+            self.assertEqual(prep.read_json(path), value)
+
+    def test_missing_malformed_and_undecodable_json_keep_the_default(self):
+        with tempfile.TemporaryDirectory() as root, non_utf8_locale('ascii'):
+            path = Path(root) / 'cache.json'
+            sentinel = object()
+            self.assertIs(prep.read_json(path, sentinel), sentinel)
+            for data in (b'{invalid', b'{"text": "\xff"}'):
+                path.write_bytes(data)
+                self.assertIs(prep.read_json(path, sentinel), sentinel)
+                self.assertEqual(path.read_bytes(), data)
+
+    def test_basic_and_ai_preparation_preserve_unicode_reports_and_chunks(self):
+        text = ('Résumé: this example explains how a café records its sales and groups them by date.\n'
+                'The original notes include α + β ≤ 3 and 中文; preserve these symbols alongside the explanation.\n')
+        for mode in ('basic', 'ai'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as root, non_utf8_locale():
+                document_path = (Path(root) / 'café.txt').resolve()
+                document_path.write_text(text, encoding='utf-8')
+                payload = {'userDataPath': root, 'path': str(document_path), 'materialId': 'unicode-test',
+                           'preparation': {'mode': mode, 'instructions': '', 'documentInstructions': {}},
+                           'preparationModel': {'id': 'test-model', 'engine': 'ollama', 'name': 'Test'},
+                           'model': {'id': 'embed', 'name': 'Test embedder'}}
+                with patch.object(job, 'completion_client', return_value=lambda *_: {'starts': [1]}), patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=('test-embed', lambda _: [1., 0.], None)):
+                    material = engine.index_material(payload)['material']
+                summary = engine.preparation_report({**payload, 'documentPath': str(document_path)})
+                self.assertEqual(material['preparationIssueCount'], 0)
+                self.assertEqual(summary['documents'][0]['title'], 'café')
+                prepared = ''.join(chunk['text'] for chunk in summary['documents'][0]['chunks'])
+                self.assertIn('α + β ≤ 3', prepared)
+                self.assertIn('中文', prepared)
+                self.assertEqual(len(store.list_materials(root)), 1)
 
 
 def group(end, title='Passage'):
@@ -197,16 +273,9 @@ class PreparationTests(unittest.TestCase):
             else:
                 self.assertNotIn('format', requests[0])
 
-    def test_local_completion_receives_numbered_source_and_schema(self):
-        calls = []
-        def local(messages, schema):
-            calls.append((messages, schema))
-            return {'starts': [1]}
-        with tempfile.TemporaryDirectory() as root:
-            prep.prepare_blocks(prep.source_blocks([{'text': 'Body'}]),
-                                prep.completion_client({'engine': 'python'}, local), Path(root))
-        self.assertIn('[1] Body', calls[0][0][1]['content'])
-        self.assertEqual(calls[0][1], prep.boundary_schema(1))
+    def test_preparation_rejects_unsupported_model_engines(self):
+        with self.assertRaisesRegex(ValueError, 'Choose an available chat model'):
+            prep.completion_client({'engine': 'python'})
 
     def test_failed_model_does_not_silently_use_basic_splitting(self):
         with tempfile.TemporaryDirectory() as root, self.assertRaisesRegex(ValueError, 'three attempts'):
@@ -271,19 +340,19 @@ class PreparationTests(unittest.TestCase):
             self.assertIsNone(updated.get('preparationModelName'))
             self.assertIn('Updated source text', store.dump_index(root)['chunks'][0]['chunk_text'])
 
-    def test_gguf_job_requests_the_numbered_boundary_schema(self):
+    def test_ollama_job_requests_the_numbered_boundary_schema(self):
         with tempfile.TemporaryDirectory() as root:
             document_path = Path(root) / 'study.txt'
             document_path.write_text('Title\nOriginal source text.\n')
             payload = {'userDataPath': root, 'path': str(document_path), 'materialId': 'test',
                        'preparation': {'mode': 'ai', 'instructions': '', 'documentInstructions': {}},
-                       'preparationModel': {'id': 'gguf', 'engine': 'python', 'path': '/test/model.gguf'},
+                       'preparationModel': {'id': 'ollama', 'engine': 'ollama', 'ollamaModelName': 'test'},
                        'model': {'id': 'embed', 'name': 'Test embedder'}}
-            with patch.object(engine, 'load_llama') as load, patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=('test-embed', lambda _: [1., 0.], None)):
-                load.return_value.create_chat_completion.return_value = {'choices': [{'message': {'content': '{"starts":[1]}'}}]}
+            with patch.object(prep.urllib.request, 'urlopen') as call, patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=('test-embed', lambda _: [1., 0.], None)):
+                call.return_value.__enter__.return_value.read.return_value = json.dumps({'message': {'content': '{"starts":[1]}'}})
                 engine.index_material(payload)
-                request = load.return_value.create_chat_completion.call_args.kwargs
-            self.assertEqual(request['response_format'], {'type': 'json_object', 'schema': prep.boundary_schema(2)})
+                request = json.loads(call.call_args.args[0].data)
+            self.assertEqual(request['format'], prep.boundary_schema(2))
             self.assertIn('[1] Title\n[2] Original source text.', request['messages'][1]['content'])
 
 

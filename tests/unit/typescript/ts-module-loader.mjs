@@ -1,10 +1,11 @@
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const runtimeDir = join(process.cwd(), '.coverage-ts-runtime')
+// Node runs test files in parallel processes, so each process needs its own generated modules.
+const runtimeDir = join(process.cwd(), '.coverage-ts-runtime', String(process.pid))
 
 export function requireTranspiledTs(sourcePath) {
   mkdirSync(runtimeDir, { recursive: true })
@@ -35,7 +36,10 @@ export function requireTranspiledTs(sourcePath) {
     })
 
     mkdirSync(dirname(outputPath), { recursive: true })
-    writeFileSync(outputPath, output.outputText, 'utf8')
+    // Publish each generated module only after its contents have been written.
+    const temporaryPath = `${outputPath}.${process.pid}.tmp`
+    writeFileSync(temporaryPath, output.outputText, 'utf8')
+    renameSync(temporaryPath, outputPath)
 
     for (const match of output.outputText.matchAll(/require\(["'](\.{1,2}\/[^"']+)["']\)/g)) {
       const dependencyPath = resolve(dirname(absolutePath), `${match[1]}.ts`)

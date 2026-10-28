@@ -1,35 +1,62 @@
+import { PracticeScreen } from './PracticeScreen'
+import { StudyHeader, type StudyPanels } from './StudyHeader'
+import { StudySidebar } from './StudySidebar'
+import { StudyMaterialsPane } from './StudyMaterialsPane'
+import { SourceTray, maxSourceTrayCards } from './SourceTray'
+import { canOpenSource, cleanMaterialTitle, isMarkdownSource, isPdfSource } from './source-display'
+import { useStudyDocuments, type StudyCatalog } from './hooks/useStudyDocuments'
+import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope, scopeRefs, type StudyDocumentRef } from '@shared/study-scope'
+import { PracticeChatSuggestions } from './PracticeChatSuggestions'
+import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, practiceChatConversation, type PracticeTopic, type PracticeSession, type PracticeQuestion, type PracticeState, type StudyMode } from '@shared/practice'
+import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
+import { sourceEntryKey, sourceNavigationList } from './source-navigation'
+import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
+import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-source-preview'
+import { GenerationStatus } from './GenerationStatus'
+import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
+import type { GenerationKind } from '@shared/generation-estimate'
 import { LibraryWorkspace } from './LibraryWorkspace'
 import { defaultPreparation, type IndexMaterialOptions } from '../../shared/preparation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
+import { MessageAvatar } from './MessageAvatar'
+import { MessageComposer } from './MessageComposer'
+import { withCitationMarkers } from './citations'
 import { MarkdownSourceViewer } from './MarkdownSourceViewer'
 import { ConversationViewport } from './ConversationViewport'
 import { QuestionEditor } from './QuestionEditor'
-import { addQuoteToDraft, replaceQuestion } from './chat-interactions'
+import { normalizeEmbeddingGpuEnabled } from '@shared/embedding-settings'
+import { canExplainSimpler, canRetryWithReasoning, reasoningRetryRequest, replaceQuestion, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
+import { SelectedPassagePreview } from './SelectedPassagePreview'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
+import { ChatDepthPicker } from './ChatDepthPicker'
+import { AnswerExplanation } from './AnswerExplanation'
+import { answerForDisplay } from '../../shared/study-chat-pipeline'
 import { CloudGeneratorDialog } from './CloudGeneratorDialog'
-import { isCloudGenerator, mergeCloudGenerator } from '@shared/cloud-generators'
+import { answerModel, isAnswerModel, migrateConversationModels, selectStudyModel, studyModelTarget, type ModelSelectionTarget } from '@shared/chat-model-selection'
+import { attachCloudProviderConnection, disconnectCloudConnectionModels, isCloudGenerator, mergeCloudConnectionModel } from '@shared/cloud-generators'
 import './cloud-generators.css'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import type { PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api'
 import type {
   ApplicationSettings,
+  AnswerView,
   AppStateSnapshot,
   ChatMessage,
+  ChatSelectedPassage,
   ChatSource,
-  ComputeDevice,
   Conversation,
   CourseMaterial,
+  ExplanationDepth,
   LocalModel,
   LocalModelRole,
   MaterialIndexProgress,
   ModelDownloadProgress,
   ModelRuntimeSettings,
-  QuizState,
   ScreenId,
   SuggestionMode,
   TokenSmithSettings
@@ -41,7 +68,6 @@ import type {
   EngineChatResponse,
   MarkdownSourceDocument,
   PdfSourceDocument,
-  PdfSourceThumbnail,
   TokenSmithLogFile
 } from '@shared/engine'
 import {
@@ -54,8 +80,7 @@ import {
   type CleaningProfileId,
   type CleaningRuleId
 } from '@shared/cleaning'
-import type { AnswerConfidence, AnswerStatus } from '@shared/confidence'
-import { answerStatusLabel } from '@shared/confidence'
+import type { AnswerConfidence, DocumentConfidence, SourceConfidence } from '@shared/confidence'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -65,11 +90,10 @@ import {
   type OllamaSearchResult,
   type OllamaStatus
 } from '@shared/ollama'
-import {
-  remoteProviderCatalog,
-  type RemoteProviderCatalogItem,
-  type RemoteProviderId
-} from '@shared/model-providers'
+import { formatModelArtifactSize, localModelCatalog } from '@shared/model-catalog'
+import { recommendModel, type ModelRecommendation } from '@shared/model-recommendation'
+import { defaultDeviceTierPolicy } from '@shared/device-tier-policy'
+import { fontSizeOptions, normalizeFontSize } from '@shared/typography'
 import {
   defaultFollowUpSuggestionCount,
   defaultStarterQuestionPrompt,
@@ -79,26 +103,23 @@ import {
   normalizeStarterQuestionPrompt,
   minFollowUpSuggestionCount
 } from '@shared/model-defaults'
+import { DeviceRecommendationPanel } from './components/DeviceRecommendationPanel'
+import { useDeviceCapabilities } from './hooks/useDeviceCapabilities'
 import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
+import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
+  reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
-import {
-  quizFeedbackPrompt,
-  quizQuestionPrompt,
-  quizSourcePoolSize,
-  quizSourceLimit,
-  quizTotalQuestions
-} from '@shared/quiz'
-import tokensmithAssistantMark from './assets/tokensmith-assistant-mark.png'
+import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
   BookOpen,
   Check,
   ChevronDown,
-  CircleUserRound,
   Copy,
   Database,
   Download as DownloadIcon,
   FileText,
+  Info,
   Library,
   Loader2,
   MessageSquare,
@@ -107,21 +128,11 @@ import {
   Plus,
   RefreshCw,
   Search,
-  SendHorizonal,
   Settings,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
   Sparkles,
-  Square,
   Trash2,
   X
 } from 'lucide-react'
-import providerCustomLogo from './assets/provider-custom.svg'
-import providerGeminiLogo from './assets/provider-gemini.svg'
-import providerGroqLogo from './assets/provider-groq.svg'
-import providerMistralLogo from './assets/provider-mistral.svg'
-import providerOpenAiLogo from './assets/provider-openai.svg'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -132,8 +143,6 @@ interface NavItem {
 }
 
 type PdfViewerState = PdfSourceDocument & { searchTerm?: string }
-type MarkdownViewerState = MarkdownSourceDocument
-type SourceThumbnailState = Record<string, PdfSourceThumbnail>
 type PdfRenderedTextItem = {
   index: number
   text: string
@@ -169,47 +178,40 @@ const navItems: NavItem[] = [
 ]
 
 const stateStorageKey = 'tokensmith-app-state-v1'
-const maxSourceTrayCards = 5
 const defaultCollectionChunkSize = 1000
 const pdfViewerRenderScale = 1.45
+// React Strict Mode immediately runs an effect setup/cleanup cycle in development.
+// This gives that cleanup time to cancel before a starter-question request is sent.
+const starterQuestionDebounceMs = 150
 
 const defaultMaterials: CourseMaterial[] = []
 
-const remoteProviderLogoSources: Record<RemoteProviderId, string> = {
-  groq: providerGroqLogo,
-  openai: providerOpenAiLogo,
-  gemini: providerGeminiLogo,
-  mistral: providerMistralLogo,
-  custom: providerCustomLogo
-}
-
 const defaultModelRuntimeSettings: ModelRuntimeSettings = {
   systemMessage: '',
-  chatTemplate: '',
   suggestedFollowUpPrompt: defaultSuggestedFollowUpPrompt,
   starterQuestionPrompt: defaultStarterQuestionPrompt,
-  contextLength: 2048,
-  maxLength: 4096,
-  promptBatchSize: 128,
+  contextLength: 8192,
+  contextLengthMode: 'auto',
+  maxLength: 1536,
+  reasoningMode: 'auto',
   temperature: 0.7,
   topP: 0.4,
   topK: 40,
   minP: 0,
-  repeatPenaltyTokens: 64,
   repeatPenalty: 1.18,
-  gpuLayers: -1,
-  device: 'applicationDefault'
 }
 
 const defaultApplicationSettings: ApplicationSettings = {
   theme: 'light',
-  fontSize: 'small',
+  fontSize: 'normal',
   defaultModelId: '',
   suggestionMode: 'on',
   searchMode: 'hybrid',
+  explanationDepthEnabled: false,
+  explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
-  cpuThreads: 4
+  embeddingGpuEnabled: true
 }
 
 const defaultSettings: TokenSmithSettings = {
@@ -224,6 +226,7 @@ const defaultModels: LocalModel[] = []
 const starterConversations: Conversation[] = [
   {
     id: 'starter-study-chat',
+    modelId: '',
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -238,15 +241,15 @@ const defaultAppState: AppStateSnapshot = {
   conversations: starterConversations,
   materials: defaultMaterials,
   models: defaultModels,
-  selectedModelId: '',
   selectedEmbeddingModelId: '',
   settings: defaultSettings,
   updatedAt: new Date(0).toISOString()
 }
 
-function createFreshConversation(): Conversation {
+function createFreshConversation(modelId: string): Conversation {
   return {
     id: createId('conversation'),
+    modelId,
     title: 'New Study Chat',
     period: 'Today',
     messages: []
@@ -379,29 +382,6 @@ function normalizeModelFilename(filename?: string) {
   return filename?.toLowerCase()
 }
 
-function modelQuantFromFilename(filename?: string) {
-  const match = filename?.match(/(?:^|[-_. ])(q\d(?:[-_][a-z0-9]+)*|f16|fp16|bf16|int8|int4)(?:\.gguf)?$/i)
-  return match ? match[1] : 'GGUF'
-}
-
-function modelTypeFromFilename(filename?: string) {
-  const lowerFilename = filename?.toLowerCase() ?? ''
-
-  if (lowerFilename.includes('llama-3') || lowerFilename.includes('llama3')) {
-    return 'LLaMA3'
-  }
-
-  if (lowerFilename.includes('qwen')) {
-    return 'qwen2'
-  }
-
-  if (lowerFilename.includes('deepseek')) {
-    return 'deepseek'
-  }
-
-  return 'GGUF'
-}
-
 function normalizeCollectionPath(path: string) {
   return path.trim().replace(/^file:\/\//, '')
 }
@@ -512,29 +492,13 @@ function modelRole(model: LocalModel): LocalModelRole {
 }
 
 function modelCanGenerate(model: LocalModel) {
-  if (model.engine === 'python') {
-    return false
-  }
-
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'generator' || role === 'both')
 }
 
 function modelCanEmbed(model: LocalModel) {
-  if (model.engine === 'python') {
-    return false
-  }
-
   const role = modelRole(model)
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
-}
-
-function firstGeneratorModel(models: LocalModel[]) {
-  return models.find(modelCanGenerate)
-}
-
-function firstEmbeddingModel(models: LocalModel[]) {
-  return models.find(modelCanEmbed)
 }
 
 function ollamaChatModelId(modelName: string) {
@@ -619,7 +583,7 @@ function createOllamaEmbedderModel(
       'Local embedding model served by Ollama',
       'Prepares PDFs for search',
       'Embeds questions before source retrieval',
-      'Collections record the embedder used during indexing'
+      'Folders record the embedder used during indexing'
     ],
     download,
     addedAt: new Date().toISOString()
@@ -742,7 +706,7 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         return false
       }
 
-      return model.engine === 'python' || model.engine === 'ollama' || model.engine === 'remote'
+      return model.engine === 'ollama' || model.engine === 'remote'
     })
     .map((model, index) => {
       if (model.engine === 'ollama') {
@@ -759,6 +723,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           ollamaBaseUrl: model.ollamaBaseUrl ?? defaultOllamaBaseUrl,
           sizeBytes: model.sizeBytes,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           parameters: model.parameters,
           quant: model.quant,
           type: model.type ?? (role === 'embedder' ? 'Ollama embedder' : 'Ollama chat'),
@@ -767,8 +733,8 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
         }
       }
 
-      if (model.engine === 'remote') {
-        const hasApiKey = Boolean(model.apiKey?.trim() || (isCloudGenerator(model as LocalModel) && model.cloudCredentialStatus === 'connected'))
+      {
+        const hasApiKey = Boolean(model.apiKey?.trim() || model.cloudCredentialStatus === 'connected')
         const role: LocalModelRole = model.role === 'embedder' || model.role === 'both' ? model.role : 'generator'
         return {
           id: model.id ?? createId('model'),
@@ -784,49 +750,15 @@ function normalizeModels(models: LocalModel[] | undefined): LocalModel[] {
           connectionId: model.connectionId,
           cloudCredentialStatus: model.cloudCredentialStatus,
           remoteModelName: model.remoteModelName,
-          embeddingPath: model.embeddingPath,
           contextLength: normalizeOptionalContextLength(model.contextLength),
+          inputTokenLimit: normalizeTokenLimit(model.inputTokenLimit),
+          maxOutputTokens: normalizeTokenLimit(model.maxOutputTokens),
           type: model.type ?? 'OpenAI-compatible',
           description: model.description,
           addedAt: model.addedAt ?? new Date(index).toISOString()
         }
       }
 
-      const filename = model.filename ?? pathLeaf(model.path)
-      const modelId = model.id ?? createId('model')
-      const savedStatus: LocalModel['status'] = model.status === 'downloading'
-        ? 'incomplete'
-        : model.status ?? (model.path ? 'ready' : 'missing')
-      const download = model.download && filename
-        ? {
-            ...model.download,
-            filename,
-            modelId,
-            status: model.download.status === 'downloading' ? 'incomplete' as const : model.download.status
-          }
-        : undefined
-
-      return {
-        id: modelId,
-        name: model.name,
-        engine: 'python' as const,
-        role: model.role ?? 'generator',
-        status: savedStatus,
-        source: model.source,
-        filename,
-        path: model.path,
-        embeddingPath: model.embeddingPath,
-        url: model.url,
-        sizeBytes: model.sizeBytes,
-        ramRequiredGb: model.ramRequiredGb,
-        contextLength: normalizeOptionalContextLength(model.contextLength),
-        parameters: model.parameters,
-        quant: model.quant,
-        type: model.type,
-        description: model.description,
-        download,
-        addedAt: model.addedAt ?? new Date(index).toISOString()
-      }
     })
 }
 
@@ -841,8 +773,7 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
 }
 
 function normalizeOptionalContextLength(value: unknown): number | undefined {
-  const contextLength = Math.round(clampNumber(value, 0, 0, 32768))
-  return contextLength > 0 ? contextLength : undefined
+  return normalizeTokenLimit(value)
 }
 
 function normalizeChoice<T extends string>(value: unknown, choices: readonly T[], defaultValue: T): T {
@@ -866,45 +797,39 @@ function normalizeFollowUpSuggestionCount(value: unknown, suggestionMode: Sugges
   return count <= minFollowUpSuggestionCount ? minFollowUpSuggestionCount : defaultFollowUpSuggestionCount
 }
 
-function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>, models: LocalModel[] = defaultModels): ApplicationSettings {
-  const generatorModels = models.filter(modelCanGenerate)
-  const firstAvailableModel = firstGeneratorModel(models)
-  const defaultModelId =
-    typeof settings?.defaultModelId === 'string' && generatorModels.some((model) => model.id === settings.defaultModelId)
-      ? settings.defaultModelId
-      : firstAvailableModel?.id ?? ''
+function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): ApplicationSettings {
+  const defaultModelId = typeof settings?.defaultModelId === 'string' ? settings.defaultModelId : ''
   const suggestionMode = normalizeSuggestionMode(settings?.suggestionMode)
 
   return {
     // Older "system" preferences used the gray palette; keep that fallback.
     theme: normalizeChoice(settings?.theme, ['light', 'sarah-and-duck'] as const, defaultApplicationSettings.theme),
-    fontSize: normalizeChoice(settings?.fontSize, ['small', 'medium', 'large'] as const, defaultApplicationSettings.fontSize),
+    fontSize: normalizeFontSize(settings?.fontSize),
     defaultModelId,
     suggestionMode,
     searchMode: normalizeChoice(settings?.searchMode, ['vector', 'keyword', 'hybrid'] as const, defaultApplicationSettings.searchMode),
+    explanationDepthEnabled: settings?.explanationDepthEnabled ?? defaultApplicationSettings.explanationDepthEnabled,
+    explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
-    cpuThreads: Math.round(clampNumber(settings?.cpuThreads, defaultApplicationSettings.cpuThreads, 1, 64))
+    embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
   }
 }
 
 function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>): ModelRuntimeSettings {
-  const chatTemplate = typeof settings?.chatTemplate === 'string'
-    ? settings.chatTemplate
-    : defaultModelRuntimeSettings.chatTemplate
   const suggestedFollowUpPrompt = normalizeSuggestedFollowUpPrompt(settings?.suggestedFollowUpPrompt)
   const starterQuestionPrompt = normalizeStarterQuestionPrompt(settings?.starterQuestionPrompt)
 
   return {
     systemMessage: typeof settings?.systemMessage === 'string' ? settings.systemMessage : defaultModelRuntimeSettings.systemMessage,
-    chatTemplate,
     suggestedFollowUpPrompt,
     starterQuestionPrompt,
+    contextLengthMode: migratedContextMode(settings),
     contextLength: Math.round(clampNumber(
       settings?.contextLength,
       defaultModelRuntimeSettings.contextLength,
       512,
-      32768
+      Number.MAX_SAFE_INTEGER
     )),
     maxLength: Math.round(clampNumber(
       settings?.maxLength,
@@ -912,7 +837,9 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
       64,
       8192
     )),
-    promptBatchSize: Math.round(clampNumber(settings?.promptBatchSize, defaultModelRuntimeSettings.promptBatchSize, 1, 4096)),
+    thinking: settings?.thinking === true,
+    reasoningMode: normalizeChoice(settings?.reasoningMode, ['auto', 'off', 'on'] as const,
+      settings?.thinking === true ? 'on' : 'auto'),
     temperature: clampNumber(
       settings?.temperature,
       defaultModelRuntimeSettings.temperature,
@@ -927,25 +854,16 @@ function normalizeModelRuntimeSettings(settings?: Partial<ModelRuntimeSettings>)
     ),
     topK: Math.round(clampNumber(settings?.topK, defaultModelRuntimeSettings.topK, 0, 1000)),
     minP: clampNumber(settings?.minP, defaultModelRuntimeSettings.minP, 0, 1),
-    repeatPenaltyTokens: Math.round(
-      clampNumber(settings?.repeatPenaltyTokens, defaultModelRuntimeSettings.repeatPenaltyTokens, 0, 4096)
-    ),
     repeatPenalty: clampNumber(
       settings?.repeatPenalty,
       defaultModelRuntimeSettings.repeatPenalty,
       1,
       3
     ),
-    gpuLayers: Math.round(clampNumber(settings?.gpuLayers, defaultModelRuntimeSettings.gpuLayers, -1, 999)),
-    device: normalizeChoice(
-      settings?.device,
-      ['applicationDefault', 'cpu', 'gpu'] as const,
-      defaultModelRuntimeSettings.device
-    )
   }
 }
 
-function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, models: LocalModel[]): TokenSmithSettings {
+function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined): TokenSmithSettings {
   const incomingSettings = settings ?? {}
   const modelDefaults = normalizeModelRuntimeSettings(incomingSettings.modelDefaults)
   const modelSettingsById = Object.fromEntries(
@@ -953,14 +871,16 @@ function normalizeSettings(settings: Partial<TokenSmithSettings> | undefined, mo
       modelId,
       normalizeModelRuntimeSettings({
         ...modelDefaults,
-        ...modelSettings
+        ...modelSettings,
+        contextLengthMode: modelSettings.contextLengthMode ?? (modelSettings.contextLength !== undefined
+          ? migratedContextMode(modelSettings) : modelDefaults.contextLengthMode)
       })
     ])
   )
 
   return {
     maxSources: Math.round(clampNumber(incomingSettings.maxSources, defaultSettings.maxSources, 1, 10)),
-    application: normalizeApplicationSettings(incomingSettings.application, models),
+    application: normalizeApplicationSettings(incomingSettings.application),
     modelDefaults,
     modelSettingsById
   }
@@ -977,8 +897,8 @@ function isFreshConversation(conversation: Conversation) {
   return conversation.messages.length === 0 && conversation.title === 'New Study Chat'
 }
 
-function startWithFreshConversation(conversations: Conversation[]) {
-  const savedConversations = conversations.length > 0 ? conversations : structuredClone(starterConversations)
+function startWithFreshConversation(conversations: Conversation[], defaultModelId: string) {
+  const savedConversations = conversations.length > 0 ? conversations : [createFreshConversation(defaultModelId)]
   const existingFresh = savedConversations.find(isFreshConversation)
 
   if (existingFresh) {
@@ -991,7 +911,7 @@ function startWithFreshConversation(conversations: Conversation[]) {
     }
   }
 
-  const freshConversation = createFreshConversation()
+  const freshConversation = createFreshConversation(defaultModelId)
 
   return {
     activeConversationId: freshConversation.id,
@@ -1004,34 +924,42 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     return createDefaultAppState(appVersion)
   }
 
-  const shouldResetConversations = savedState.appVersion !== appVersion
-  const conversations = !shouldResetConversations && Array.isArray(savedState.conversations)
-    ? savedState.conversations
+  const { selectedModelId: legacyModelId, ...saved } = savedState as AppStateSnapshot & { selectedModelId?: string }
+  const models = normalizeModels(saved.models)
+  const settings = normalizeSettings(saved.settings)
+  if (saved.settings?.application?.defaultModelId === undefined && typeof legacyModelId === 'string') {
+    settings.application.defaultModelId = legacyModelId
+  }
+  const practice = normalizePracticeState(saved.practice)
+  if (practice.mode === 'practice' && practice.draftModelId === undefined) {
+    practice.draftModelId = settings.application.defaultModelId
+  }
+  const conversations = Array.isArray(savedState.conversations)
+    ? savedState.conversations.map(({ id, modelId, title, period, messages, practiceReference, practiceSuggestions, documentScope }) => ({
+        id, modelId, title, period, practiceReference, practiceSuggestions, documentScope,
+        messages: messages.filter(message => !('quiz' in message) && !('kind' in message && String(message.kind).startsWith('quiz')))
+      }))
     : structuredClone(starterConversations)
-  const freshChatState = startWithFreshConversation(conversations)
+  const freshChatState = startWithFreshConversation(migrateConversationModels(conversations,
+    typeof legacyModelId === 'string' ? legacyModelId : ''), settings.application.defaultModelId)
   const materials = normalizeMaterials(savedState.materials).map((material) =>
     material.status === 'indexing' && material.preparation
       ? { ...material, status: 'paused' as const, detail: 'Preparation paused. Resume to continue from saved progress.' }
       : material)
-  const models = normalizeModels(savedState.models)
-  const selectedModelExists = models.some((model) => model.id === savedState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model)))
   const selectedEmbeddingModelId = (savedState as Partial<AppStateSnapshot>).selectedEmbeddingModelId
-  const selectedEmbeddingModelExists =
-    typeof selectedEmbeddingModelId === 'string' &&
-    models.some((model) => model.id === selectedEmbeddingModelId && modelCanEmbed(model))
 
   return {
     ...createDefaultAppState(appVersion),
-    ...savedState,
+    ...saved,
     appVersion,
     activeScreen: 'chat',
     activeConversationId: freshChatState.activeConversationId,
     conversations: freshChatState.conversations,
+    practice,
     materials,
     models,
-    selectedModelId: selectedModelExists ? savedState.selectedModelId : firstGeneratorModel(models)?.id ?? '',
-    selectedEmbeddingModelId: selectedEmbeddingModelExists ? selectedEmbeddingModelId : firstEmbeddingModel(models)?.id ?? '',
-    settings: normalizeSettings(savedState.settings, models),
+    selectedEmbeddingModelId: typeof selectedEmbeddingModelId === 'string' ? selectedEmbeddingModelId : '',
+    settings,
     version: 1
   }
 }
@@ -1135,76 +1063,6 @@ function getConversationTitle(prompt: string) {
   return `${cleaned.slice(0, 28).trim()}...`
 }
 
-function quizApplicationSettings(settings: ApplicationSettings): ApplicationSettings {
-  return {
-    ...settings,
-    suggestionMode: 'off'
-  }
-}
-
-function cleanQuizQuestion(text: string): string | undefined {
-  const lines = text
-    .split('\n')
-    .map((line) =>
-      line
-        .trim()
-        .replace(/^[-*\u2022\s]+/, '')
-        .replace(/^\d+[.)]\s*/, '')
-        .replace(/^quiz question\s*\d*(?:\s*of\s*\d+)?\s*[:.-]\s*/i, '')
-        .replace(/^question\s*\d*\s*[:.-]\s*/i, '')
-        .replace(/^["']|["']$/g, '')
-        .trim()
-    )
-    .filter(Boolean)
-
-  const question = lines.find((line) => line.endsWith('?')) ?? text.match(/\b(?:What|Why|How|When|Where|Which|Who)\b[^?\n]*\?/i)?.[0]
-  if (!question) {
-    return undefined
-  }
-
-  return question.replace(/\s+/g, ' ').trim()
-}
-
-function quizSourceKey(source: ChatSource): string {
-  if (source.sourceId) {
-    return source.sourceId
-  }
-
-  return [
-    source.materialId,
-    source.documentId,
-    source.chunkId ?? source.chunkRowid,
-    source.path,
-    source.pageStart,
-    source.excerpt.slice(0, 120)
-  ]
-    .filter((part) => part !== undefined && part !== null && String(part).trim().length > 0)
-    .map(String)
-    .join('|')
-}
-
-function quizQuestionTexts(messages: ChatMessage[]): string[] {
-  return messages
-    .filter((message) => message.kind === 'quizQuestion')
-    .map((message) => message.text.trim())
-    .filter(Boolean)
-}
-
-function selectQuizSources(sources: ChatSource[], usedSourceKeys: string[]): ChatSource[] {
-  const used = new Set(usedSourceKeys)
-  const freshSources = sources.filter((source) => !used.has(quizSourceKey(source)))
-  const pool = [...(freshSources.length > 0 ? freshSources : sources)]
-
-  for (let index = pool.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    const value = pool[index]
-    pool[index] = pool[swapIndex]
-    pool[swapIndex] = value
-  }
-
-  return pool.slice(0, quizSourceLimit)
-}
-
 function readableErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback
   return message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, '').trim() || fallback
@@ -1218,39 +1076,6 @@ function readableOllamaError(error: unknown, fallback = 'Could not reach Ollama.
   return message
 }
 
-function cleanMaterialTitle(title?: string) {
-  return (title ?? '')
-    .replace(/\.(pdf|md|markdown|txt)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function getLibraryTitle(materials: CourseMaterial[]) {
-  const activeMaterials = compatibleActiveMaterials(materials)
-  const visibleMaterials = activeMaterials.length > 0 ? activeMaterials : materials
-
-  if (visibleMaterials.length === 1) {
-    return cleanMaterialTitle(visibleMaterials[0].title) || 'Library'
-  }
-
-  return 'Library'
-}
-
-function materialEmbeddingIdentity(material: Pick<CourseMaterial, 'embeddingModel' | 'embeddingModelId'>) {
-  return material.embeddingModel ?? material.embeddingModelId ?? ''
-}
-
-function compatibleActiveMaterials(materials: CourseMaterial[]) {
-  const activeMaterials = materials.filter((material) => (material.status === 'ready' || Boolean(material.indexedAt)) && material.isActive !== false)
-  const firstEmbeddingKey = activeMaterials.map(materialEmbeddingIdentity).find(Boolean)
-
-  if (!firstEmbeddingKey) {
-    return activeMaterials
-  }
-
-  return activeMaterials.filter((material) => materialEmbeddingIdentity(material) === firstEmbeddingKey)
-}
-
 function compactModelToken(label?: string) {
   const normalized = modelNameFromPath(label) ?? label?.trim()
   const token = normalized
@@ -1262,7 +1087,7 @@ function compactModelToken(label?: string) {
 }
 
 function isOpaqueEmbeddingModelKey(label?: string) {
-  return Boolean(label?.startsWith('llama-cpp:') || label?.startsWith('remote-openai:'))
+  return Boolean(label?.startsWith('remote-openai:'))
 }
 
 function materialEmbedderName(material: CourseMaterial) {
@@ -1284,64 +1109,8 @@ function materialEmbedderLabel(material: CourseMaterial) {
   return `${collectionName}-${embedderName}`
 }
 
-function embeddingModelsForMaterials(materials: CourseMaterial[], embeddingModels: LocalModel[]) {
-  const embeddingModelId = materials.map((material) => material.embeddingModelId).find(Boolean)
-
-  if (!embeddingModelId) {
-    return embeddingModels
-  }
-
-  const model = embeddingModels.find((item) => item.id === embeddingModelId)
-  return model ? [model] : embeddingModels
-}
-
-function isPdfSource(source: ChatSource) {
-  return Boolean(source.path?.toLowerCase().endsWith('.pdf'))
-}
-
-function isMarkdownSource(source: ChatSource) {
-  const path = source.path?.toLowerCase() ?? ''
-  return path.endsWith('.md') || path.endsWith('.markdown') || path.endsWith('.txt')
-}
-
-function canOpenSource(source: ChatSource) {
-  return isPdfSource(source) || isMarkdownSource(source)
-}
-
-function sourceFileTypeLabel(source: ChatSource) {
-  if (isMarkdownSource(source)) {
-    return 'MD'
-  }
-
-  if (isPdfSource(source)) {
-    return 'PDF'
-  }
-
-  return 'TXT'
-}
-
 function sourceDisplayText(source: ChatSource) {
   return isMarkdownSource(source) ? source.context || source.excerpt : source.excerpt
-}
-
-function sourcePageLabel(source: ChatSource) {
-  if (source.pageStart && source.pageEnd && source.pageEnd > source.pageStart) {
-    return `Pages ${source.pageStart}-${source.pageEnd}`
-  }
-
-  if (source.pageStart) {
-    return `Page ${source.pageStart}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom && source.lineTo && source.lineTo > source.lineFrom) {
-    return `Lines ${source.lineFrom}-${source.lineTo}`
-  }
-
-  if (isMarkdownSource(source) && source.lineFrom) {
-    return `Line ${source.lineFrom}`
-  }
-
-  return source.locator
 }
 
 function compactChunkSizeLabel(chunkSize?: number) {
@@ -1350,6 +1119,38 @@ function compactChunkSizeLabel(chunkSize?: number) {
   }
 
   return chunkSize >= 1000 ? `${chunkSize / 1000}K` : `${chunkSize}`
+}
+
+/** The answer version currently on screen, matching `answerForDisplay`. */
+function displayedAnswerView(message: ChatMessage): AnswerView {
+  if (message.explanationView === 'reasoning' && message.reasoningAnswer) return 'reasoning'
+  return message.explanationView === 'simple' && message.simplerExplanation ? 'simple' : 'original'
+}
+
+/** Keys a confidence check by the answer version it scores. */
+function scoringKey(messageId: string, view: AnswerView = 'original') {
+  return `${messageId}:${view}`
+}
+
+/**
+ * An answer is published twice (before and after its follow-ups). The second
+ * publish keeps a score the background check already produced for that text.
+ */
+function withKeptConfidence<T extends { text: string; confidence?: AnswerConfidence }>(previous: T | undefined, next: T): T {
+  return next.confidence || !previous?.confidence || previous.text !== next.text
+    ? next
+    : { ...next, confidence: previous.confidence }
+}
+
+/** The first sentence of a claim's evidence, short enough for the viewer's search. */
+function evidenceSearchTerm(evidence?: string | null) {
+  const text = evidence?.replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return undefined
+  }
+
+  const sentence = text.split(/(?<=[.!?])\s+/).find((part) => part.length >= 24) ?? text
+  return sentence.slice(0, 120).trim()
 }
 
 function searchTermForSource(source: ChatSource) {
@@ -1362,13 +1163,25 @@ function searchTermForSource(source: ChatSource) {
   return sentence.slice(0, 120).trim()
 }
 
-function sourceDocumentTitle(source: ChatSource) {
-  const rawTitle = source.documentTitle || source.title
-  return cleanMaterialTitle(rawTitle) || 'Source'
+async function readSourceDocument(source: ChatSource, searchTerm?: string): Promise<AnswerSourceDocument> {
+  if (isMarkdownSource(source) && window.tokensmith?.getMarkdownForSource) {
+    const document = await window.tokensmith.getMarkdownForSource(source)
+    return { kind: 'markdown', document: { ...document, title: cleanMaterialTitle(document.title) || document.title } }
+  }
+  if (isPdfSource(source) && window.tokensmith?.getPdfForSource) {
+    return { kind: 'pdf', document: { ...await window.tokensmith.getPdfForSource(source), searchTerm: searchTerm || searchTermForSource(source) } }
+  }
+  throw new Error('This source cannot be opened in the reader.')
 }
 
-function sourceTrayKey(source: ChatSource, index: number) {
-  return `${source.sourceId ?? source.chunkId ?? source.chunkRowid ?? source.path ?? source.title}-${index}`
+function SourceDocumentReader({ state, navigation, onClose }: {
+  state: SourceReaderState; navigation?: SourceNavigationProps; onClose: () => void
+}) {
+  const key = sourceEntryKey(state.sources[state.index])
+  const viewer = state.document.kind === 'pdf'
+    ? <PdfSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
+    : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
+  return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
 }
 
 function modelStatusFromDownload(progress: ModelDownloadProgress): LocalModel['status'] {
@@ -1408,7 +1221,74 @@ function modelMatchesDownload(model: LocalModel, progress: ModelDownloadProgress
 }
 
 export function App() {
+  const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
+  const practiceState = appState.practice ?? emptyPracticeState()
+  const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 800)
+  const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
+  const [collectionExpansion, setCollectionExpansion] = useState<Record<string, boolean>>({})
+  const studyPanels: StudyPanels = { historyOpen, onHistoryOpenChange: setHistoryOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen,
+    collectionExpansion, onCollectionExpansionChange: (id, expanded) => setCollectionExpansion(current =>
+      (current[id] ?? true) === expanded ? current : { ...current, [id]: expanded }) }
+  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
+  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
+  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [logError, setLogError] = useState<string | null>(null)
+  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
+  async function refreshLogFile() {
+    if (!window.tokensmith?.getLogFile) {
+      setLogStatus('error')
+      setLogError('TokenSmith log is not available in this build.')
+      return
+    }
+    setLogStatus('loading')
+    setLogError(null)
+    try {
+      setLogFile(await window.tokensmith.getLogFile())
+      setLogStatus('idle')
+    } catch (error) {
+      setLogStatus('error')
+      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
+    }
+  }
+  function openLog() { setIsLogCardOpen(true); void refreshLogFile() }
+  const practiceReader = useSourceReader(readSourceDocument)
+  const activePracticeSession = practiceState.sessions.find(item => item.id === practiceState.activeSessionId)
+  const activePracticeQuestionId = activePracticeSession?.questions[activePracticeSession.currentIndex]?.id
+  useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
+  function updatePractice(update: (current: PracticeState) => PracticeState) {
+    updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
+  }
+  const [practiceChatDraft, setPracticeChatDraft] = useState<{ conversationId: string; draft: ChatDraft }>()
+  function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
+    const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
+    setPracticeChatDraft({ conversationId: conversation.id,
+      draft: { text: question.helpDraft ?? '', selectedPassage: passage ?? question.helpPassage } })
+    updateAppState(current => {
+      const next = changeStudyScope(current, session.documents)
+      const practice = next.practice ?? emptyPracticeState()
+      return { ...next, activeScreen: 'chat', activeConversationId: conversation.id,
+        conversations: [conversation, ...next.conversations],
+        practice: { ...practice, mode: 'chat', activeSessionId: session.id,
+          sessions: practice.sessions.map(item => item.id !== session.id ? item : { ...item,
+            currentIndex: item.questions.findIndex(value => value.id === question.id),
+            questions: item.questions.map(value => value.id === question.id ? { ...value, chatOpened: true } : value) }) } }
+    })
+  }
+  function practiceTopic(topic: PracticeTopic) {
+    updatePractice(current => ({ ...current, mode: 'practice', activeSessionId: undefined, draftTopic: topic,
+      draftModelId: appState.settings.application.defaultModelId }))
+  }
+  function setStudyMode(mode: StudyMode) {
+    updateAppState(current => {
+      const practice = current.practice ?? emptyPracticeState()
+      return { ...current, practice: { ...practice, mode,
+        ...(mode === 'practice' && practice.draftModelId === undefined ? { draftModelId: current.settings.application.defaultModelId } : {}) } }
+    })
+  }
+  function setStudyScope(scope: StudyDocumentRef[]) {
+    updateAppState(current => changeStudyScope(current, scope))
+  }
   const [appVersion, setAppVersion] = useState<string>('dev')
   const [engines, setEngines] = useState<EngineInfo[]>([
     {
@@ -1420,9 +1300,29 @@ export function App() {
   ])
   const [, setSaveStatus] = useState<'loading' | 'saved' | 'saving' | 'local' | 'error'>('loading')
   const [hasLoadedState, setHasLoadedState] = useState(false)
+  const metadataModelKey = appState.models.filter(modelCanGenerate).map(contextMetadataIdentity).join('\n')
+  useEffect(() => {
+    if (!hasLoadedState || !window.tokensmith?.getModelContextMetadata) return
+    let cancelled = false
+    for (const model of appState.models.filter(modelCanGenerate)) {
+      if (model.status !== 'ready') continue
+      const identity = contextMetadataIdentity(model)
+      void window.tokensmith.getModelContextMetadata(model).then(metadata => {
+        if (cancelled || Object.keys(metadata).length === 0) return
+        setAppState(current => ({ ...current, models: current.models.map(saved =>
+          contextMetadataIdentity(saved) === identity ? mergeModelContextMetadata(saved, metadata) : saved) }))
+      }).catch(() => undefined)
+    }
+    return () => { cancelled = true }
+  }, [hasLoadedState, metadataModelKey])
+  const studyCatalog = useStudyDocuments(appState.materials, hasLoadedState)
+  useEffect(() => {
+    if (studyCatalog.status !== 'ready') return
+    setAppState(current => initializeStudyScopes(current, studyCatalog.documents))
+  }, [studyCatalog.status, studyCatalog.documents])
   const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
   const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
-  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel } | null>(null)
+  const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel; target: ModelSelectionTarget } | null>(null)
   const [cloudNotice, setCloudNotice] = useState('')
   const hasLoadedStateRef = useRef(false)
   const activeIndexRequestsRef = useRef(new Set<string>())
@@ -1437,20 +1337,41 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [cloudNotice])
 
-  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model }) }
+  function openCloudSetup(model?: LocalModel) { setCloudSetup({ model, target: studyModelTarget(appState) }) }
 
   function connectedCloudGenerator(model: LocalModel) {
+    if (!cloudSetup) return
+    const target = cloudSetup.target
     updateAppState(current => {
-      const models = mergeCloudGenerator(current.models, model)
-      return { ...current, models, selectedModelId: models[0].id }
+      const migrated = attachCloudProviderConnection(current.models, model)
+      const models = mergeCloudConnectionModel(migrated, model)
+      const connected = models.find(candidate => candidate.connectionId === model.connectionId &&
+        candidate.remoteModelName === model.remoteModelName && (candidate.role ?? 'generator') === model.role)
+      if (!connected) return current
+      const modelId = connected.id
+      return model.role === 'embedder'
+        ? { ...current, models, selectedEmbeddingModelId: modelId }
+        : selectStudyModel({ ...current, models }, modelId, target)
     })
     setCloudSetup(null)
     setCloudNotice(`Connected · ${model.remoteModelName}`)
   }
 
+  function forgotCloudConnections(connectionIds: string[]) {
+    updateAppState(current => ({
+      ...current,
+      models: disconnectCloudConnectionModels(current.models, connectionIds)
+    }))
+    setCloudNotice('API key removed · reconnect a model to continue')
+  }
+
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = appState.settings.application.theme
   }, [appState.settings.application.theme])
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.fontSize = appState.settings.application.fontSize
+  }, [appState.settings.application.fontSize])
 
   useEffect(() => {
     const bridge = window.tokensmith
@@ -1624,19 +1545,11 @@ export function App() {
       const download = ollamaProgressToModelDownloadProgress(progress)
       updateAppState((current) => {
         if (download.status === 'removed') {
-          const selectedModel = current.models.find((model) => model.id === current.selectedModelId)
-          const selectedEmbeddingModel = current.models.find((model) => model.id === current.selectedEmbeddingModelId)
           const remainingModels = current.models.filter((model) => !modelMatchesDownload(model, download))
 
           return {
             ...current,
-            models: remainingModels,
-            selectedModelId: selectedModel && modelMatchesDownload(selectedModel, download)
-              ? firstGeneratorModel(remainingModels)?.id ?? ''
-              : current.selectedModelId,
-            selectedEmbeddingModelId: selectedEmbeddingModel && modelMatchesDownload(selectedEmbeddingModel, download)
-              ? firstEmbeddingModel(remainingModels)?.id ?? ''
-              : current.selectedEmbeddingModelId
+            models: remainingModels
           }
         }
 
@@ -1678,10 +1591,10 @@ export function App() {
   }, [appState.materials, hasLoadedState])
 
   function updateAppState(updater: (current: AppStateSnapshot) => AppStateSnapshot) {
-    setAppState((current) => ({
-      ...updater(current),
-      updatedAt: new Date().toISOString()
-    }))
+    setAppState(current => {
+      const next = updater(current)
+      return { ...next, updatedAt: new Date().toISOString() }
+    })
   }
 
   function updateChatState(
@@ -1704,16 +1617,10 @@ export function App() {
       const nextSettings = normalizeSettings({
         ...current.settings,
         ...settings
-      }, current.models)
-      const requestedDefaultModelId = settings.application?.defaultModelId
-      const selectedModelId =
-        requestedDefaultModelId && current.models.some((model) => model.id === requestedDefaultModelId && modelCanGenerate(model))
-          ? requestedDefaultModelId
-          : current.selectedModelId
+      })
 
       return {
         ...current,
-        selectedModelId,
         settings: nextSettings
       }
     })
@@ -1763,13 +1670,10 @@ export function App() {
     indexRequestSequenceRef.current.set(materialId, requestSequence)
 
     const indexingMaterial = appState.materials.find((material) => material.id === materialId)
-    const embeddingModel =
-      (embeddingModelOverride && modelCanEmbed(embeddingModelOverride) ? embeddingModelOverride : undefined) ??
-      appState.models.find((model) => model.id === indexingMaterial?.embeddingModelId && modelCanEmbed(model)) ??
-      appState.models.find((model) => model.id === appState.selectedEmbeddingModelId && modelCanEmbed(model)) ??
-      firstEmbeddingModel(appState.models)
+    const embeddingModel = embeddingModelOverride ?? appState.models.find(model =>
+      model.id === (indexingMaterial?.embeddingModelId || appState.selectedEmbeddingModelId))
 
-    if (!embeddingModel) {
+    if (!embeddingModel || !modelCanEmbed(embeddingModel)) {
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((material) =>
@@ -1778,7 +1682,7 @@ export function App() {
                 ...material,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download the Nomic Embedder Model before preparing PDFs.',
+                error: 'Reconnect the selected search model or choose an available embedding model in Library settings.',
                 indexing: undefined,
                 isActive: material.indexedAt ? material.isActive : false
               }
@@ -1791,7 +1695,7 @@ export function App() {
     const preparation = options.preparation ?? indexingMaterial?.preparation ?? defaultPreparation()
     const preparationModel = preparation.mode === 'ai'
       ? options.preparationModel ?? appState.models.find(model =>
-        model.id === (preparation.modelId || appState.selectedModelId) && model.role !== 'embedder')
+        model.id === (preparation.modelId || appState.settings.application.defaultModelId) && model.role !== 'embedder')
       : undefined
     updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === materialId ? {
       ...item, preparation, status: 'indexing', error: undefined,
@@ -1806,6 +1710,7 @@ export function App() {
         ...options,
         preparation,
         preparationModel,
+        embeddingGpuEnabled: appState.settings.application.embeddingGpuEnabled,
         title: options.title ?? indexingMaterial?.title,
         cleaningProfileId: options.cleaningProfileId ?? indexingMaterial?.cleaningProfileId,
         cleaningRuleIds:
@@ -1900,7 +1805,7 @@ export function App() {
     upsertModel(model, true)
   }
 
-  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models') {
+  function upsertModel(model: LocalModel, shouldSelect = false, nextScreen: ScreenId | null = 'models', target = studyModelTarget(appState)) {
     updateAppState((current) => {
       const modelFile = normalizeModelFilename(modelFilename(model))
       const isSameModel = (existingModel: LocalModel) => {
@@ -1939,13 +1844,13 @@ export function App() {
         return !isSameModel(existingModel)
       })
 
-      return {
+      const next = {
         ...current,
         activeScreen: nextScreen ?? current.activeScreen,
         models: [model, ...existingModels],
-        selectedModelId: shouldSelect && model.status === 'ready' && modelCanGenerate(model) ? model.id : current.selectedModelId,
         selectedEmbeddingModelId: shouldSelect && model.status === 'ready' && modelCanEmbed(model) ? model.id : current.selectedEmbeddingModelId
       }
+      return shouldSelect && model.status === 'ready' && isAnswerModel(model) ? selectStudyModel(next, model.id, target) : next
     })
   }
 
@@ -1979,6 +1884,7 @@ export function App() {
   }
 
   function downloadOllamaModel(modelName: string, role: LocalModelRole, baseUrl = defaultOllamaBaseUrl) {
+    const target = studyModelTarget(appState)
     const normalizedModelName = modelName.trim()
     if (!normalizedModelName || !window.tokensmith?.pullOllamaModel) {
       return
@@ -2057,7 +1963,7 @@ export function App() {
             id: modelId,
             addedAt: existingModel?.addedAt ?? new Date().toISOString()
           },
-          true
+          true, 'models', target
         )
       })
       .catch((error) => {
@@ -2092,16 +1998,7 @@ export function App() {
   }
 
   function selectModel(modelId: string) {
-    updateAppState((current) => {
-      if (!current.models.some((model) => model.id === modelId && modelCanGenerate(model))) {
-        return current
-      }
-
-      return {
-        ...current,
-        selectedModelId: modelId
-      }
-    })
+    updateAppState(current => selectStudyModel(current, modelId, studyModelTarget(current)))
   }
 
   function selectEmbeddingModel(modelId: string) {
@@ -2118,90 +2015,21 @@ export function App() {
   }
 
   function removeModel(model: LocalModel) {
-    const selectedModelWillBeRemoved = appState.selectedModelId === model.id
-    const selectedEmbeddingModelWillBeRemoved = appState.selectedEmbeddingModelId === model.id
     const shouldRestoreOnRemoveFailure = !(model.engine === 'ollama' && model.status !== 'ready')
 
     updateAppState((current) => {
       const remainingModels = current.models.filter((item) => item.id !== model.id)
       return {
         ...current,
-        models: remainingModels,
-        selectedModelId: selectedModelWillBeRemoved ? firstGeneratorModel(remainingModels)?.id ?? '' : current.selectedModelId,
-        selectedEmbeddingModelId: selectedEmbeddingModelWillBeRemoved
-          ? firstEmbeddingModel(remainingModels)?.id ?? ''
-          : current.selectedEmbeddingModelId
+        models: remainingModels
       }
     })
 
     void window.tokensmith?.removeModel(model).catch(() => {
       setSaveStatus('error')
       if (shouldRestoreOnRemoveFailure) {
-        upsertModel(model, selectedModelWillBeRemoved || selectedEmbeddingModelWillBeRemoved)
+        upsertModel(model, false, null)
       }
-    })
-  }
-
-  function toggleMaterialActive(materialId: string) {
-    const material = appState.materials.find((item) => item.id === materialId)
-    if (!material || (material.status !== 'ready' && !material.indexedAt)) {
-      return
-    }
-
-    const nextActive = material.isActive === false
-    const targetEmbeddingKey = materialEmbeddingIdentity(material)
-    const incompatibleActiveMaterialIds = nextActive
-      ? appState.materials
-          .filter(
-            (item) =>
-              item.id !== material.id &&
-              (item.status === 'ready' || Boolean(item.indexedAt)) &&
-              item.isActive !== false &&
-              materialEmbeddingIdentity(item) !== targetEmbeddingKey
-          )
-          .map((item) => item.id)
-      : []
-    const nextSelectedEmbeddingModelId =
-      nextActive &&
-      material.embeddingModelId &&
-      appState.models.some((model) => model.id === material.embeddingModelId && modelCanEmbed(model))
-        ? material.embeddingModelId
-        : appState.selectedEmbeddingModelId
-
-    updateAppState((current) => ({
-      ...current,
-      selectedEmbeddingModelId: nextSelectedEmbeddingModelId,
-      materials: current.materials.map((material) => {
-        if (material.status !== 'ready' && !material.indexedAt) {
-          return material
-        }
-
-        if (material.id === materialId) {
-          return {
-            ...material,
-            isActive: nextActive
-          }
-        }
-
-        if (incompatibleActiveMaterialIds.includes(material.id)) {
-          return {
-            ...material,
-            isActive: false
-          }
-        }
-
-        return material
-      })
-    }))
-
-    void window.tokensmith?.setMaterialEnabled(materialId, nextActive).catch(() => {
-      setSaveStatus('error')
-    })
-
-    incompatibleActiveMaterialIds.forEach((id) => {
-      void window.tokensmith?.setMaterialEnabled(id, false).catch(() => {
-        setSaveStatus('error')
-      })
     })
   }
 
@@ -2237,12 +2065,10 @@ export function App() {
       )
     }))
 
-    const embeddingModel =
-      appState.models.find((model) => model.id === material.embeddingModelId && modelCanEmbed(model)) ??
-      appState.models.find((model) => model.id === appState.selectedEmbeddingModelId && modelCanEmbed(model)) ??
-      firstEmbeddingModel(appState.models)
+    const embeddingModel = appState.models.find(model =>
+      model.id === (material.embeddingModelId || appState.selectedEmbeddingModelId))
 
-    if (!embeddingModel) {
+    if (!embeddingModel || !modelCanEmbed(embeddingModel)) {
       updateAppState((current) => ({
         ...current,
         materials: current.materials.map((item) =>
@@ -2251,7 +2077,7 @@ export function App() {
                 ...item,
                 status: 'needsReview',
                 detail: 'Needs embedder',
-                error: 'Download the Nomic Embedder Model before preparing PDFs.',
+                error: 'Reconnect the selected search model or choose an available embedding model in Library settings.',
                 indexing: undefined,
                 isActive: item.indexedAt ? item.isActive : false
               }
@@ -2344,9 +2170,10 @@ export function App() {
   }
 
   const activeScreen = appState.activeScreen
-  const selectedModel =
-    appState.models.find((model) => model.id === appState.selectedModelId && (modelCanGenerate(model) || isCloudGenerator(model))) ??
-    firstGeneratorModel(appState.models)
+  const activeConversation = appState.conversations.find(chat => chat.id === appState.activeConversationId)
+  const selectedModel = answerModel(appState.models, activeConversation?.modelId)
+  const practiceModelId = practiceState.activeSessionId
+    ? practiceState.sessions.find(session => session.id === practiceState.activeSessionId)?.modelId : practiceState.draftModelId
   const embeddingModels = appState.models.filter(modelCanEmbed)
   const activeTitle = useMemo(
     () => navItems.find((item) => item.id === activeScreen)?.label ?? 'Chat',
@@ -2354,7 +2181,7 @@ export function App() {
   )
 
   return (
-    <main className={`desktop-app font-size-${appState.settings.application.fontSize}`}>
+    <main className="desktop-app">
       <aside className="rail" aria-label="Primary navigation">
         <nav className="rail-nav">
           {navItems.map((item) => {
@@ -2390,8 +2217,13 @@ export function App() {
 
       <section className="workspace" aria-label={`${activeTitle} screen`}>
         {!hasLoadedState && <LoadingScreen />}
-        {hasLoadedState && activeScreen === 'chat' && (
+        {hasLoadedState && (
           <ChatScreen
+            {...studyPanels} onViewLog={openLog}
+            progress={generation.api}
+            isActive={activeScreen === 'chat' && practiceState.mode === 'chat'}
+            onModeChange={setStudyMode} onPracticeTopic={practiceTopic} practiceChatDraft={practiceChatDraft}
+            catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope}
             activeConversationId={appState.activeConversationId}
             conversations={appState.conversations}
             materials={appState.materials}
@@ -2415,13 +2247,28 @@ export function App() {
             onSelectModel={selectModel}
             onConnectCloud={openCloudSetup}
             onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
-            onToggleMaterialActive={toggleMaterialActive}
+            onExplanationDepthChange={(explanationDepth) =>
+              updateSettings({ application: { ...appState.settings.application, explanationDepth } })
+            }
           />
         )}
+        {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
+          {...studyPanels} onViewLog={openLog}
+          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
+          materials={appState.materials} embeddingModels={embeddingModels}
+          catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
+          modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
+          onSelectModel={selectModel} onConnectCloud={openCloudSetup}
+          onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
+          onOpenLibrary={() => updateAppState(current => ({ ...current, activeScreen: 'library' }))}
+          onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
+          sourceError={practiceReader.error} progress={generation.api} />}
+        {activeScreen === 'chat' && practiceState.mode === 'practice' && practiceReader.state &&
+          <SourceDocumentReader state={practiceReader.state} navigation={practiceReader.navigation} onClose={practiceReader.close} />}
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
             models={appState.models}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={appState.settings.application.defaultModelId}
             createRequest={libraryCreateRequest}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
@@ -2430,7 +2277,6 @@ export function App() {
             onResumeMaterialIndexing={resumeMaterialIndexing}
             onPauseMaterialIndexing={pauseMaterialIndexing}
             onStartMaterialIndexing={startMaterialIndexing}
-            onToggleMaterialActive={toggleMaterialActive}
           />
         )}
         {hasLoadedState && activeScreen === 'models' && (
@@ -2444,17 +2290,31 @@ export function App() {
             onSelectEmbeddingModel={selectEmbeddingModel}
             onSelectModel={selectModel}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
-            selectedModelId={appState.selectedModelId}
+            selectedModelId={(practiceState.mode === 'practice' ? practiceModelId : activeConversation?.modelId) ?? ''}
+            modelSelectionLocked={practiceState.mode === 'practice' && Boolean(practiceState.activeSessionId)}
             onConnectCloud={openCloudSetup}
           />
         )}
         {hasLoadedState && activeScreen === 'settings' && (
-          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} />
+          <SettingsScreen models={appState.models} settings={appState.settings} onSettingsChange={updateSettings} isIndexing={appState.materials.some(material => material.status === 'indexing')} />
         )}
       </section>
+      {isLogCardOpen && <TokenSmithLogCard entries={logEntries} error={logError} logFile={logFile} status={logStatus}
+        onClose={() => setIsLogCardOpen(false)} onRefresh={refreshLogFile} />}
+      <GenerationStatus progress={generation.current} onOpen={conversationId => updateAppState(current => {
+        if (conversationId === 'practice-topics') return { ...current, activeScreen: 'chat',
+          practice: { ...(current.practice ?? emptyPracticeState()), mode: 'practice', activeSessionId: undefined } }
+        const session = current.practice?.sessions.find(item => item.id === conversationId)
+        const next = session ? changeStudyScope(current, session.documents) : current
+        return { ...next, activeScreen: 'chat',
+          activeConversationId: next.conversations.some(c => c.id === conversationId) ? conversationId : next.activeConversationId,
+          practice: { ...(next.practice ?? emptyPracticeState()), mode: session ? 'practice' : 'chat',
+            activeSessionId: session?.id ?? next.practice?.activeSessionId } }
+      })} />
       {cloudSetup && <CloudGeneratorDialog model={cloudSetup.model}
         localSearch={embeddingModels.length > 0 && embeddingModels.every(model => model.engine !== 'remote')}
-        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} />}
+        configuredModels={appState.models}
+        onClose={() => setCloudSetup(null)} onConnected={connectedCloudGenerator} onForgotten={forgotCloudConnections} />}
       {cloudNotice && <div className="cloud-connected-notice" role="status">{cloudNotice}</div>}
     </main>
   )
@@ -2473,6 +2333,21 @@ function LoadingScreen() {
 }
 
 function ChatScreen({
+  historyOpen: isSidebarOpen,
+  onHistoryOpenChange: setIsSidebarOpen,
+  materialsOpen,
+  onMaterialsOpenChange: setMaterialsOpen,
+  collectionExpansion,
+  onCollectionExpansionChange,
+  onViewLog,
+  progress,
+  isActive,
+  onModeChange,
+  onPracticeTopic,
+  practiceChatDraft,
+  catalog,
+  scope: documentScope,
+  onScopeChange,
   activeConversationId,
   conversations,
   embeddingModels,
@@ -2490,8 +2365,17 @@ function ChatScreen({
   onSelectModel,
   onConnectCloud,
   onManageModels,
-  onToggleMaterialActive
+  onExplanationDepthChange
 }: {
+  progress: GenerationProgressApi
+  isActive: boolean
+  onViewLog: () => void
+  onModeChange: (mode: StudyMode) => void
+  onPracticeTopic: (topic: PracticeTopic) => void
+  practiceChatDraft?: { conversationId: string; draft: ChatDraft }
+  catalog: StudyCatalog
+  scope: StudyDocumentRef[]
+  onScopeChange: (scope: StudyDocumentRef[]) => void
   activeConversationId: string
   conversations: Conversation[]
   embeddingModels: LocalModel[]
@@ -2508,27 +2392,63 @@ function ChatScreen({
   onSelectModel: (modelId: string) => void
   onConnectCloud: (model?: LocalModel) => void
   onManageModels: () => void
-  onToggleMaterialActive: (materialId: string) => void
+  onExplanationDepthChange: (depth: ExplanationDepth) => void
   onChatStateChange: (
     updater: (current: Pick<AppStateSnapshot, 'activeConversationId' | 'conversations'>) => Pick<
       AppStateSnapshot,
       'activeConversationId' | 'conversations'
     >
   ) => void
-}) {
-  const [draft, setDraft] = useState('')
+} & StudyPanels) {
+  const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({})
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
-  const [pendingStatusText, setPendingStatusText] = useState<string | null>(null)
+  const [isPreparingFollowUps, setIsPreparingFollowUps] = useState(false)
+  const foregroundRequestRef = useRef<string | null>(null)
+  const stopStarterRef = useRef<(() => void) | null>(null)
+  function setPendingStatusText(text: string | null) {
+    if (foregroundRequestRef.current) progress.stage(foregroundRequestRef.current,
+      text ? text.replace(/\s*\.\.\.$/, '').replace(/^./, c => c.toUpperCase()) : 'Writing answer')
+  }
+  function cancelForeground() {
+    const id = foregroundRequestRef.current
+    if (id) {
+      sourcePreview.finish(id)
+      progress.cancel(id)
+      void window.tokensmith?.cancelChatRequest?.(id).catch(() => {})
+      foregroundRequestRef.current = null
+    }
+    setIsPreparingFollowUps(false)
+  }
+  function beginForeground(kind: GenerationKind, label: string, inputChars = 0, runtimeSettings = selectedModelSettings) {
+    cancelForeground()
+    stopStarterRef.current?.()
+    const id = createId('generation')
+    foregroundRequestRef.current = id
+    reader.close()
+    if (kind === 'answer' || kind === 'simplify') sourcePreview.begin(id)
+    if (selectedModel) progress.begin({ id, kind, label, conversationId: activeConversation.id, model: selectedModel,
+      settings: runtimeSettings, inputChars, contextual: activeConversation.messages.length > 0,
+      depth: settings.application.explanationDepth, count: settings.application.followUpSuggestionCount,
+      onStop: handleStopResponse })
+    return id
+  }
+  const [pendingExplanationId, setPendingExplanationId] = useState<string | null>(null)
+  const [explanationError, setExplanationError] = useState<{ answerId: string; text: string; view: AnswerView } | null>(null)
+  const explanationInFlightRef = useRef(false)
+  const [scoringMessageIds, setScoringMessageIds] = useState<ReadonlySet<string>>(() => new Set())
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
-  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
-  const [markdownViewer, setMarkdownViewer] = useState<MarkdownViewerState | null>(null)
+  const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
+  const reader = useSourceReader(readSourceDocument)
+  const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
+  const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  useLayoutEffect(() => {
+    sourcePreview.dismiss()
+    reader.close()
+  }, [isActive, activeConversationId, sourcePreview, reader.close])
   const [sourceTrayError, setSourceTrayError] = useState<string | null>(null)
-  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaSetupPhase, setOllamaSetupPhase] = useState<'idle' | 'checking' | 'opening' | 'starting' | 'error'>('idle')
   const [ollamaPullingModel, setOllamaPullingModel] = useState<'chat' | 'embedder' | null>(null)
@@ -2537,11 +2457,8 @@ function ChatScreen({
   const [starterQuestionSuggestions, setStarterQuestionSuggestions] = useState<string[]>([])
   const [starterQuestionStatus, setStarterQuestionStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [starterQuestionError, setStarterQuestionError] = useState<string | null>(null)
-  const [isLogCardOpen, setIsLogCardOpen] = useState(false)
-  const [logFile, setLogFile] = useState<TokenSmithLogFile | null>(null)
-  const [logStatus, setLogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [logError, setLogError] = useState<string | null>(null)
   const requestSequenceRef = useRef(0)
+  const starterQuestionRequestSequenceRef = useRef(0)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   const activeConversation =
@@ -2549,28 +2466,71 @@ function ChatScreen({
     conversations[0] ??
     starterConversations[0]
   const isPending = pendingConversationId === activeConversation.id
-  const activeQuizState = activeConversation.quizState?.active ? activeConversation.quizState : undefined
-  const activeMaterials = materials.filter((material) => (material.status === 'ready' || Boolean(material.indexedAt)) && material.isActive !== false)
-  const libraryTitle = getLibraryTitle(materials)
+  const discussionDraft: ChatDraft = activeConversation.practiceReference && activeConversation.messages.length === 0
+    ? { text: 'Can you help me understand this?', selectedPassage: practiceDiscussionPassage(activeConversation.practiceReference) } : { text: '' }
+  const { text: draft, selectedPassage } = drafts[activeConversation.id] ?? discussionDraft
+  function updateDraft(update: Partial<ChatDraft>) {
+    setDrafts((current) => ({ ...current, [activeConversation.id]: { ...(current[activeConversation.id] ?? discussionDraft), ...update } }))
+  }
+  function clearDraft() {
+    setDrafts((current) => ({ ...current, [activeConversation.id]: { text: '' } }))
+  }
+  useEffect(() => {
+    if (!practiceChatDraft) return
+    setDrafts(current => ({ ...current, [practiceChatDraft.conversationId]: practiceChatDraft.draft }))
+    composerInputRef.current?.focus()
+  }, [practiceChatDraft])
+  const readyDocuments = new Set(catalog.documents.map(item => `${item.materialId}:${item.documentId}`))
+  const practiceScopeReady = catalog.status === 'ready' && documentScope.length > 0 &&
+    documentScope.every(item => readyDocuments.has(`${item.materialId}:${item.documentId}`))
+  function practiceAnswer(message: ChatMessage) {
+    if (!practiceScopeReady) return
+    const index = activeConversation.messages.findIndex(item => item.id === message.id)
+    const question = activeConversation.messages.slice(0, index).reverse().find(item => item.role === 'user')
+    if (!question) return
+    const answer = answerForDisplay(message)
+    onPracticeTopic({ title: question.text.slice(0, 120), question: question.text, answer: answer.text,
+      conversationId: activeConversation.id, answerId: message.id, sources: sourcesInScope(answer.sources ?? [], documentScope) })
+  }
+  const scopeMaterialIds = new Set(documentScope.map(item => item.materialId))
+  const activeMaterials = materials.filter(material => scopeMaterialIds.has(material.id)).map(material => ({ ...material, isActive: true }))
+  function changeDocumentScope(documentScope: StudyDocumentRef[]) {
+    handleStopResponse()
+    stopStarterRef.current?.()
+    onScopeChange(documentScope)
+  }
   const selectedModelLabel = selectedModel ? displayModelName(selectedModel) : 'Choose a model'
   const sourceMessages = activeConversation.messages.filter(
     (message) => message.role === 'assistant' && (message.sources?.length ?? 0) > 0
   )
   const selectedSourceMessage =
-    sourceMessages.find((message) => message.id === expandedMessageId) ?? sourceMessages[sourceMessages.length - 1]
+    sourceMessages.find((message) => message.id === (focusedAnswerId ?? expandedMessageId)) ?? sourceMessages[sourceMessages.length - 1]
   const selectedSources = useMemo(() => {
-    const sources = isPending && settings.application.showSources ? pendingSources : selectedSourceMessage?.sources ?? []
+    if (!settings.application.showSources) {
+      return []
+    }
+    const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
     return sources.slice(0, maxSourceTrayCards)
   }, [isPending, pendingSources, selectedSourceMessage, settings.application.showSources])
-  const activeMaterialKey = activeMaterials.map((material) => material.id).join('|')
+  const activeMaterialKey = studyScopeKey(documentScope)
+  const previousScopeKey = useRef(activeMaterialKey)
+  useLayoutEffect(() => {
+    if (previousScopeKey.current === activeMaterialKey) return
+    previousScopeKey.current = activeMaterialKey
+    handleStopResponse()
+    sourcePreview.dismiss()
+    reader.close()
+    setChatError(null)
+  }, [activeMaterialKey])
   const selectedModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-  const logEntries = useMemo(() => parseTokenSmithLog(logFile?.text ?? ''), [logFile?.text])
   const canSuggestStarterQuestions =
+    isActive &&
+    !activeConversation.practiceReference &&
     activeConversation.messages.length === 0 &&
-    !isPending &&
+    !pendingConversationId &&
     Boolean(selectedModel) &&
     selectedModel?.status === 'ready' &&
-    activeMaterials.length > 0 &&
+    documentScope.length > 0 && catalog.status === 'ready' &&
     settings.application.suggestionMode !== 'off'
   const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
   const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
@@ -2582,28 +2542,37 @@ function ChatScreen({
   const needsModelSetup = needsChatModelSetup || needsEmbeddingModelSetup
   const needsSetupCard = needsModelSetup || needsDocumentSetup
   const shouldShowSetupCard = needsSetupCard && !isSetupCardDismissed
-  const canUseQuiz = Boolean(selectedModel) && selectedModel?.status === 'ready' && activeMaterials.length > 0
-  const composerPlaceholder = activeQuizState
-    ? 'Answer the quiz question...'
-    : selectedModel
-      ? 'Ask about your PDFs...'
+  const {
+    capabilities: setupDeviceCapabilities,
+    state: setupDeviceCapabilityState
+  } = useDeviceCapabilities(isActive && needsChatModelSetup)
+  const setupRecommendation = useMemo<ModelRecommendation | null>(
+    () =>
+      setupDeviceCapabilities
+        ? recommendModel(setupDeviceCapabilities, localModelCatalog, defaultDeviceTierPolicy)
+        : null,
+    [setupDeviceCapabilities]
+  )
+  const recommendsCloudChat = setupRecommendation?.kind === 'cloud'
+  const setupChatModelName = recommendsCloudChat
+    ? null
+    : setupRecommendation?.recommendedModelId ?? recommendedOllamaChatModel
+  const setupChatModelLabel = recommendsCloudChat
+    ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
+    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
+  const composerPlaceholder = selectedModel
+      ? 'Ask about your documents...'
       : needsDocumentSetup
-        ? 'Add your PDFs, then download Llama 3...'
-        : 'Download Llama 3 to ask questions...'
+        ? 'Add documents to Library, then choose a chat model...'
+        : 'Choose a recommended model to ask questions...'
 
   useEffect(() => {
     setEditingQuestionId(null)
+    setFocusedAnswerId(null)
   }, [activeConversation.id])
 
-  useLayoutEffect(() => {
-    const input = composerInputRef.current
-    if (!input) return
-    input.style.height = 'auto'
-    input.style.height = `${Math.min(input.scrollHeight, 180)}px`
-  }, [draft])
-
   useEffect(() => {
-    if ((!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
+    if (!isActive || (!needsModelSetup && !needsDocumentSetup) || !window.tokensmith?.getOllamaStatus) {
       return
     }
 
@@ -2632,7 +2601,7 @@ function ChatScreen({
     return () => {
       cancelled = true
     }
-  }, [needsModelSetup, needsDocumentSetup])
+  }, [isActive, needsModelSetup, needsDocumentSetup])
 
   useEffect(() => {
     if (!window.tokensmith?.onOllamaPullProgress) {
@@ -2641,7 +2610,7 @@ function ChatScreen({
 
     return window.tokensmith.onOllamaPullProgress((progress) => {
       if (
-        !ollamaModelNameMatches(progress.model, recommendedOllamaChatModel) &&
+        !(setupChatModelName && ollamaModelNameMatches(progress.model, setupChatModelName)) &&
         !ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)
       ) {
         return
@@ -2649,14 +2618,14 @@ function ChatScreen({
 
       setOllamaPullProgress(progress)
       const isTerminalPullStatus = progress.status === 'complete' || progress.status === 'error' || progress.status === 'incomplete' || progress.status === 'removed'
-      if (ollamaModelNameMatches(progress.model, recommendedOllamaChatModel)) {
+      if (setupChatModelName && ollamaModelNameMatches(progress.model, setupChatModelName)) {
         setOllamaPullingModel(isTerminalPullStatus ? null : 'chat')
       }
       if (ollamaModelNameMatches(progress.model, recommendedOllamaEmbeddingModel)) {
         setOllamaPullingModel(isTerminalPullStatus ? null : 'embedder')
       }
     })
-  }, [])
+  }, [setupChatModelName])
 
   useEffect(() => {
     if (!canSuggestStarterQuestions || !selectedModel || !window.tokensmith?.suggestChatQuestions) {
@@ -2666,40 +2635,52 @@ function ChatScreen({
       return
     }
 
+    const tokensmith = window.tokensmith
     let cancelled = false
+    const requestId = `${activeConversation.id}:${++starterQuestionRequestSequenceRef.current}`
     setStarterQuestionSuggestions([])
     setStarterQuestionStatus('loading')
     setStarterQuestionError(null)
 
-    void window.tokensmith
-      .suggestChatQuestions({
-        messages: activeConversation.messages,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: settings.application,
-        modelSettings: selectedModelSettings,
-        retrievedSources: []
-      })
-      .then((response) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions(response.suggestions)
-        setStarterQuestionStatus('idle')
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return
-        }
-        setStarterQuestionSuggestions([])
-        setStarterQuestionStatus('error')
-        setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected PDFs.'))
-      })
-
-    return () => {
+    const stop = () => {
       cancelled = true
+      window.clearTimeout(startTimer)
+      progress.cancel(requestId)
+      void tokensmith.cancelChatQuestionSuggestions(requestId).catch(() => {})
+      setStarterQuestionStatus('idle')
+      if (stopStarterRef.current === stop) stopStarterRef.current = null
     }
+    const startTimer = window.setTimeout(() => {
+      progress.begin({ id: requestId, kind: 'starter', label: 'Preparing questions', conversationId: activeConversation.id,
+        model: selectedModel, settings: selectedModelSettings, count: settings.application.followUpSuggestionCount, onStop: stop })
+      void tokensmith
+        .suggestChatQuestions(requestId, {
+          messages: activeConversation.messages,
+          materials: activeMaterials,
+          documents: documentScope,
+          model: selectedModel,
+          settings,
+          applicationSettings: settings.application,
+          modelSettings: selectedModelSettings,
+          retrievedSources: []
+        })
+        .then((response) => {
+          if (cancelled) return
+          progress.finish(requestId, 'Questions ready', response.suggestions.length > 0)
+          setStarterQuestionSuggestions(response.suggestions)
+          setStarterQuestionStatus('idle')
+        })
+        .catch((error) => {
+          if (cancelled) return
+          progress.cancel(requestId)
+          setStarterQuestionSuggestions([])
+          setStarterQuestionStatus('error')
+          setStarterQuestionError(readableErrorMessage(error, 'Could not prepare suggested questions from the selected documents.'))
+        })
+    }, starterQuestionDebounceMs)
+
+    stopStarterRef.current = stop
+    return stop
   }, [
     activeConversation.id,
     activeConversation.messages.length,
@@ -2712,44 +2693,48 @@ function ChatScreen({
   ])
 
   function handleNewChat() {
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
+    cancelForeground()
     requestSequenceRef.current += 1
 
     const newConversation: Conversation = {
       id: createId('conversation'),
+      modelId: settings.application.defaultModelId,
       title: 'New Study Chat',
       period: 'Today',
-      messages: []
+      messages: [],
+      documentScope: scopeRefs(documentScope)
     }
 
     onChatStateChange((current) => ({
       conversations: [newConversation, ...current.conversations],
       activeConversationId: newConversation.id
     }))
-    setDraft('')
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
     setChatError(null)
     setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    setFocusedAnswerId(null)
+    reader.close()
     setSourceTrayError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleStopResponse() {
+    cancelForeground()
     requestSequenceRef.current += 1
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
   }
 
   function handleSelectConversation(conversationId: string) {
-    setRenamingConversationId(null)
-    setRenameDraft('')
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    if (window.innerWidth <= 800) setIsSidebarOpen(false)
+    reader.close()
     setSourceTrayError(null)
     setPendingSources([])
     setChatError(null)
@@ -2759,47 +2744,13 @@ function ChatScreen({
     }))
   }
 
-  function handleStartRenameConversation(conversationId: string) {
-    const conversation = conversations.find((item) => item.id === conversationId)
-    if (!conversation) {
-      return
-    }
-
-    setRenamingConversationId(conversationId)
-    setRenameDraft(conversation.title)
-  }
-
-  function handleCommitRenameConversation() {
-    if (!renamingConversationId) {
-      return
-    }
-
-    const conversation = conversations.find((item) => item.id === renamingConversationId)
-    const nextTitle = renameDraft.trim()
-    const conversationId = renamingConversationId
-
-    setRenamingConversationId(null)
-    setRenameDraft('')
-
-    if (!conversation) {
-      return
-    }
-
-    if (!nextTitle || nextTitle === conversation.title) {
-      return
-    }
-
+  function handleRenameConversation(conversationId: string, title: string) {
     onChatStateChange((current) => ({
       ...current,
       conversations: current.conversations.map((item) =>
-        item.id === conversationId ? { ...item, title: nextTitle } : item
+        item.id === conversationId ? { ...item, title } : item
       )
     }))
-  }
-
-  function handleCancelRenameConversation() {
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleDeleteConversation(conversationId: string) {
@@ -2812,11 +2763,17 @@ function ChatScreen({
       return
     }
 
+    if (pendingConversationId === conversationId) cancelForeground()
     requestSequenceRef.current += pendingConversationId === conversationId ? 1 : 0
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
 
     onChatStateChange((current) => {
       const remainingConversations = current.conversations.filter((item) => item.id !== conversationId)
-      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [createFreshConversation()]
+      const nextConversations = remainingConversations.length > 0 ? remainingConversations : [{ ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(documentScope) }]
       const nextActiveConversationId =
         current.activeConversationId === conversationId ? nextConversations[0].id : current.activeConversationId
 
@@ -2828,16 +2785,14 @@ function ChatScreen({
 
     if (pendingConversationId === conversationId) {
       setPendingConversationId(null)
+      setPendingExplanationId(null)
+      explanationInFlightRef.current = false
       setPendingStatusText(null)
       setPendingSources([])
     }
-    if (renamingConversationId === conversationId) {
-      setRenamingConversationId(null)
-      setRenameDraft('')
-    }
     setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    setFocusedAnswerId(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
   }
@@ -2847,7 +2802,8 @@ function ChatScreen({
       return
     }
 
-    const freshConversation = createFreshConversation()
+    const freshConversation = { ...createFreshConversation(settings.application.defaultModelId), documentScope: scopeRefs(documentScope) }
+    cancelForeground()
     requestSequenceRef.current += 1
 
     onChatStateChange(() => ({
@@ -2855,17 +2811,17 @@ function ChatScreen({
       activeConversationId: freshConversation.id
     }))
 
-    setDraft('')
+    setDrafts({})
     setPendingConversationId(null)
+    setPendingExplanationId(null)
+    explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
     setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    setFocusedAnswerId(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
-    setRenamingConversationId(null)
-    setRenameDraft('')
   }
 
   function handleCopyQuestion(text: string) {
@@ -2876,8 +2832,8 @@ function ChatScreen({
     void navigator.clipboard.writeText(text).catch(() => undefined)
   }
 
-  function handleQuoteSelection(text: string) {
-    setDraft((current) => addQuoteToDraft(current, text))
+  function handleQuoteSelection(passage: ChatSelectedPassage) {
+    updateDraft({ selectedPassage: passage })
     requestAnimationFrame(() => {
       const input = composerInputRef.current
       input?.focus()
@@ -2891,31 +2847,6 @@ function ChatScreen({
 
   function handleUseStarterQuestion(question: string) {
     void submitPrompt(question)
-  }
-
-  async function refreshLogFile() {
-    if (!window.tokensmith?.getLogFile) {
-      setLogStatus('error')
-      setLogError('TokenSmith log is not available in this build.')
-      return
-    }
-
-    setLogStatus('loading')
-    setLogError(null)
-
-    try {
-      const nextLogFile = await window.tokensmith.getLogFile()
-      setLogFile(nextLogFile)
-      setLogStatus('idle')
-    } catch (error) {
-      setLogStatus('error')
-      setLogError(readableErrorMessage(error, 'Could not read the TokenSmith log.'))
-    }
-  }
-
-  function handleOpenLogCard() {
-    setIsLogCardOpen(true)
-    void refreshLogFile()
   }
 
   async function refreshOllamaStatus() {
@@ -3017,14 +2948,14 @@ function ChatScreen({
   }
 
   async function handlePullOllamaChatModel() {
-    if (!window.tokensmith?.pullOllamaModel) {
+    if (!setupChatModelName || !window.tokensmith?.pullOllamaModel) {
       setOllamaSetupError('Ollama setup is not available in this build.')
       return
     }
 
     setOllamaPullingModel('chat')
     setOllamaPullProgress({
-      model: recommendedOllamaChatModel,
+      model: setupChatModelName,
       status: 'starting',
       percent: 0,
       message: 'Starting download'
@@ -3032,23 +2963,23 @@ function ChatScreen({
     setOllamaSetupError(null)
 
     try {
-      await window.tokensmith.pullOllamaModel(recommendedOllamaChatModel)
+      await window.tokensmith.pullOllamaModel(setupChatModelName)
       const status = await window.tokensmith.getOllamaStatus()
       setOllamaStatus(status)
-      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, recommendedOllamaChatModel))
+      const modelInfo = status.models.find((model) => ollamaModelInfoMatches(model, setupChatModelName))
       if (!modelInfo) {
-        const message = 'Ollama finished the download, but TokenSmith could not verify Llama 3.'
+        const message = `Ollama finished the download, but TokenSmith could not verify ${setupChatModelLabel}.`
         setOllamaSetupPhase('error')
         setOllamaPullingModel(null)
         setOllamaPullProgress((current) =>
-          current && ollamaModelNameMatches(current.model, recommendedOllamaChatModel)
+          current && ollamaModelNameMatches(current.model, setupChatModelName)
             ? { ...current, status: 'error', message, error: message }
-            : { model: recommendedOllamaChatModel, status: 'error', percent: 0, message, error: message }
+            : { model: setupChatModelName, status: 'error', percent: 0, message, error: message }
         )
         setOllamaSetupError(message)
         return
       }
-      onInstallOllamaChatModel(recommendedOllamaChatModel, status.baseUrl, modelInfo)
+      onInstallOllamaChatModel(setupChatModelName, status.baseUrl, modelInfo)
       setOllamaSetupPhase('idle')
       setOllamaPullingModel(null)
       setOllamaPullProgress(null)
@@ -3056,12 +2987,12 @@ function ChatScreen({
       if (error instanceof Error && /paused|cancelled|aborted/i.test(error.message)) {
         setOllamaSetupPhase('idle')
         setOllamaPullingModel(null)
-        setOllamaPullProgress((current) => pausedOllamaProgress(recommendedOllamaChatModel, current))
+        setOllamaPullProgress((current) => pausedOllamaProgress(setupChatModelName, current))
         return
       }
       setOllamaSetupPhase('error')
       setOllamaPullingModel(null)
-      setOllamaSetupError(readableErrorMessage(error, 'Could not download Llama 3 with Ollama.'))
+      setOllamaSetupError(readableErrorMessage(error, `Could not download ${setupChatModelLabel} with Ollama.`))
     }
   }
 
@@ -3115,11 +3046,18 @@ function ChatScreen({
   }
 
   function setupModelNameForRole(role: 'chat' | 'embedder') {
-    return role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+    const modelName = role === 'chat' ? setupChatModelName : recommendedOllamaEmbeddingModel
+    if (!modelName) {
+      throw new Error('A cloud recommendation does not have a local chat model.')
+    }
+    return modelName
   }
 
   function setupReadyModelForRole(role: 'chat' | 'embedder') {
     const expectedModel = setupModelNameForRole(role)
+    if (!expectedModel) {
+      return undefined
+    }
     const roleMatches = role === 'chat' ? modelCanGenerate : modelCanEmbed
     const recommendedModel = models.find(
       (model) =>
@@ -3173,7 +3111,7 @@ function ChatScreen({
         await window.tokensmith.deleteOllamaModel(modelName, ollamaStatus?.baseUrl)
       } catch (error) {
         setOllamaSetupPhase('error')
-        setOllamaSetupError(readableErrorMessage(error, `Could not delete ${role === 'chat' ? 'Llama 3' : 'Nomic'}.`))
+        setOllamaSetupError(readableErrorMessage(error, `Could not delete ${role === 'chat' ? setupChatModelLabel : 'Nomic'}.`))
         return
       }
     } else {
@@ -3197,7 +3135,10 @@ function ChatScreen({
       return null
     }
 
-    const expectedModel = role === 'chat' ? recommendedOllamaChatModel : recommendedOllamaEmbeddingModel
+    const expectedModel = role === 'chat' ? setupChatModelName : recommendedOllamaEmbeddingModel
+    if (!expectedModel) {
+      return null
+    }
     return ollamaModelNameMatches(ollamaPullProgress.model, expectedModel) ? ollamaPullProgress : null
   }
 
@@ -3317,7 +3258,9 @@ function ChatScreen({
       return 'Opening Ollama...'
     }
 
-    return ollamaStatus?.installedApp ? 'Start Ollama to continue.' : 'Install Ollama to run local models.'
+    return ollamaStatus?.installedApp
+      ? 'Start Ollama to prepare PDFs and use local models.'
+      : 'Install Ollama to prepare PDFs and use local models.'
   }
 
   function renderOllamaInstallAction() {
@@ -3376,8 +3319,14 @@ function ChatScreen({
   }
 
   function downloadModelsSetupLabel() {
+    if (setupDeviceCapabilityState === 'checking') {
+      return 'Checking which model fits this device...'
+    }
+
     if (!ollamaStatus?.running) {
-      return 'Start Ollama, then download the models.'
+      return recommendsCloudChat
+        ? 'Start Ollama to set up PDF search, then connect the cloud chat model.'
+        : 'Start Ollama, then download the recommended models.'
     }
 
     if (ollamaPullingModel === 'embedder') {
@@ -3385,11 +3334,17 @@ function ChatScreen({
     }
 
     if (ollamaPullingModel === 'chat') {
-      return 'Downloading Llama 3 Chat Model...'
+      return `Downloading ${setupChatModelLabel}...`
     }
 
     if (readyEmbeddingModel && readyChatModel) {
       return 'Both models are ready.'
+    }
+
+    if (recommendsCloudChat) {
+      return readyEmbeddingModel
+        ? `PDF search is ready. Connect ${setupChatModelLabel} for chat.`
+        : `Download Nomic for PDF search, then connect ${setupChatModelLabel} for chat.`
     }
 
     if (readyEmbeddingModel) {
@@ -3397,10 +3352,10 @@ function ChatScreen({
     }
 
     if (readyChatModel) {
-      return 'Llama 3 Chat Model is ready.'
+      return `${setupChatModelLabel} is ready.`
     }
 
-    return 'Download the Nomic Embedder Model and Llama 3 Chat Model.'
+    return `Download Nomic and the recommended ${setupChatModelLabel}.`
   }
 
   function renderDownloadModelControl(role: 'embedder' | 'chat') {
@@ -3408,9 +3363,9 @@ function ChatScreen({
     const readyModel = setupReadyModelForRole(role)
     const isReady = Boolean(readyModel)
     const removableModel = setupRemovableModelForRole(role)
-    const shortLabel = isEmbedder ? 'Nomic Embedder Model' : 'Llama 3 Chat Model'
-    const downloadLabel = isEmbedder ? 'Download Nomic' : 'Download Llama 3'
-    const busyLabel = isEmbedder ? 'Downloading Nomic...' : 'Downloading Llama...'
+    const shortLabel = isEmbedder ? 'Nomic Embedder Model' : setupChatModelLabel
+    const downloadLabel = isEmbedder ? 'Download Nomic' : `Download ${setupChatModelLabel}`
+    const busyLabel = isEmbedder ? 'Downloading Nomic...' : `Downloading ${setupChatModelLabel}...`
     const isPulling = ollamaPullingModel === role
     const progress = ollamaPullProgressFor(role)
     const canResume = progress?.status === 'incomplete' || progress?.status === 'error'
@@ -3459,7 +3414,7 @@ function ChatScreen({
             <button
               className="model-action-button"
               type="button"
-              disabled={!ollamaStatus?.running || otherModelIsPulling}
+              disabled={!ollamaStatus?.running || otherModelIsPulling || (!isEmbedder && setupDeviceCapabilityState === 'checking')}
               onClick={handleDownload}
             >
               <span>{progress?.status === 'incomplete' ? 'Resume' : downloadLabel}</span>
@@ -3478,7 +3433,7 @@ function ChatScreen({
       <button
         className="model-action-button"
         type="button"
-        disabled={!ollamaStatus?.running || otherModelIsPulling}
+        disabled={!ollamaStatus?.running || otherModelIsPulling || (!isEmbedder && setupDeviceCapabilityState === 'checking')}
         onClick={handleDownload}
       >
         <span>{downloadLabel}</span>
@@ -3507,7 +3462,13 @@ function ChatScreen({
     return (
       <div className="chat-setup-action is-wide">
         {renderDownloadModelControl('embedder')}
-        {renderDownloadModelControl('chat')}
+        {recommendsCloudChat ? (
+          <button className="model-action-button" type="button" onClick={() => onConnectCloud()}>
+            <span>Connect {setupChatModelLabel}</span>
+          </button>
+        ) : (
+          renderDownloadModelControl('chat')
+        )}
         {ollamaSetupError && <small className="model-download-error">{ollamaSetupError}</small>}
       </div>
     )
@@ -3533,8 +3494,8 @@ function ChatScreen({
         <div className="chat-setup-steps">
           <div className="chat-setup-step">
             {renderSetupStepNumber(1, Boolean(ollamaStatus?.running))}
-            <div className="chat-setup-copy">
-              <strong>Install Ollama</strong>
+          <div className="chat-setup-copy">
+              <strong>Set up Ollama</strong>
               <span>{ollamaInstallSetupLabel()}</span>
             </div>
             {renderOllamaInstallAction()}
@@ -3558,7 +3519,14 @@ function ChatScreen({
             {renderDocumentSetupAction()}
           </div>
         </div>
-        {needsChatModelSetup && <div className="cloud-generator-entry">
+        {setupRecommendation && (
+          <div className="cloud-generator-entry">
+            <div>
+              <strong>Recommended for this device: {setupChatModelLabel}</strong>
+            </div>
+          </div>
+        )}
+        {needsChatModelSetup && !recommendsCloudChat && <div className="cloud-generator-entry">
           <div><strong>Prefer a cloud chat model?</strong><p>Connect your API key and keep PDF search on this device.</p></div>
           <button type="button" className="secondary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button>
         </div>}
@@ -3577,9 +3545,7 @@ function ChatScreen({
           <Sparkles size={18} aria-hidden="true" />
           <span>Suggested questions</span>
         </div>
-        {starterQuestionStatus === 'loading' ? (
-          <p className="starter-question-status">Preparing suggestions...</p>
-        ) : starterQuestionStatus === 'error' ? (
+        {starterQuestionStatus === 'loading' ? null : starterQuestionStatus === 'error' ? (
           <p className="starter-question-status is-error">{starterQuestionError}</p>
         ) : (
           <div className="follow-up-list">
@@ -3600,381 +3566,198 @@ function ChatScreen({
     )
   }
 
-  async function handleOpenSource(source: ChatSource) {
-    setSourceTrayError(null)
-
-    try {
-      if (isMarkdownSource(source)) {
-        if (!window.tokensmith?.getMarkdownForSource) {
-          setSourceTrayError('The Markdown viewer is not available in this build.')
-          return
-        }
-        const markdown = await window.tokensmith.getMarkdownForSource(source)
-        setPdfViewer(null)
-        setMarkdownViewer(markdown)
-        return
-      }
-
-      if (!window.tokensmith?.getPdfForSource) {
-        setSourceTrayError('The PDF viewer is not available in this build.')
-        return
-      }
-
-      const pdf = await window.tokensmith.getPdfForSource(source)
-      setMarkdownViewer(null)
-      setPdfViewer({ ...pdf, searchTerm: searchTermForSource(source) })
-    } catch (error) {
-      setSourceTrayError(error instanceof Error ? error.message : 'Could not open the source.')
-    }
-  }
-
-  async function generateQuizQuestion(
-    questionNumber: number,
-    totalQuestions: number,
-    messages: ChatMessage[],
-    usedSourceKeys: string[] = []
-  ): Promise<{ question: string; sourceKeys: string[]; sources: ChatSource[] }> {
-    if (!window.tokensmith?.starterSources || !window.tokensmith?.sendChatMessage || !selectedModel) {
-      throw new Error('TokenSmith quiz mode is not available in this build.')
-    }
-
-    const previousQuestions = quizQuestionTexts(messages)
-    const sourcePool = await window.tokensmith.starterSources(activeMaterials, quizSourcePoolSize)
-    const sources = selectQuizSources(sourcePool, usedSourceKeys)
-    if (sources.length === 0) {
-      throw new Error('No indexed PDF text was available for a quiz.')
-    }
-
-    setPendingSources(settings.application.showSources ? sources : [])
-    const reply = await window.tokensmith.sendChatMessage({
-      prompt: quizQuestionPrompt({ questionNumber, previousQuestions, totalQuestions }),
-      messages,
-      materials: activeMaterials,
-      model: selectedModel,
-      settings,
-      applicationSettings: quizApplicationSettings(settings.application),
-      modelSettings: modelSettingsFor(settings, selectedModel.id),
-      retrievedSources: sources
-    })
-    const question = cleanQuizQuestion(reply.text)
-    if (!question) {
-      throw new Error('TokenSmith could not create a source-backed quiz question.')
-    }
-
-    const replySources = reply.sources.length > 0 ? reply.sources : sources
-    return { question, sourceKeys: replySources.map(quizSourceKey), sources: replySources }
-  }
-
-  function handleEndQuiz() {
-    requestSequenceRef.current += 1
-    const targetConversationId = activeConversation.id
-    onChatStateChange((current) => ({
-      ...current,
-      conversations: current.conversations.map((conversation) =>
-        conversation.id === targetConversationId ? { ...conversation, quizState: undefined } : conversation
-      )
+  function previewFirstSource(requestId: string, sources: ChatSource[]) {
+    const source = sources[0]
+    if (!settings.application.showSources || !source || !canOpenSource(source)) return
+    void sourcePreview.open(requestId, async () => ({
+      document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
     }))
-    setPendingConversationId(null)
-    setPendingStatusText(null)
-    setPendingSources([])
-    setChatError(null)
   }
 
-  async function handleStartQuiz() {
-    if (pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || activeMaterials.length === 0) {
+  function handleOpenSource(source: ChatSource) {
+    sourcePreview.dismiss()
+    setSourceTrayError(null)
+    const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
+    void reader.open(source, sources)
+  }
+
+  /** Opens the passage behind a cited sentence, searching for the claim's evidence. */
+  function handleOpenCitation(source: ChatSource, sources: ChatSource[], searchTerm?: string) {
+    sourcePreview.dismiss()
+    setSourceTrayError(null)
+    void reader.open(source, sources, { searchTerm })
+  }
+
+  function moveAutomaticSource(direction: number) {
+    if (!automaticSource) return
+    const source = automaticSource.sources[automaticSource.index + direction]
+    if (!source) return
+    // Choosing another source makes this a manual reading session. Keep the
+    // existing page visible while loading, and leave it open when the answer arrives.
+    sourcePreview.dismiss()
+    void reader.open(source, automaticSource.sources, { inline: true, initial: automaticSource })
+  }
+
+  function selectExplanationView(answerId: string, view: AnswerView) {
+    onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
+      conversation.id === activeConversation.id ? { ...conversation, messages: conversation.messages.map(message =>
+        message.id === answerId ? { ...message, explanationView: view } : message
+      ) } : conversation
+    ) }))
+    setFocusedAnswerId(answerId)
+  }
+
+  /**
+   * Checks an answer against its sources after it is on screen, so the
+   * student never waits on the check. The bar shows as loading meanwhile.
+   * Simpler and reasoning versions of an answer are scored on their own.
+   */
+  function scoreAnswerInBackground(
+    conversationId: string,
+    messageId: string,
+    request: EngineChatRequest,
+    reply: EngineChatResponse,
+    view: AnswerView = 'original'
+  ) {
+    if (reply.confidence || !reply.text.trim() || !window.tokensmith?.scoreChatAnswer) {
       return
     }
 
-    const targetConversationId = activeConversation.id
-    const quizRequestMessage: ChatMessage = {
-      id: createId('user'),
-      role: 'user',
-      text: 'Quiz me on my PDFs.'
-    }
-
-    onChatStateChange((current) => ({
-      ...current,
-      conversations: current.conversations.map((conversation) => {
-        if (conversation.id !== targetConversationId) {
-          return conversation
-        }
-
-        return {
-          ...conversation,
-          title: conversation.messages.length === 0 ? 'PDF Quiz' : conversation.title,
-          messages: [...conversation.messages, quizRequestMessage],
-          quizState: undefined
-        }
-      })
-    }))
-
-    setDraft('')
-    setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
-    setSourceTrayError(null)
-    setChatError(null)
-    setPendingConversationId(targetConversationId)
-    setPendingStatusText('preparing quiz ...')
-    setPendingSources([])
-    const requestSequence = requestSequenceRef.current + 1
-    requestSequenceRef.current = requestSequence
-
-    try {
-      const generated = await generateQuizQuestion(1, quizTotalQuestions, [
-        ...activeConversation.messages,
-        quizRequestMessage
-      ])
-
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: generated.question,
-        kind: 'quizQuestion',
-        quiz: {
-          questionNumber: 1,
-          totalQuestions: quizTotalQuestions
-        },
-        sources: settings.application.showSources ? generated.sources : []
-      }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) =>
-          conversation.id === targetConversationId
-            ? {
-                ...conversation,
-                messages: [...conversation.messages, assistantMessage],
-                quizState: {
-                  active: true,
-                  questionNumber: 1,
-                  totalQuestions: quizTotalQuestions,
-                  currentQuestion: generated.question,
-                  currentSources: generated.sources,
-                  usedSourceKeys: generated.sourceKeys
+    const key = scoringKey(messageId, view)
+    setScoringMessageIds((current) => new Set(current).add(key))
+    window.tokensmith
+      .scoreChatAnswer(request, reply)
+      .then((confidence) => {
+        onChatStateChange((current) => ({
+          ...current,
+          conversations: current.conversations.map((conversation) =>
+            conversation.id === conversationId
+              ? {
+                  ...conversation,
+                  messages: conversation.messages.map((message) => {
+                    if (message.id !== messageId) return message
+                    if (view === 'original') return message.text === reply.text ? { ...message, confidence } : message
+                    const variantKey = view === 'reasoning' ? 'reasoningAnswer' : 'simplerExplanation'
+                    const variant = message[variantKey]
+                    return variant && variant.text === reply.text
+                      ? { ...message, [variantKey]: { ...variant, confidence } }
+                      : message
+                  })
                 }
-              }
-            : conversation
-        )
-      }))
-    } catch (error) {
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      setChatError(readableErrorMessage(error, 'Could not start a source-backed quiz.'))
-    } finally {
-      if (requestSequenceRef.current === requestSequence) {
-        setPendingConversationId(null)
-        setPendingStatusText(null)
-        setPendingSources([])
-      }
-    }
+              : conversation
+          )
+        }))
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setScoringMessageIds((current) => {
+          const next = new Set(current)
+          next.delete(key)
+          return next
+        })
+      })
   }
 
-  async function submitQuizAnswer(rawAnswer: string, quizState: QuizState) {
-    const answer = rawAnswer.trim()
-    if (!answer || pendingConversationId || !selectedModel) {
-      return
-    }
-
+  async function improveAnswer(answerId: string, view: 'simple' | 'reasoning') {
+    if (pendingConversationId || explanationInFlightRef.current || !selectedModel || selectedModel.status !== 'ready' || editingQuestionId || !window.tokensmith) return
+    const buildRequest = view === 'reasoning' ? reasoningRetryRequest : simplerExplanationRequest
+    const request = buildRequest(activeConversation.messages, answerId, {
+      materials: activeMaterials, model: selectedModel, settings,
+      modelSettings: modelSettingsFor(settings, selectedModel.id)
+    })
+    if (!request) return
+    explanationInFlightRef.current = true
     const targetConversationId = activeConversation.id
-    const userMessage: ChatMessage = {
-      id: createId('user'),
-      role: 'user',
-      text: answer,
-      kind: 'quizAnswer',
-      quiz: {
-        questionNumber: quizState.questionNumber,
-        totalQuestions: quizState.totalQuestions
-      }
-    }
-
-    onChatStateChange((current) => ({
-      ...current,
-      conversations: current.conversations.map((conversation) =>
-        conversation.id === targetConversationId
-          ? {
-              ...conversation,
-              messages: [...conversation.messages, userMessage]
-            }
-          : conversation
-      )
-    }))
-
-    setDraft('')
-    setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
-    setSourceTrayError(null)
-    setChatError(null)
+    const responseStartedAt = performance.now()
+    const progressId = beginForeground(view === 'reasoning' ? 'answer' : 'simplify',
+      view === 'reasoning' ? 'Answering with reasoning' : 'Simplifying answer',
+      request.prompt.length + (request.retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), request.modelSettings)
+    const requestSequence = ++requestSequenceRef.current
     setPendingConversationId(targetConversationId)
-    setPendingStatusText('checking your answer ...')
-    setPendingSources([])
-    const requestSequence = requestSequenceRef.current + 1
-    requestSequenceRef.current = requestSequence
-    const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
-
+    setPendingExplanationId(answerId)
+    setPendingSources(request.retrievedSources ?? [])
+    setFocusedAnswerId(answerId)
+    setExplanationError(null)
+    setChatError(null)
+    previewFirstSource(progressId, request.retrievedSources ?? [])
     try {
-      const retrievedSources = quizState.currentSources
-
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      if (retrievedSources.length === 0) {
-        throw new Error('No source text was available to grade this quiz answer.')
-      }
-
-      setPendingSources(settings.application.showSources ? retrievedSources : [])
-      const reply = await window.tokensmith?.sendChatMessage({
-        prompt: quizFeedbackPrompt({
-          answer,
-          question: quizState.currentQuestion,
-          questionNumber: quizState.questionNumber,
-          totalQuestions: quizState.totalQuestions
-        }),
-        messages: activeConversation.messages,
-        materials: activeMaterials,
-        model: selectedModel,
-        settings,
-        applicationSettings: quizApplicationSettings(settings.application),
-        modelSettings: activeModelSettings,
-        retrievedSources
-      })
-
-      if (!reply) {
-        throw new Error('TokenSmith engine bridge is not available.')
-      }
-
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      const feedbackMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: reply.text,
-        suppressedText: reply.suppressedText,
-        confidence: reply.confidence,
-        kind: 'quizFeedback',
-        quiz: {
-          questionNumber: quizState.questionNumber,
-          totalQuestions: quizState.totalQuestions,
-          complete: quizState.questionNumber >= quizState.totalQuestions
-        },
-        sources: settings.application.showSources ? reply.sources : []
-      }
-      const nextQuestionNumber = quizState.questionNumber + 1
-      let nextQuestionMessage: ChatMessage | undefined
-      let nextQuizState: QuizState | undefined
-
-      if (nextQuestionNumber <= quizState.totalQuestions) {
-        setPendingStatusText('preparing next quiz question ...')
-        try {
-          const usedSourceKeys = quizState.usedSourceKeys ?? quizState.currentSources.map(quizSourceKey)
-          const generated = await generateQuizQuestion(nextQuestionNumber, quizState.totalQuestions, [
-            ...activeConversation.messages,
-            userMessage,
-            feedbackMessage
-          ], usedSourceKeys)
-
-          if (requestSequenceRef.current !== requestSequence) {
-            return
-          }
-
-          nextQuestionMessage = {
-            id: createId('assistant'),
-            role: 'assistant',
-            text: generated.question,
-            kind: 'quizQuestion',
-            quiz: {
-              questionNumber: nextQuestionNumber,
-              totalQuestions: quizState.totalQuestions
-            },
-            sources: settings.application.showSources ? generated.sources : []
-          }
-          nextQuizState = {
-            active: true,
-            questionNumber: nextQuestionNumber,
-            totalQuestions: quizState.totalQuestions,
-            currentQuestion: generated.question,
-            currentSources: generated.sources,
-            usedSourceKeys: Array.from(new Set([...usedSourceKeys, ...generated.sourceKeys]))
-          }
-        } catch (error) {
-          if (requestSequenceRef.current !== requestSequence) {
-            return
-          }
-
-          setChatError(readableErrorMessage(error, 'Could not prepare the next source-backed quiz question.'))
+      let responseDurationMs: number | undefined
+      let scoringStarted = false
+      const publish = (reply: EngineChatResponse) => {
+        if (requestSequenceRef.current !== requestSequence || !reply.text.trim()) return
+        responseDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
+        sourcePreview.finish(progressId)
+        const latencyTrace = combineLatencyTrace(progressId, undefined, reply.latencyTrace)
+        const variant = { text: reply.text, sources: reply.sources, responseDurationMs,
+          reasoning: reply.reasoning, confidence: reply.confidence,
+          followUpSuggestions: reply.followUpSuggestions, followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {}) }
+        onChatStateChange(current => ({ ...current, conversations: current.conversations.map(conversation =>
+          conversation.id === targetConversationId ? { ...conversation, messages: conversation.messages.map(message =>
+            message.id === answerId ? { ...message, explanationView: view,
+              ...(view === 'reasoning'
+                ? { reasoningAnswer: withKeptConfidence(message.reasoningAnswer, variant) }
+                : { simplerExplanation: withKeptConfidence(message.simplerExplanation, variant) }) } : message
+          ) } : conversation
+        ) }))
+        // Score the first published version; a later publish of the same text keeps the score.
+        if (!scoringStarted) {
+          scoringStarted = true
+          scoreAnswerInBackground(targetConversationId, answerId, request, reply, view)
         }
       }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) =>
-          conversation.id === targetConversationId
-            ? {
-                ...conversation,
-                messages: [
-                  ...conversation.messages,
-                  feedbackMessage,
-                  ...(nextQuestionMessage ? [nextQuestionMessage] : [])
-                ],
-                quizState: nextQuizState
-              }
-            : conversation
-        )
-      }))
+      const reply = await window.tokensmith.sendChatMessage({ ...request, requestId: progressId }, (answer, hasFollowUps) => {
+        if (requestSequenceRef.current !== requestSequence) return
+        publish(answer)
+        if (hasFollowUps) {
+          setIsPreparingFollowUps(true)
+          progress.next(progressId, 'Preparing follow-ups', { kind: 'follow-ups', inputChars: answer.text.length, contextual: false })
+        } else progress.finish(progressId, 'Answer ready')
+      })
+      if (requestSequenceRef.current !== requestSequence) return
+      if (!reply.text.trim()) throw new Error('The model returned an empty answer. Your original answer is still available.')
+      publish(reply)
+      progress.finish(progressId, view === 'reasoning' ? 'Answer ready' : 'Explanation ready')
     } catch (error) {
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      setChatError(readableErrorMessage(error, 'Could not grade the quiz answer.'))
-    } finally {
+      progress.cancel(progressId)
       if (requestSequenceRef.current === requestSequence) {
+        setExplanationError({ answerId, view, text: readableErrorMessage(error,
+          view === 'reasoning' ? 'Could not answer with reasoning. Your original answer is still available.'
+            : 'Could not simplify this answer. Your original answer is still available.') })
+      }
+    } finally {
+      sourcePreview.finish(progressId)
+      if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
+        explanationInFlightRef.current = false
+        setIsPreparingFollowUps(false)
         setPendingConversationId(null)
+        setPendingExplanationId(null)
         setPendingStatusText(null)
         setPendingSources([])
       }
     }
   }
 
-  function handleQuizButtonClick() {
-    if (activeQuizState) {
-      handleEndQuiz()
-      return
-    }
-
-    void handleStartQuiz()
-  }
-
-  async function submitPrompt(rawPrompt: string, editMessageId?: string) {
+  async function submitPrompt(rawPrompt: string, editMessageId?: string, passage?: ChatSelectedPassage) {
     const prompt = rawPrompt.trim()
-    if (!prompt || pendingConversationId || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
+    if (!prompt || catalog.status === 'loading' || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
     }
 
-    if (activeQuizState && !editMessageId) {
-      await submitQuizAnswer(prompt, activeQuizState)
-      return
-    }
+    if (isPreparingFollowUps) handleStopResponse()
 
-    const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt) : undefined
+    const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt, passage) : undefined
     if (editMessageId && !editedMessages) return
     const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
+    const progressId = beginForeground('answer', 'Preparing answer', prompt.length + history.reduce((n, m) => n + m.text.length, 0))
     const userMessage: ChatMessage = {
       id: editMessageId ?? createId('user'),
       role: 'user',
-      text: prompt
+      text: prompt,
+      ...(passage ? { selectedPassage: passage } : {})
     }
 
     onChatStateChange((current) => ({
@@ -3987,16 +3770,16 @@ function ChatScreen({
         return {
           ...conversation,
           title: history.length === 0 ? getConversationTitle(prompt) : conversation.title,
+          documentScope: scopeRefs(documentScope),
           messages: editedMessages ?? [...conversation.messages, userMessage],
-          quizState: editMessageId ? undefined : conversation.quizState
         }
       })
     }))
-    if (!editMessageId) setDraft('')
+    if (!editMessageId) clearDraft()
     setEditingQuestionId(null)
     setExpandedMessageId(null)
-    setPdfViewer(null)
-    setMarkdownViewer(null)
+    setFocusedAnswerId(null)
+    reader.close()
     setSourceTrayError(null)
     setChatError(null)
     setPendingConversationId(targetConversationId)
@@ -4004,20 +3787,23 @@ function ChatScreen({
     const requestSequence = requestSequenceRef.current + 1
     requestSequenceRef.current = requestSequence
     const activeModelSettings = modelSettingsFor(settings, selectedModel.id)
-    const searchEmbeddingModels = embeddingModelsForMaterials(activeMaterials, embeddingModels)
+    const searchEmbeddingModels = embeddingModels
     const retrievalSourceLimit = modelAwareRetrievalLimit(settings.maxSources, selectedModel, activeModelSettings)
     let retrievedSources: ChatSource[] | undefined = activeMaterials.length === 0 ? [] : undefined
-    let conversationContextMode: ChatMessage['conversationContextMode'] = 'standalone'
+    let conversationContextMode: ChatMessage['conversationContextMode'] = passage ? 'contextual' : 'standalone'
     let rewrittenRequest: EngineChatRequest | undefined
     let clarificationReply: EngineChatResponse | undefined
+    let clientLatencySpans: LatencySpan[] = []
 
     try {
-      if (window.tokensmith && activeMaterials.length > 0) {
+      if (window.tokensmith && (documentScope.length > 0 || activeConversation.practiceReference)) {
         const tokensmith = window.tokensmith
         const searchStartedAt = performance.now()
         setPendingStatusText('understanding question ...')
         const prepared = await prepareRewrittenStudyChat({
+          requestId: progressId,
           prompt,
+          selectedPassage: passage,
           messages: history,
           materials: activeMaterials,
           model: selectedModel,
@@ -4027,11 +3813,17 @@ function ChatScreen({
         }, {
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
+            const reference = activeConversation.practiceReference
+            if (history.length === 0 && reference && passage?.messageId === reference.questionId) {
+              return Promise.resolve({ sources: sourcesInScope(reference.sources, documentScope) })
+            }
+            if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode)
+              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
           }
         })
+        clientLatencySpans = prepared.latencySpans
         conversationContextMode = prepared.resolution.mode
         rewrittenRequest = prepared.request
         retrievedSources = prepared.request?.retrievedSources ?? []
@@ -4047,6 +3839,8 @@ function ChatScreen({
         }
 
         setPendingSources(settings.application.showSources ? retrievedSources : [])
+        previewFirstSource(progressId, retrievedSources ?? [])
+        progress.stage(progressId, 'Preparing answer', { inputChars: prompt.length + (retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), contextual: conversationContextMode === 'contextual' })
         const searchDisplayMs = performance.now() - searchStartedAt
         if (searchDisplayMs < 450) {
           await new Promise((resolve) => window.setTimeout(resolve, 450 - searchDisplayMs))
@@ -4063,8 +3857,12 @@ function ChatScreen({
         throw new Error('TokenSmith engine bridge is not available.')
       }
 
-      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage(rewrittenRequest ?? {
+      progress.stage(progressId, 'Writing answer')
+      const assistantId = createId('assistant')
+      let answerDurationMs: number | undefined
+      const chatRequest: EngineChatRequest = rewrittenRequest ?? {
         prompt,
+        selectedPassage: passage,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
         messages: history,
         materials: activeMaterials,
@@ -4073,47 +3871,89 @@ function ChatScreen({
         applicationSettings: settings.application,
         modelSettings: activeModelSettings,
         retrievedSources
+      }
+      let scoringStarted = false
+      function publishAnswer(reply: EngineChatResponse) {
+        if (requestSequenceRef.current !== requestSequence) return
+        sourcePreview.finish(progressId)
+        const latencyTrace = combineLatencyTrace(progressId, clientLatencySpans, reply.latencyTrace)
+        const assistantMessage: ChatMessage = {
+          id: assistantId,
+          role: 'assistant',
+          text: reply.text,
+          // Kept whatever the display setting is, so a retelling can reuse this evidence.
+          sources: reply.sources,
+          reasoning: reply.reasoning,
+          confidence: reply.confidence,
+          conversationContextMode,
+          answerContext: {
+            selectedPassage: passage,
+            prompt, answerPrompt: rewrittenRequest?.answerPrompt,
+            retrievalQuery: rewrittenRequest?.retrievalQuery,
+            conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
+            referenceExchange: rewrittenRequest?.referenceExchange,
+            modelSettings: activeModelSettings,
+            applicationSettings: settings.application
+          },
+          explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
+          responseDurationMs: answerDurationMs,
+          followUpSuggestions: reply.followUpSuggestions ?? [],
+          followUpError: reply.followUpError,
+          ...(latencyTrace ? { latencyTrace } : {})
+        }
+
+        onChatStateChange((current) => ({
+          ...current,
+          conversations: current.conversations.map((conversation) => {
+            if (conversation.id !== targetConversationId) {
+              return conversation
+            }
+
+            return {
+              ...conversation,
+              messages: conversation.messages.some(m => m.id === assistantId)
+                ? conversation.messages.map(m => m.id === assistantId ? withKeptConfidence(m, assistantMessage) : m)
+                : [...conversation.messages, assistantMessage]
+            }
+          })
+        }))
+        // Score the first published answer; a later publish of the same text keeps the score.
+        if (!clarificationReply && !scoringStarted) {
+          scoringStarted = true
+          scoreAnswerInBackground(targetConversationId, assistantId, chatRequest, reply)
+        }
+      }
+      const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...chatRequest, requestId: progressId }, (answer, hasFollowUps) => {
+        if (requestSequenceRef.current !== requestSequence) return
+        answerDurationMs = Math.max(0, Math.round(performance.now() - responseStartedAt))
+        publishAnswer(answer)
+        if (hasFollowUps) {
+          setIsPreparingFollowUps(true)
+          progress.next(progressId, 'Preparing follow-ups', { kind: 'follow-ups', inputChars: answer.text.length, contextual: false })
+        } else {
+          progress.finish(progressId, 'Answer ready')
+        }
       })
 
-      if (requestSequenceRef.current !== requestSequence) {
-        return
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: createId('assistant'),
-        role: 'assistant',
-        text: reply.text,
-        suppressedText: reply.suppressedText,
-        sources: settings.application.showSources ? reply.sources : [],
-        confidence: reply.confidence,
-        conversationContextMode,
-        responseDurationMs: Math.max(0, Math.round(performance.now() - responseStartedAt)),
-        followUpSuggestions: reply.followUpSuggestions ?? [],
-        followUpError: reply.followUpError
-      }
-
-      onChatStateChange((current) => ({
-        ...current,
-        conversations: current.conversations.map((conversation) => {
-          if (conversation.id !== targetConversationId) {
-            return conversation
-          }
-
-          return {
-            ...conversation,
-            messages: [...conversation.messages, assistantMessage]
-          }
-        })
-      }))
+      if (requestSequenceRef.current !== requestSequence) return
+      answerDurationMs ??= Math.max(0, Math.round(performance.now() - responseStartedAt))
+      publishAnswer(reply)
+      progress.finish(progressId, 'Answer ready', !clarificationReply && !reply.followUpError)
     } catch (error) {
+      progress.cancel(progressId)
       if (requestSequenceRef.current !== requestSequence) {
         return
       }
 
       setChatError(readableErrorMessage(error, 'Chat request failed.'))
     } finally {
+      sourcePreview.finish(progressId)
       if (requestSequenceRef.current === requestSequence) {
+        foregroundRequestRef.current = null
+        setIsPreparingFollowUps(false)
         setPendingConversationId(null)
+        setPendingExplanationId(null)
+        explanationInFlightRef.current = false
         setPendingStatusText(null)
         setPendingSources([])
       }
@@ -4122,86 +3962,26 @@ function ChatScreen({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await submitPrompt(draft)
+    await submitPrompt(draft, undefined, selectedPassage)
   }
 
   return (
-    <div className={`view-frame chat-frame ${isSidebarOpen ? '' : 'is-sidebar-collapsed'}`}>
-      {isSidebarOpen && (
-        <aside className="chat-sidebar" aria-label="Conversation list">
-          <button className="new-chat-button" type="button" onClick={handleNewChat}>
-            <Plus size={17} aria-hidden="true" />
-            <span>New Chat</span>
-          </button>
-          <div className="conversation-groups">
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="Today"
-              items={conversations.filter((chat) => chat.period === 'Today')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-            <ConversationGroup
-              activeConversationId={activeConversation.id}
-              label="This week"
-              items={conversations.filter((chat) => chat.period === 'This week')}
-              renameDraft={renameDraft}
-              renamingConversationId={renamingConversationId}
-              onCancelRename={handleCancelRenameConversation}
-              onCommitRename={handleCommitRenameConversation}
-              onDelete={handleDeleteConversation}
-              onRenameDraftChange={setRenameDraft}
-              onRenameStart={handleStartRenameConversation}
-              onSelect={handleSelectConversation}
-            />
-          </div>
-          <div className="chat-sidebar-footer">
-            <button className="view-log-button" type="button" onClick={handleOpenLogCard}>
-              <FileText size={15} aria-hidden="true" />
-              <span>View Log</span>
-            </button>
-            <button className="clear-chats-button" type="button" onClick={handleClearConversations}>
-              <Trash2 size={15} aria-hidden="true" />
-              <span>Clear All Chats</span>
-            </button>
-          </div>
-        </aside>
-      )}
+    <div hidden={!isActive} className={`view-frame study-frame chat-frame ${isSidebarOpen ? 'has-history' : ''} ${materialsOpen ? 'has-materials' : ''}`}>
+      {isSidebarOpen && <StudySidebar mode="chat" activeId={activeConversation.id}
+        groups={['Today', 'This week'].map(label => ({ label, items: conversations.filter(chat => chat.period === label) }))}
+        onNew={handleNewChat} onSelect={handleSelectConversation} onRename={handleRenameConversation}
+        onDelete={handleDeleteConversation} onClear={handleClearConversations} onViewLog={onViewLog} />}
 
       <section className="chat-main" aria-label="Study chat">
-        <header className="chat-topbar">
-          <button
-            className="icon-button subtle"
-            type="button"
-            aria-label={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
-            aria-pressed={isSidebarOpen}
-            title={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
-            onClick={() => setIsSidebarOpen((current) => !current)}
-          >
-            <PanelIcon />
-          </button>
-          <ChatModelPicker models={models} selectedModel={selectedModel} disabled={isPending}
+        <StudyHeader mode="chat" onModeChange={onModeChange} historyOpen={isSidebarOpen} onHistoryToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          materialsOpen={materialsOpen} onMaterialsToggle={() => setMaterialsOpen(!materialsOpen)} count={documentScope.length}>
+          <ChatModelPicker models={models} selectedModel={selectedModel} selectedModelId={activeConversation.modelId} disabled={isPending}
             onSelect={onSelectModel} onConnect={onConnectCloud} onManage={onManageModels} />
-          <button
-            className="library-pill"
-            type="button"
-            aria-label="Open Library"
-            title="Open Library"
-            onClick={onOpenLibrary}
-          >
-            <span className="count-badge">{activeMaterials.length}</span>
-            <span>Library</span>
-          </button>
-        </header>
+          {settings.application.explanationDepthEnabled && <ChatDepthPicker depth={settings.application.explanationDepth} disabled={isPending} onSelect={onExplanationDepthChange} />}
+        </StudyHeader>
 
         <div className="chat-body">
-          <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending}
+          <ConversationViewport key={activeConversation.id} messages={activeConversation.messages} pending={isPending} isActive={isActive}
             onQuote={handleQuoteSelection} canQuote={!editingQuestionId && !pendingConversationId && Boolean(selectedModel)}>
             {activeConversation.messages.length === 0 && !isPending ? (
               <>
@@ -4217,130 +3997,86 @@ function ChatScreen({
                     editing={editingQuestionId === message.id}
                     editDisabled={Boolean(pendingConversationId) || !selectedModel}
                     laterQuestions={activeConversation.messages.slice(activeConversation.messages.indexOf(message) + 1).filter((item) => item.role === 'user').length}
-                    onCopy={() => handleCopyQuestion(message.text)}
+                    onCopy={() => handleCopyQuestion(message.selectedPassage
+                      ? `Selected passage:\n${message.selectedPassage.text}\n\n${message.text}` : message.text)}
                     onEdit={() => setEditingQuestionId(message.id)}
                     onCancelEdit={() => setEditingQuestionId(null)}
-                    onSaveEdit={(text) => void submitPrompt(text, message.id)}
+                    onSaveEdit={(text, passage) => void submitPrompt(text, message.id, passage)}
                   />
                 ) : (
                   <AssistantMessage
                     expanded={expandedMessageId === message.id}
                     key={message.id}
                     message={message}
-                    suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)}
-                    onSelectFollowUp={handleUseFollowUpSuggestion}
-                    onToggleSources={() =>
-                      setExpandedMessageId((current) => (current === message.id ? null : message.id))
+                    showSources={settings.application.showSources}
+                    scoring={scoringMessageIds.has(scoringKey(message.id, displayedAnswerView(message)))}
+                    onOpenCitation={(source, sources, evidence) => handleOpenCitation(source, sources, evidence)}
+                    suggestionsDisabled={Boolean(pendingConversationId) || Boolean(editingQuestionId) || selectedModel?.status !== 'ready'}
+                    onExplainSimpler={
+                      canExplainSimpler(message) && message.explanationView !== 'reasoning'
+                        ? () => void improveAnswer(message.id, 'simple')
+                        : undefined
                     }
+                    onPractice={message.text.trim() && message.conversationContextMode !== 'clarify' ? () => practiceAnswer(message) : undefined}
+                    practiceDisabled={!practiceScopeReady}
+                    onTryReasoning={canRetryWithReasoning(message, selectedModel)
+                      ? () => void improveAnswer(message.id, 'reasoning') : undefined}
+                    explanationPending={isPending && pendingExplanationId === message.id}
+                    explanationError={explanationError?.answerId === message.id ? explanationError.text : undefined}
+                    explanationErrorView={explanationError?.answerId === message.id ? explanationError.view : undefined}
+                    onSelectExplanationView={(view) => selectExplanationView(message.id, view)}
+                    onSelectFollowUp={handleUseFollowUpSuggestion}
+                    onToggleSources={() => {
+                      setFocusedAnswerId(message.id)
+                      setExpandedMessageId((current) => (current === message.id ? null : message.id))
+                    }}
                   />
                 )
               )
             )}
-            {isPending && <ThinkingMessage modelName={selectedModelLabel} statusText={pendingStatusText} />}
+            {activeConversation.practiceReference && activeConversation.messages.filter(message => message.role === 'user').length === 1 &&
+              <PracticeChatSuggestions key={activeConversation.id} conversation={activeConversation} model={selectedModel}
+                settings={settings} modelSettings={selectedModelSettings} isActive={isActive}
+                disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} progress={progress}
+                onUse={handleUseFollowUpSuggestion} onSave={questions => onChatStateChange(current => ({ ...current,
+                  conversations: current.conversations.map(conversation => conversation.id === activeConversation.id
+                    ? { ...conversation, practiceSuggestions: questions } : conversation) }))} />}
             {chatError && <div className="chat-error-banner"><p>{chatError}</p>
               {selectedModel && isCloudGenerator(selectedModel) && <button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Check cloud connection</button>}
             </div>}
             {selectedModel && isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' &&
-              <div className="chat-error-banner"><p>Reconnect {selectedModel.providerName || 'your cloud service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Reconnect</button></div>}
+              <div className="chat-error-banner"><p>Enter an API key for {selectedModel.providerName || 'your online service'} to continue with this model.</p><button className="secondary-action" type="button" onClick={() => onConnectCloud(selectedModel)}>Enter API key</button></div>}
+            {activeConversation.modelId && (!selectedModel || (selectedModel.engine === 'ollama' && selectedModel.status !== 'ready')) &&
+              <div className="chat-error-banner" role="status"><p>This chat's model is unavailable. Choose another model or restore it in Models.</p>
+                <button className="secondary-action" type="button" onClick={onManageModels}>Manage models</button></div>}
           </ConversationViewport>
 
           <form className="composer-area" aria-label="Message composer" onSubmit={handleSubmit}>
-            {selectedModel && (isPending || (!isCloudGenerator(selectedModel) && selectedModel.status !== 'ready')) && (
-              <button
-                className={`reload-chip ${isPending ? 'is-stop' : ''}`}
-                type="button"
-                onClick={isPending ? handleStopResponse : undefined}
-              >
-                {isPending ? (
-                  <>
-                    <Square size={14} aria-hidden="true" />
-                    <span>Stop response</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={15} aria-hidden="true" />
-                    <span>Load - {selectedModelLabel}</span>
-                  </>
-                )}
-              </button>
+            {selectedModel && !isPending && !isCloudGenerator(selectedModel) && selectedModel.status !== 'ready' && (
+              <span className="reload-chip"><RefreshCw size={15} aria-hidden="true" />Load - {selectedModelLabel}</span>
             )}
-            <div className="composer">
-              <button
-                className={`quiz-toggle-button ${activeQuizState ? 'is-active' : ''}`}
-                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || (!activeQuizState && !canUseQuiz)}
-                type="button"
-                onClick={handleQuizButtonClick}
-                title={activeQuizState ? 'End quiz' : 'Start a short quiz from your PDFs'}
-              >
-                <BookOpen size={16} aria-hidden="true" />
-                <span>{activeQuizState ? 'End quiz' : 'Quiz me'}</span>
-              </button>
-              <textarea
-                aria-label="Message"
-                rows={1}
-                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel}
-                ref={composerInputRef}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
-                  }
-                }}
-                placeholder={composerPlaceholder}
-                value={draft}
-              />
-              <button
-                className="send-button"
-                disabled={!draft.trim() || Boolean(editingQuestionId) || Boolean(pendingConversationId) || !selectedModel || selectedModel.status !== 'ready'}
-                type="submit"
-                aria-label="Send message"
-                title="Send message"
-              >
-                <SendHorizonal size={21} aria-hidden="true" />
-              </button>
-            </div>
+            <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
+              label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
+              disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
+              submitDisabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
+              {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
+                disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
+                onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
+            </MessageComposer>
           </form>
         </div>
       </section>
 
-      <aside className="context-panel" aria-label="Selected PDFs">
-        <div className="context-header">
-          <p>Library</p>
-          <strong>{libraryTitle}</strong>
-        </div>
-        <div className="mini-material-list">
-          {materials.length === 0 ? (
-            <div className="mini-empty">No PDFs added</div>
-          ) : (
-            materials.slice(0, 2).map((item) => (
-              <MaterialRow
-                item={item}
-                compact
-                key={item.id}
-                onClick={() => onToggleMaterialActive(item.id)}
-              />
-            ))
-          )}
-        </div>
-        <button className="secondary-action" type="button" onClick={onOpenLibrary}>
-          <Plus size={17} aria-hidden="true" />
-          <span>Add Materials</span>
-        </button>
-        <SourceTray sources={selectedSources} error={sourceTrayError} onOpenSource={handleOpenSource} />
-      </aside>
-      {isLogCardOpen && (
-        <TokenSmithLogCard
-          entries={logEntries}
-          error={logError}
-          logFile={logFile}
-          status={logStatus}
-          onClose={() => setIsLogCardOpen(false)}
-          onRefresh={refreshLogFile}
-        />
-      )}
-      {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
-      {markdownViewer && <MarkdownSourceViewer viewer={{ ...markdownViewer, title: cleanMaterialTitle(markdownViewer.title) || markdownViewer.title }} onClose={() => setMarkdownViewer(null)} />}
+      <StudyMaterialsPane catalog={catalog} scope={documentScope} open={materialsOpen}
+        collectionExpansion={collectionExpansion} onCollectionExpansionChange={onCollectionExpansionChange}
+        disabled={Boolean(editingQuestionId)} onChange={changeDocumentScope}
+        onClose={() => setMaterialsOpen(false)} onManage={onOpenLibrary}>
+        {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />}
+      </StudyMaterialsPane>
+      {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={sourcePreview.dismiss}
+        navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
+          onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
+      {isActive && reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
     </div>
   )
 }
@@ -4448,7 +4184,7 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
       {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
       {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
       {sources.length > 0 && <LogSources sources={sources} />}
-      {materials.length > 0 && <LogObjectList title="Materials" items={materials} />}
+      {materials.length > 0 && <LogObjectList title="Library folders" items={materials} />}
       {embeddingModels.length > 0 && <LogObjectList title="Embedding Models" items={embeddingModels} />}
 
       <details className="log-raw-details">
@@ -4555,122 +4291,6 @@ function LogObjectList({ items, title }: { items: Record<string, unknown>[]; tit
   )
 }
 
-function ConversationGroup({
-  activeConversationId,
-  label,
-  items,
-  renameDraft,
-  renamingConversationId,
-  onCancelRename,
-  onCommitRename,
-  onDelete,
-  onRenameDraftChange,
-  onRenameStart,
-  onSelect,
-}: {
-  activeConversationId: string
-  label: string
-  items: Conversation[]
-  renameDraft: string
-  renamingConversationId: string | null
-  onCancelRename: () => void
-  onCommitRename: () => void
-  onDelete: (id: string) => void
-  onRenameDraftChange: (value: string) => void
-  onRenameStart: (id: string) => void
-  onSelect: (id: string) => void
-}) {
-  if (items.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="conversation-group" aria-label={label}>
-      <h2>{label}</h2>
-      <div className="conversation-list">
-        {items.map((item) => {
-          const isSelected = item.id === activeConversationId
-          const isRenaming = item.id === renamingConversationId
-
-          return (
-            <div className={`conversation-item ${isSelected ? 'is-selected' : ''}`} key={item.id}>
-              {isRenaming ? (
-                <form
-                  className="conversation-rename-form"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    onCommitRename()
-                  }}
-                >
-                  <input
-                    aria-label="Chat name"
-                    autoFocus
-                    value={renameDraft}
-                    onBlur={onCommitRename}
-                    onChange={(event) => onRenameDraftChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        onCancelRename()
-                      }
-                    }}
-                  />
-                </form>
-              ) : (
-                <button className="conversation-select" type="button" onClick={() => onSelect(item.id)}>
-                  <span>{item.title}</span>
-                </button>
-              )}
-              {isSelected && !isRenaming && (
-                <div className="conversation-actions" aria-label={`${item.title} actions`}>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Rename ${item.title}`}
-                    title="Rename chat"
-                    onClick={() => onRenameStart(item.id)}
-                  >
-                    <Pencil size={17} aria-hidden="true" />
-                  </button>
-                  <button
-                    className="conversation-action"
-                    type="button"
-                    aria-label={`Delete ${item.title}`}
-                    title="Delete chat"
-                    onClick={() => onDelete(item.id)}
-                  >
-                    <Trash2 size={18} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function quizMessageLabel(message: ChatMessage): string | undefined {
-  const questionNumber = message.quiz?.questionNumber
-  const totalQuestions = message.quiz?.totalQuestions
-  const countLabel = questionNumber && totalQuestions ? `${questionNumber} of ${totalQuestions}` : undefined
-
-  if (message.kind === 'quizQuestion') {
-    return countLabel ? `Quiz question ${countLabel}` : 'Quiz question'
-  }
-
-  if (message.kind === 'quizAnswer') {
-    return countLabel ? `Quiz answer ${countLabel}` : 'Quiz answer'
-  }
-
-  if (message.kind === 'quizFeedback') {
-    return message.quiz?.complete ? 'Quiz complete' : 'Quiz feedback'
-  }
-
-  return undefined
-}
-
 function contextModeLabel(mode?: ChatMessage['conversationContextMode']): string | undefined {
   if (mode === 'clarify') {
     return 'Clarification'
@@ -4701,20 +4321,21 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
   onCopy: () => void
   onEdit: () => void
   onCancelEdit: () => void
-  onSaveEdit: (text: string) => void
+  onSaveEdit: (text: string, selectedPassage?: ChatSelectedPassage) => void
 }) {
-  const label = quizMessageLabel(message)
 
   return (
     <article className="message-row" data-question-id={message.id} tabIndex={-1} aria-label="Your question">
-      <CircleUserRound className="message-avatar user" size={26} aria-hidden="true" />
+      <MessageAvatar role="user" />
       <div>
         <h3>
           You
-          {label && <span>{label}</span>}
         </h3>
-        {editing ? <QuestionEditor key={message.id} text={message.text} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
-          <div data-chat-selectable><MessageText text={message.text} /></div>
+        {editing ? <QuestionEditor key={message.id} text={message.text} selectedPassage={message.selectedPassage} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
+          <>
+            {message.selectedPassage && <SelectedPassagePreview passage={message.selectedPassage} />}
+            <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={message.text} /></div>
+          </>
         )}
         {!editing && <div className="message-actions" aria-label="Question actions">
           <button className="message-action" type="button" aria-label="Edit question" title="Edit question" disabled={editDisabled} onClick={onEdit}>
@@ -4732,39 +4353,74 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
 function AssistantMessage({
   expanded,
   message,
+  showSources,
+  scoring,
+  onOpenCitation,
   suggestionsDisabled,
+  onExplainSimpler,
+  onPractice,
+  practiceDisabled,
+  onTryReasoning,
+  explanationPending,
+  explanationError,
+  explanationErrorView,
+  onSelectExplanationView,
   onSelectFollowUp,
   onToggleSources
 }: {
   expanded: boolean
   message: ChatMessage
+  showSources: boolean
+  scoring: boolean
+  onOpenCitation: (source: ChatSource, sources: ChatSource[], evidence?: string) => void
   suggestionsDisabled: boolean
+  onExplainSimpler?: () => void
+  onPractice?: () => void
+  practiceDisabled: boolean
+  onTryReasoning?: () => void
+  explanationPending: boolean
+  explanationError?: string
+  explanationErrorView?: AnswerView
+  onSelectExplanationView: (view: AnswerView) => void
   onSelectFollowUp: (suggestion: string) => void
   onToggleSources: () => void
 }) {
-  const sources = message.sources ?? []
-  const suggestions = message.followUpSuggestions ?? []
-  const label = quizMessageLabel(message)
+  const displayed = answerForDisplay(message)
+  const sources = showSources ? displayed.sources ?? [] : []
+  const suggestionOwner = message.explanationView === 'reasoning' && message.reasoningAnswer ? message.reasoningAnswer : message
+  const suggestions = suggestionOwner.followUpSuggestions ?? []
+  const confidence = displayed.confidence
+  const claims = sources.length > 0 ? confidence?.claims ?? [] : []
+  const citedText = claims.length > 0 ? withCitationMarkers(displayed.text, claims) : undefined
+  const openCitation = (claimIndex: number) => {
+    const claim = claims[claimIndex]
+    const source = claim?.sourceIndex === undefined ? undefined : sources[claim.sourceIndex]
+    if (source) {
+      onOpenCitation(source, sources, evidenceSearchTerm(claim.evidence))
+    }
+  }
   const modeLabel = contextModeLabel(message.conversationContextMode)
-  const durationLabel = responseDurationLabel(message.responseDurationMs)
+  const durationLabel = responseDurationLabel(displayed.responseDurationMs)
 
   return (
     <article className="message-row">
-      <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
+      <MessageAvatar role="assistant" />
       <div>
         <h3>
           TokenSmith
-          {label && <span>{label}</span>}
         </h3>
-        {(modeLabel || durationLabel) && (
+        {(modeLabel || durationLabel || displayed.reasoning?.used) && (
           <div className="message-meta-labels" aria-label="Response details">
             {modeLabel && <span>{modeLabel}</span>}
             {durationLabel && <span>{durationLabel}</span>}
+            {displayed.reasoning?.used && <span>Reasoning used</span>}
           </div>
         )}
-        {message.confidence && <ConfidenceBadge confidence={message.confidence} />}
-        <div data-chat-selectable><MessageText text={message.text} /></div>
-        {message.suppressedText && <SuppressedAnswer text={message.suppressedText} />}
+        {scoring ? <ConfidenceLoading /> : confidence && <ConfidenceBadge confidence={confidence} />}
+        <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
+          errorView={explanationErrorView} disabled={suggestionsDisabled} onSimplify={onExplainSimpler}
+          onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView}
+          displayText={citedText} onCite={claims.length > 0 ? openCitation : undefined} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
@@ -4787,7 +4443,7 @@ function AssistantMessage({
             </div>
           </section>
         )}
-        {message.followUpError && <p className="follow-up-error">{message.followUpError}</p>}
+        {suggestionOwner.followUpError && <p className="follow-up-error">{suggestionOwner.followUpError}</p>}
         {sources.length > 0 && (
           <>
             <button
@@ -4802,12 +4458,14 @@ function AssistantMessage({
               </span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
+            {expanded && <DocumentContributions documents={confidence?.documents} />}
             {expanded && (
               <div className="source-list">
-                {sources.map((source) => (
+                {sources.map((source, index) => (
                   <div className="source-card" key={`${source.title}-${source.locator}`}>
                     <strong>{source.title}</strong>
                     <span>{source.locator}</span>
+                    <SourceContribution confidence={confidence?.sources?.[index]} />
                     {isMarkdownSource(source) ? (
                       <pre>{sourceDisplayText(source)}</pre>
                     ) : (
@@ -4825,177 +4483,118 @@ function AssistantMessage({
 }
 
 /**
- * The answer the scorer withheld. Abstaining is the right default, but a student
- * who wants to judge the ungrounded answer for themselves should be able to.
+ * Which of the student's documents the answer came out of, and in what
+ * proportion. Retrieval works in passages, but "where did this come from" is a
+ * question about the document, so the rollup leads and the passage-level
+ * numbers sit underneath it.
  */
-function SuppressedAnswer({ text }: { text: string }) {
-  const [revealed, setRevealed] = useState(false)
+function DocumentContributions({ documents }: { documents?: DocumentConfidence[] }) {
+  if (!documents || documents.length === 0) {
+    return null
+  }
 
   return (
-    <div className="suppressed-answer">
-      <button
-        className="suppressed-answer-toggle"
-        type="button"
-        aria-expanded={revealed}
-        onClick={() => setRevealed((current) => !current)}
-      >
-        <ChevronDown
-          className={revealed ? 'suppressed-answer-chevron open' : 'suppressed-answer-chevron'}
-          size={15}
-          aria-hidden="true"
-        />
-        <span>{revealed ? 'Hide unverified answer' : 'See answer anyway'}</span>
-      </button>
-      {revealed && (
-        <div className="suppressed-answer-body">
-          <p className="suppressed-answer-warning">
-            This answer is not supported by your indexed material. Check it against the source before
-            relying on it.
-          </p>
-          <MessageText text={text} />
-        </div>
-      )}
+    <div className="document-contributions" aria-label="Answer contribution by document">
+      {documents.map((document) => {
+        const percent = Math.round(document.contribution * 100)
+
+        return (
+          <div
+            className={document.leading ? 'document-contribution leading' : 'document-contribution'}
+            key={document.title}
+          >
+            <span className="document-contribution-title">{document.title}</span>
+            <span className="document-contribution-passages">
+              {document.passages} {document.passages === 1 ? 'passage' : 'passages'}
+            </span>
+            <span className="document-contribution-bar" aria-hidden="true">
+              <span className="document-contribution-fill" style={{ width: `${percent}%` }} />
+            </span>
+            <span className="document-contribution-percent">{percent}%</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * How much of the answer this one passage carried. A student checking an answer
+ * reads the passage that actually supports it first, and a passage that was
+ * retrieved but contributed nothing is worth knowing about too.
+ */
+function SourceContribution({ confidence }: { confidence?: SourceConfidence }) {
+  if (!confidence) {
+    return null
+  }
+
+  const percent = Math.round(confidence.contribution * 100)
+  const match = Math.round(confidence.retrievalScore * 100)
+  const summary = percent > 0 ? `Carries ${percent}% of this answer` : 'Not used in this answer'
+
+  return (
+    <div
+      className={confidence.leading ? 'source-contribution leading' : 'source-contribution'}
+      title={`${summary} · Question match ${match}%`}
+    >
+      <span className="source-contribution-bar" aria-hidden="true">
+        <span className="source-contribution-fill" style={{ width: `${percent}%` }} />
+      </span>
+      <span className="source-contribution-label">{summary}</span>
+      {confidence.leading && <span className="source-contribution-lead">main source</span>}
+    </div>
+  )
+}
+
+/** Red at 0%, yellow at 50%, green at 100%. */
+function confidenceColor(score: number): string {
+  return `hsl(${Math.round(Math.min(1, Math.max(0, score)) * 120)} 62% 42%)`
+}
+
+const confidenceExplanation =
+  'Confidence score: an estimate of how well your sources support this answer.'
+
+function ConfidenceInfo() {
+  return (
+    <span className="confidence-info" tabIndex={0} role="note" aria-label={confidenceExplanation}>
+      <Info size={14} aria-hidden="true" />
+      <span className="confidence-info-tip" aria-hidden="true">{confidenceExplanation}</span>
+    </span>
+  )
+}
+
+function ConfidenceLoading() {
+  return (
+    <div className="confidence-badge" aria-label="Checking the answer against the sources">
+      <span className="confidence-bar" aria-hidden="true" />
+      <Loader2 className="spin" size={14} aria-hidden="true" />
+      <ConfidenceInfo />
     </div>
   )
 }
 
 function ConfidenceBadge({ confidence }: { confidence: AnswerConfidence }) {
+  if (confidence.status === 'unverified' || confidence.abstained) {
+    return null
+  }
+
   const percent = Math.round(confidence.score * 100)
-  const breakdown = [
-    `Retrieval match ${Math.round(confidence.retrievalScore * 100)}%`,
-    `Answer-context alignment ${Math.round(confidence.alignmentScore * 100)}%`
-  ].join(' \u00b7 ')
+  const claims = confidence.claims ?? []
+  const entailed = claims.filter((claim) => claim.verdict === 'supported' || claim.verdict === 'likely').length
+  const detail = `${entailed} of ${claims.length} claims backed by the sources`
 
   return (
-    <div
-      className={`confidence-badge confidence-${confidence.status}`}
-      title={breakdown}
-      aria-label={`Answer status: ${answerStatusLabel(confidence.status)}, confidence ${percent} percent. ${breakdown}`}
-    >
-      <ConfidenceIcon status={confidence.status} />
-      <span className="confidence-label">{answerStatusLabel(confidence.status)}</span>
+    <div className="confidence-badge" title={detail} aria-label={`Confidence ${percent} percent. ${detail}`}>
+      <span className="confidence-bar" aria-hidden="true">
+        <span className="confidence-fill" style={{ width: `${percent}%`, background: confidenceColor(confidence.score) }} />
+      </span>
       <span className="confidence-score">{percent}%</span>
-      {confidence.abstained && <span className="confidence-abstained">abstained</span>}
+      <ConfidenceInfo />
     </div>
   )
 }
 
-function ConfidenceIcon({ status }: { status: AnswerStatus }) {
-  if (status === 'supported') {
-    return <ShieldCheck size={15} aria-hidden="true" />
-  }
-
-  if (status === 'partial') {
-    return <ShieldQuestion size={15} aria-hidden="true" />
-  }
-
-  return <ShieldAlert size={15} aria-hidden="true" />
-}
-
-function SourceTray({
-  error,
-  sources,
-  onOpenSource
-}: {
-  error: string | null
-  sources: ChatSource[]
-  onOpenSource: (source: ChatSource) => void
-}) {
-  const [thumbnails, setThumbnails] = useState<SourceThumbnailState>({})
-
-  useEffect(() => {
-    let canceled = false
-
-    setThumbnails({})
-
-    const bridge = window.tokensmith
-    if (!bridge?.getPdfThumbnailForSource) {
-      return () => {
-        canceled = true
-      }
-    }
-
-    sources.forEach((source, index) => {
-      if (!isPdfSource(source)) {
-        return
-      }
-
-      const key = sourceTrayKey(source, index)
-      void bridge
-        .getPdfThumbnailForSource(source)
-        .then((thumbnail) => {
-          if (canceled) {
-            return
-          }
-          setThumbnails((current) => ({ ...current, [key]: thumbnail }))
-        })
-        .catch(() => {
-          // Thumbnail rendering is best-effort; the source card still opens the PDF.
-        })
-    })
-
-    return () => {
-      canceled = true
-    }
-  }, [sources])
-
-  if (sources.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="source-tray" aria-label="Top answer sources">
-      <div className="source-tray-header">
-        <BookOpen size={15} aria-hidden="true" />
-        <span>Top sources</span>
-      </div>
-      <div className="source-tray-list">
-        {sources.map((source, index) => {
-          const canOpen = canOpenSource(source)
-          const pageLabel = sourcePageLabel(source)
-          const sourceKey = sourceTrayKey(source, index)
-          const thumbnail = thumbnails[sourceKey]
-          const sourceContextLabel = [source.collectionName, source.sectionHeader].filter(Boolean).join(' · ')
-          const sourceTypeLabel = sourceFileTypeLabel(source)
-
-          return (
-            <button
-              className={`source-tray-card ${canOpen ? '' : 'is-text-only'}`}
-              disabled={!canOpen}
-              key={sourceKey}
-              type="button"
-              onClick={() => onOpenSource(source)}
-            >
-              <span className="source-media" aria-hidden="true">
-                <span className={`source-thumbnail ${thumbnail ? 'has-image' : ''}`}>
-                  {thumbnail ? (
-                    <img src={thumbnail.dataUrl} alt="" />
-                  ) : (
-                    <>
-                      <FileText size={17} />
-                      <strong>{sourceTypeLabel}</strong>
-                    </>
-                  )}
-                </span>
-              </span>
-              <span className="source-tray-copy">
-                <strong>{sourceDocumentTitle(source)}</strong>
-                {sourceContextLabel && <small>{sourceContextLabel}</small>}
-                <span>{source.excerpt}</span>
-              </span>
-              <span className="source-card-badges">
-                <small className="source-page-label">{pageLabel}</small>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      {error && <p className="source-tray-error">{error}</p>}
-    </section>
-  )
-}
-
-function PdfSourceViewer({ viewer, onClose }: { viewer: PdfViewerState; onClose: () => void }) {
+function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [currentPage, setCurrentPage] = useState(viewer.page ?? 1)
   const [renderedPage, setRenderedPage] = useState<PdfRenderedPage | null>(null)
@@ -5154,14 +4753,15 @@ function PdfSourceViewer({ viewer, onClose }: { viewer: PdfViewerState; onClose:
   }, [pdfDocument])
 
   return (
-    <div className="pdf-viewer-backdrop" role="dialog" aria-modal="true" aria-label="Source PDF viewer">
+    <div className="pdf-viewer-backdrop" role="dialog" aria-modal={!automatic} aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
       <section className="pdf-viewer-panel">
         <header className="pdf-viewer-header">
           <div>
             <strong>{cleanMaterialTitle(viewer.title) || viewer.title}</strong>
             <span>Page {currentPage}{pdfDocument ? ` of ${pdfDocument.numPages}` : ''}</span>
           </div>
-          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" onClick={onClose}>
+          <SourceNavigation navigation={navigation} />
+          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" autoFocus={automatic} onClick={onClose}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
@@ -5395,27 +4995,6 @@ function clampPage(page: number, pageCount: number) {
   return Math.max(1, Math.min(page, pageCount))
 }
 
-function ThinkingMessage({ modelName, statusText }: { modelName: string; statusText?: string | null }) {
-  return (
-    <article className="message-row thinking-row" aria-live="polite">
-      <img className="message-avatar assistant assistant-mark" src={tokensmithAssistantMark} alt="" aria-hidden="true" />
-      <div>
-        <h3>
-          TokenSmith <span>{modelName}</span>
-          {statusText && <span className="thinking-inline-status">{statusText}</span>}
-        </h3>
-        {!statusText && (
-          <div className="thinking-bubble">
-            <span />
-            <span />
-            <span />
-          </div>
-        )}
-      </div>
-    </article>
-  )
-}
-
 function createIndexingCollection(
   title: string,
   collectionPath: string,
@@ -5457,26 +5036,11 @@ function createIndexingCollection(
 }
 
 function LibraryScreen(props: Omit<React.ComponentProps<typeof LibraryWorkspace>, 'onOpenSource'>) {
-  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null)
-  const [markdownViewer, setMarkdownViewer] = useState<MarkdownSourceDocument | null>(null)
-  const [sourceError, setSourceError] = useState('')
-  async function openSource(source: ChatSource) {
-    try {
-      setSourceError('')
-      if (isMarkdownSource(source)) {
-        const document = await window.tokensmith?.getMarkdownForSource(source)
-        if (document) setMarkdownViewer(document)
-      } else {
-        const document = await window.tokensmith?.getPdfForSource(source)
-        if (document) setPdfViewer({ ...document, searchTerm: searchTermForSource(source) })
-      }
-    } catch (error) { setSourceError(readableErrorMessage(error, 'Could not open the original document.')) }
-  }
+  const reader = useSourceReader(readSourceDocument)
   return <>
-    <LibraryWorkspace {...props} onOpenSource={openSource} />
-    {sourceError && <p className="inline-error" role="alert">{sourceError}</p>}
-    {pdfViewer && <PdfSourceViewer viewer={pdfViewer} onClose={() => setPdfViewer(null)} />}
-    {markdownViewer && <MarkdownSourceViewer viewer={markdownViewer} onClose={() => setMarkdownViewer(null)} />}
+    <LibraryWorkspace {...props} onOpenSource={(source, sources) => { void reader.open(source, sources) }} />
+    {reader.error && !reader.state && <p className="inline-error" role="alert">{reader.error}</p>}
+    {reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
   </>
 }
 
@@ -5674,6 +5238,7 @@ function ModelsScreen({
   onSelectModel,
   selectedEmbeddingModelId,
   selectedModelId,
+  modelSelectionLocked,
   onConnectCloud
 }: {
   engines: EngineInfo[]
@@ -5686,37 +5251,11 @@ function ModelsScreen({
   onSelectModel: (modelId: string) => void
   selectedEmbeddingModelId: string
   selectedModelId: string
+  modelSelectionLocked: boolean
   onConnectCloud: (model?: LocalModel) => void
 }) {
-  type RemoteProviderDraft = {
-    apiKey: string
-    baseUrl: string
-    role: LocalModelRole
-    modelName: string
-    models: string[]
-    isLoading: boolean
-    error?: string
-  }
-
   const [mode, setMode] = useState<'installed' | 'explore'>(models.length === 0 ? 'explore' : 'installed')
   const [exploreTab, setExploreTab] = useState<'ollama' | 'remote'>('ollama')
-  const [remoteDrafts, setRemoteDrafts] = useState<Record<RemoteProviderId, RemoteProviderDraft>>(() =>
-    remoteProviderCatalog.reduce(
-      (drafts, provider) => {
-        drafts[provider.id] = {
-          apiKey: '',
-          baseUrl: provider.baseUrl ?? '',
-          role: 'embedder',
-          modelName: '',
-          models: [],
-          isLoading: false
-        }
-
-        return drafts
-      },
-      {} as Record<RemoteProviderId, RemoteProviderDraft>
-    )
-  )
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [ollamaStatusState, setOllamaStatusState] = useState<'idle' | 'checking' | 'error'>('idle')
   const [ollamaError, setOllamaError] = useState<string | null>(null)
@@ -5725,7 +5264,19 @@ function ModelsScreen({
   const [ollamaSearchResults, setOllamaSearchResults] = useState<OllamaSearchResult[]>([])
   const [ollamaSearchStatus, setOllamaSearchStatus] = useState<'idle' | 'searching' | 'error'>('idle')
   const [ollamaSearchError, setOllamaSearchError] = useState<string | null>(null)
+  const {
+    capabilities: deviceCapabilities,
+    state: deviceCapabilityState,
+    error: deviceCapabilityError
+  } = useDeviceCapabilities(mode === 'explore')
   const runtimeDetail = engines.find((engine) => engine.id === 'tokensmith')?.detail ?? 'TokenSmith runtime'
+  const deviceRecommendation = useMemo<ModelRecommendation | null>(
+    () =>
+      deviceCapabilities
+        ? recommendModel(deviceCapabilities, localModelCatalog, defaultDeviceTierPolicy)
+        : null,
+    [deviceCapabilities]
+  )
 
   useEffect(() => {
     if (models.length === 0) {
@@ -5885,90 +5436,6 @@ function ModelsScreen({
     }
   }
 
-  function updateRemoteDraft(providerId: RemoteProviderId, draft: Partial<(typeof remoteDrafts)[RemoteProviderId]>) {
-    setRemoteDrafts((current) => ({
-      ...current,
-      [providerId]: {
-        ...current[providerId],
-        ...draft
-      }
-    }))
-  }
-
-  async function loadRemoteProviderModels(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const baseUrl = draft.baseUrl.trim()
-    const apiKey = draft.apiKey.trim()
-
-    if (!window.tokensmith || !apiKey || !baseUrl) {
-      return
-    }
-
-    updateRemoteDraft(provider.id, { isLoading: true, error: undefined })
-
-    try {
-      const visibleModels = await window.tokensmith.listRemoteProviderModels(apiKey, baseUrl, draft.role)
-
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: visibleModels,
-        modelName: draft.modelName || visibleModels[0] || '',
-        error:
-          visibleModels.length === 0
-            ? `No compatible ${draft.role === 'embedder' ? 'embedding' : 'chat'} models were returned by this provider.`
-            : undefined
-      })
-    } catch (error) {
-      updateRemoteDraft(provider.id, {
-        isLoading: false,
-        models: [],
-        error: error instanceof Error ? error.message : 'Could not load provider models.'
-      })
-    }
-  }
-
-  function installRemoteProviderModel(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const apiKey = draft.apiKey.trim()
-    const baseUrl = draft.baseUrl.trim()
-    const remoteModelName = draft.modelName.trim()
-
-    if (!apiKey || !baseUrl || !remoteModelName) {
-      updateRemoteDraft(provider.id, { error: 'API key, base URL, and model name are required.' })
-      return
-    }
-
-    const isEmbedder = draft.role === 'embedder'
-    const model: LocalModel = {
-      id: createId('model'),
-      name: provider.isCustom ? remoteModelName : `${provider.name} ${remoteModelName}`,
-      engine: 'remote',
-      role: draft.role,
-      status: 'ready',
-      source: 'remote',
-      providerId: provider.id,
-      providerName: provider.name,
-      baseUrl,
-      apiKey,
-      remoteModelName,
-      type: isEmbedder ? 'OpenAI-compatible embeddings' : 'OpenAI-compatible chat',
-      description: [
-        `${provider.name} remote ${isEmbedder ? 'embedding' : 'chat'} model`,
-        isEmbedder
-          ? 'Uses an OpenAI-compatible embeddings endpoint'
-          : 'Uses an OpenAI-compatible chat completions endpoint',
-        isEmbedder
-          ? 'Builds collection vectors and embeds questions for retrieval'
-          : 'Uses TokenSmith retrieval before sending source-backed prompts',
-        'API key is kept for this app session and redacted from saved state'
-      ],
-      addedAt: new Date().toISOString()
-    }
-
-    onAddModel(model)
-    setMode('installed')
-  }
-
   function modelStats(model: LocalModel) {
     if (model.engine === 'ollama') {
       const isOllamaEmbedder = modelCanEmbed(model) && !modelCanGenerate(model)
@@ -6000,25 +5467,7 @@ function ModelsScreen({
       ]
     }
 
-    if (modelCanEmbed(model) && !modelCanGenerate(model)) {
-      return [
-        { label: 'Role', value: 'Embedder Model' },
-        { label: 'File size', value: formatBytes(model.sizeBytes) },
-        { label: 'Quant', value: model.quant ?? modelQuantFromFilename(modelFilename(model)) },
-        { label: 'Type', value: model.type ?? modelTypeFromFilename(modelFilename(model)) }
-      ]
-    }
-
-    const filename = modelFilename(model)
-
-    return [
-      { label: 'Role', value: modelCanEmbed(model) ? 'Chat + Embedder Model' : 'Chat Model' },
-      { label: 'File size', value: formatBytes(model.sizeBytes) },
-      { label: 'RAM required', value: model.ramRequiredGb ? `${model.ramRequiredGb} GB` : 'Unknown' },
-      { label: 'Parameters', value: model.parameters ?? 'Unknown' },
-      { label: 'Quant', value: model.quant ?? modelQuantFromFilename(filename) },
-      { label: 'Type', value: model.type ?? modelTypeFromFilename(filename) }
-    ]
+    return []
   }
 
   function ollamaSearchStats(result: OllamaSearchResult, role: LocalModelRole) {
@@ -6182,7 +5631,7 @@ function ModelsScreen({
             className={`model-action-button ${isSelected ? 'is-selected' : ''}`}
             type="button"
             onClick={() => isEmbedderOnly ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}
-            disabled={isSelected}
+            disabled={isSelected || (!isEmbedderOnly && modelSelectionLocked)}
           >
             <Check size={17} aria-hidden="true" />
             <span>{selectedLabel}</span>
@@ -6203,7 +5652,7 @@ function ModelsScreen({
                   ? 'Used for PDF search'
                   : 'Used for local chat answers'
               : isEmbedderOnly
-                ? 'Used for collection and question embeddings'
+                ? 'Used for document and question embeddings'
                 : runtimeDetail}
           </small>
         </aside>
@@ -6221,11 +5670,13 @@ function ModelsScreen({
   }
 
   function renderInstalledModelCard(model: LocalModel) {
-    if (isCloudGenerator(model)) {
+    if (model.engine === 'remote') {
+      const isEmbedder = modelRole(model) === 'embedder'
+      const selected = isEmbedder ? model.id === selectedEmbeddingModelId : model.id === selectedModelId
       return <section className="cloud-generator-entry" key={model.id}>
-        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
+        <div><h2>{model.remoteModelName || model.name}</h2><p>{model.providerName || 'Cloud'} · {isEmbedder ? 'Embedding model' : 'Chat model'} · {model.status === 'ready' ? 'Connected' : 'Reconnect required'}</p></div>
         <div className="model-header-actions">
-          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={model.id === selectedModelId} onClick={() => onSelectModel(model.id)}>{model.id === selectedModelId ? 'Selected' : 'Use in chat'}</button>}
+          {model.status === 'ready' && <button type="button" className="secondary-action" disabled={selected || (!isEmbedder && modelSelectionLocked)} onClick={() => isEmbedder ? onSelectEmbeddingModel(model.id) : onSelectModel(model.id)}>{selected ? 'Selected' : isEmbedder ? 'Use for search' : 'Use in chat'}</button>}
           <button type="button" className="secondary-action" onClick={() => onConnectCloud(model)}>{model.status === 'ready' ? 'Connection settings' : 'Reconnect'}</button>
           <button type="button" className="icon-button" aria-label={`Remove ${model.remoteModelName || model.name}`} onClick={() => handleRemoveModel(model)}><Trash2 size={16} /></button>
         </div>
@@ -6237,8 +5688,7 @@ function ModelsScreen({
     const isEmbedderOnly = modelCanEmbed(displayModel) && !modelCanGenerate(displayModel)
     const bullets =
       displayModel.description ??
-      (displayModel.engine === 'ollama'
-        ? isEmbedderOnly
+      (isEmbedderOnly
           ? [
               'Local embedding model served by Ollama',
               'Prepares PDFs for search',
@@ -6250,20 +5700,7 @@ function ModelsScreen({
               'Used for answers after TokenSmith retrieves enabled source excerpts',
               'Works with PDFs prepared by TokenSmith',
               'Removing this model deletes it from Ollama'
-            ]
-        : isEmbedderOnly
-        ? [
-            'Local GGUF embedding model',
-            'Prepares PDFs for search',
-            'Used to embed questions before source retrieval',
-            'PDFs record the embedder used during preparation'
-          ]
-        : [
-            'Local GGUF chat model',
-            'Runs through the TokenSmith Python runtime',
-            'Used for answers after document retrieval',
-            'Works with PDFs prepared by TokenSmith'
-          ])
+            ])
 
     return (
       <section className="model-card" key={model.id}>
@@ -6289,109 +5726,7 @@ function ModelsScreen({
     )
   }
 
-  const installedModels = models.filter((model) => isCloudGenerator(model) || (model.status !== 'needsRuntime' && model.status !== 'missing'))
-
-  function renderRemoteProviderCard(provider: RemoteProviderCatalogItem) {
-    const draft = remoteDrafts[provider.id]
-    const canInstall = Boolean(draft.apiKey.trim() && draft.baseUrl.trim() && draft.modelName.trim())
-    const modelListId = `remote-models-${provider.id}`
-
-    return (
-      <section className="remote-provider-card" key={provider.id}>
-        <div className="remote-provider-main">
-          <div className="remote-provider-heading">
-            <img className="remote-provider-logo" src={remoteProviderLogoSources[provider.id]} alt={`${provider.name} logo`} />
-            <h2>{provider.name}</h2>
-          </div>
-          <p>{provider.description}</p>
-          {provider.apiKeyUrl && (
-            <a href={provider.apiKeyUrl} rel="noreferrer" target="_blank">
-              Get your API key
-            </a>
-          )}
-        </div>
-
-        <div className="remote-provider-form">
-          <label>
-            <span>API Key</span>
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder="enter API key"
-              value={draft.apiKey}
-              onChange={(event) => updateRemoteDraft(provider.id, { apiKey: event.target.value, error: undefined })}
-            />
-          </label>
-
-          {provider.isCustom && (
-            <label>
-              <span>Base URL</span>
-              <input
-                type="url"
-                placeholder="https://host.example/v1"
-                value={draft.baseUrl}
-                onChange={(event) => updateRemoteDraft(provider.id, { baseUrl: event.target.value, error: undefined })}
-              />
-            </label>
-          )}
-
-          <label>
-            <span>Model Type</span>
-            <select
-              value={draft.role}
-              onChange={(event) => {
-                const role = event.target.value as LocalModelRole
-                updateRemoteDraft(provider.id, { role, modelName: '', models: [], error: undefined })
-              }}
-            >
-              <option value="embedder">Embedder Model</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Model Name</span>
-            <input
-              list={provider.isCustom ? undefined : modelListId}
-              placeholder={provider.isCustom ? 'enter model name' : 'load models or enter model name'}
-              value={draft.modelName}
-              onChange={(event) => updateRemoteDraft(provider.id, { modelName: event.target.value, error: undefined })}
-            />
-            {!provider.isCustom && (
-              <datalist id={modelListId}>
-                {draft.models.map((modelName) => (
-                  <option key={modelName} value={modelName} />
-                ))}
-              </datalist>
-            )}
-          </label>
-
-          {!provider.isCustom && (
-            <button
-              className="model-action-button"
-              type="button"
-              disabled={!draft.apiKey.trim() || draft.isLoading}
-              onClick={() => loadRemoteProviderModels(provider)}
-            >
-              <RefreshCw size={16} aria-hidden="true" />
-              <span>{draft.isLoading ? 'Loading...' : 'Load Models'}</span>
-            </button>
-          )}
-
-          <button
-            className="model-action-button is-download"
-            type="button"
-            disabled={!canInstall}
-            onClick={() => installRemoteProviderModel(provider)}
-          >
-            <Plus size={16} aria-hidden="true" />
-            <span>Install</span>
-          </button>
-
-          {draft.error && <small className="model-download-error">{draft.error}</small>}
-        </div>
-      </section>
-    )
-  }
+  const installedModels = models.filter((model) => model.engine === 'remote' || (model.status !== 'needsRuntime' && model.status !== 'missing'))
 
   function renderOllamaModelAction(model: LocalModel, isInstalledInOllama: boolean) {
     const isEmbedderOnly = modelCanEmbed(model) && !modelCanGenerate(model)
@@ -6431,6 +5766,7 @@ function ModelsScreen({
 
   function renderOllamaModelCard({
     description,
+    isRecommended = false,
     modelInfo,
     modelName,
     role,
@@ -6438,6 +5774,7 @@ function ModelsScreen({
     title
   }: {
     description?: string[]
+    isRecommended?: boolean
     modelInfo?: OllamaModelInfo
     modelName: string
     role: LocalModelRole
@@ -6458,12 +5795,12 @@ function ModelsScreen({
     const displayModel = withOllamaInfo(model, modelInfo)
     const isUninstalledDefaultModel = !existingModel && !isInstalledInOllama && !searchResult
     const bullets =
-      isUninstalledDefaultModel
+      description ??
+      (isUninstalledDefaultModel
         ? []
-        : description ??
-          (searchResult?.description ? [searchResult.description] : undefined) ??
+        : (searchResult?.description ? [searchResult.description] : undefined) ??
           displayModel.description ??
-          []
+          [])
     const roleClassName = modelCanEmbed(model) && !modelCanGenerate(model) ? 'is-embedder' : 'is-chat'
     const stats =
       searchResult && !existingModel && !isInstalledInOllama
@@ -6471,12 +5808,18 @@ function ModelsScreen({
         : modelStats(displayModel)
 
     return (
-      <section className="model-card" key={`${role}-${modelName}`}>
+      <section className={`model-card ${isRecommended ? 'is-device-recommended' : ''}`} key={`${role}-${modelName}`}>
         <div className="model-card-main">
           <div className="model-title-row">
             <div className="model-title-heading">
               <h2>{title ?? searchResult?.name ?? (isUninstalledDefaultModel ? modelName : displayModelName(displayModel))}</h2>
               <span className={`model-role-badge ${roleClassName}`}>{modelRoleLabel(displayModel)}</span>
+              {isRecommended && (
+                <span className="model-recommendation-badge">
+                  <Sparkles size={13} aria-hidden="true" />
+                  Recommended for this device
+                </span>
+              )}
             </div>
             <p>{isUninstalledDefaultModel ? 'Not installed in Ollama' : displayModel.ollamaModelName ?? modelName}</p>
           </div>
@@ -6495,7 +5838,7 @@ function ModelsScreen({
   }
 
   function renderOllamaExplore() {
-    const recommendedCards = [
+    const modelCards = [
       {
         modelName: recommendedOllamaEmbeddingModel,
         role: 'embedder' as LocalModelRole,
@@ -6506,20 +5849,18 @@ function ModelsScreen({
           'Download this first if you only want to add PDFs'
         ]
       },
-      {
-        modelName: recommendedOllamaChatModel,
+      ...localModelCatalog.map((profile) => ({
+        modelName: profile.id,
         role: 'generator' as LocalModelRole,
-        title: 'Llama 3 Chat Model',
+        title: profile.displayName,
         description: [
-          'Local chat model served by Ollama',
-          'Answers after TokenSmith retrieves PDF sources',
-          'Download this when you want local chat'
+          `${profile.parameterLabel} parameters · ${profile.quantizationLabel} quantization · ${formatModelArtifactSize(profile.artifactSizeBytes)} download`
         ]
-      }
+      }))
     ]
-    const recommendedNames = new Set(recommendedCards.map((card) => card.modelName.toLowerCase()))
+    const policyModelNames = new Set(modelCards.map((card) => card.modelName.toLowerCase()))
     const otherInstalledModels = (ollamaStatus?.models ?? []).filter(
-      (model) => !recommendedNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
+      (model) => !policyModelNames.has(model.name.toLowerCase().replace(/:latest$/, ''))
     )
     const customModelName = ollamaDraftName.trim()
     const hasSearchResults = ollamaSearchResults.length > 0
@@ -6529,6 +5870,13 @@ function ModelsScreen({
         <p className="model-explore-copy">
           Download or connect Ollama models for local chat and PDF search.
         </p>
+
+        <DeviceRecommendationPanel
+          capabilities={deviceCapabilities}
+          error={deviceCapabilityError}
+          recommendation={deviceRecommendation}
+          state={deviceCapabilityState}
+        />
 
         <div className="ollama-model-toolbar">
           <button className="model-action-button" type="button" onClick={refreshOllamaModels} disabled={ollamaStatusState === 'checking'}>
@@ -6598,9 +5946,13 @@ function ModelsScreen({
               )
             : (
                 <>
-                  {recommendedCards.map((card) =>
+                  {modelCards.map((card) =>
                     renderOllamaModelCard({
                       ...card,
+                      isRecommended:
+                        card.role === 'generator' &&
+                        deviceRecommendation?.kind === 'local' &&
+                        deviceRecommendation.recommendedModelId === card.modelName,
                       modelInfo: ollamaInfoForModel(card.modelName)
                     })
                   )}
@@ -6649,12 +6001,9 @@ function ModelsScreen({
         {exploreTab === 'remote' && (
           <>
             <p className="model-explore-copy">
-              Connect a cloud service for chat answers. Your PDF search model is managed separately.
+              Connect a provider once, then add any compatible chat or embedding model with that same API key.
             </p>
-            <div className="cloud-generator-entry"><div><h2>Cloud chat models</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a cloud model</button></div>
-            <details className="cloud-generator-advanced"><summary>Advanced: remote embedding models</summary><div className="remote-provider-grid">
-              {remoteProviderCatalog.map((provider) => renderRemoteProviderCard(provider))}
-            </div></details>
+            <div className="cloud-generator-entry"><div><h2>Online providers</h2><p>Connect once, choose a model, and get back to studying.</p></div><button type="button" className="primary-action" onClick={() => onConnectCloud()}>Connect a provider</button></div>
           </>
         )}
 
@@ -6668,7 +6017,7 @@ function ModelsScreen({
         <div>
           <p className="section-kicker">Models</p>
           <h1>Your models</h1>
-          <p>Chat models answer questions. Embedder models build and search collection vectors.</p>
+          <p>Chat models answer questions. Embedder models build and search document vectors.</p>
         </div>
         <div className="model-header-actions">
           <button className="primary-action" type="button" onClick={() => onConnectCloud()}><Plus size={18} /><span>Connect cloud model</span></button>
@@ -6686,7 +6035,7 @@ function ModelsScreen({
       {installedModels.length === 0 && (
         <div className="model-empty-state">
           <h2>No Models Installed</h2>
-          <p>Add or connect a chat model for answers and an embedder model for collection search.</p>
+          <p>Add or connect a chat model for answers and an embedder model for Library search.</p>
         </div>
       )}
     </div>
@@ -6696,24 +6045,21 @@ function ModelsScreen({
 function SettingsScreen({
   models,
   onSettingsChange,
-  settings
+  settings,
+  isIndexing
 }: {
   models: LocalModel[]
   onSettingsChange: (settings: Partial<TokenSmithSettings>) => void
   settings: TokenSmithSettings
+  isIndexing: boolean
 }) {
   const [activePane, setActivePane] = useState<'application' | 'model'>('application')
-  const generatorModels = useMemo(() => models.filter(modelCanGenerate), [models])
-  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId || generatorModels[0]?.id || '')
-  const selectedModel =
-    generatorModels.find((model) => model.id === selectedModelId) ?? firstGeneratorModel(generatorModels)
+  const generatorModels = useMemo(() => models.filter(isAnswerModel), [models])
+  const [selectedModelId, setSelectedModelId] = useState(settings.application.defaultModelId)
+  const selectedModel = answerModel(generatorModels, selectedModelId)
   const activeModelSettings = selectedModel ? modelSettingsFor(settings, selectedModel.id) : settings.modelDefaults
-
-  useEffect(() => {
-    if (!generatorModels.some((model) => model.id === selectedModelId)) {
-      setSelectedModelId(firstGeneratorModel(generatorModels)?.id ?? '')
-    }
-  }, [generatorModels, selectedModelId])
+  const modelOptions = [{ label: 'Choose a model', value: '' }, ...generatorModels.map(model => ({
+    label: `${displayModelName(model)}${model.status === 'ready' ? '' : ' (unavailable)'}`, value: model.id }))]
 
   function updateApplicationSettings(application: Partial<ApplicationSettings>, root: Partial<TokenSmithSettings> = {}) {
     onSettingsChange({
@@ -6745,7 +6091,7 @@ function SettingsScreen({
     updateApplicationSettings(
       {
         ...defaultApplicationSettings,
-        defaultModelId: firstGeneratorModel(generatorModels)?.id ?? ''
+        defaultModelId: settings.application.defaultModelId
       },
       { maxSources: defaultSettings.maxSources }
     )
@@ -6785,6 +6131,16 @@ function SettingsScreen({
             <SettingsPageHeader title="Application Settings" />
 
             <SettingsGroup title="Appearance">
+              <SettingsRow label="Font size" description="Adjust text throughout the app. Changes apply immediately.">
+                <SelectField
+                  ariaLabel="Font size"
+                  value={settings.application.fontSize}
+                  onChange={(fontSize) =>
+                    updateApplicationSettings({ fontSize: fontSize as ApplicationSettings['fontSize'] })
+                  }
+                  options={fontSizeOptions}
+                />
+              </SettingsRow>
               <ThemePicker
                 value={settings.application.theme}
                 onChange={(theme) => updateApplicationSettings({ theme })}
@@ -6792,31 +6148,14 @@ function SettingsScreen({
             </SettingsGroup>
 
             <SettingsGroup title="General">
-              <SettingsRow label="Font Size" description="The size of text in the application.">
-                <SelectField
-                  ariaLabel="Font size"
-                  value={settings.application.fontSize}
-                  onChange={(fontSize) =>
-                    updateApplicationSettings({ fontSize: fontSize as ApplicationSettings['fontSize'] })
-                  }
-                  options={[
-                    { label: 'Small', value: 'small' },
-                    { label: 'Medium', value: 'medium' },
-                    { label: 'Large', value: 'large' }
-                  ]}
-                />
-              </SettingsRow>
-              <SettingsRow label="Default Model" description="The preferred model for new chats.">
+              <SettingsRow label="Default Model" description="The model for new chats and practice sessions. Existing sessions keep their model.">
                 <SelectField
                   ariaLabel="Default model"
                   value={settings.application.defaultModelId}
                   onChange={(defaultModelId) => updateApplicationSettings({ defaultModelId })}
                   disabled={generatorModels.length === 0}
-                  options={
-                    generatorModels.length > 0
-                      ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                      : [{ label: 'No chat model configured', value: '' }]
-                  }
+                  options={settings.application.defaultModelId && !answerModel(generatorModels, settings.application.defaultModelId)
+                    ? [{ label: 'Selected model unavailable', value: settings.application.defaultModelId }, ...modelOptions] : modelOptions}
                 />
               </SettingsRow>
               <SettingsRow
@@ -6884,14 +6223,22 @@ function SettingsScreen({
                   ]}
                 />
               </SettingsRow>
-              <SettingsRow label="CPU Threads" description="The number of CPU threads used for inference.">
-                <NumberField
-                  ariaLabel="CPU threads"
-                  min={1}
-                  max={64}
-                  step={1}
-                  value={settings.application.cpuThreads}
-                  onChange={(cpuThreads) => updateApplicationSettings({ cpuThreads })}
+              <SettingsRow
+                label="Explanation Depth"
+                description="Show a depth picker in the chat bar so you can ask for a simpler or more in-depth explanation question by question."
+              >
+                <CheckboxField
+                  ariaLabel="Explanation depth"
+                  checked={settings.application.explanationDepthEnabled}
+                  onChange={(explanationDepthEnabled) => updateApplicationSettings({ explanationDepthEnabled })}
+                />
+              </SettingsRow>
+              <SettingsRow label="GPU Acceleration for Document Search" description={isIndexing ? 'Available after document preparation finishes.' : 'Use available GPU acceleration for Ollama embeddings. Turn off to use the CPU for indexing and search. Chat models are unchanged.'}>
+                <CheckboxField
+                  ariaLabel="GPU acceleration for document search"
+                  checked={settings.application.embeddingGpuEnabled}
+                  disabled={isIndexing}
+                  onChange={(embeddingGpuEnabled) => updateApplicationSettings({ embeddingGpuEnabled })}
                 />
               </SettingsRow>
               <SettingsRow label="Maximum Sources" description="Maximum retrieved sources to include in answers.">
@@ -6920,11 +6267,7 @@ function SettingsScreen({
                 value={selectedModel?.id ?? ''}
                 onChange={setSelectedModelId}
                 disabled={generatorModels.length === 0}
-                options={
-                  generatorModels.length > 0
-                    ? generatorModels.map((model) => ({ label: displayModelName(model), value: model.id }))
-                    : [{ label: 'No chat model configured', value: '' }]
-                }
+                options={modelOptions}
               />
             </div>
 
@@ -6961,15 +6304,6 @@ function SettingsScreen({
                       onChange={(systemMessage) => updateModelSettings({ systemMessage })}
                     />
                   </SettingsRow>
-                  <SettingsRow label="Chat Template" description="This Jinja template turns the chat into input for the model." wide>
-                    <TextAreaField
-                      ariaLabel="Chat template"
-                      mono
-                      minRows={7}
-                      value={activeModelSettings.chatTemplate}
-                      onChange={(chatTemplate) => updateModelSettings({ chatTemplate })}
-                    />
-                  </SettingsRow>
                   <SettingsRow label="Initial Question Prompt" description="" wide>
                     <TextAreaField
                       ariaLabel="Initial question prompt"
@@ -6991,30 +6325,44 @@ function SettingsScreen({
                 </SettingsGroup>
 
                 <SettingsGroup title="Generation">
-                  <SettingsRow label="Device" description="The compute device used for text generation.">
-                    <SelectField
-                      ariaLabel="Device"
-                      value={activeModelSettings.device}
-                      onChange={(device) => updateModelSettings({ device: device as ComputeDevice })}
-                      options={[
-                        { label: 'Application default', value: 'applicationDefault' },
-                        { label: 'CPU', value: 'cpu' },
-                        { label: 'GPU', value: 'gpu' }
-                      ]}
-                    />
-                  </SettingsRow>
+                  {selectedModel.engine === 'ollama' && (
+                    <div className="settings-row">
+                      <span><strong>Reasoning</strong><small>Auto saves reasoning for calculations and problems that need several steps.</small></span>
+                      <fieldset className="reasoning-mode" aria-label="Reasoning">
+                        {(['auto', 'off', 'on'] as const).map(mode => (
+                          <label key={mode}>
+                            <input type="radio" name="reasoning-mode" value={mode}
+                              checked={activeModelSettings.reasoningMode === mode}
+                              onChange={() => updateModelSettings({ reasoningMode: mode, thinking: mode === 'on' })} />
+                            <span>{mode === 'auto' ? 'Auto' : mode === 'off' ? 'Off' : 'On'}</span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    </div>
+                  )}
                   <div className="settings-two-column">
-                    <SettingsRow label="Context Length" description="Number of input and output tokens the model sees.">
-                      <NumberField
-                        ariaLabel="Context length"
-                        min={512}
-                        max={32768}
-                        step={256}
-                        value={activeModelSettings.contextLength}
-                        onChange={(contextLength) => updateModelSettings({ contextLength })}
-                      />
+                    <SettingsRow label="Context Length" description={selectedModel.inputTokenLimit
+                      ? `Input limit: ${selectedModel.inputTokenLimit.toLocaleString()} tokens.`
+                      : selectedModel.contextLength
+                        ? `Model limit: ${selectedModel.contextLength.toLocaleString()} tokens.`
+                        : `Model limit unavailable. Auto uses ${fallbackContextLength.toLocaleString()} tokens.`}>
+                      <div>
+                        <SelectField ariaLabel="Context size" value={usesAutomaticContext(activeModelSettings) ? 'auto' : 'manual'}
+                          options={[{ label: 'Auto', value: 'auto' }, { label: 'Custom', value: 'manual' }]}
+                          onChange={mode => updateModelSettings({ contextLengthMode: mode as 'auto' | 'manual' })} />
+                        {!usesAutomaticContext(activeModelSettings) && <NumberField
+                          ariaLabel="Context length"
+                          min={512}
+                          max={reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER}
+                          step={256}
+                          value={Math.min(activeModelSettings.contextLength, reportedContextLimit(selectedModel, activeModelSettings) ?? Infinity)}
+                          onChange={(contextLength) => updateModelSettings({ contextLengthMode: 'manual', contextLength: Math.min(
+                            Math.max(512, contextLength), reportedContextLimit(selectedModel, activeModelSettings) ?? Number.MAX_SAFE_INTEGER) })}
+                        />}
+                      </div>
                     </SettingsRow>
-                    <SettingsRow label="Max Length" description="Maximum response length, in tokens.">
+                    <SettingsRow label="Max Length" description={selectedModel.engine === 'ollama'
+                      ? 'Output token allowance. Reasoning reserves at least 4,096 tokens.' : 'Maximum generated tokens.'}>
                       <NumberField
                         ariaLabel="Max length"
                         min={64}
@@ -7022,16 +6370,6 @@ function SettingsScreen({
                         step={64}
                         value={activeModelSettings.maxLength}
                         onChange={(maxLength) => updateModelSettings({ maxLength })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="Prompt Batch Size" description="The batch size used for prompt processing.">
-                      <NumberField
-                        ariaLabel="Prompt batch size"
-                        min={1}
-                        max={4096}
-                        step={1}
-                        value={activeModelSettings.promptBatchSize}
-                        onChange={(promptBatchSize) => updateModelSettings({ promptBatchSize })}
                       />
                     </SettingsRow>
                     <SettingsRow label="Temperature" description="Randomness of model output. Higher means more variation.">
@@ -7072,26 +6410,6 @@ function SettingsScreen({
                         step={0.01}
                         value={activeModelSettings.minP}
                         onChange={(minP) => updateModelSettings({ minP })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="Repeat Penalty Tokens" description="Number of previous tokens used for penalty.">
-                      <NumberField
-                        ariaLabel="Repeat penalty tokens"
-                        min={0}
-                        max={4096}
-                        step={1}
-                        value={activeModelSettings.repeatPenaltyTokens}
-                        onChange={(repeatPenaltyTokens) => updateModelSettings({ repeatPenaltyTokens })}
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="GPU Layers" description="Number of model layers to load into VRAM. Use -1 for all.">
-                      <NumberField
-                        ariaLabel="GPU layers"
-                        min={-1}
-                        max={999}
-                        step={1}
-                        value={activeModelSettings.gpuLayers}
-                        onChange={(gpuLayers) => updateModelSettings({ gpuLayers })}
                       />
                     </SettingsRow>
                     <SettingsRow label="Repeat Penalty" description="Repetition penalty factor. Set to 1 to disable.">
@@ -7248,16 +6566,19 @@ function NumberField({
 function CheckboxField({
   ariaLabel,
   checked,
+  disabled,
   onChange
 }: {
   ariaLabel: string
   checked: boolean
+  disabled?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
     <input
       aria-label={ariaLabel}
       checked={checked}
+      disabled={disabled}
       className="settings-checkbox"
       onChange={(event) => onChange(event.currentTarget.checked)}
       type="checkbox"

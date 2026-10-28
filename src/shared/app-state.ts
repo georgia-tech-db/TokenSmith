@@ -2,6 +2,9 @@ import type { AnswerConfidence } from './confidence'
 
 import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
+import type { LatencyTrace } from './latency-trace'
+import type { PracticeReference, PracticeState } from './practice'
+import type { StudyDocumentRef } from './study-scope'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
 
@@ -65,13 +68,12 @@ export interface CourseMaterial {
 export interface LocalModel {
   id: string
   name: string
-  engine: 'python' | 'ollama' | 'remote'
+  engine: 'ollama' | 'remote'
   role?: LocalModelRole
   status: 'ready' | 'needsRuntime' | 'missing' | 'downloading' | 'incomplete' | 'downloadError'
   source?: 'bundled' | 'local' | 'downloaded' | 'ollama' | 'remote'
   filename?: string
   path?: string
-  embeddingPath?: string
   ollamaModelName?: string
   ollamaBaseUrl?: string
   providerId?: 'groq' | 'openai' | 'gemini' | 'mistral' | 'custom'
@@ -85,6 +87,8 @@ export interface LocalModel {
   sizeBytes?: number
   ramRequiredGb?: number
   contextLength?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
   parameters?: string
   quant?: string
   type?: string
@@ -94,10 +98,11 @@ export interface LocalModel {
 }
 
 export type AppTheme = 'light' | 'sarah-and-duck'
-export type AppFontSize = 'small' | 'medium' | 'large'
+export type AppFontSize = 'extra-small' | 'small' | 'normal' | 'large' | 'extra-large'
 export type SuggestionMode = 'on' | 'off'
 export type SearchMode = 'vector' | 'keyword' | 'hybrid'
-export type ComputeDevice = 'applicationDefault' | 'cpu' | 'gpu'
+export type ExplanationDepth = 'simple' | 'standard' | 'detailed'
+export type ReasoningMode = 'auto' | 'off' | 'on'
 
 export interface ApplicationSettings {
   theme: AppTheme
@@ -105,27 +110,27 @@ export interface ApplicationSettings {
   defaultModelId: string
   suggestionMode: SuggestionMode
   searchMode: SearchMode
+  explanationDepthEnabled: boolean
+  explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
-  cpuThreads: number
+  embeddingGpuEnabled: boolean
 }
 
 export interface ModelRuntimeSettings {
   systemMessage: string
-  chatTemplate: string
   suggestedFollowUpPrompt: string
   starterQuestionPrompt?: string
   contextLength: number
+  contextLengthMode?: 'auto' | 'manual'
   maxLength: number
-  promptBatchSize: number
+  thinking?: boolean
+  reasoningMode?: ReasoningMode
   temperature: number
   topP: number
   topK: number
   minP: number
-  repeatPenaltyTokens: number
   repeatPenalty: number
-  gpuLayers: number
-  device: ComputeDevice
 }
 
 export type MessageRole = 'user' | 'assistant'
@@ -165,41 +170,71 @@ export interface ChatSource {
   chunkEmbeddingModel?: string
 }
 
+export interface ChatSelectedPassage {
+  messageId: string
+  role: MessageRole
+  text: string
+  question?: string
+}
+
+export interface AnswerReasoning {
+  modelId: string
+  supported?: boolean
+  used: boolean
+}
+
+export type AnswerView = 'original' | 'simple' | 'reasoning'
+
+export interface AnswerVariant {
+  text: string
+  sources: ChatSource[]
+  responseDurationMs: number
+  reasoning?: AnswerReasoning
+  confidence?: AnswerConfidence
+  followUpSuggestions?: string[]
+  followUpError?: string
+  latencyTrace?: LatencyTrace
+}
+
 export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
-  /** The model's original answer when the scorer replaced it with an abstention. */
-  suppressedText?: string
+  selectedPassage?: ChatSelectedPassage
   sources?: ChatSource[]
+  reasoning?: AnswerReasoning
   confidence?: AnswerConfidence
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
+  // The depth this answer was written at, so the reader knows what produced it.
+  explanationDepth?: ExplanationDepth
+  answerContext?: {
+    prompt: string
+    selectedPassage?: ChatSelectedPassage
+    answerPrompt?: string
+    retrievalQuery?: string
+    conversationContextMode?: 'standalone' | 'contextual'
+    referenceExchange?: { question: string; answer: string }
+    modelSettings?: ModelRuntimeSettings
+    applicationSettings?: ApplicationSettings
+  }
+  simplerExplanation?: AnswerVariant
+  reasoningAnswer?: AnswerVariant
+  explanationView?: AnswerView
   responseDurationMs?: number
   followUpSuggestions?: string[]
   followUpError?: string
-  kind?: 'chat' | 'quizQuestion' | 'quizAnswer' | 'quizFeedback'
-  quiz?: {
-    questionNumber?: number
-    totalQuestions?: number
-    complete?: boolean
-  }
-}
-
-export interface QuizState {
-  active: boolean
-  questionNumber: number
-  totalQuestions: number
-  currentQuestion: string
-  currentSources: ChatSource[]
-  usedSourceKeys?: string[]
+  latencyTrace?: LatencyTrace
 }
 
 export interface Conversation {
   id: string
+  modelId: string
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
-  quizState?: QuizState
+  practiceReference?: PracticeReference
+  practiceSuggestions?: string[]
+  documentScope?: StudyDocumentRef[]
 }
 
 export interface TokenSmithSettings {
@@ -215,9 +250,10 @@ export interface AppStateSnapshot {
   activeScreen: ScreenId
   activeConversationId: string
   conversations: Conversation[]
+  practice?: PracticeState
+  studyScope?: StudyDocumentRef[]
   materials: CourseMaterial[]
   models: LocalModel[]
-  selectedModelId: string
   selectedEmbeddingModelId: string
   settings: TokenSmithSettings
   updatedAt: string

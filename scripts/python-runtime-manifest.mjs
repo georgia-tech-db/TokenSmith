@@ -39,3 +39,21 @@ export function standaloneRuntime(platform = process.platform, arch = process.ar
     url: `${releaseBaseUrl}/${runtime.filename.replace('+', '%2B')}`
   }
 }
+
+// The NLI cross-encoder that checks whether retrieved passages entail an
+// answer's claims. Pinned to a Hugging Face revision; update the revision and
+// every SHA-256 together.
+const nliModelRepo = 'Xenova/deberta-v3-base-tasksource-nli'
+const nliModelRevision = 'b2f7405d6a3d25f3fcce84c5cdbd54eac6587578'
+
+export const nliModel = {
+  name: 'deberta-v3-base-tasksource-nli',
+  files: [
+    { path: 'config.json', sha256: 'a3b1f85299f8c6b1ecf57e73a58bd3d136af6e3b40a9f95917a0d7b9dfdf61dd' },
+    { path: 'tokenizer.json', sha256: 'fa89bd3f10b58dfd80d4d673771fb24a40386d53053e9dbb4a08976c069a00f1' },
+    { path: 'onnx/model_quantized.onnx', sha256: '442bf6ec019b56558029cf301fce36e50bda4cb3ce332a98dfe2748d6a4ad3e0' }
+  ].map((file) => ({
+    ...file,
+    url: `https://huggingface.co/${nliModelRepo}/resolve/${nliModelRevision}/${file.path}`
+  }))
+}
