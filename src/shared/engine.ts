@@ -9,6 +9,7 @@ import type {
   ModelRuntimeSettings,
   TokenSmithSettings
 } from './app-state'
+import type { AnswerConfidence } from './confidence'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { LatencySpan, LatencyTrace } from './latency-trace'
 
@@ -72,6 +73,7 @@ export interface EngineChatResponse {
   sources: ChatSource[]
   reasoning?: AnswerReasoning
   latencyTrace?: LatencyTrace
+  confidence?: AnswerConfidence
   followUpSuggestions?: string[]
   followUpError?: string
 }

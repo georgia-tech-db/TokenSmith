@@ -29,6 +29,10 @@ const tokenSmithBridge: TokenSmithBridge = {
       ipcRenderer.off('engine:answer-ready', listener)
     }
   },
+  scoreChatAnswer: (request, response) =>
+    ipcRenderer.invoke('engine:score-answer', request, response) as Promise<
+      Awaited<ReturnType<TokenSmithBridge['scoreChatAnswer']>>
+    >,
   cancelChatRequest: requestId => ipcRenderer.invoke('engine:cancel-chat', requestId),
   suggestChatQuestions: (requestId, request) =>
     ipcRenderer.invoke('engine:suggest-questions', requestId, request) as Promise<

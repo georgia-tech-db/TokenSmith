@@ -1,5 +1,6 @@
 import type { IndexMaterialOptions, PreparationReport } from './preparation'
 import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from './study-scope'
+import type { AnswerConfidence } from './confidence'
 import type {
   AppStateSnapshot,
   ChatSource,
@@ -48,6 +49,7 @@ export interface TokenSmithBridge {
   saveAppState: (state: AppStateSnapshot) => Promise<AppStateSnapshot>
   listEngines: () => Promise<EngineInfo[]>
   sendChatMessage: (request: EngineChatRequest, onAnswer?: (answer: EngineChatResponse, hasFollowUps: boolean) => void) => Promise<EngineChatResponse>
+  scoreChatAnswer: (request: EngineChatRequest, response: EngineChatResponse) => Promise<AnswerConfidence>
   cancelChatRequest: (requestId: string) => Promise<void>
   resolveChatQuestion: (request: EngineQuestionRewriteRequest) => Promise<QuestionRewrite>
   suggestChatQuestions: (requestId: string, request: EngineQuestionSuggestionRequest) => Promise<EngineQuestionSuggestionResponse>

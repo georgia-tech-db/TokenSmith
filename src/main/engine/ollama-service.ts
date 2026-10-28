@@ -17,7 +17,7 @@ import { effectiveContextLength, localContextForTokens, usesAutomaticContext } f
 import { withModelContextMetadata } from './model-context-metadata'
 import { practiceResponseSchema } from '../../shared/quiz'
 import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../shared/latency-trace'
-import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
+import { questionRewriteMessages, questionRewriteSchema, resolveQuestionRewriteText } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -1021,22 +1021,21 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   const text = await runOllamaChatCompletion(baseUrl, request.model.ollamaModelName, messages, runtime.modelSettings, {
     maxTokens: 512, temperature: 0, format: questionRewriteSchema, signal
   })
-  try {
-    const parsed = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
-    const resolution: QuestionRewrite = automatic && !canReason ? { ...parsed, reasoning: false } : parsed
-    writeTokenSmithLog('chat_question_rewrite', {
-      modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
-      rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
-      durationMs: performance.now() - started
-    })
-    return resolution
-  } catch (error) {
+  const { rewrite: parsed, fallbackReason, reasoningMissing } = resolveQuestionRewriteText(text, request.prompt, Boolean(request.selectedPassage))
+  if (fallbackReason && reasoningMissing && canReason) {
+    // Auto must decide reasoning; a response without that decision is never read as "off".
     writeTokenSmithLog('chat_question_rewrite_error', {
-      modelName: request.model.ollamaModelName, prompt: request.prompt, rawResponse: text,
-      error: errorMessage(error, 'Question rewrite failed.')
+      modelName: request.model.ollamaModelName, prompt: request.prompt, rawResponse: text, error: fallbackReason
     })
-    throw error
+    throw new Error(fallbackReason)
   }
+  const resolution: QuestionRewrite = automatic && !canReason ? { ...parsed, reasoning: false } : parsed
+  writeTokenSmithLog(fallbackReason ? 'chat_question_rewrite_fallback' : 'chat_question_rewrite', {
+    modelName: request.model.ollamaModelName, prompt: request.prompt, modelMessages: messages,
+    rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
+    durationMs: performance.now() - started, ...(fallbackReason ? { error: fallbackReason } : {})
+  })
+  return resolution
 }
 
 async function generateOllamaFollowUpSuggestions(

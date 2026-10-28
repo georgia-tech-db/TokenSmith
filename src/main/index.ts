@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
-import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
+import { listEngines, resolveChatQuestion, scoreChatAnswer, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   cancelMaterialIndexingWithPython,
   indexMaterialWithPython,
@@ -47,6 +47,7 @@ import { removeRetiredModelState } from '../shared/retired-model-state'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
+  EngineChatResponse,
   EngineQuestionSuggestionRequest,
   EngineQuestionRewriteRequest,
   MarkdownSourceDocument,
@@ -496,6 +497,9 @@ app.whenReady().then(async () => {
       if (chatRequests.get(key) === controller) chatRequests.delete(key)
     }
   })
+  ipcMain.handle('engine:score-answer', (_event, request: EngineChatRequest, response: EngineChatResponse) =>
+    scoreChatAnswer(request, response)
+  )
   ipcMain.handle('engine:resolve-question', async (event, request: EngineQuestionRewriteRequest) => {
     const key = `${event.sender.id}:${request.requestId}`
     const controller = new AbortController()

@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { standaloneRuntime } from './python-runtime-manifest.mjs'
+import { nliModel, standaloneRuntime } from './python-runtime-manifest.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const appRuntimeRoot = join(root, 'app_runtime', 'python')
+const nliModelRoot = join(root, 'app_runtime', 'models', nliModel.name)
 const appRuntimePython = process.platform === 'win32'
   ? join(appRuntimeRoot, 'python.exe')
   : join(appRuntimeRoot, 'bin', 'python')
@@ -200,7 +201,7 @@ async function sha256(filePath) {
 async function downloadFile(url, destination) {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) {
-    throw new Error(`Could not download the Python runtime: HTTP ${response.status} ${response.statusText}.`)
+    throw new Error(`Could not download ${url}: HTTP ${response.status} ${response.statusText}.`)
   }
 
   await pipeline(Readable.fromWeb(response.body), createWriteStream(destination))
@@ -232,6 +233,28 @@ async function downloadStandaloneRuntime() {
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
+}
+
+async function downloadNliModel() {
+  for (const file of nliModel.files) {
+    const destination = join(nliModelRoot, file.path)
+    if (existsSync(destination) && (await sha256(destination)) === file.sha256) {
+      continue
+    }
+
+    console.log(`[python-runtime] Downloading ${nliModel.name}/${file.path}.`)
+    mkdirSync(dirname(destination), { recursive: true })
+    const partial = `${destination}.partial`
+    await downloadFile(file.url, partial)
+    const actualSha256 = await sha256(partial)
+    if (actualSha256 !== file.sha256) {
+      rmSync(partial, { force: true })
+      throw new Error(`${nliModel.name}/${file.path} checksum mismatch: expected ${file.sha256}, received ${actualSha256}.`)
+    }
+    renameSync(partial, destination)
+  }
+
+  console.log(`[python-runtime] Verified NLI model ${nliModel.name}.`)
 }
 
 function installRuntimeDependencies(python) {
@@ -399,9 +422,11 @@ async function setup() {
     process.exit(1)
   }
 
+  await downloadNliModel()
+
   status = runPython(appRuntimePython, [
     '-c',
-    'import faiss, importlib.util, numpy, pypdfium2, PIL, sys; assert importlib.util.find_spec("llama_cpp") is None; print("TokenSmith app_runtime ready:", sys.executable)'
+    'import faiss, importlib.util, numpy, onnxruntime, pypdfium2, PIL, sys, tokenizers; assert importlib.util.find_spec("llama_cpp") is None; print("TokenSmith app_runtime ready:", sys.executable)'
   ])
   if (status !== 0) {
     process.exit(status)
@@ -445,6 +470,12 @@ if (task === 'setup' || task === 'setup-runtime') {
   process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']))
 } else if (task === 'benchmark') {
   runBenchmark()
+} else if (task === 'nli-benchmark') {
+  const python = requireRuntimePython()
+  process.exit(runNode('tests/benchmarks/test_buzzdb_nli.mjs', [], {
+    TOKENSMITH_BENCHMARK_PYTHON: python.executable,
+    ...pythonEnv(python.executable)
+  }))
 } else if (task === 'embedding-benchmark') {
   const python = requireRuntimePython()
   process.exit(runPython(

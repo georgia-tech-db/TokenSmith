@@ -7,7 +7,7 @@ import { prepareLatencyPlan } from './latency-plan'
 import { QueryPlanPanel } from './QueryPlanPanel'
 import './answer-explanation.css'
 
-export function AnswerExplanation({ message, pending, error, errorView, disabled, onSimplify, onReasoning, onPractice, practiceDisabled, onSelectView }: {
+export function AnswerExplanation({ message, pending, error, errorView, disabled, onSimplify, onReasoning, onPractice, practiceDisabled, onSelectView, displayText, onCite }: {
   message: ChatMessage
   pending: boolean
   error?: string
@@ -18,6 +18,9 @@ export function AnswerExplanation({ message, pending, error, errorView, disabled
   onPractice?: () => void
   practiceDisabled?: boolean
   onSelectView: (view: AnswerView) => void
+  /** The displayed answer with citation markers, when it has checked claims. */
+  displayText?: string
+  onCite?: (claimIndex: number) => void
 }) {
   const [planOpen, setPlanOpen] = useState(false)
   const panelId = useId()
@@ -51,7 +54,7 @@ export function AnswerExplanation({ message, pending, error, errorView, disabled
         Reasoning
       </button>}
     </div>}
-    <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={displayed.text} /></div>
+    <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={displayText ?? displayed.text} onCite={onCite} /></div>
     {!pending && ((!message.simplerExplanation && onSimplify) || onPractice || plan) && <div className="answer-simplify-action">
       {onPractice && <button type="button" disabled={disabled || practiceDisabled} onClick={onPractice}
         title={practiceDisabled ? 'Select documents in Library to practice' : 'Practice using the selected documents'}>
