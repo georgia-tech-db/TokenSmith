@@ -49,6 +49,12 @@ class NamedTermTests(unittest.TestCase):
         self.assertTrue(nli.term_in("OLTP", "workloads called oltp systems"))
         self.assertFalse(nli.term_in("IO", "a ratio of reads"))
 
+    def test_matches_a_small_number_to_its_spelled_out_word(self):
+        self.assertTrue(nli.term_in("2", "There are two modes of locking."))
+        self.assertTrue(nli.term_in("2", "Phase 2 releases locks."))
+        self.assertFalse(nli.term_in("3", "There are two modes of locking."))
+        self.assertFalse(nli.term_in("1985", "invented in nineteen eighty-five"))
+
 
 class CandidateSpanTests(unittest.TestCase):
     def test_prefers_a_span_that_names_what_the_claim_names(self):

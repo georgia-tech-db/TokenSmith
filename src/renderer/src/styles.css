@@ -1185,22 +1185,37 @@ button {
   margin: 2px 0 10px;
 }
 
-.confidence-bar {
-  width: 96px;
-  height: 6px;
+.confidence-level {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
   border-radius: 999px;
-  background: var(--line);
-  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
 }
 
-.confidence-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
+.confidence-level.high {
+  color: #1f6b3a;
+  background: #e3f4e8;
+  border-color: #b9e2c6;
 }
 
-.confidence-score {
-  font-variant-numeric: tabular-nums;
+.confidence-level.medium {
+  color: #7a5a00;
+  background: #fbf1d6;
+  border-color: #efd994;
+}
+
+.confidence-level.low {
+  color: #9b2c2c;
+  background: #fbe5e5;
+  border-color: #f0bcbc;
+}
+
+.confidence-level.checking {
+  color: var(--muted, #6b6b6b);
+  background: var(--line, #ececea);
 }
 
 .citation-marker {

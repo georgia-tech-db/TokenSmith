@@ -225,8 +225,18 @@ def named_terms(text: str) -> List[str]:
     return sorted({match.group(0).rstrip(".,") for match in _named_term.finditer(text)})
 
 
+_number_words = (
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen "
+    "fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+).split()
+
+
 def term_in(term: str, text: str) -> bool:
-    return re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", text, re.IGNORECASE) is not None
+    """Whether `text` names `term`; a small number also matches its word ("2" and "two")."""
+    forms = [term]
+    if term.isdigit() and int(term) < len(_number_words):
+        forms.append(_number_words[int(term)])
+    return any(re.search(rf"(?<![\w]){re.escape(form)}(?![\w])", text, re.IGNORECASE) for form in forms)
 
 
 def candidate_spans(

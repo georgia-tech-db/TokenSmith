@@ -80,7 +80,10 @@ import {
   type CleaningProfileId,
   type CleaningRuleId
 } from '@shared/cleaning'
-import type { AnswerConfidence, DocumentConfidence, SourceConfidence } from '@shared/confidence'
+import { confidenceLevel, confidenceLevelLabel, type AnswerConfidence, type DocumentConfidence, type SourceConfidence } from '@shared/confidence'
+
+/** Sentence citations and per-source contribution are shelved for now; flip to show them again. */
+const showCitations = false
 import {
   defaultOllamaBaseUrl,
   recommendedOllamaChatModel,
@@ -4390,7 +4393,7 @@ function AssistantMessage({
   const suggestionOwner = message.explanationView === 'reasoning' && message.reasoningAnswer ? message.reasoningAnswer : message
   const suggestions = suggestionOwner.followUpSuggestions ?? []
   const confidence = displayed.confidence
-  const claims = sources.length > 0 ? confidence?.claims ?? [] : []
+  const claims = showCitations && sources.length > 0 ? confidence?.claims ?? [] : []
   const citedText = claims.length > 0 ? withCitationMarkers(displayed.text, claims) : undefined
   const openCitation = (claimIndex: number) => {
     const claim = claims[claimIndex]
@@ -4458,14 +4461,14 @@ function AssistantMessage({
               </span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
-            {expanded && <DocumentContributions documents={confidence?.documents} />}
+            {expanded && showCitations && <DocumentContributions documents={confidence?.documents} />}
             {expanded && (
               <div className="source-list">
                 {sources.map((source, index) => (
                   <div className="source-card" key={`${source.title}-${source.locator}`}>
                     <strong>{source.title}</strong>
                     <span>{source.locator}</span>
-                    <SourceContribution confidence={confidence?.sources?.[index]} />
+                    {showCitations && <SourceContribution confidence={confidence?.sources?.[index]} />}
                     {isMarkdownSource(source) ? (
                       <pre>{sourceDisplayText(source)}</pre>
                     ) : (
@@ -4546,13 +4549,8 @@ function SourceContribution({ confidence }: { confidence?: SourceConfidence }) {
   )
 }
 
-/** Red at 0%, yellow at 50%, green at 100%. */
-function confidenceColor(score: number): string {
-  return `hsl(${Math.round(Math.min(1, Math.max(0, score)) * 120)} 62% 42%)`
-}
-
 const confidenceExplanation =
-  'Confidence score: an estimate of how well your sources support this answer.'
+  'How well your sources back this answer: High when every sentence is supported, Medium when most are, Low when a sentence is unsupported or contradicted.'
 
 function ConfidenceInfo() {
   return (
@@ -4566,7 +4564,7 @@ function ConfidenceInfo() {
 function ConfidenceLoading() {
   return (
     <div className="confidence-badge" aria-label="Checking the answer against the sources">
-      <span className="confidence-bar" aria-hidden="true" />
+      <span className="confidence-level checking">Checking sources</span>
       <Loader2 className="spin" size={14} aria-hidden="true" />
       <ConfidenceInfo />
     </div>
@@ -4574,21 +4572,19 @@ function ConfidenceLoading() {
 }
 
 function ConfidenceBadge({ confidence }: { confidence: AnswerConfidence }) {
-  if (confidence.status === 'unverified' || confidence.abstained) {
+  const level = confidence.abstained ? undefined : confidenceLevel(confidence.status)
+  if (!level) {
     return null
   }
 
-  const percent = Math.round(confidence.score * 100)
   const claims = confidence.claims ?? []
   const entailed = claims.filter((claim) => claim.verdict === 'supported' || claim.verdict === 'likely').length
-  const detail = `${entailed} of ${claims.length} claims backed by the sources`
+  const detail = `${entailed} of ${claims.length} ${claims.length === 1 ? 'sentence' : 'sentences'} backed by your sources`
+  const label = confidenceLevelLabel(level)
 
   return (
-    <div className="confidence-badge" title={detail} aria-label={`Confidence ${percent} percent. ${detail}`}>
-      <span className="confidence-bar" aria-hidden="true">
-        <span className="confidence-fill" style={{ width: `${percent}%`, background: confidenceColor(confidence.score) }} />
-      </span>
-      <span className="confidence-score">{percent}%</span>
+    <div className="confidence-badge" title={detail} aria-label={`${label}. ${detail}`}>
+      <span className={`confidence-level ${level}`}>{label}</span>
       <ConfidenceInfo />
     </div>
   )

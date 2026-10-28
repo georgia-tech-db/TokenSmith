@@ -4,9 +4,10 @@ import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const {
   abstentionAnswer,
-  answerStatusLabel,
   claimVerdict,
   classifyAnswerStatus,
+  confidenceLevel,
+  confidenceLevelLabel,
   embeddingMatchScore,
   gradeClaims,
   overlapWeight,
@@ -326,11 +327,24 @@ test('withAnswerConfidence does not verify without passages', async () => {
   assert.equal(graded.confidence.status, 'unverified')
 })
 
-test('answerStatusLabel reads plainly', () => {
-  assert.equal(answerStatusLabel('supported'), 'Supported')
-  assert.equal(answerStatusLabel('partial'), 'Partially supported')
-  assert.equal(answerStatusLabel('unsupported'), 'Not supported')
-  assert.equal(answerStatusLabel('unverified'), 'Not verified')
+test('confidenceLevel follows the NLI verdict, not the mean score', () => {
+  assert.equal(confidenceLevel('supported'), 'high')
+  assert.equal(confidenceLevel('partial'), 'medium')
+  assert.equal(confidenceLevel('unsupported'), 'low')
+  assert.equal(confidenceLevel('unverified'), undefined)
+  assert.equal(confidenceLevelLabel('high'), 'High confidence')
+  assert.equal(confidenceLevelLabel('medium'), 'Medium confidence')
+  assert.equal(confidenceLevelLabel('low'), 'Low confidence')
+})
+
+test('one contradicted claim makes the answer Low even when the mean score is high', () => {
+  const claims = gradeClaims([
+    claim('Strict two-phase locking holds exclusive locks until commit.', [[0.97, 0.01]]),
+    claim('Two-phase locking has a growing phase and a shrinking phase.', [[0.97, 0.01]]),
+    claim('Locks are released only in the shrinking phase.', [[0.97, 0.01]]),
+    claim('A transaction does not preserve durability.', [[0.02, 0.97]])
+  ])
+  assert.equal(confidenceLevel(classifyAnswerStatus(claims)), 'low')
 })
 
 test('sourceContributions credits the passage that entails each claim', () => {

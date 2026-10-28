@@ -513,13 +513,24 @@ export function scoreAnswerConfidence(
   }
 }
 
-export function answerStatusLabel(status: AnswerStatus): string {
+export type ConfidenceLevel = 'high' | 'medium' | 'low'
+
+/**
+ * The level shown to the student. It follows the NLI verdict, not the mean
+ * entailment, so one contradicted claim makes the answer Low even when the
+ * other claims are well supported. An unverified answer has no level.
+ */
+export function confidenceLevel(status: AnswerStatus): ConfidenceLevel | undefined {
   if (status === 'supported') {
-    return 'Supported'
+    return 'high'
   }
-  if (status === 'unverified') {
-    return 'Not verified'
+  if (status === 'partial') {
+    return 'medium'
   }
 
-  return status === 'partial' ? 'Partially supported' : 'Not supported'
+  return status === 'unsupported' ? 'low' : undefined
+}
+
+export function confidenceLevelLabel(level: ConfidenceLevel): string {
+  return level === 'high' ? 'High confidence' : level === 'medium' ? 'Medium confidence' : 'Low confidence'
 }
