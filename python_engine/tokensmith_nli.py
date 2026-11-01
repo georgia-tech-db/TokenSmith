@@ -45,6 +45,7 @@ BATCH_SIZE = 16
 # talk about it.
 MAX_SPAN_SENTENCES = 4
 SPANS_PER_CLAIM = 4
+WHOLE_PASSAGES_PER_CLAIM = 0
 
 # Consecutive answer sentences checked together as one claim. Each check costs
 # a model call per span, so grouping keeps long answers from taking seconds.
@@ -166,7 +167,8 @@ def is_context_absence(sentence: str) -> bool:
 
 def split_claims(answer: str, question: str = "") -> List[str]:
     """Splits an answer into sentence-level claims, dropping code and filler."""
-    sentences = [sentence for sentence in split_sentences(answer) if not is_context_absence(sentence)]
+    sentences = [clean_claim(sentence) for sentence in split_sentences(answer) if not is_context_absence(sentence)]
+    sentences = [sentence for sentence in sentences if sentence]
     answer_words = sum(len(_word.findall(sentence)) for sentence in sentences)
     if question.strip() and sentences and answer_words <= FRAGMENT_ANSWER_WORDS:
         return [f"{question.strip()} {' '.join(sentences)}"]
@@ -186,6 +188,36 @@ def split_sentences(text: str) -> List[str]:
         line = _markdown_prefix.sub("", line).strip().replace("**", "").replace("__", "")
         sentences.extend(part.strip() for part in _sentence_boundary.split(line) if part.strip())
     return sentences
+
+
+# How the model attributes or links a sentence ("According to passage [3],",
+# "In other words,") says nothing about the subject. Left in, it costs
+# entailment, and a bracketed passage number reads as a number the answer asserts.
+_attribution = re.compile(
+    r"^(?:according to|as (?:stated|described|mentioned|explained) in|based on|per)\s+"
+    r"(?:the\s+)?(?:course\s+)?(?:passages?|text(?:book)?|sources?|material|context)"
+    r"(?:\s*\[\d+(?:\s*,\s*\d+)*\])?\s*,?\s*",
+    re.IGNORECASE,
+)
+_passage_says = re.compile(
+    r"^(?:the\s+)?(?:course\s+)?(?:passages?|text(?:book)?|sources?)\s*(?:\[\d+(?:\s*,\s*\d+)*\])?\s+"
+    r"(?:states|says|notes|explains|mentions|describes)\s+(?:that\s+)?",
+    re.IGNORECASE,
+)
+_connective = re.compile(
+    r"^(?:in other words|in summary|in short|overall|additionally|furthermore|moreover|also|"
+    r"however|therefore|thus|for example|for instance|specifically|in addition)\s*,\s*",
+    re.IGNORECASE,
+)
+_bracket_reference = re.compile(r"\s*\[\d+(?:\s*,\s*\d+)*\]")
+
+
+def clean_claim(sentence: str) -> str:
+    """Drops attribution, connectives and bracketed passage numbers, keeping what the sentence asserts."""
+    text = _bracket_reference.sub("", sentence).strip()
+    for pattern in (_attribution, _passage_says, _connective, _attribution):
+        text = pattern.sub("", text).strip()
+    return text[:1].upper() + text[1:] if text else text
 
 
 def word_key(word: str) -> str:
@@ -306,6 +338,23 @@ def verify_claims(
         candidate_spans(claim, spans, span_word_sets, idf, terms)
         for claim, terms in zip(claims, claim_terms)
     ]
+    if WHOLE_PASSAGES_PER_CLAIM:
+        # A paraphrase often restates what two or three passage sentences say
+        # together, which no short span holds. Each claim is also read against
+        # the whole passages most about it, as grounding checkers do.
+        first_whole = len(spans)
+        spans = spans + [(index, str(passage or "")) for index, passage in enumerate(passages)]
+        passage_word_sets = [span_words(str(passage or "")) for passage in passages]
+        for claim_index, claim in enumerate(claims):
+            words = span_words(claim)
+            ranked = sorted(
+                range(len(passages)),
+                key=lambda index: sum(idf.get(word, 0.0) for word in words & passage_word_sets[index]),
+                reverse=True,
+            )
+            selected[claim_index] = selected[claim_index] + [
+                first_whole + index for index in ranked[:WHOLE_PASSAGES_PER_CLAIM] if words & passage_word_sets[index]
+            ]
     pairs = [(spans[index][1], claim) for claim, indices in zip(claims, selected) for index in indices]
     scores = iter(model.probabilities(pairs) if pairs else [])
 

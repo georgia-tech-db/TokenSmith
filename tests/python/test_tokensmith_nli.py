@@ -35,6 +35,29 @@ class ClaimSplittingTests(unittest.TestCase):
         self.assertEqual(nli.split_claims(answer), ["The project covers FCFS, Round-Robin, and priority scheduling."])
 
 
+class ClaimCleaningTests(unittest.TestCase):
+    def test_drops_attribution_connectives_and_passage_numbers(self):
+        self.assertEqual(
+            nli.clean_claim("According to passage [4], a B-tree stores each key once."),
+            "A B-tree stores each key once.",
+        )
+        self.assertEqual(
+            nli.clean_claim("In other words, UNION removes duplicates [2, 3]."),
+            "UNION removes duplicates.",
+        )
+        self.assertEqual(
+            nli.clean_claim("The passage states that pinned pages are not evicted."),
+            "Pinned pages are not evicted.",
+        )
+
+    def test_a_passage_number_is_not_a_missing_term(self):
+        claims = nli.split_claims("According to passage [4], a B-tree is a balanced search tree used by indexes.")
+        self.assertEqual(nli.named_terms(claims[0]), [])
+
+    def test_leaves_a_plain_sentence_alone(self):
+        self.assertEqual(nli.clean_claim("Two-phase locking ensures serializability."), "Two-phase locking ensures serializability.")
+
+
 class NamedTermTests(unittest.TestCase):
     def test_finds_acronyms_numbers_identifiers_and_mid_sentence_names(self):
         self.assertEqual(

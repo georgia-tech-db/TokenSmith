@@ -9,6 +9,7 @@ usage: python tests/benchmarks/sweep_nli_thresholds.py [verify_output.json]
 """
 
 import itertools
+import re
 import json
 import subprocess
 import sys
@@ -19,31 +20,40 @@ GRID = {
     "supported": [0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
     "entailed": [0.4, 0.5, 0.6, 0.7, 0.8],
     "contradicted": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
-    "minEntailedShare": [0.5, 0.67, 0.75, 1.0],
-    "contradictionWins": [False, True],
+    "highShare": [0.5, 0.66, 0.75, 0.9, 1.0],
+    "mediumShare": [0.25, 0.34, 0.5],
 }
-CURRENT = {"supported": 0.85, "entailed": 0.8, "contradicted": 0.5, "minEntailedShare": 0.5, "contradictionWins": True}
-PREVIOUS = {"supported": 0.8, "entailed": 0.6, "contradicted": 0.5, "minEntailedShare": 0.67, "contradictionWins": False}
+CURRENT = {"supported": 0.8, "entailed": 0.7, "contradicted": 0.5, "highShare": 0.66, "mediumShare": 0.34}
+PREVIOUS = {"supported": 0.85, "entailed": 0.8, "contradicted": 0.5, "highShare": 1.0, "mediumShare": 0.5}
 
 
-def verdict(entailment, contradiction, t):
-    if t["contradictionWins"] and contradiction >= t["contradicted"] and contradiction >= entailment:
+NEGATION = re.compile(r"\b(?:not|no|never|none|neither|nor|cannot|without|unable)\b|n't\b", re.IGNORECASE)
+
+
+def polarity_differs(claim, evidence):
+    return bool(NEGATION.search(claim)) != bool(NEGATION.search(evidence or ""))
+
+
+def verdict(entailment, contradiction, t, flipped=False):
+    if contradiction >= t["contradicted"] and contradiction >= entailment:
         return "contradicted"
     if entailment >= t["supported"]:
         return "supported"
-    if entailment >= t["entailed"]:
+    if entailment >= t["entailed"] and not flipped:
         return "likely"
-    return "contradicted" if contradiction >= t["contradicted"] else "unsupported"
+    return "unsupported"
 
 
 def status(claims, t):
     if not claims:
         return "unverified"
-    verdicts = [verdict(e, c, t) for e, c in claims]
-    entailed = sum(v in ("supported", "likely") for v in verdicts)
-    if "contradicted" in verdicts or entailed / len(verdicts) < t["minEntailedShare"]:
+    verdicts = [verdict(e, c, t, flipped) for e, c, flipped in claims]
+    if "contradicted" in verdicts:
         return "unsupported"
-    return "supported" if all(v == "supported" for v in verdicts) else "partial"
+    share = sum(1.0 if v == "supported" else 0.5 if v == "likely" else 0.0 for v in verdicts) / len(verdicts)
+    if share >= t["highShare"]:
+        return "supported"
+    return "partial" if share >= t["mediumShare"] else "unsupported"
 
 
 def errors(rows, t):
@@ -84,7 +94,8 @@ def main():
         verification = result["verification"]
         claims = [
             (max((p["entailment"] for p in c["passages"]), default=0.0),
-             max((p["contradiction"] for p in c["passages"]), default=0.0))
+             max((p["contradiction"] for p in c["passages"]), default=0.0),
+             polarity_differs(c["text"], c.get("evidence")))
             for c in (verification["claims"] if verification.get("available", True) else [])
         ]
         splits[result.get("split", "dev")].append((result["expect"], claims))
@@ -92,7 +103,7 @@ def main():
     ranked = []
     for values in itertools.product(*GRID.values()):
         t = dict(zip(GRID, values))
-        if t["entailed"] <= t["supported"]:
+        if t["entailed"] <= t["supported"] and t["mediumShare"] < t["highShare"]:
             dev = errors(splits["dev"], t)
             ranked.append((cost(dev), dev["wrongLow"], t, dev))
     ranked.sort(key=lambda row: row[:2])

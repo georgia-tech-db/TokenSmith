@@ -7,15 +7,19 @@ import { requireTranspiledTs } from '../unit/typescript/ts-module-loader.mjs'
 const { classifyAnswerStatus, gradeClaims } = requireTranspiledTs('src/shared/confidence.ts')
 
 // Error budgets for the 35 BuzzDB NLI questions (210 answers). A "missed low
-// confidence" rates an answer that should read Not supported above it; a "wrong
-// low confidence" rates one that should be trusted as Not supported; a "false
-// supported" labels an unsupported answer Supported. Lower these as the check
-// improves; never raise them silently.
+// confidence" rates an answer that should read Low above it; a "wrong low
+// confidence" rates one that should be trusted as Low; a "false supported"
+// labels an unsupported answer High. Lower these as the check improves; never
+// raise them silently.
 //
-// The four false supported are all role swaps ("UNION ALL removes duplicates,
-// UNION concatenates"): the NLI model entails a claim and its swapped twin
-// equally, so no threshold separates them.
-const budgets = { missedLowConfidence: 7, wrongLowConfidence: 2, falseSupported: 4 }
+// Raised once, deliberately, from 7 / 2 / 4 when scoring moved from "every
+// claim at 0.85+" to partial credit (0.8 full, 0.7 half): the old rule almost
+// never rated a real llama3.2 answer High (1 of 15 correct answers), the new
+// one rates 9 of 15 High, at a cost of two negations and one fabrication on
+// this set. Four of the six false supported are role swaps ("UNION ALL removes
+// duplicates, UNION concatenates"): the NLI model entails a claim and its
+// swapped twin equally, so no threshold separates them.
+const budgets = { missedLowConfidence: 10, wrongLowConfidence: 2, falseSupported: 6 }
 
 function statusFor(verification) {
   return classifyAnswerStatus(gradeClaims(verification.available ? verification.claims : []))

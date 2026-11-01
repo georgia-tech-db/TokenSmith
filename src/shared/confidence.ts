@@ -137,25 +137,31 @@ export const confidenceThresholds = {
  * and after changing them.
  */
 export const verificationThresholds = {
-  /** A claim reads as supported only at or above this entailment. */
-  supported: 0.85,
+  /** A claim at or above this entailment counts in full. */
+  supported: 0.8,
   /**
-   * Below this entailment a claim counts as not carried by the passages.
-   * Negated answers routinely score 0.6-0.8 because they reuse the passage's
-   * words, so a lower bar lets them through.
+   * A claim at or above this entailment counts half. Correct paraphrases from
+   * a real model routinely score 0.7-0.8 against textbook wording, so an
+   * all-or-nothing bar at 0.8 marked most correct answers down. Negations land
+   * in the same band, so half credit also needs the claim and its evidence to
+   * agree on polarity (see `polarityDiffers`).
    */
-  entailed: 0.8,
+  entailed: 0.7,
   /**
-   * A claim contradicted at least this strongly is contradicted, unless a
-   * passage entails it more strongly still.
+   * A claim contradicted at least this strongly, and at least as strongly as
+   * any passage entails it, is contradicted.
    */
   contradicted: 0.5,
   /**
-   * Below this share of entailed claims the answer reads as not supported.
-   * With the stricter `entailed` bar, half is enough: one sound claim out of
-   * two no longer sinks a correct two-sentence paraphrase.
+   * The answer's support is the share of claim credit it earns (1 per
+   * supported claim, 0.5 per likely one). At or above `highShare` it reads
+   * High confidence, at or above `mediumShare` Medium, below that Low. This is
+   * the fraction-of-supported-claims score grounding checkers report (RAGAS
+   * faithfulness, Google check-grounding), with cutoffs fit on the BuzzDB
+   * benchmark and real llama3.2 answers.
    */
-  minEntailedShare: 0.5
+  highShare: 0.66,
+  mediumShare: 0.34
 }
 
 const stopWords = new Set([
@@ -318,14 +324,26 @@ export function claimVerdict(entailment: number, contradiction: number): ClaimVe
     return 'likely'
   }
 
-  return contradiction >= contradicted ? 'contradicted' : 'unsupported'
+  return 'unsupported'
+}
+
+const negation = /\b(?:not|no|never|none|neither|nor|cannot|without|unable)\b|n't\b/i
+
+/**
+ * Whether exactly one of the claim and its evidence is negated. "UNION does
+ * not remove duplicates" against "UNION removes duplicates" scores 0.7-0.8
+ * entailment, like a correct paraphrase; the negation is what tells them apart.
+ */
+export function polarityDiffers(claim: string, evidence: string | null | undefined): boolean {
+  return negation.test(claim) !== negation.test(evidence ?? '')
 }
 
 export function gradeClaims(claims: ClaimCheck[]): ClaimConfidence[] {
   return claims.map((claim) => {
     const entailment = maxOver(claim.passages, 'entailment')
     const contradiction = maxOver(claim.passages, 'contradiction')
-    const verdict = claimVerdict(entailment, contradiction)
+    const graded = claimVerdict(entailment, contradiction)
+    const verdict = graded === 'likely' && polarityDiffers(claim.text, claim.evidence) ? 'unsupported' : graded
     const best = claim.passages.find((passage) => passage.entailment === entailment)
 
     return {
@@ -388,19 +406,32 @@ function passageAlignment(claims: ClaimCheck[], index: number): number {
  * deliberately left out: it measures topic, and an answer that contradicts a
  * passage is as on-topic as one that repeats it.
  */
+/** Share of claim credit the answer earns: 1 per supported claim, 0.5 per likely one. */
+export function answerSupportShare(claims: ClaimConfidence[]): number {
+  if (claims.length === 0) {
+    return 0
+  }
+  const credit = claims.reduce((total, claim) =>
+    total + (claim.verdict === 'supported' ? 1 : claim.verdict === 'likely' ? 0.5 : 0), 0)
+
+  return credit / claims.length
+}
+
 export function classifyAnswerStatus(claims: ClaimConfidence[]): AnswerStatus {
   if (claims.length === 0) {
     return 'unverified'
   }
 
-  const entailed = claims.filter((claim) => claim.verdict === 'supported' || claim.verdict === 'likely')
-  const contradicted = claims.some((claim) => claim.verdict === 'contradicted')
-
-  if (contradicted || entailed.length / claims.length < verificationThresholds.minEntailedShare) {
+  if (claims.some((claim) => claim.verdict === 'contradicted')) {
     return 'unsupported'
   }
 
-  return claims.every((claim) => claim.verdict === 'supported') ? 'supported' : 'partial'
+  const share = answerSupportShare(claims)
+  if (share >= verificationThresholds.highShare) {
+    return 'supported'
+  }
+
+  return share >= verificationThresholds.mediumShare ? 'partial' : 'unsupported'
 }
 
 /**

@@ -5,6 +5,8 @@ import { requireTranspiledTs } from './ts-module-loader.mjs'
 const {
   abstentionAnswer,
   claimVerdict,
+  answerSupportShare,
+  polarityDiffers,
   classifyAnswerStatus,
   confidenceLevel,
   confidenceLevelLabel,
@@ -101,11 +103,14 @@ test('retrievalConfidence blends similarity with question overlap', () => {
 
 test('claimVerdict separates supported, likely, contradicted and unsupported', () => {
   assert.equal(claimVerdict(0.95, 0.01), 'supported')
-  assert.equal(claimVerdict(0.82, 0.1), 'likely')
+  assert.equal(claimVerdict(0.82, 0.1), 'supported')
+  // Correct paraphrases of textbook wording often land at 0.7-0.8: half credit.
+  assert.equal(claimVerdict(0.72, 0.1), 'likely')
   assert.equal(claimVerdict(0.1, 0.9), 'contradicted')
   assert.equal(claimVerdict(0.1, 0.2), 'unsupported')
-  // Negations that reuse the passage's words land around 0.6-0.8 entailment.
-  assert.equal(claimVerdict(0.7, 0.1), 'unsupported')
+  assert.equal(claimVerdict(0.65, 0.1), 'unsupported')
+  // A contradiction weaker than the entailment does not win.
+  assert.equal(claimVerdict(0.72, 0.55), 'likely')
   // Entailment from one passage outweighs a weaker contradiction in another...
   assert.equal(claimVerdict(0.9, 0.6), 'supported')
   // ...but when the contradiction is at least as strong, it wins.
@@ -120,12 +125,19 @@ test('gradeClaims takes the strongest reading across passages', () => {
   assert.equal(graded.contradiction, 0.2)
 })
 
-test('classifyAnswerStatus needs every claim entailed to read as supported', () => {
-  const supported = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.85, 0]])])
-  const oneLikely = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.65, 0]])])
+test('classifyAnswerStatus reads the share of claim credit as High, Medium or Low', () => {
+  const allSupported = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.85, 0]])])
+  // 1 + 0.5 of 2 = 0.75: one paraphrased sentence does not drop a correct answer.
+  const oneLikely = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.75, 0]])])
+  // 1 of 3 claims carried, filler around it: 0.33 reads Low; 1 + 0.5 of 3 = 0.5 reads Medium.
+  const mostlyFiller = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.3, 0]]), claim('i j k l', [[0.2, 0]])])
+  const half = gradeClaims([claim('a b c d', [[0.9, 0]]), claim('e f g h', [[0.75, 0]]), claim('i j k l', [[0.2, 0]])])
 
-  assert.equal(classifyAnswerStatus(supported), 'supported')
-  assert.equal(classifyAnswerStatus(oneLikely), 'partial')
+  assert.equal(classifyAnswerStatus(allSupported), 'supported')
+  assert.equal(classifyAnswerStatus(oneLikely), 'supported')
+  assert.equal(answerSupportShare(oneLikely), 0.75)
+  assert.equal(classifyAnswerStatus(half), 'partial')
+  assert.equal(classifyAnswerStatus(mostlyFiller), 'unsupported')
 })
 
 test('classifyAnswerStatus withholds an answer with a contradicted claim', () => {
@@ -335,6 +347,15 @@ test('confidenceLevel follows the NLI verdict, not the mean score', () => {
   assert.equal(confidenceLevelLabel('high'), 'High confidence')
   assert.equal(confidenceLevelLabel('medium'), 'Medium confidence')
   assert.equal(confidenceLevelLabel('low'), 'Low confidence')
+})
+
+test('a negated claim gets no half credit from an evidence span that is not negated', () => {
+  const [negated] = gradeClaims([{ text: 'UNION does not remove duplicates.', evidence: 'UNION removes duplicates from the result.', passages: [{ index: 0, entailment: 0.76, contradiction: 0.2 }] }])
+  const [paraphrase] = gradeClaims([{ text: 'UNION drops duplicate rows.', evidence: 'UNION removes duplicates from the result.', passages: [{ index: 0, entailment: 0.76, contradiction: 0.05 }] }])
+
+  assert.equal(negated.verdict, 'unsupported')
+  assert.equal(paraphrase.verdict, 'likely')
+  assert.equal(polarityDiffers('Pages are not evicted.', 'Pinned pages cannot be evicted.'), false)
 })
 
 test('one contradicted claim makes the answer Low even when the mean score is high', () => {
