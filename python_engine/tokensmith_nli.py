@@ -210,11 +210,18 @@ _connective = re.compile(
     re.IGNORECASE,
 )
 _bracket_reference = re.compile(r"\s*\[\d+(?:\s*,\s*\d+)*\]")
+# "as shown in Section 4.7.3", "(see Figure 18.7)": a pointer into the book,
+# not a fact, and its number would otherwise read as a number the claim asserts.
+_book_reference = re.compile(
+    r",?\s*\(?(?:(?:as\s+)?(?:shown|described|discussed|seen|explained|defined)\s+in\s+|see\s+|in\s+)?"
+    r"(?:sections?|figures?|fig\.|chapters?)\s+\d+(?:\.\d+)*\)?",
+    re.IGNORECASE,
+)
 
 
 def clean_claim(sentence: str) -> str:
     """Drops attribution, connectives and bracketed passage numbers, keeping what the sentence asserts."""
-    text = _bracket_reference.sub("", sentence).strip()
+    text = _book_reference.sub("", _bracket_reference.sub("", sentence)).strip()
     for pattern in (_attribution, _passage_says, _connective, _attribution):
         text = pattern.sub("", text).strip()
     return text[:1].upper() + text[1:] if text else text

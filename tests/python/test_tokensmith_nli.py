@@ -54,6 +54,32 @@ class ClaimCleaningTests(unittest.TestCase):
         claims = nli.split_claims("According to passage [4], a B-tree is a balanced search tree used by indexes.")
         self.assertEqual(nli.named_terms(claims[0]), [])
 
+    def test_drops_pointers_into_the_book(self):
+        self.assertEqual(
+            nli.clean_claim("Views implement authorization, as shown in Section 4.7.3."),
+            "Views implement authorization.",
+        )
+        self.assertEqual(nli.clean_claim("Cascading rollback may occur (see Figure 18.8)."), "Cascading rollback may occur.")
+        self.assertEqual(nli.clean_claim("Deadlock handling is covered in Chapter 18."), "Deadlock handling is covered.")
+
+    def test_a_section_number_is_not_a_missing_term(self):
+        claims = nli.split_claims("Views can enforce authorization, as shown in Section 4.7.3, by hiding columns from users.")
+        self.assertEqual(len(claims), 1)
+        self.assertNotIn("4.7.3", claims[0])
+        self.assertIn("hiding columns from users", claims[0])
+        self.assertEqual(nli.named_terms(claims[0]), [])
+
+    def test_keeps_numbers_that_are_facts(self):
+        for sentence in (
+            "A page holds 4 KB of data.",
+            "Join table 2 with table 3 on the key.",
+            "RAID level 5 stripes parity across disks.",
+            "Two-phase locking has 2 phases.",
+            "The section on recovery explains checkpoints.",
+            "The query reads 1985 records.",
+        ):
+            self.assertEqual(nli.clean_claim(sentence), sentence)
+
     def test_leaves_a_plain_sentence_alone(self):
         self.assertEqual(nli.clean_claim("Two-phase locking ensures serializability."), "Two-phase locking ensures serializability.")
 
