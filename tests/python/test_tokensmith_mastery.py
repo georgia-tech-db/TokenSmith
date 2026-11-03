@@ -26,13 +26,47 @@ class TopicMasteryTests(unittest.TestCase):
         self.assertAlmostEqual(self.record("joins", False)["mastery"], 1 / 3)
 
     def test_assisted_correct_answer_earns_half_credit(self):
-        self.assertAlmostEqual(self.record("joins", True, assisted=True)["mastery"], 1.5 / 2.5)
+        self.assertAlmostEqual(self.record("joins", True, assisted=True)["mastery"], 1.5 / 3)
+
+    def test_answering_only_with_help_never_reaches_strong(self):
+        for _ in range(50):
+            entry = self.record("joins", True, assisted=True)
+        self.assertAlmostEqual(entry["mastery"], 0.5)
+        unassisted = self.record("indexes", True)
+        self.assertGreater(unassisted["mastery"], entry["mastery"])
+
+    def test_recent_answers_outweigh_old_ones(self):
+        for _ in range(20):
+            self.record("joins", False)
+        for count in range(1, 21):
+            entry = self.record("joins", True)
+            if entry["mastery"] >= 0.75:
+                break
+        self.assertLessEqual(count, 15)
+        self.assertEqual(entry["attempts"], 20 + count)
+
+    def test_a_run_of_misses_pulls_strong_mastery_down(self):
+        for _ in range(30):
+            self.record("joins", True)
+        for _ in range(7):
+            entry = self.record("joins", False)
+        self.assertLess(entry["mastery"], 0.5)
+
+    def test_order_of_answers_matters(self):
+        self.record("early", False)
+        self.record("early", True)
+        self.record("late", True)
+        self.record("late", False)
+        early, late = store.list_topic_mastery(self.root)
+        self.assertGreater(early["mastery"], late["mastery"])
 
     def test_answers_accumulate_per_topic_and_topic_is_trimmed(self):
         self.record("  joins ", True)
         self.record("joins", False)
         entry = self.record("joins", True, assisted=True)
-        self.assertAlmostEqual(entry["mastery"], 2.5 / 4.5)
+        decay = store.PRACTICE_RECENCY_DECAY
+        met, missed = decay * decay + 0.5, decay + 0.5
+        self.assertAlmostEqual(entry["mastery"], (1 + met) / (2 + met + missed))
         self.assertEqual(entry["attempts"], 3)
         self.assertEqual([item["topic"] for item in store.list_topic_mastery(self.root)], ["joins"])
 
@@ -127,7 +161,8 @@ class SchemaUpgradeTests(unittest.TestCase):
         self.assertNotIn("idx_practice_attempts_session_id", self.names("index"))
         [entry] = store.list_topic_mastery(self.root)
         self.assertEqual((entry["topic"], entry["attempts"]), ("joins", 2))
-        self.assertAlmostEqual(entry["mastery"], 2 / 4)
+        met = store.PRACTICE_RECENCY_DECAY
+        self.assertAlmostEqual(entry["mastery"], (1 + met) / (3 + met))
         store.init_db(self.root)
         self.assertEqual(store.list_topic_mastery(self.root), [entry])
 

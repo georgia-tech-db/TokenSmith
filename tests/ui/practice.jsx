@@ -94,9 +94,11 @@ window.tokensmith = {
   },
   recordPracticeAttempt: async input => {
     tracking.push({ kind: 'record-attempt', input })
-    const counts = mastery.get(input.topic)?.counts || { met: 1, missed: 1, attempts: 0 }
-    const next = { met: counts.met + (input.correct ? (input.assisted ? 0.5 : 1) : 0), missed: counts.missed + (input.correct ? 0 : 1), attempts: counts.attempts + 1 }
-    mastery.set(input.topic, { counts: next, entry: { topic: input.topic, mastery: next.met / (next.met + next.missed), attempts: next.attempts, updatedAt: '2026-10-20' } })
+    // Mirrors _topic_mastery in tokensmith_store.py.
+    const counts = mastery.get(input.topic)?.counts || { met: 0, missed: 0, attempts: 0 }
+    const credit = input.correct ? (input.assisted ? 0.5 : 1) : 0
+    const next = { met: counts.met * 0.9 + credit, missed: counts.missed * 0.9 + 1 - credit, attempts: counts.attempts + 1 }
+    mastery.set(input.topic, { counts: next, entry: { topic: input.topic, mastery: (1 + next.met) / (2 + next.met + next.missed), attempts: next.attempts, updatedAt: '2026-10-20' } })
     return mastery.get(input.topic).entry
   },
   listTopicMastery: async () => [...mastery.values()].map(value => value.entry),

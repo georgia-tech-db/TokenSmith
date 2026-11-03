@@ -25,6 +25,9 @@ FAISS_NAME = "tokensmith.faiss"
 SCHEMA_VERSION = 13
 ALIAS_EXTRACTION_VERSION = 1
 PRACTICE_ASSISTED_CREDIT = 0.5
+# Each newer answer shrinks the weight of older ones by this factor, so mastery
+# follows roughly the last ten answers instead of the whole history.
+PRACTICE_RECENCY_DECAY = 0.9
 KEYWORD_STOPWORDS: Set[str] = {
     "a",
     "about",
@@ -2555,27 +2558,31 @@ def create_practice_schema(conn: sqlite3.Connection) -> None:
 def _topic_mastery(conn: sqlite3.Connection, topic: Optional[str] = None) -> List[Dict[str, Any]]:
     rows = conn.execute(
         f"""
-        SELECT
-            topic,
-            1 + SUM(CASE WHEN correct THEN (CASE WHEN assisted THEN ? ELSE 1 END) ELSE 0 END) AS met,
-            1 + SUM(CASE WHEN correct THEN 0 ELSE 1 END) AS missed,
-            COUNT(*) AS attempts,
-            MAX(created_at) AS updated_at
+        SELECT topic, correct, assisted, created_at
         FROM practice_attempts
         {"WHERE topic = ?" if topic is not None else ""}
-        GROUP BY topic
-        ORDER BY topic
+        ORDER BY topic, id
         """,
-        (PRACTICE_ASSISTED_CREDIT, *([topic] if topic is not None else [])),
+        ([topic] if topic is not None else []),
     ).fetchall()
+    totals: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        entry = totals.setdefault(row["topic"], {"met": 0.0, "missed": 0.0, "attempts": 0, "updated_at": ""})
+        # Help earns half credit: half counts for the topic and half against it.
+        credit = (PRACTICE_ASSISTED_CREDIT if row["assisted"] else 1.0) if row["correct"] else 0.0
+        entry["met"] = entry["met"] * PRACTICE_RECENCY_DECAY + credit
+        entry["missed"] = entry["missed"] * PRACTICE_RECENCY_DECAY + 1 - credit
+        entry["attempts"] += 1
+        entry["updated_at"] = max(entry["updated_at"], row["created_at"])
+    # One imagined correct and one incorrect answer keep early mastery near 50%.
     return [
         {
-            "topic": row["topic"],
-            "mastery": row["met"] / (row["met"] + row["missed"]),
-            "attempts": row["attempts"],
-            "updatedAt": row["updated_at"],
+            "topic": name,
+            "mastery": (1 + entry["met"]) / (2 + entry["met"] + entry["missed"]),
+            "attempts": entry["attempts"],
+            "updatedAt": entry["updated_at"],
         }
-        for row in rows
+        for name, entry in sorted(totals.items())
     ]
 
 
