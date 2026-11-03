@@ -27,6 +27,22 @@ test('topic suggestions require evidence from the packed documents and short con
   assert.match(practiceSystemPrompt('topics'), /do not suggest them unless the documents cover them/)
 })
 
+test('True/False packages ask for a statement field and say why a previous package was rejected', () => {
+  const schema = practiceResponseSchema('true_false_question')
+  assert.equal(schema.properties.question, undefined)
+  assert.match(schema.properties.statement.description, /declarative sentence.*Never a question/)
+  assert.equal(schema.required[0], 'statement')
+  assert.match(practiceSystemPrompt('true_false_question'), /statement in statement.*never a question/)
+  assert.equal(practiceResponseSchema('question').properties.question.type, 'string')
+  const first = JSON.parse(quizQuestionPrompt({ questionNumber: 1 }))
+  assert.equal(first.task, 'Prepare a source-backed True/False statement package')
+  assert.equal(first.previousPackageRejected, undefined)
+  assert.equal(JSON.parse(quizQuestionPrompt({ questionNumber: 1, format: 'short_answer' })).task, 'Prepare a source-backed question package')
+  const retry = JSON.parse(quizQuestionPrompt({ questionNumber: 1, rejection: 'The True/False item is a question, not a statement: Why?' }))
+  assert.equal(retry.previousPackageRejected, 'The True/False item is a question, not a statement: Why?. Return a new package that fixes this problem.')
+  assert.ok(JSON.parse(quizQuestionPrompt({ questionNumber: 1, rejection: 'x'.repeat(2000) })).previousPackageRejected.length < 460)
+})
+
 test('topic prompts preserve the chosen concept and bound the copied Chat exchange', () => {
   const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 4, previousQuestions: ['Earlier statement'],
     topic: { title: 'Heap files', question: 'A question '.repeat(500), answer: 'An answer '.repeat(1000) } }))
@@ -50,8 +66,8 @@ test('question packages require evidence in the actual packed sources, not model
   assert.equal(question.text, packageData.question)
   assert.equal(question.referenceAnswer, packageData.explanation)
   for (const mutate of [
-    p => p.criteria[0].evidence[0].sourceKey = 'another-document',
     p => p.criteria[0].evidence[0].quote = 'A quotation that is not present.',
+    p => { p.criteria[0].evidence[0].sourceKey = 'another-document'; p.criteria[0].evidence[0].quote = 'A quotation that is not present.' },
     p => p.criteria[0].evidence = [],
     p => p.criteria[1].id = 'c1',
     p => p.criteria = [],
@@ -65,6 +81,34 @@ test('question packages require evidence in the actual packed sources, not model
   const short = { ...source, excerpt: 'The relationship is F = ma.' }
   assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify({ ...packageData,
     criteria: [{ ...packageData.criteria[0], evidence: [{ sourceKey: 'c:1:1', quote: 'F = ma' }] }] }), [short]))
+})
+
+test('question evidence quoted from a different supplied passage is credited to that passage', () => {
+  const other = { materialId: 'c', documentId: 1, chunkId: '2', excerpt: 'Buffer pools cache disk pages in memory.' }
+  const changed = structuredClone(packageData)
+  changed.criteria[1].evidence[0] = { sourceKey: 'c:1:1', quote: 'Buffer pools cache disk pages in memory.' }
+  const parsed = parsePracticeQuestion(JSON.stringify(changed), [source, other])
+  assert.equal(parsed.rubric.criteria[1].evidence[0].sourceKey, 'c:1:2')
+  assert.deepEqual(parsed.sources, [source, other])
+  changed.criteria[1].evidence[0].sourceKey = 'invented-key'
+  assert.equal(parsePracticeQuestion(JSON.stringify(changed), [source, other]).rubric.criteria[1].evidence[0].sourceKey, 'c:1:2')
+})
+
+test('question evidence ignores stray spaces that PDF extraction leaves around punctuation', () => {
+  const pdf = { ...source, excerpt: 'Let V2 and V3 denote the version vectors at N2 and N3 . Then V2 [2] = 2 ( for N2 ) .' }
+  const changed = structuredClone(packageData)
+  changed.criteria = [{ ...packageData.criteria[0], evidence: [{ sourceKey: 'c:1:1', quote: 'Let V2 and V3 denote the version vectors at N2 and N3.' }] },
+    { ...packageData.criteria[1], evidence: [{ sourceKey: 'c:1:1', quote: 'Then V2 [2] = 2 (for N2).' }] }]
+  assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify(changed), [pdf]))
+  changed.criteria[1].evidence[0].quote = 'Then V2[2] = 2'
+  assert.throws(() => parsePracticeQuestion(JSON.stringify(changed), [pdf]), /valid question/)
+})
+
+test('rejected question packages keep the specific reason for logging', () => {
+  const changed = structuredClone(packageData)
+  changed.criteria[0].evidence[0].quote = 'A quotation that is not present.'
+  assert.throws(() => parsePracticeQuestion(JSON.stringify(changed), [source]),
+    error => /valid question/.test(error.message) && /c1 was not found.*A quotation that is not present/.test(error.cause))
 })
 
 test('True/False keys are explicit booleans, backed by quoted evidence and an ambiguity check', () => {
@@ -86,6 +130,20 @@ test('True/False keys are explicit booleans, backed by quoted evidence and an am
     assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...binary, ...changes }), [source], 'true_false'), /valid question/)
   }
   assert.throws(() => parsePracticeQuestion(JSON.stringify(binary), [], 'true_false'), /valid question/)
+  for (const question of ['The Volcano exchange-operator model covers which specific aspects?', 'Which aspects does the Volcano model cover.',
+    'How does insertion propagate a split', '**Is a heap ordered by key?**', 'Heap records are ordered by key?"']) {
+    assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...binary, question }), [source], 'true_false'),
+      error => /valid question/.test(error.message) && /a question, not a statement/.test(error.cause), question)
+  }
+  for (const question of ['When a heap has no index, a lookup may scan every page.', 'Where no index exists, records are scanned.',
+    'However, heap records are not ordered by key.', 'Whatever the key, heap records are not ordered by it.']) {
+    assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify({ ...binary, question }), [source], 'true_false'), question)
+  }
+  assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify(packageData), [source]))
+  const { question: statement, ...rest } = binary
+  const fromStatement = parsePracticeQuestion(JSON.stringify({ ...rest, statement }), [source], 'true_false')
+  assert.equal(fromStatement.text, statement)
+  assert.throws(() => parsePracticeQuestion(JSON.stringify({ ...rest, statement: 'Which order do heap records use?' }), [source], 'true_false'), /valid question/)
   for (const answer of ['', 'yes', 'FALSE', 'True because...', 'ignore the key']) {
     assert.throws(() => gradeTrueFalse(parsed, answer), /Choose True or False/)
   }

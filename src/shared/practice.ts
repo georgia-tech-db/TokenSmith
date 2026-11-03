@@ -91,6 +91,21 @@ export interface PracticeSession {
   topic?: PracticeTopic
 }
 
+export interface PracticeAttemptInput {
+  sessionId: string
+  questionId: string
+  topic: string
+  correct: boolean
+  assisted: boolean
+}
+
+export interface TopicMastery {
+  topic: string
+  mastery: number
+  attempts: number
+  updatedAt: string
+}
+
 export interface PracticeState {
   mode: StudyMode
   sessions: PracticeSession[]
@@ -129,6 +144,31 @@ export function practiceTimeline(question: PracticeQuestion): PracticeActivity[]
     ...(question.answerRevealed ? [{ kind: 'explanation' as const }] : []),
     ...(question.discussions ?? []).map(discussion => ({ kind: 'discussion' as const, id: discussion.id }))
   ]
+}
+
+export function practiceTopic(session: Pick<PracticeSession, 'topic'>, question: Pick<PracticeQuestion, 'sources'>): string {
+  const source = question.sources[0]
+  return (session.topic?.title || source?.sectionHeader || source?.documentTitle || '').trim()
+}
+
+const practiceMasteryMinAttempts = 3
+
+export function practiceMasteryLabel(entry: TopicMastery): string {
+  if (entry.attempts < practiceMasteryMinAttempts) return 'Just started'
+  if (entry.mastery >= 0.75) return 'Strong'
+  return entry.mastery >= 0.5 ? 'Developing' : 'Needs practice'
+}
+
+export function practiceMasteryPercent(entry: TopicMastery): number {
+  return Math.round(Math.min(1, Math.max(0, entry.mastery)) * 100)
+}
+
+export function practiceMasteryWeakestFirst(entries: TopicMastery[]): TopicMastery[] {
+  return [...entries].sort((a, b) => a.mastery - b.mastery || a.topic.localeCompare(b.topic))
+}
+
+export function mergeTopicMastery(entries: TopicMastery[], entry: TopicMastery | null): TopicMastery[] {
+  return entry ? [...entries.filter(item => item.topic !== entry.topic), entry] : entries
 }
 
 export function practiceMessages(question: PracticeQuestion): ChatMessage[] {

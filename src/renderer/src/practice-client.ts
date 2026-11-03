@@ -1,10 +1,12 @@
 import type { ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
 import type { TokenSmithBridge } from '@shared/bridge'
-import type { PracticeQuestion, PracticeSession } from '@shared/practice'
-import { practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText } from '../../shared/practice'
+import type { PracticeAttempt, PracticeQuestion, PracticeSession, TopicMastery } from '@shared/practice'
+import { isTrueFalseFeedback, practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText, practiceTopic } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { parsePracticeQuestion, parsePracticeTopics, quizQuestionPrompt } from '../../shared/quiz'
 import { sourcesInScope, type StudyDocumentRef } from '../../shared/study-scope'
+
+const practiceQuestionAttempts = 2
 
 export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel, settings: TokenSmithSettings,
   retrieval?: { materials: CourseMaterial[]; embeddingModels: LocalModel[] }) {
@@ -67,11 +69,23 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
           session.questions.flatMap(question => question.sources.map(practiceSourceKey)), session.questions.length)
       signal.throwIfAborted()
       if (!sources.length) return null
-      const reply = await send(session, requestId,
-        quizQuestionPrompt({ questionNumber: session.questions.length + 1,
-          previousQuestions: session.questions.slice(-12).map(practiceQuestionText), topic: session.topic }), sources)
-      signal.throwIfAborted()
-      const prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false')
+      const previousQuestions = session.questions.slice(-12).map(practiceQuestionText)
+      let prepared: ReturnType<typeof parsePracticeQuestion> | undefined
+      let rejection: string | undefined
+      for (let attempt = 1; !prepared; attempt++) {
+        // Repeating an identical request returns nearly the same package, so say what to fix.
+        const prompt = quizQuestionPrompt({ questionNumber: session.questions.length + 1, previousQuestions, topic: session.topic, rejection })
+        const reply = await send(session, requestId, prompt, sources)
+        signal.throwIfAborted()
+        try {
+          prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false')
+        } catch (error) {
+          const reason = error instanceof Error ? String(error.cause ?? error.message) : String(error)
+          rejection = reason
+          void Promise.resolve(bridge.logPracticeQuestionRejected?.({ attempt, reason, response: reply.text })).catch(() => {})
+          if (attempt >= practiceQuestionAttempts) throw error
+        }
+      }
       if (session.topic && session.questions.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase())) {
         throw new Error('The model repeated an earlier question. Use the arrow to try another, or choose Practice another topic.')
       }
@@ -102,5 +116,23 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       if (!reply.text.trim()) throw new Error('No explanation was returned. Your question is saved; try again.')
       return reply
     }
+  }
+}
+
+export async function loadTopicMastery(): Promise<TopicMastery[]> {
+  try {
+    return await window.tokensmith?.listTopicMastery() ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function trackPracticeAttempt(session: PracticeSession, question: PracticeQuestion, attempt: PracticeAttempt): Promise<TopicMastery | null> {
+  try {
+    if (!window.tokensmith || typeof attempt.feedback === 'string' || !isTrueFalseFeedback(attempt.feedback)) return null
+    return await window.tokensmith.recordPracticeAttempt({ sessionId: session.id, questionId: question.id,
+      topic: practiceTopic(session, question), correct: attempt.feedback.correct, assisted: attempt.assisted })
+  } catch {
+    return null
   }
 }

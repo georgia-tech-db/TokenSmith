@@ -41,6 +41,8 @@ try:
         keyword_search,
         keyword_terms_for_query,
         list_materials,
+        list_topic_mastery,
+        record_practice_attempt,
         study_documents,
         validate_study_documents,
         practice_source_rows,
@@ -67,6 +69,8 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
         keyword_search,
         keyword_terms_for_query,
         list_materials,
+        list_topic_mastery,
+        record_practice_attempt,
         study_documents,
         validate_study_documents,
         practice_source_rows,
@@ -2039,6 +2043,23 @@ def resolve_source_document(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"source": source_document_for_source(payload["userDataPath"], source)}
 
 
+
+def practice_record_attempt(payload: Dict[str, Any]) -> Dict[str, Any]:
+    entry = record_practice_attempt(
+        payload["userDataPath"],
+        session_id=str(payload.get("sessionId") or ""),
+        question_id=str(payload.get("questionId") or ""),
+        topic=str(payload.get("topic") or ""),
+        correct=bool(payload.get("correct")),
+        assisted=bool(payload.get("assisted")),
+    )
+    return {"entry": entry}
+
+
+def practice_list_mastery(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {"entries": list_topic_mastery(payload["userDataPath"])}
+
+
 COMMANDS = {
     "health": health,
     "preview_cleaning": preview_cleaning,
@@ -2048,6 +2069,8 @@ COMMANDS = {
     "starter_sources": starter_sources,
     "study_documents": list_study_documents,
     "practice_sources": practice_sources,
+    "practice_record_attempt": practice_record_attempt,
+    "practice_list_mastery": practice_list_mastery,
     "list_materials": list_indexed_materials,
     "set_material_enabled": set_material_enabled,
     "remove_material": remove_material,

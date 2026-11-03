@@ -108,6 +108,14 @@
 .practice-topic-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
 .practice-topic-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .practice-topic-bar button { font-size: .84rem; }
+.practice-topic-bar > .practice-topic-mastery { flex: 0 0 auto; color: var(--content-muted, var(--muted)); font-size: .86rem; font-weight: 400; }
+.practice-mastery { margin-top: 28px; }
+.practice-mastery ul { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.practice-mastery li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: baseline; }
+.practice-mastery-topic { min-width: 0; overflow-wrap: anywhere; }
+.practice-mastery .practice-link.practice-mastery-topic { justify-content: flex-start; min-height: 0; margin: 0; padding: 0; text-align: left; }
+.practice-mastery-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; overflow: hidden; background: var(--surface-selected, var(--green-soft)); }
+.practice-mastery-bar span { display: block; height: 100%; border-radius: 2px; background: #488265; }
 .practice-topic-reference { margin: 0 0 28px; }
 .practice-topic-reference > summary { cursor: pointer; color: var(--muted); margin-bottom: 20px; }
 .practice-topic-reference .message-row:last-child { margin-bottom: 20px; }

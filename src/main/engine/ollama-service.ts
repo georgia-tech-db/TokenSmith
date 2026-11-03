@@ -113,6 +113,8 @@ interface ActiveOllamaPull {
 }
 
 const activeOllamaPulls = new Map<string, ActiveOllamaPull>()
+const ollamaKeepAlive = '10m'
+const usedOllamaModels = new Map<string, { baseUrl: string; modelName: string }>()
 
 function normalizeOllamaBaseUrl(baseUrl = defaultOllamaBaseUrl): string {
   let normalized = baseUrl.trim().replace(/\/+$/, '')
@@ -863,6 +865,7 @@ async function requestOllamaChatCompletion(
   settings?: ModelRuntimeSettings,
   overrides: OllamaCompletionOverrides = {}
 ): Promise<OllamaChatResponse> {
+  usedOllamaModels.set(`${baseUrl}\n${modelName}`, { baseUrl, modelName })
   if (settings && usesAutomaticContext(settings)) {
     const promptEstimate = Math.ceil(messages.reduce((sum, message) => sum + message.content.length, 0) / 2.5) + 64
     settings = { ...settings, contextLength: localContextForTokens(promptEstimate + (overrides.maxTokens ?? settings.maxLength) + 512,
@@ -885,6 +888,7 @@ async function requestOllamaChatCompletion(
         ...(overrides.temperature !== undefined ? { temperature: overrides.temperature } : {})
       },
       ...(overrides.format ? { format: overrides.format } : {}),
+      keep_alive: ollamaKeepAlive,
       stream: false,
       think: overrides.thinking ?? false
     }),
@@ -896,6 +900,51 @@ async function requestOllamaChatCompletion(
   }
 
   return (await response.json()) as OllamaChatResponse
+}
+
+export async function warmOllamaModel(model: LocalModel, modelSettings?: ModelRuntimeSettings): Promise<void> {
+  assertOllamaModel(model)
+  const baseUrl = model.ollamaBaseUrl || defaultOllamaBaseUrl
+  usedOllamaModels.set(`${baseUrl}\n${model.ollamaModelName}`, { baseUrl, modelName: model.ollamaModelName })
+  // Refreshing a loaded model with a different num_ctx would make Ollama reload it.
+  const loaded = await loadedOllamaContextLength(baseUrl, model.ollamaModelName)
+  const runtime = loaded ? undefined : (await requestWithOllamaRuntimeContext({ model, modelSettings }, baseUrl, model.ollamaModelName)).modelSettings
+  const contextLength = loaded ?? (runtime && (usesAutomaticContext(runtime) ? localContextForTokens(0, runtime.contextLength) : runtime.contextLength))
+  const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      model: model.ollamaModelName,
+      messages: [],
+      keep_alive: ollamaKeepAlive,
+      ...(contextLength ? { options: { num_ctx: contextLength } } : {})
+    })
+  }, 180_000)
+  if (!response.ok) {
+    throw new Error(`Ollama could not load the model: HTTP ${response.status}${await responseErrorDetail(response)}.`)
+  }
+}
+
+async function loadedOllamaContextLength(baseUrl: string, modelName: string): Promise<number | undefined> {
+  try {
+    const response = await fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/ps`, {}, 3_000)
+    if (!response.ok) return undefined
+    const { models = [] } = await response.json() as { models?: (OllamaModelInfo & { context_length?: number })[] }
+    const contextLength = models.find(item => ollamaModelMatches(item, modelName))?.context_length
+    return Number.isInteger(contextLength) && Number(contextLength) > 0 ? Number(contextLength) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function unloadOllamaModels(): Promise<void> {
+  const models = [...usedOllamaModels.values()]
+  usedOllamaModels.clear()
+  await Promise.allSettled(models.map(({ baseUrl, modelName }) => fetchWithTimeout(`${ollamaApiBaseUrl(baseUrl)}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelName, keep_alive: 0 })
+  }, 3_000)))
 }
 
 async function runOllamaChatCompletion(
