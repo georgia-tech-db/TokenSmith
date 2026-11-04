@@ -35,26 +35,28 @@ if (values['dry-run']) {
 } else {
   const { app } = await import('electron')
   app.setPath('userData', mkdtempSync(join(tmpdir(), 'tokensmith-proposal-')))
-  await app.whenReady()
-  try {
-    const runtime = { platform: platform(), arch: arch(), totalMemoryBytes: totalmem(), cpu: cpus()[0]?.model,
-      codeHashes: Object.fromEntries(['src/main/engine/ollama-service.ts','src/main/engine/study-chat-format.ts', 'tests/experiments/proposal-comparison.mjs']
-        .map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')])), servers: [], logDirectory: app.getPath('userData') }
-    for (const base of new Set(requests.map(r => (r.request.model.ollamaBaseUrl || 'http://127.0.0.1:11434').replace(/\/$/, '')))) {
-      try {
-        const tags = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) }).then(r => r.json())
-        const residency = await fetch(`${base}/api/ps`, { signal: AbortSignal.timeout(5000) }).then(r => r.json())
-        runtime.servers.push({ base, models: tags.models?.filter(m => requests.some(r => r.request.model.ollamaModelName === m.name || `${r.request.model.ollamaModelName}:latest` === m.name)), residency })
-      } catch (e) { runtime.servers.push({ base, error: String(e) }) }
-    }
-    writeFileSync(join(out, 'runtime.json'), JSON.stringify(runtime, null, 2))
-    const { runOllamaStudyEngine } = requireTranspiledTs('src/main/engine/ollama-service.ts')
-    const results = []
-    for (const row of requests) {
-      const start = performance.now()
-      try { results.push({ ...row, result: await runOllamaStudyEngine(row.request), seconds: (performance.now()-start)/1000 }) }
-      catch (e) { results.push({ ...row, error: String(e), seconds: (performance.now()-start)/1000 }) }
-      writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2))
-    }
-  } finally { app.quit() }
+  // Let the entry module finish: top-level awaiting readiness prevents Electron from becoming ready.
+  void app.whenReady().then(async () => {
+    try {
+      const runtime = { platform: platform(), arch: arch(), totalMemoryBytes: totalmem(), cpu: cpus()[0]?.model,
+        codeHashes: Object.fromEntries(['src/main/engine/ollama-service.ts','src/main/engine/study-chat-format.ts', 'tests/experiments/proposal-comparison.mjs']
+          .map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')])), servers: [], logDirectory: app.getPath('userData') }
+      for (const base of new Set(requests.map(r => (r.request.model.ollamaBaseUrl || 'http://127.0.0.1:11434').replace(/\/$/, '')))) {
+        try {
+          const tags = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) }).then(r => r.json())
+          const residency = await fetch(`${base}/api/ps`, { signal: AbortSignal.timeout(5000) }).then(r => r.json())
+          runtime.servers.push({ base, models: tags.models?.filter(m => requests.some(r => r.request.model.ollamaModelName === m.name || `${r.request.model.ollamaModelName}:latest` === m.name)), residency })
+        } catch (e) { runtime.servers.push({ base, error: String(e) }) }
+      }
+      writeFileSync(join(out, 'runtime.json'), JSON.stringify(runtime, null, 2))
+      const { runOllamaStudyEngine } = requireTranspiledTs('src/main/engine/ollama-service.ts')
+      const results = []
+      for (const row of requests) {
+        const start = performance.now()
+        try { results.push({ ...row, result: await runOllamaStudyEngine(row.request), seconds: (performance.now()-start)/1000 }) }
+        catch (e) { results.push({ ...row, error: String(e), seconds: (performance.now()-start)/1000 }) }
+        writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2))
+      }
+    } finally { app.quit() }
+  }).catch(error => { console.error(error); app.exit(1) })
 }

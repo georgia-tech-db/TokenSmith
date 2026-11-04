@@ -6,7 +6,14 @@ const page=await browser.newPage({viewport:{width:1280,height:900},acceptDownloa
 const errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(12000);
 try {
  await page.goto(`${process.env.PRACTICE_UI_URL || 'http://127.0.0.1:5188/tests/ui/practice.html'}?practice&run=${crypto.randomUUID()}`);
+ await page.getByLabel('Import reviewed assessment').waitFor();
+ await page.evaluate(()=>{ window.savedWriter=window.tokensmith.saveAppState; window.tokensmith.saveAppState=async()=>{throw new Error('Disk unavailable')} });
  await page.getByLabel('Import reviewed assessment').setInputFiles(resolve('tests/fixtures/assessment-pack.json'));
+ await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'False',exact:true}).isDisabled(),true);
+ assert.equal(await page.getByRole('button',{name:'Export practice record',exact:true}).isDisabled(),true);
+ await page.evaluate(()=>{ window.tokensmith.saveAppState=window.savedWriter });
+ await page.getByRole('button',{name:'Retry saving',exact:true}).click();
  await page.getByRole('button',{name:'False',exact:true}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Complete assessment',exact:true}).isDisabled(),true);
  assert.equal(await page.getByRole('button',{name:'Chat about this question',exact:true}).count(),0);
@@ -16,6 +23,8 @@ try {
  const first=await page.evaluate(()=>window.practiceTest.state().practice.sessions[0]);
  assert.equal(first.questions[0].attempts.length,1);assert.equal(first.questions[0].attempts[0].observationVersion,1);
  assert.equal(first.questions[0].attempts[0].assisted,false);
+ assert.ok(first.questions[0].attempts[0].visibleMs>0);
+ assert.ok(first.questions[0].attempts[0].visibleMs<=first.questions[0].attempts[0].durationMs+20);
  assert.match(first.questions[0].attempts[0].feedback,/Response saved/);
  await page.reload();await page.getByLabel('Your explanation',{exact:true}).waitFor();
  await page.getByLabel('Your explanation',{exact:true}).fill('Keys are scattered, so a range may scan many buckets.');
@@ -43,5 +52,29 @@ try {
  await page.getByLabel('Your explanation',{exact:true}).waitFor();
  const retried=await page.evaluate(()=>window.practiceTest.state().practice.sessions[0]);
  assert.equal(retried.questions[0].attempts.length,1);
+ await page.getByLabel('Your explanation',{exact:true}).fill('Scattered keys need multiple bucket reads.');
+ await page.getByRole('button',{name:'Submit response',exact:true}).click();
+ await page.getByRole('button',{name:'Submit response',exact:true}).waitFor({state:'visible'});
+ await page.evaluate(()=>{ window.tokensmith.saveAppState=async()=>{throw new Error('Disk unavailable')} });
+ await page.getByRole('button',{name:'Complete assessment',exact:true}).click();
+ await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Export practice record',exact:true}).isDisabled(),true);
+ await page.evaluate(()=>{ window.tokensmith.saveAppState=window.savedWriter });
+ await page.getByRole('button',{name:'Retry saving',exact:true}).click();
+ await page.getByRole('heading',{name:'Your practice progress',exact:true}).waitFor();
+ assert.deepEqual(await page.evaluate(()=>window.practiceTest.state().practice.sessions[0].questions.map(q=>q.attempts.length)),[1,1]);
+ // Retrying after leaving a failed submission must not navigate or generate in another session.
+ await page.getByRole('button',{name:'Practice another topic',exact:true}).click();
+ await page.getByLabel('Import reviewed assessment').setInputFiles(resolve('tests/fixtures/assessment-pack.json'));
+ await page.getByRole('button',{name:'False',exact:true}).waitFor();
+ await page.evaluate(()=>{ window.tokensmith.saveAppState=async()=>{throw new Error('Disk unavailable')} });
+ await page.getByRole('button',{name:'False',exact:true}).click();
+ await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Practice another topic',exact:true}).click();
+ await page.evaluate(()=>{ window.tokensmith.saveAppState=window.savedWriter });
+ await page.getByRole('button',{name:'Retry saving',exact:true}).click();
+ await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor({state:'hidden'});
+ assert.equal(await page.getByLabel('Import reviewed assessment').isEnabled(),true);
+ assert.equal(await page.evaluate(()=>window.practiceTest.state().practice.activeSessionId),undefined);
  assert.deepEqual(errors,[]);console.log('PASS import, no help/key leakage, first response, restart, short answer, completion, export, no model calls.',JSON.stringify(s.questions.map(q=>q.attempts[0])));
 } finally {await browser.close()}

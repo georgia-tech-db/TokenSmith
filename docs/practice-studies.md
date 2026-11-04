@@ -72,3 +72,5 @@ node tests/ui/practice-assessment-check.mjs
 ```
 
 Set `PLAYWRIGHT_MODULE` and `CHROME_PATH` if Playwright/Chromium are installed outside the repository. The browser test checks key/help withholding, response timing, reload, short answers, completion, export, and failed-save retry without model calls.
+
+Run `node tests/integration/practice-comparison.test.mjs` on a desktop with Electron available to check the live runner against a temporary local test server. It verifies startup, all six conditions, both reasoning settings, and continued result recording after an injected failure. It uses no real model or user profile; it does not measure model quality or inference latency.

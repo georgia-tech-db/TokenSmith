@@ -21,7 +21,7 @@ async function openSavedAnswer() {
   await history.waitFor()
   if (await history.getAttribute('aria-expanded') === 'false') await history.click()
   await chat.click()
-  for (const name of ['Toggle history', 'Toggle Library']) {
+  for (const name of ['Toggle history', 'Toggle Documents']) {
     const toggle = page.getByRole('button', { name, exact: true })
     if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click()
   }

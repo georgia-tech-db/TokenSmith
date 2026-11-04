@@ -113,6 +113,10 @@ try {
   await reviewPracticeQuestion(page, 3)
   assert.equal((await state()).currentIndex, 2, 'Next skips archived short-answer exercises')
   assert.equal(await calls(), beforeNext, 'An existing T/F question needs no new generation')
+  await composer.getByRole('button', { name: 'True', exact: true }).click()
+  await page.waitForFunction(() => window.practiceTest.state().practice.sessions[0].questions.length === 4)
+  await idle()
+  assert.equal((await state()).currentIndex, 3, 'Submitting skips unanswered archived short-answer exercises')
 
   // Archived written answers remain readable; another topic starts current T/F practice.
   const legacyId = (await state()).id
