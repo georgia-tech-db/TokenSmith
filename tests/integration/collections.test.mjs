@@ -51,9 +51,11 @@ try {
   assert.equal(left[0].documentId, right[0].documentId, 'Deliberately overlapping database-local document IDs')
   assert.notEqual(left[0].materialId, right[0].materialId)
   const both = await search('ancestor packets', [a.material, b.material], docs)
-  assert.deepEqual(new Set(both.map(s => s.materialId)), new Set([a.material.id, b.material.id]))
-  assert.deepEqual(new Set((await search('ancestor', [a.material], left)).map(s => s.materialId)), new Set([a.material.id]))
-  const source = both.find(s => s.materialId === a.material.id)
+  assert.deepEqual(new Set(both.sources.map(s => s.materialId)), new Set([a.material.id, b.material.id]))
+  assert.ok(both.retrievalChildren.some(span => span.stage === 'Query encoding'))
+  assert.ok(both.retrievalChildren.every(span => Number.isFinite(span.durationMs) && span.durationMs >= 0))
+  assert.deepEqual(new Set((await search('ancestor', [a.material], left)).sources.map(s => s.materialId)), new Set([a.material.id]))
+  const source = both.sources.find(s => s.materialId === a.material.id)
   const resolved = await service.resolveSourceDocumentWithPython(source)
   assert.ok(resolved.path.endsWith('Databases/documents/notes.md'))
   const first = await service.practiceSourcesWithPython(refs(left), [], 0)
@@ -69,14 +71,14 @@ try {
   await registry.unload(a.collection.id)
   await assert.rejects(search('ancestor', [a.material], left), /closed/)
   await assert.rejects(service.resolveSourceDocumentWithPython(source), /closed/)
-  assert.ok((await search('packets', [b.material], right, 'keyword')).length)
+  assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
   assert.equal((await service.studyDocumentsWithPython()).length, 1)
   await registry.load(a.path)
   assert.equal(embeddings, callsBefore, 'Loading/unloading never embeds or generates')
   assert.deepEqual(await readFile(join(a.path, 'tokensmith.sqlite')), databaseBefore)
   assert.equal(await readFile(join(a.path, 'graph.bin'), 'utf8'), 'optional graph remains intact')
   for (let i = 0; i < 5; i++) { await registry.unload(a.collection.id); await registry.load(a.path) }
-  assert.equal((await search('ancestor', [a.material], left, 'keyword'))[0].materialId, a.material.id)
+  assert.equal((await search('ancestor', [a.material], left, 'keyword')).sources[0].materialId, a.material.id)
 
   // A real blocked embedding request is terminated only for its collection.
   const started = new Promise(resolve => { held = resolve })
@@ -86,8 +88,8 @@ try {
   await registry.load(a.path)
   assert.match((await pending).message, /closed/)
   release(); held = undefined
-  assert.ok((await search('packets', [b.material], right, 'keyword')).length)
-  assert.ok((await search('ancestor', [a.material], left, 'keyword')).length)
+  assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
+  assert.ok((await search('ancestor', [a.material], left, 'keyword')).sources.length)
 
   await registry.unload(a.collection.id)
   const movedCollection = join(root, 'Moved collection')
@@ -101,7 +103,7 @@ try {
 
   // Missing original files do not prevent indexed retrieval. Locate files restores viewing.
   const moved = join(root, 'relocated-originals'); await rename(a.originals, moved)
-  assert.ok((await search('ancestor', [a.material], left, 'keyword')).length)
+  assert.ok((await search('ancestor', [a.material], left, 'keyword')).sources.length)
   await service.locateCollectionFolder(a.material.id, moved)
   assert.equal((await service.resolveSourceDocumentWithPython(source)).path, join(moved, 'notes.md'))
 
@@ -114,7 +116,7 @@ try {
   await registry.unload(a.collection.id, () => service.cancelCollectionIndexing(a.collection.id))
   assert.match((await indexing).message, /cancelled/)
   release(); held = undefined
-  assert.ok((await search('packets', [b.material], right, 'keyword')).length)
+  assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
   await registry.load(a.path)
   assert.deepEqual(await registry.topics(refs(left)), [], 'Index updates invalidate derived topics')
   await registry.unload(a.collection.id)
@@ -139,8 +141,8 @@ try {
   siblingsCatalog = await service.studyDocumentsWithPython()
   assert.deepEqual(siblingsCatalog.map(d => d.path), [secondPath])
   const remaining = await search('Volcano next iterator', [secondDocument], siblingsCatalog)
-  assert.ok(remaining.length)
-  assert.ok(remaining.every(s => s.materialId === secondDocument.id && s.path === secondPath))
+  assert.ok(remaining.sources.length)
+  assert.ok(remaining.sources.every(s => s.materialId === secondDocument.id && s.path === secondPath))
   assert.ok((await readFile(firstPath, 'utf8')).includes('Leaf pages'), 'Removal preserves original files')
   const callsAfterPrepare = embeddings
   await registry.unload(library.id); await registry.load(library.path)
