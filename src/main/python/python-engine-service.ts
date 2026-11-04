@@ -12,8 +12,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
-import type { CleaningPreviewResult, TokenSmithLogFile } from '../../shared/engine'
+import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
+import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
 
 interface PythonRequest {
   id: string
@@ -55,8 +56,10 @@ interface IndexMaterialResult {
 
 interface SearchResult {
   sources: ChatSource[]
+  reason?: string
   queryTerms?: string[]
   keywordTerms?: string[]
+  latencySpans?: unknown[]
 }
 
 interface ListMaterialsResult {
@@ -82,6 +85,45 @@ interface ResolvedSourceDocument {
 
 interface ResolveSourceDocumentResult {
   source: ResolvedSourceDocument | null
+}
+
+const retrievalStageNames = new Set([
+  'Query encoding',
+  'Semantic search',
+  'Keyword search',
+  'Passage ranking',
+  'Query embedding',
+  'Vector search',
+  'Fusion and selection'
+])
+
+function pythonLatencySpan(value: unknown): LatencySpan | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Record<string, unknown>
+  if (typeof candidate.stage !== 'string' || !retrievalStageNames.has(candidate.stage)) return undefined
+  if (typeof candidate.startedAt !== 'number' || !Number.isFinite(candidate.startedAt)) return undefined
+  if (typeof candidate.durationMs !== 'number' || !Number.isFinite(candidate.durationMs) || candidate.durationMs < 0) return undefined
+  const status = candidate.status === 'ok' || candidate.status === 'error' || candidate.status === 'skipped'
+    ? candidate.status as LatencySpanStatus
+    : undefined
+  const inCount = typeof candidate.inCount === 'number' && Number.isFinite(candidate.inCount) && candidate.inCount >= 0
+    ? Math.floor(candidate.inCount)
+    : undefined
+  const outCount = typeof candidate.outCount === 'number' && Number.isFinite(candidate.outCount) && candidate.outCount >= 0
+    ? Math.floor(candidate.outCount)
+    : undefined
+  const details = candidate.details && typeof candidate.details === 'object' && !Array.isArray(candidate.details)
+    ? sanitizeLatencyDetails(candidate.details as Record<string, unknown>)
+    : undefined
+  return {
+    stage: normalizeLatencyStageName(candidate.stage),
+    startedAt: candidate.startedAt,
+    durationMs: candidate.durationMs,
+    ...(status ? { status } : {}),
+    ...(inCount !== undefined ? { inCount } : {}),
+    ...(outCount !== undefined ? { outCount } : {}),
+    ...(details ? { details } : {})
+  }
 }
 
 const prepareEmbeddingDevice = createEmbeddingDeviceManager()
@@ -113,6 +155,7 @@ function localIsoTimestamp(date = new Date()): string {
 const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
+  'chat_latency_trace',
   'chat_runtime_context_budget',
   'chat_question_rewrite',
   'follow_up_suggestions',
@@ -248,7 +291,7 @@ function resolveEmbeddingModel(model?: LocalModel): LocalModel | undefined {
   }
 
   if (model.engine === 'remote' || model.engine === 'ollama') {
-    return model
+    return modelWithRememberedRemoteApiKey(model)
   }
 
   return undefined
@@ -633,7 +676,7 @@ export async function indexMaterialWithPython(
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
       cleaningRuleIds: options?.cleaningRuleIds,
-      model: resolveEmbeddingModel(model ? modelWithRememberedRemoteApiKey(model) : undefined),
+      model: resolveEmbeddingModel(model),
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
@@ -701,7 +744,7 @@ function requestGroups(materials: CourseMaterial[], documents?: StudyDocumentRef
 }
 
 export async function searchLibraryWithPython(query: string, materials: CourseMaterial[], limit: number,
-  embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions): Promise<ChatSource[]> {
+  embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions): Promise<LibrarySearchResult> {
   writeLog('library_search_request', { query, materials: materials.map(m => ({ id: m.id, title: m.title })), documents: options?.documents, searchMode })
   const groups = requestGroups(materials, options?.documents)
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
@@ -710,12 +753,14 @@ export async function searchLibraryWithPython(query: string, materials: CourseMa
   const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
     const result = await storeRequest<SearchResult>(collection, 'search', { ...scope, query, limit,
       embeddingModels: resolvedEmbeddingModels, searchMode, embeddingGpuEnabled })
-    return result.sources.map(source => qualifySource(collections(), collection, source))
+    return { ...result, sources: result.sources.map(source => qualifySource(collections(), collection, source)) }
   }))
   groups.forEach(group => collections().current(group.collection))
-  const sources = mergeCollectionSources(results, limit)
+  const sources = mergeCollectionSources(results.map(result => result.sources), limit)
   writeLog('library_search_result', { query, sourceCount: sources.length, sources: sources.map(logSource) })
-  return sources
+  return { sources, reason: results.map(result => result.reason).filter(Boolean).join(' ') || undefined,
+    retrievalChildren: results.flatMap(result => (result.latencySpans ?? []).map(pythonLatencySpan)
+      .filter((span): span is LatencySpan => Boolean(span))) }
 }
 
 export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {

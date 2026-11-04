@@ -53,7 +53,7 @@ export function LibraryWorkspace(props: Props) {
   const [reportLoading, setReportLoading] = useState(false)
   const modelId = preparation.modelId || props.selectedModelId
   const generator = generators.find(m => m.id === modelId)
-  const embedder = embedders.find(m => m.id === embedderId) || embedders[0]
+  const embedder = embedders.find(m => m.id === embedderId)
   const document = report?.documents.find(d => d.path === documentPath)
   const documents = props.documents ?? []
   const pending = materials.filter(item => !documents.some(d => d.materialId === item.id))
@@ -93,7 +93,7 @@ export function LibraryWorkspace(props: Props) {
   function start(next: PreparationSettings = preparation) {
     const sourcePath = selected?.path
     if (!sourcePath) { setError('Select a document first.'); return }
-    if (!embedder) { setError('Add an embedding model in Models first.'); return }
+    if (!embedder) { setError('Reconnect your search model in Models, or choose an available embedding model in Settings below.'); return }
     if (next.mode === 'ai' && !generator) { setError('Choose an available preparation model, or start it in Models.'); return }
     const preparationModel = next.mode === 'ai' ? generator : undefined
     const configuration = { ...next, modelId: preparationModel?.id, modelName: preparationModel?.name }

@@ -58,7 +58,7 @@ window.tokensmith={
   preparationReport:async()=>({documents:mixedSources.map(source=>({path:source.path,title:source.title,status:'ready',chunkCount:1,chunks:[{text:source.excerpt,pageStart:source.pageStart,pageEnd:source.pageEnd,lineFrom:source.lineFrom,lineTo:source.lineTo}]}))}),
   getOllamaStatus:async()=>({running:true,models:[]}),
   resolveChatQuestion:async request=>({mode:'standalone',query:request.prompt,clarification:''}),
-  searchLibrary:async()=>retrievedSources, starterSources:async()=>[source],
+  searchLibrary:async()=>({sources:retrievedSources}), starterSources:async()=>[source],
   getMarkdownForSource:async source=>maybeDelaySource(markdownDocument(source)),
   getPdfForSource:async source=>{if(params.has('fail-source'))throw new Error('Test PDF unavailable');return maybeDelaySource({title:source.title,path:source.path,page:1,dataUrl:testPdf()})},
   sendChatMessage:(request,onAnswer)=>new Promise((resolve,reject)=>{calls++;jobs.push({id:request.requestId,request,onAnswer,resolve,reject});metrics()}),

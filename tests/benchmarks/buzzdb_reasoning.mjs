@@ -240,7 +240,7 @@ export async function runBuzzdbReasoningBenchmark() {
             stage = 'retrieval'
             const result = await worker.call({ command: 'search', query, limit })
             detail.retrieval = result
-            return result.sources
+            return { sources: result.sources, retrievalChildren: result.latencySpans }
           }
         })
         Object.assign(detail, prepared)

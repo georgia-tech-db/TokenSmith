@@ -46,11 +46,11 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
         const query = session.topic.question
           ? `${session.topic.question.slice(0, 1000)}\n${session.topic.answer?.slice(0, 1000) ?? ''}` : session.topic.title
         try {
-          const related = sourcesInScope(await bridge.searchLibrary(query,
+          const result = await bridge.searchLibrary(query,
             retrieval.materials.filter(material => ids.has(material.id)).map(material => ({ ...material, isActive: true })),
             8, retrieval.embeddingModels, settings.application.searchMode,
-            { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: session.documents }), session.documents)
-          sources = [...related, ...sources]
+            { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: session.documents })
+          sources = [...sourcesInScope(result.sources, session.documents), ...sources]
         } catch (reason) { if (!sources.length) throw reason }
       }
       signal.throwIfAborted()

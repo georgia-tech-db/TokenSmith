@@ -105,6 +105,14 @@ Use `/tests/ui/generation-progress.html?preview=markdown` (or `?preview=pdf`) wi
 - Add `&answer-delay`, send, and dismiss the automatic reader. Click **Deliver answer**, then immediately open Second source manually. After the two-second answer delay, that manually opened source must remain visible. Close it and verify the answer is already present.
 - Turn Show Sources off: no automatic reader should open. With no retrieved source or an unavailable document, answer generation must continue normally.
 
+## Shared cloud connections
+
+Run `node tests/ui/cloud-connections-check.mjs` with `CLOUD_UI_URL` pointing to the preview's `/tests/ui/cloud-generators.html`. Set `PLAYWRIGHT_MODULE` and `CHROME_PATH` when using an external Playwright installation.
+
+This drives the production UI with fake credentials: two chat models and one embedder share a connection; key replacement preserves IDs; forgetting requires confirmation and disconnects all three even if the sheet closes; reload and Library do not substitute another embedder; reconnect repairs the connection. Desktop and mobile screenshots are saved under `/tmp/tokensmith-cloud-connections-ui`.
+
+Service tests separately cover encrypted restart persistence, endpoint isolation, invalid embedding responses, concurrent connection changes, and main-process credential injection into indexing/search requests. No real cloud account is contacted.
+
 ## Contents and mixed source navigation
 
 Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies two Markdown files and two PDFs, both as retrieved sources and as a Library collection.
@@ -117,3 +125,12 @@ Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies t
 - Check 866px and 390px widths. The header controls remain visible; Contents becomes a panel above the text in narrow windows.
 
 Parsed heading targets and mixed-source ordering also run in the TypeScript unit suite.
+
+## Query plans
+
+`query-plan-check.mjs` checks the Show query plan action after Explain more simply,
+keyboard access, optional/late/malformed traces, per-answer-version plans, reload
+persistence, and desktop/mobile layout. It uses `query-plan.html` and the full-app
+`reasoning-retry.html?plan-test` fixture. See [query-plan.md](../../docs/query-plan.md)
+for commands. Set `QUERY_PLAN_UI_URL` to the fixture server origin (default
+`http://127.0.0.1:5196`) and optionally `QUERY_PLAN_OUTPUT` for screenshots.

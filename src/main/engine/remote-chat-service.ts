@@ -1,4 +1,4 @@
-import type { LocalModel, LocalModelRole, ModelRuntimeSettings } from '../../shared/app-state'
+import type { LocalModel, ModelRuntimeSettings } from '../../shared/app-state'
 import { writeTokenSmithLog } from '../python/python-engine-service'
 import type {
   EngineRunOptions,
@@ -9,6 +9,7 @@ import type {
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
 import { lastChatExchange } from '../../shared/study-chat-pipeline'
+import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../shared/latency-trace'
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
 import { withModelContextMetadata } from './model-context-metadata'
@@ -23,15 +24,11 @@ import {
   questionSuggestionMessages,
   suggestionMaxTokens,
   shouldGenerateFollowUps,
-  studyChatMessages,
   prepareStudyChatMessages,
   type StudyChatMessage,
   filterSuggestedQuestions
 } from './study-chat-format'
-
-interface OpenAiCompatibleModelList {
-  data?: Array<{ id?: string }>
-}
+import { promptPreparationSpan } from './study-engine-latency'
 
 interface OpenAiCompatibleChatResponse {
   choices?: Array<{
@@ -41,6 +38,18 @@ interface OpenAiCompatibleChatResponse {
     }
     text?: string
   }>
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+  }
+}
+
+interface RemoteCompletionOverrides {
+  maxTokens?: number
+  temperature?: number
+  requireComplete?: boolean
+  signal?: AbortSignal
+  onComplete?: (payload: OpenAiCompatibleChatResponse) => void
 }
 
 interface RemoteCompletionConfig {
@@ -57,6 +66,22 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
+}
+
+function remoteCompletionDetails(payload?: OpenAiCompatibleChatResponse): Record<string, string | number> | undefined {
+  if (!payload) return undefined
+  const details: Record<string, string | number> = {}
+  const promptTokens = payload.usage?.prompt_tokens
+  const generatedTokens = payload.usage?.completion_tokens
+  const finishReason = payload.choices?.[0]?.finish_reason
+  if (typeof promptTokens === 'number' && Number.isFinite(promptTokens) && promptTokens >= 0) {
+    details.prompt_tokens = promptTokens
+  }
+  if (typeof generatedTokens === 'number' && Number.isFinite(generatedTokens) && generatedTokens >= 0) {
+    details.generated_tokens = generatedTokens
+  }
+  if (finishReason) details.finish_reason = finishReason
+  return Object.keys(details).length ? details : undefined
 }
 
 function isGeminiOpenAiBaseUrl(baseUrl: string): boolean {
@@ -102,93 +127,10 @@ async function responseErrorDetail(response: Response, secret?: string): Promise
   }
 }
 
-function numericGroups(value: string): number[] {
-  return [...value.matchAll(/\d+(?:\.\d+)*/g)].flatMap((match) => match[0].split('.').map(Number))
-}
-
-function compareNumberListsDescending(left: number[], right: number[]): number {
-  const length = Math.max(left.length, right.length)
-
-  for (let index = 0; index < length; index += 1) {
-    const leftValue = left[index] ?? -1
-    const rightValue = right[index] ?? -1
-
-    if (leftValue !== rightValue) {
-      return rightValue - leftValue
-    }
-  }
-
-  return 0
-}
-
-function compareModelIds(left: string, right: string, preferredPrefix?: string): number {
-  if (preferredPrefix) {
-    const leftPreferred = left.startsWith(preferredPrefix)
-    const rightPreferred = right.startsWith(preferredPrefix)
-
-    if (leftPreferred !== rightPreferred) {
-      return leftPreferred ? -1 : 1
-    }
-  }
-
-  return compareNumberListsDescending(numericGroups(left), numericGroups(right)) || left.localeCompare(right)
-}
-
-function isLikelyEmbeddingModelId(modelId: string): boolean {
-  const lower = modelId.toLowerCase()
-  return lower.includes('embedding') || lower.includes('embed')
-}
-
-function listedModelMatchesRole(modelId: string, baseUrl: string, role: LocalModelRole): boolean {
-  if (!isGeminiOpenAiBaseUrl(baseUrl)) {
-    return true
-  }
-
-  if (role === 'both') {
-    return true
-  }
-
-  const embeddingModel = isLikelyEmbeddingModelId(modelId)
-  return role === 'embedder' ? embeddingModel : !embeddingModel
-}
-
-export async function listOpenAiCompatibleModels(
-  apiKey: string,
-  baseUrl: string,
-  role: LocalModelRole = 'generator'
-): Promise<string[]> {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
-  if (!apiKey.trim() || !normalizedBaseUrl) {
-    return []
-  }
-
-  const response = await fetch(`${normalizedBaseUrl}/models`, {
-    headers: {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      Accept: 'application/json'
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error(`Model list failed with HTTP ${response.status}${await responseErrorDetail(response, apiKey)}.`)
-  }
-
-  const payload = (await response.json()) as OpenAiCompatibleModelList
-  const modelIds = (payload.data ?? [])
-    .map((model) => model.id)
-    .filter((id): id is string => Boolean(id))
-    .map((id) => normalizeListedModelId(id, normalizedBaseUrl))
-    .filter((id) => Boolean(id))
-    .filter((id) => listedModelMatchesRole(id, normalizedBaseUrl, role))
-
-  return Array.from(new Set(modelIds))
-    .sort((left, right) => compareModelIds(left, right, isGeminiOpenAiBaseUrl(normalizedBaseUrl) ? 'gemini-' : undefined))
-}
-
 async function runRemoteChatCompletion(
   config: RemoteCompletionConfig,
   messages: StudyChatMessage[],
-  overrides: { maxTokens?: number; temperature?: number; requireComplete?: boolean; signal?: AbortSignal } = {}
+  overrides: RemoteCompletionOverrides = {}
 ): Promise<string> {
   const requestedTokens = overrides.maxTokens ?? config.settings?.maxLength
   const maxTokens = config.maxOutputTokens ? Math.min(requestedTokens ?? config.maxOutputTokens, config.maxOutputTokens) : requestedTokens
@@ -218,6 +160,7 @@ async function runRemoteChatCompletion(
   }
 
   const payload = (await response.json()) as OpenAiCompatibleChatResponse
+  overrides.onComplete?.(payload)
   if (overrides.requireComplete && payload.choices?.[0]?.finish_reason === 'length') {
     throw new Error('The model response exceeded its output limit.')
   }
@@ -256,7 +199,8 @@ async function generateRemoteFollowUpSuggestions(
   request: EngineChatRequest,
   answer: string,
   config: RemoteCompletionConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onComplete?: (payload: OpenAiCompatibleChatResponse) => void
 ): Promise<string[]> {
   if (!shouldGenerateFollowUps(request)) {
     return []
@@ -272,7 +216,7 @@ async function generateRemoteFollowUpSuggestions(
   const text = await runRemoteChatCompletion(
     config,
     followUpSuggestionMessages(request, answer),
-    { maxTokens, temperature, requireComplete: true, signal }
+    { maxTokens, temperature, requireComplete: true, signal, onComplete }
   )
   const referenceQuestions = [
     ...request.messages.filter((message) => message.role === 'user').map((message) => message.text),
@@ -312,17 +256,62 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     })
     return { engineId: 'tokensmith', modelName: request.model.name, text, sources: prepared.sources }
   }
-  const text = await runRemoteChatCompletion(config, studyChatMessages(runtimeRequest), { signal: options.signal })
+  const preparationStartedAt = Date.now()
+  const preparationStarted = performance.now()
+  const prepared = prepareStudyChatMessages(runtimeRequest)
+  const preparationSpan = promptPreparationSpan(
+    preparationStartedAt,
+    performance.now() - preparationStarted,
+    runtimeRequest.retrievedSources?.length ?? 0,
+    prepared.budget
+  )
+  let generationPayload: OpenAiCompatibleChatResponse | undefined
+  const generationTimer = startLatencySpan('Answer generation')
+  const text = await runRemoteChatCompletion(config, prepared.messages, {
+    signal: options.signal,
+    onComplete: (payload) => { generationPayload = payload }
+  })
+  const generationSpan = generationTimer.finish({
+    details: remoteCompletionDetails(generationPayload)
+  })
+  const answerTrace = createLatencyTrace([preparationSpan, generationSpan], request.requestId)
   const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
   options.signal?.throwIfAborted()
-  options.onAnswer?.({ engineId: 'tokensmith', modelName: request.model.name, text: answer.text, sources: answer.sources }, shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0)
+  const hasFollowUps = shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0
+  options.onAnswer?.({
+    engineId: 'tokensmith',
+    modelName: request.model.name,
+    text: answer.text,
+    sources: answer.sources,
+    latencyTrace: answerTrace
+  }, hasFollowUps)
   let followUpSuggestions: string[] | undefined
   let followUpError: string | undefined
+  let suggestionPayload: OpenAiCompatibleChatResponse | undefined
+  const suggestionTimer = startLatencySpan('Follow-up suggestions')
+  let suggestionSpan: LatencySpan
   try {
-    followUpSuggestions = await generateRemoteFollowUpSuggestions(runtimeRequest, answer.text, config, options.signal)
+    followUpSuggestions = hasFollowUps
+      ? await generateRemoteFollowUpSuggestions(
+        runtimeRequest,
+        answer.text,
+        config,
+        options.signal,
+        (payload) => { suggestionPayload = payload }
+      )
+      : []
+    suggestionSpan = suggestionTimer.finish({
+      status: hasFollowUps ? 'ok' : 'skipped',
+      outCount: followUpSuggestions.length,
+      details: remoteCompletionDetails(suggestionPayload)
+    })
   } catch (error) {
     options.signal?.throwIfAborted()
     followUpError = `Suggested follow-ups failed: ${errorMessage(error, 'The remote provider could not generate suggestions.')}`
+    suggestionSpan = suggestionTimer.finish({
+      status: 'error',
+      details: { reason: 'follow_up_generation_failed' }
+    })
   }
 
   return {
@@ -330,6 +319,10 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     modelName: request.model.name,
     text: answer.text,
     sources: answer.sources,
+    latencyTrace: createLatencyTrace(
+      [preparationSpan, generationSpan, suggestionSpan],
+      request.requestId
+    ),
     followUpSuggestions,
     followUpError
   }

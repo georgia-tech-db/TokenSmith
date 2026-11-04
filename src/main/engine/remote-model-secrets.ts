@@ -40,7 +40,7 @@ export function modelWithRememberedRemoteApiKey(model: LocalModel): LocalModel {
 
   const apiKey = model.connectionId ? cloudCredentialResolver(model) : cleanApiKey(model.apiKey) ?? remoteApiKeys.get(model.id)
   if (!apiKey) {
-    return model
+    return model.connectionId ? sanitizeRemoteModelSecrets(model) : model
   }
 
   return {
