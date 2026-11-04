@@ -992,7 +992,7 @@ def insert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             chunk.get("documentTitle"),
             None,
             None,
-            None,
+            clean_optional_text(chunk.get("keywords")),
             chunk.get("pageStart"),
             chunk.get("lineFrom"),
             chunk.get("lineTo"),
@@ -1056,7 +1056,8 @@ def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             tokensmith_chapter = ?,
             chunk_kind = ?,
             page_end = ?,
-            section_header = COALESCE(?, section_header)
+            section_header = COALESCE(?, section_header),
+            keywords = ?
         WHERE id = ?
         """,
         (
@@ -1066,6 +1067,7 @@ def upsert_chunk(conn: sqlite3.Connection, document_id: int, chunk: Dict[str, An
             chunk_kind,
             chunk.get("pageEnd"),
             chunk.get("sectionHeader"),
+            clean_optional_text(chunk.get("keywords")),
             chunk_id,
         ),
     )
@@ -1212,6 +1214,7 @@ def upsert_material(
                 chunk.get("path"),
                 chunk.get("documentTitle"),
                 chunk.get("sectionHeader"),
+                chunk.get("keywords"),
             )
             embedding = chunk.get("embedding")
             if embedding:
@@ -1294,6 +1297,7 @@ def append_material_chunks(
                 chunk.get("path"),
                 chunk.get("documentTitle"),
                 chunk.get("sectionHeader"),
+                chunk.get("keywords"),
             )
             embedding = chunk.get("embedding")
             if not embedding:
@@ -1419,6 +1423,7 @@ def source_row_select() -> str:
             ch.id AS chunk_index,
             ch.chunk_size AS chunk_size,
             ch.section_header AS section_header,
+            ch.keywords AS keywords,
             col.embedding_model AS embedding_model,
             pt.thumbnail_path AS thumbnail_path
         FROM chunks ch
