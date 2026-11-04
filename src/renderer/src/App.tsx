@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import type { Collection } from '@shared/collections'
 import { materialCollectionId } from '@shared/collections'
 import { CollectionLibrary } from './CollectionLibrary'
@@ -1253,6 +1254,35 @@ export function App() {
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
   }
+  const latestState = useRef(appState)
+  latestState.current = appState
+  async function commitPractice(update: (current: PracticeState) => PracticeState) {
+    flushSync(() => updatePractice(update))
+    const snapshot = latestState.current
+    if (window.tokensmith) await window.tokensmith.saveAppState(snapshot)
+    else savePreviewState(snapshot)
+    return snapshot.practice ?? emptyPracticeState()
+  }
+  useEffect(() => {
+    const recordVisibleHelp = () => {
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+      if (appState.activeScreen !== 'chat' || practiceState.mode !== 'chat') return
+      const chat = appState.conversations.find(c => c.id === appState.activeConversationId)
+      const reference = chat?.practiceReference
+      if (!reference) return
+      const help = chat.messages.filter(m => m.role === 'assistant' && m.text.trim() && m.id !== `${chat.id}:feedback`)
+      const saved = practiceState.sessions.find(s => s.id === reference.sessionId)
+      if (!saved || !help.some(m => !saved.observations?.some(e => e.id === `help:${m.id}`))) return
+      updatePractice(current => ({ ...current, sessions: current.sessions.map(s => s.id !== reference.sessionId ? s : {
+        ...s, observations: [...(s.observations ?? []), ...help.filter(m => !s.observations?.some(e => e.id === `help:${m.id}`)).map(m => ({
+          id: `help:${m.id}`, questionId: reference.questionId, kind: 'help_shown' as const,
+          at: new Date().toISOString(), content: m.text, referenceId: m.id }))] }) }))
+    }
+    recordVisibleHelp()
+    window.addEventListener('focus', recordVisibleHelp)
+    document.addEventListener('visibilitychange', recordVisibleHelp)
+    return () => { window.removeEventListener('focus', recordVisibleHelp); document.removeEventListener('visibilitychange', recordVisibleHelp) }
+  }, [appState.conversations, appState.activeConversationId, appState.activeScreen, practiceState.mode])
   const [practiceChatDraft, setPracticeChatDraft] = useState<{ conversationId: string; draft: ChatDraft }>()
   function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
     const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
@@ -2269,7 +2299,7 @@ export function App() {
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
           {...studyPanels} onViewLog={openLog}
-          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
+          state={practiceState} onChange={updatePractice} onCommit={commitPractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
           materials={appState.materials} embeddingModels={embeddingModels}
           catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}

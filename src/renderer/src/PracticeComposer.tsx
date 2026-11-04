@@ -3,20 +3,26 @@ import { MessageSquare } from 'lucide-react'
 import { practiceQuestionIssue, type PracticeQuestion } from '@shared/practice'
 import './answer-explanation.css'
 
-export function PracticeComposer({ question, busy, isActive, onCheck }: {
+export function PracticeComposer({ question, busy, isActive, onCheck, assessment = false, onDraft }: {
   question: PracticeQuestion; busy: boolean; isActive: boolean
+  assessment?: boolean
+  onDraft?: (draft: string) => void
   onCheck: (answer: string) => void
 }) {
   const choices = useRef<HTMLDivElement>(null)
   const attempt = question.attempts.at(-1)
   const binary = question.format === 'true_false'
-  const answerReady = binary && typeof question.correctAnswer === 'boolean' && Boolean(question.referenceAnswer?.trim()) && question.sources.length > 0
+  const answerReady = assessment || binary && typeof question.correctAnswer === 'boolean' && Boolean(question.referenceAnswer?.trim()) && question.sources.length > 0
   useEffect(() => {
     if (isActive && !attempt) choices.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [question.id, isActive, attempt])
-  if (practiceQuestionIssue(question)) return null
+  if (!assessment && practiceQuestionIssue(question)) return null
   return <div className="composer-area practice-composer" role="region" aria-label="Practice composer">
     {binary && !answerReady && <p className="practice-muted">This saved question has no usable answer guide. Prepare another question.</p>}
+    {assessment && !binary && <form onSubmit={e => { e.preventDefault(); onCheck(question.draft) }}>
+      <label>Your explanation<textarea aria-label="Your explanation" value={question.draft} disabled={busy || Boolean(attempt)} onChange={e => onDraft?.(e.target.value)} /></label>
+      <button type="submit" disabled={busy || Boolean(attempt) || !question.draft.trim()}>Submit response</button>
+    </form>}
     <div className="composer">
       <div className="practice-choices" role="group" aria-label="Your answer" ref={choices}>
         {binary && ['True', 'False'].map(choice => <button key={choice} type="button"

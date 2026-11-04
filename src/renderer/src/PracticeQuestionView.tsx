@@ -13,9 +13,10 @@ function PracticeMessage({ id, user = false, children }: { id: string; user?: bo
   </div>
 }
 
-export function PracticeQuestionView({ question, index, active, busy, onShowSources, sourcesOpen, actions }: {
+export function PracticeQuestionView({ question, index, active, busy, onShowSources, sourcesOpen, actions, assessment = false }: {
   question: PracticeQuestion; index: number; active: boolean; busy: boolean
   onShowSources?: () => void
+  assessment?: boolean
   sourcesOpen: boolean
   actions?: ReactNode
 }) {
@@ -24,7 +25,7 @@ export function PracticeQuestionView({ question, index, active, busy, onShowSour
       <PracticeMessage id={question.id}>
         <MessageText text={practiceQuestionText(question)} />
         {!question.attempts.length && practiceQuestionIssue(question) && <p className="practice-muted">{practiceQuestionIssue(question)}</p>}
-        {question.format !== 'true_false' && <p className="practice-muted">Saved short-answer exercise. Choose Next question for True/False practice.</p>}
+        {!assessment && question.format !== 'true_false' && <p className="practice-muted">Saved short-answer exercise. Choose Next question for True/False practice.</p>}
       </PracticeMessage>
       {practiceTimeline(question).map((activity, eventIndex) => {
         if (activity.kind === 'attempt') {

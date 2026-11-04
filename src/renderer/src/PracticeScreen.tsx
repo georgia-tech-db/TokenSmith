@@ -1,7 +1,9 @@
+import { assessmentSession, assessmentLocked, assessmentDisplayQuestion, parseAssessmentPack, exportPractice, practicePerformance } from '@shared/practice-study'
+import { usePracticeClock } from './hooks/usePracticeClock'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw } from 'lucide-react'
 import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import { practiceAssisted, practiceQuestionIssue, practiceAttemptFeedback, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
+import { practiceQuestionIssue, practiceAttemptFeedback, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
   type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
 import { gradeTrueFalse } from '@shared/quiz'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -25,6 +27,7 @@ interface Props extends StudyPanels {
   isActive: boolean
   state: PracticeState
   onChange: (update: (state: PracticeState) => PracticeState) => void
+  onCommit?: (update: (state: PracticeState) => PracticeState) => Promise<PracticeState>
   onModeChange: (mode: StudyMode) => void
   onChat: (session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) => void
   onViewLog: () => void
@@ -51,16 +54,22 @@ export function PracticeScreen(props: Props) {
   const documents = catalog.documents
   const { historyOpen: sidebarOpen, onHistoryOpenChange: setSidebarOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen } = props
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [unsaved, setUnsaved] = useState(false)
+  const submitting = useRef(false)
   const [pending, setPending] = useState<{ id: string } | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
   const operation = useRef<{ id: string; controller: AbortController; sessionId: string; scopeKey: string } | null>(null)
   const session = state.sessions.find(item => item.id === state.activeSessionId)
+  const activeSession = useRef({ id: session?.id, active: isActive })
+  activeSession.current = { id: session?.id, active: isActive }
   const question = session?.questions[session.currentIndex]
-  const canShowSources = (item: PracticeQuestion) => settings.application.showSources && item.sources.length > 0 &&
+  const locked = Boolean(session && assessmentLocked(session))
+  const canShowSources = (item: PracticeQuestion) => !locked && settings.application.showSources && item.sources.length > 0 &&
     (item.attempts.length > 0 || item.answerRevealed || Boolean(item.discussions?.length))
   const sources = question && canShowSources(question) ? question.sources : undefined
   const selectedSources = useMemo(() => sources?.slice(0, maxSourceTrayCards) ?? [], [sources])
-  const messages = useMemo(() => session?.questions.flatMap(practiceMessages) ?? [], [session?.questions])
+  const messages = useMemo(() => session?.questions.flatMap(q => practiceMessages(locked ? assessmentDisplayQuestion(q) : q)) ?? [], [session?.questions, locked])
   const navigationQuestions = useMemo(() => session?.questions.map(item => ({ id: item.id, text: practiceQuestionText(item) })) ?? [], [session?.questions])
   const model = session ? models.find(item => item.id === session.modelId) : props.selectedModel
   const available = model?.status === 'ready'
@@ -96,6 +105,52 @@ export function PracticeScreen(props: Props) {
   function updateSession(id: string, update: (value: PracticeSession) => PracticeSession) {
     onChange(current => ({ ...current, sessions: current.sessions.map(item => item.id === id ? update(item) : item) }))
   }
+  useEffect(() => {
+    const attempt = question?.attempts[0]
+    if (!session || !question || !attempt || !isActive || locked || reviewOpen) return
+    const id = `feedback:${attempt.id}`
+    if (session.observations?.some(e => e.id === id)) return
+    updateSession(session.id, s => ({ ...s, observations: [...(s.observations ?? []),
+      { id, questionId: question.id, kind: 'feedback_shown', at: new Date().toISOString(), referenceId: attempt.id }] }))
+  }, [session?.id, question?.id, question?.attempts.length, isActive, locked, reviewOpen])
+  const timing = usePracticeClock(session, question, isActive && !reviewOpen && !pending && !saving, updateSession)
+  async function commit(update: (value: PracticeState) => PracticeState) {
+    if (props.onCommit) return props.onCommit(update)
+    const next = update(state); onChange(() => next); return next
+  }
+  async function importPack(file?: File) {
+    if (!file) return
+    try {
+      if (file.size > 2_000_000) throw new Error('Assessment file exceeds 2 MB.')
+      const pack = parseAssessmentPack(JSON.parse(await file.text()))
+      const created = assessmentSession(pack, `assessment-${crypto.randomUUID()}`, settings.modelDefaults, new Date().toISOString())
+      props.onScopeChange([])
+      await commit(current => ({ ...current, activeSessionId: created.id, sessions: [created, ...current.sessions] }))
+      setError('')
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+  }
+  function exportSession() {
+    if (!session || unsaved) return
+    const participant = window.prompt('Participant code (optional; avoid names or email addresses):', '')
+    if (participant === null) return
+    const url = URL.createObjectURL(new Blob([JSON.stringify(exportPractice([session], participant), null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a'); link.href = url; link.download = 'tokensmith-practice.json'; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+  async function finishAssessment() {
+    if (!session || submitting.current || session.questions.some(q => !q.attempts.length)) return
+    submitting.current = true; setSaving(true)
+    try {
+      await commit(current => ({ ...current, sessions: current.sessions.map(s => s.id !== session.id ? s : {
+        ...s, assessment: { ...s.assessment!, completedAt: new Date().toISOString() },
+        questions: s.questions.map(q => ({ ...q, attempts: q.attempts.map(a => ({ ...a, feedback: q.format === 'true_false'
+          ? { kind: 'true_false' as const, correct: (a.answer === 'True') === q.correctAnswer, explanation: q.referenceAnswer ?? '' }
+          : 'Awaiting independent review.' })) })) }) }))
+      if (activeSession.current.id === session.id && activeSession.current.active) setReviewOpen(true)
+      setError(''); setUnsaved(false)
+    } catch { setError('Could not save completion. Please retry.'); setUnsaved(true) }
+    finally { submitting.current = false; setSaving(false) }
+  }
   async function perform<T>(target: PracticeSession, label: string,
     run: (client: ReturnType<typeof createPracticeClient>, id: string, signal: AbortSignal) => Promise<T>,
     complete: (result: T, durationMs: number) => void) {
@@ -127,6 +182,7 @@ export function PracticeScreen(props: Props) {
     }
   }
   function generate(target: PracticeSession) {
+    if (target.assessment) return
     if (!target.topic) { chooseSession(); return }
     if (!target.documents.every(doc => documents.some(available => studyDocumentKey(available) === studyDocumentKey(doc)))) {
       setError('Open the library to continue this practice.'); return
@@ -135,15 +191,16 @@ export function PracticeScreen(props: Props) {
     void perform(target, 'Preparing question', async (client, id, signal) => {
       prepared = await client.prepareTopic(target, signal)
       return client.question(prepared, id, signal)
-    }, generated => updateSession(target.id, current => generated
-      ? { ...current, topic: prepared.topic, questions: [...current.questions, generated], currentIndex: current.questions.length }
+    }, (generated, generationMs) => updateSession(target.id, current => generated
+      ? { ...current, topic: prepared.topic, questions: [...current.questions, { ...generated, generationMs, concept: current.topic?.concept, item: { id: generated.id, version: '1', keyVersion: '1', origin: 'generated' as const } }], currentIndex: current.questions.length }
       : { ...current, topic: prepared.topic, sourcesExhausted: true }))
   }
   function start(topic: PracticeTopic) {
     if (!isActive || session || !model || !available || operation.current || !scopeReady || !topic.title.trim()) return
     const scope = documents.filter(item => selected.includes(studyDocumentKey(item)))
     if (!scope.length) return
-    const created: PracticeSession = { id: `practice-${crypto.randomUUID()}`, title: topic.title, topic, createdAt: new Date().toISOString(),
+    const concept = topic.concept ?? { courseId: studyScopeKey(scope), id: crypto.randomUUID(), title: topic.title }
+    const created: PracticeSession = { observations: [], id: `practice-${crypto.randomUUID()}`, title: topic.title, topic: { ...topic, concept }, createdAt: new Date().toISOString(),
       documents: scope, modelId: model.id, modelSettings: props.modelSettingsFor(model.id), questions: [], currentIndex: 0 }
     onChange(current => ({ ...current, draftTopic: undefined, activeSessionId: created.id, sessions: [created, ...current.sessions] }))
     generate(created)
@@ -168,25 +225,33 @@ export function PracticeScreen(props: Props) {
     stop(); setError(''); setReviewOpen(false)
     onChange(current => ({ ...current, sessions: [], activeSessionId: undefined, draftTopic: undefined }))
   }
-  function checkAnswer(answer: string) {
-    if (!session || !question || question.format !== 'true_false' || question.attempts.length || pending || operation.current) return
-    const assisted = practiceAssisted(question)
-    setError('')
+  async function checkAnswer(answer: string, retry = false) {
+    if (!session || !question || submitting.current || pending || operation.current || (!retry && question.attempts.length)) return
+    if (!retry && (!answer.trim() || (question.format === 'true_false' && !['True', 'False'].includes(answer)))) return
+    submitting.current = true; setSaving(true); setError('')
+    const at = timing()
+    const help = (session.observations ?? []).filter(e => e.questionId === question.id && e.kind === 'help_shown')
     try {
-      const feedback = gradeTrueFalse(question, answer)
+      const feedback = retry ? '' : locked ? 'Response saved. Feedback is available after completing the assessment.'
+        : gradeTrueFalse(question, answer)
       const id = crypto.randomUUID()
-      const checked: PracticeQuestion = { ...question, draft: answer, reviewing: true, attempts: [...question.attempts,
-        { id, answer, feedback, assisted, durationMs: 0 }], timeline: [...practiceTimeline(question), { kind: 'attempt', id }] }
-      const updated = { ...session, questions: session.questions.map(item => item.id === question.id ? checked : item) }
-      updateSession(session.id, () => updated)
-      const nextIndex = updated.questions.findIndex((item, index) => index > updated.currentIndex && item.format === 'true_false')
-      if (nextIndex >= 0) updateSession(session.id, current => ({ ...current, currentIndex: nextIndex }))
-      else if (available && scopeReady && !session.sourcesExhausted) generate(updated)
-    }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+      const saved = await commit(current => ({ ...current, sessions: current.sessions.map(s => s.id !== session.id || retry ? s : {
+        ...s, observations: [...(s.observations ?? []), { id, questionId: question.id, kind: 'submitted' as const, at: at.submittedAt }],
+        questions: s.questions.map(q => q.id !== question.id || q.attempts.length ? q : { ...q, draft: answer, reviewing: true,
+          attempts: [...q.attempts, { id, answer, feedback, ...at, observationVersion: 1 as const,
+            assistanceIds: help.map(e => e.id), assisted: help.length > 0 || Boolean(q.hintUsed || q.answerRevealed || q.discussions?.length) }],
+          timeline: [...practiceTimeline(q), { kind: 'attempt' as const, id }] }) }) }))
+      setUnsaved(false)
+      if (activeSession.current.id !== session.id || !activeSession.current.active) return
+      const updated = saved.sessions.find(s => s.id === session.id)!
+      const next = updated.questions.findIndex(q => !q.attempts.length)
+      if (next >= 0) updateSession(updated.id, s => ({ ...s, currentIndex: next }))
+      else if (!updated.assessment && available && scopeReady && !updated.sourcesExhausted) generate(updated)
+    } catch (reason) { setUnsaved(true); setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { submitting.current = false; setSaving(false) }
   }
   function chatAbout(item: PracticeQuestion, passage?: ChatSelectedPassage) {
-    if (!session) return
+    if (!session || locked) return
     stop()
     props.onChat(session, item, passage)
   }
@@ -221,32 +286,38 @@ export function PracticeScreen(props: Props) {
         {session && <button className="icon-button subtle" type="button" aria-label="Review progress" title="Review progress"
           aria-pressed={reviewOpen} disabled={Boolean(pending)} onClick={() => setReviewOpen(open => !open)}><ChartColumn size={18} aria-hidden="true" /></button>}
       </StudyHeader>
-      {session && <div className="practice-topic-bar"><span title={session.topic?.title}>{session.topic?.title ?? 'Saved practice'}</span>
+      {session && <div className="practice-topic-bar"><span title={session.topic?.title}>{session.topic?.title ?? session.title}</span>
         <button className="study-action-button" type="button" onClick={() => chooseSession()}>Practice another topic</button></div>}
+      {session && <div className="practice-topic-bar">
+        <button type="button" className="practice-link" disabled={unsaved || saving} onClick={exportSession}>Export practice record</button>
+        {locked && <><span>Assessment: help and feedback are available after completion.</span><button type="button" disabled={saving || session.questions.some(q => !q.attempts.length)} onClick={() => void finishAssessment()}>Complete assessment</button></>}
+        {unsaved && <button type="button" disabled={saving} onClick={() => void checkAnswer(question?.draft ?? '', true)}>Retry saving</button>}
+      </div>}
       {session && reviewOpen ? <div className="practice-scroll"><div className="practice-content">
           <p className="practice-topic">{session.title}</p><h1>Your practice progress</h1>
           <p>{session.questions.filter(item => item.attempts.length || item.answerRevealed).length} of {session.questions.length} questions reviewed</p>
           {session.questions.map((item, index) => <details className="practice-recap-question" key={item.id}>
             <summary><span>{practiceQuestionText(item)}</span><span className="practice-muted">{practiceReviewLabel(item)}</span></summary>
-            {item.rubric && <p className="practice-muted">{item.rubric.objective}</p>}
-            {item.attempts.at(-1) && <><h3>Your answer</h3><MessageText text={item.attempts.at(-1)!.answer} /><h3>Feedback</h3><PracticeFeedbackView feedback={practiceAttemptFeedback(item, item.attempts.at(-1)!)} /></>}
+            {!locked && item.rubric && <p className="practice-muted">{item.rubric.objective}</p>}
+            {item.attempts.at(-1) && <><h3>Your answer</h3><MessageText text={item.attempts.at(-1)!.answer} /><h3>Feedback</h3><PracticeFeedbackView feedback={locked ? 'Response saved.' : practiceAttemptFeedback(item, item.attempts.at(-1)!)} /></>}
             {item.answerRevealed && <p className="practice-muted">Explanation viewed</p>}
             <button type="button" className="practice-link" onClick={() => continueQuestion(index)}>Review question<ArrowRight size={16} /></button>
           </details>)}
+          {!locked && practicePerformance([session]).map(row => <p key={JSON.stringify(row.concept)}>{row.concept.title}: {Math.round(row.performance * 100)}% practice performance · {row.observations} scored first responses · {row.assisted} with observed help</p>)}
           <div className="practice-footer"><button type="button" className="practice-button" onClick={() => setReviewOpen(false)}><ArrowLeft size={16} />Return to practice</button><button type="button" className="practice-button" onClick={() => chooseSession()}><Plus size={16} />New practice</button></div>
       </div></div> : session ? <>
         <ConversationViewport key={session.id} messages={messages} navigationQuestions={navigationQuestions} pending={Boolean(pending)} isActive={isActive}
           focusQuestionId={question?.id} onNavigate={id => continueQuestion(session.questions.findIndex(item => item.id === id))}
-          canQuote={!pending} onQuote={quote}>
+          canQuote={!pending && !locked} onQuote={quote}>
           {session.topic?.question && session.topic.answer && <PracticeTopicView topic={session.topic} />}
-          {session.questions.map((item, index) => <PracticeQuestionView key={item.id} question={item} index={index} active={index === session.currentIndex}
+          {session.questions.map((item, index) => <PracticeQuestionView key={item.id} question={locked ? assessmentDisplayQuestion(item) : item} assessment={Boolean(session.assessment)} index={index} active={index === session.currentIndex}
             busy={Boolean(pending)} sourcesOpen={index === session.currentIndex && materialsOpen}
             onShowSources={canShowSources(item) ? () => { continueQuestion(index); setMaterialsOpen(true) } : undefined}
-            actions={index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
+            actions={!locked && index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
           {(!question || practiceQuestionIssue(question) || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
             <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />{question && practiceQuestionIssue(question) ? 'Prepare another question' : 'Retry question'}</button></div>}
         </ConversationViewport>
-      </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
+      </> : <div className="practice-scroll"><div className="practice-content"><label>Import reviewed assessment <input type="file" accept=".json,application/json" aria-label="Import reviewed assessment" onChange={e => { void importPack(e.target.files?.[0]); e.target.value = '' }} /></label></div><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
         disabled={!scopeReady || !available} scope={scope} materials={props.materials} model={model} settings={settings}
         modelSettings={model ? props.modelSettingsFor(model.id) : settings.modelDefaults} progress={progress}
         cache={state.topicSuggestions} onCache={cache => onChange(current => ({ ...current, topicSuggestions: cache }))} onChoose={start} /></div>}
@@ -254,11 +325,11 @@ export function PracticeScreen(props: Props) {
         {error && <p className="practice-error" role="alert">{error}</p>}
         {!session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">{scope.length ? 'Selected documents are unavailable.' : 'No documents selected.'}</p>}
         {!session && !available && <p className="practice-muted" role="status">No ready chat model selected.</p>}
-        {session && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">Open the library to continue this practice.</p>}
-        {session && !available && <div className="practice-error" role="status"><p>This session's model is unavailable. Your questions and answers are saved.</p><button type="button" className="practice-button" onClick={props.onManageModels}>Manage models</button></div>}
-        {session?.sourcesExhausted && <p className="practice-muted" role="status">No supporting passages remain for this topic. Choose Practice another topic or change the selected documents.</p>}
+        {session && !session.assessment && catalog.status === 'ready' && !scopeReady && <p className="practice-muted" role="status">Open the library to continue this practice.</p>}
+        {session && !session.assessment && !available && <div className="practice-error" role="status"><p>This session's model is unavailable. Your questions and answers are saved.</p><button type="button" className="practice-button" onClick={props.onManageModels}>Manage models</button></div>}
+        {session?.sourcesExhausted && !session.assessment && <p className="practice-muted" role="status">No supporting passages remain for this topic. Choose Practice another topic or change the selected documents.</p>}
       </div>
-      {session && question?.format === 'true_false' && !reviewOpen && <PracticeComposer question={question} busy={Boolean(pending)} isActive={isActive} onCheck={checkAnswer} />}
+      {session && question && (question.format === 'true_false' || session.assessment) && !reviewOpen && <PracticeComposer question={locked ? assessmentDisplayQuestion(question) : question} assessment={Boolean(session.assessment)} busy={Boolean(pending) || saving} isActive={isActive} onDraft={draft => updateSession(session.id, s => ({ ...s, questions: s.questions.map(q => q.id === question.id ? { ...q, draft } : q) }))} onCheck={checkAnswer} />}
     </section>
     <StudyMaterialsPane catalog={catalog} scope={scope} open={materialsOpen}
       collectionExpansion={props.collectionExpansion} onCollectionExpansionChange={props.onCollectionExpansionChange}

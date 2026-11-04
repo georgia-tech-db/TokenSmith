@@ -34,6 +34,22 @@ export interface PracticeAttempt {
   feedback: PracticeAnswerFeedback
   assisted: boolean
   durationMs: number
+  submittedAt?: string
+  visibleMs?: number
+  assistanceIds?: string[]
+  observationVersion?: 1
+  timingComplete?: boolean
+}
+
+export interface PracticeConcept { courseId: string; id: string; title: string }
+export interface PracticeObservation {
+  id: string
+  questionId: string
+  kind: 'presented' | 'paused' | 'submitted' | 'help_shown' | 'feedback_shown'
+  at: string
+  visibleMs?: number
+  content?: string
+  referenceId?: string
 }
 
 export interface PracticeQuestion {
@@ -56,6 +72,9 @@ export interface PracticeQuestion {
   chatOpened?: boolean
   discussions?: PracticeDiscussion[]
   timeline?: PracticeActivity[]
+  concept?: PracticeConcept
+  item?: { id: string; version: string; keyVersion: string; origin: 'generated' | 'reviewed'; references?: string[] }
+  generationMs?: number
 }
 
 export interface PracticeDiscussion {
@@ -71,6 +90,7 @@ export type PracticeActivity = { kind: 'attempt' | 'discussion'; id: string } | 
 
 export interface PracticeTopic {
   title: string
+  concept?: PracticeConcept
   sources?: ChatSource[]
   prepared?: boolean
   conversationId?: string
@@ -90,6 +110,8 @@ export interface PracticeSession {
   currentIndex: number
   sourcesExhausted?: boolean
   topic?: PracticeTopic
+  observations?: PracticeObservation[]
+  assessment?: { packId: string; version: string; completedAt?: string }
 }
 
 export interface PracticeState {
@@ -178,7 +200,7 @@ export function practiceReviewLabel(question: PracticeQuestion): string {
   if (practiceQuestionIssue(question)) return 'Question needs review'
   const attempt = question.attempts.at(-1)
   if (!attempt) return question.answerRevealed ? 'Explanation viewed' : 'Not answered'
-  if (typeof attempt.feedback === 'string') return 'Feedback saved'
+  if (typeof attempt.feedback === 'string') return attempt.feedback === 'Awaiting independent review.' ? 'Awaiting review' : 'Feedback saved'
   if (isTrueFalseFeedback(attempt.feedback)) return attempt.feedback.correct ? 'Correct' : 'Incorrect'
   if (attempt.feedback.verdict === 'needs_review') return 'Question needs review'
   if (attempt.feedback.verdict === 'correct') return 'Key points covered'

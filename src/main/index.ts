@@ -1,3 +1,4 @@
+import { createStateWriter } from './atomic-state'
 import { materialCollectionId } from '../shared/collections'
 import type { IndexMaterialOptions } from '../shared/preparation'
 import { preparationReportWithPython } from './python/python-engine-service'
@@ -150,13 +151,14 @@ async function loadAppState(): Promise<AppStateSnapshot | null> {
   }
 }
 
+const writeStateSnapshot = createStateWriter()
+
 async function saveAppState(state: AppStateSnapshot): Promise<AppStateSnapshot> {
   const statePath = getStatePath()
   rememberRemoteModelApiKeys(state.models)
   const safeState = sanitizeAppStateSecrets(removeRetiredModelState({ ...state, collectionFormatVersion: 1 }))
 
-  await mkdir(dirname(statePath), { recursive: true })
-  await writeFile(statePath, JSON.stringify(safeState, null, 2), 'utf8')
+  await writeStateSnapshot(statePath, JSON.stringify(safeState, null, 2))
 
   return safeState
 }

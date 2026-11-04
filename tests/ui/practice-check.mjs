@@ -160,7 +160,17 @@ try {
   assert.doesNotMatch(JSON.stringify((await conversation()).messages), /Record each internal node|correctAnswer/)
   await button(chat, 'Practice').click()
   await answerThenReview(page, 'True')
+  assert.equal((await session()).questions[0].attempts[0].assisted, false, 'Opening Chat without receiving help is not observed assistance')
+
+  await open()
+  await button(practice, 'Chat about this question').click()
+  await chat.getByLabel('Message', { exact: true }).fill('Why keep the ancestor path?')
+  await chat.getByLabel('Message', { exact: true }).press('Enter')
+  await page.waitForFunction(() => window.practiceTest.state().practice.sessions.some(s => s.observations?.some(e => e.kind === 'help_shown')))
+  await button(chat, 'Practice').click()
+  await answerThenReview(page, 'True')
   assert.equal((await session()).questions[0].attempts[0].assisted, true)
+  assert.equal((await session()).questions[0].attempts[0].assistanceIds.length, 1)
 
   // Selecting text from an earlier exercise opens Chat with that question, not the latest one.
   await open()
