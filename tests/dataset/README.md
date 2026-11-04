@@ -8,16 +8,18 @@ This directory contains test documents used for search, indexing, and question-a
 
 | Document Filename | Title | Author / Rightsholder | Source & ID | License |
 | :--- | :--- | :--- | :--- | :--- |
-| `LLM-Autonomous-Agents-Survey.pdf` | *A Survey on Large Language Model based Autonomous Agents* | Lei Wang, Chen Ma, Xueyang Feng, et al. | [arXiv:2308.11432](https://arxiv.org/abs/2308.11432) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `NIST.SP.800-209.pdf` | *Security Guidelines for Storage Infrastructure* | Ramaswamy Chandramouli (NIST), Doron Pinhas | [NIST CSRC SP 800-209](https://csrc.nist.gov/pubs/sp/800/209/final) | Public Domain (17 U.S.C. § 105) |
-| `Meta-LLM-Compiler.pdf` | *Meta LLM Compiler: Foundation Models of Compiler Optimization* | Chris Cummins, Volker Seeker, et al. (Meta) | [arXiv:2407.02524](https://arxiv.org/abs/2407.02524) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `Quantixar-Vector-DBMS.pdf` | *Quantixar: High-Performance Vector Data Management System* | Mengzhao Wang, et al. | [arXiv:2403.12583](https://arxiv.org/abs/2403.12583) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `A Survey on Large Language Model based Autonomous Agents.pdf` | *A Survey on Large Language Model based Autonomous Agents* | Lei Wang, Chen Ma, Xueyang Feng, et al. | [arXiv:2308.11432](https://arxiv.org/abs/2308.11432) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `Security Guidelines for Storage Infrastructure.pdf` | *Security Guidelines for Storage Infrastructure* | Ramaswamy Chandramouli (NIST), Doron Pinhas | [NIST CSRC SP 800-209](https://csrc.nist.gov/pubs/sp/800/209/final) | Public Domain (17 U.S.C. § 105) |
+| `Meta Large Language Model Compiler-Foundation Models of Compiler Optimization.pdf` | *Meta LLM Compiler: Foundation Models of Compiler Optimization* | Chris Cummins, Volker Seeker, et al. (Meta) | [arXiv:2407.02524](https://arxiv.org/abs/2407.02524) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `Quantixar- High-performance Vector Data Management System.pdf` | *Quantixar: High-Performance Vector Data Management System* | Mengzhao Wang, et al. | [arXiv:2403.12583](https://arxiv.org/abs/2403.12583) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `Algorithms-JeffE.pdf` | *Algorithms* | Jeff Erickson | [UIUC / algorithms.wtf](https://jeffe.cs.illinois.edu/teaching/algorithms/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 
 ---
 
 ## Document Details & Notices
 
 ### 1. LLM Autonomous Agents Survey Paper
+* **Document Filename:** `A Survey on Large Language Model based Autonomous Agents.pdf`
 * **Document Title:** *A Survey on Large Language Model based Autonomous Agents*
 * **Author / Rightsholder:** Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, Hao Yang, Jingsen Zhang, Zhiyuan Chen, Jiakai Tang, Xu Chen, Yankai Lin, Wayne Xin Zhao, Zhewei Wei, Ji-Rong Wen
 * **Authoritative Original Source:** [arXiv:2308.11432](https://arxiv.org/abs/2308.11432) [cs.AI, cs.CL]
@@ -32,6 +34,7 @@ This directory contains test documents used for search, indexing, and question-a
 ---
 
 ### 2. NIST SP 800-209: Security Guidelines for Storage Infrastructure
+* **Document Filename:** `Security Guidelines for Storage Infrastructure.pdf`
 * **Document Title:** NIST Special Publication 800-209: *Security Guidelines for Storage Infrastructure*
 * **Author / Rightsholder:** Ramaswamy Chandramouli (NIST) and Doron Pinhas (Continuity Software)
 * **Authoritative Original Source:** [NIST CSRC Publication Record](https://csrc.nist.gov/pubs/sp/800/209/final) (DOI: [10.6028/NIST.SP.800-209](https://doi.org/10.6028/NIST.SP.800-209))
@@ -46,6 +49,7 @@ This directory contains test documents used for search, indexing, and question-a
 ---
 
 ### 3. Meta LLM Compiler Paper
+* **Document Filename:** `Meta Large Language Model Compiler-Foundation Models of Compiler Optimization.pdf`
 * **Document Title:** *Meta Large Language Model Compiler: Foundation Models of Compiler Optimization*
 * **Author / Rightsholder:** Chris Cummins, Volker Seeker, Dejan Grubisic, Baptiste Roziere, Jonas Gehring, Gabriel Synnaeve, Hugh Leather (Meta)
 * **Authoritative Original Source:** [arXiv:2407.02524](https://arxiv.org/abs/2407.02524) [cs.PL, cs.AI, cs.LG]
@@ -60,6 +64,7 @@ This directory contains test documents used for search, indexing, and question-a
 ---
 
 ### 4. Quantixar: High-Performance Vector Data Management System
+* **Document Filename:** `Quantixar- High-performance Vector Data Management System.pdf`
 * **Document Title:** *Quantixar: High-Performance Vector Data Management System*
 * **Author / Rightsholder:** Mengzhao Wang, Xuemeng Song, Xiaoliang Xu, et al.
 * **Authoritative Original Source:** [arXiv:2403.12583](https://arxiv.org/abs/2403.12583) [cs.DB]
@@ -70,6 +75,21 @@ This directory contains test documents used for search, indexing, and question-a
 * **Required Attribution & Notices:** © The Authors. Published under the terms of the Creative Commons Attribution 4.0 International License.
 * **Changes Made:** None. Distributed in original preprint PDF form.
 * **Redistribution Eligibility:** CC BY 4.0 permits unrestricted redistribution, sharing, and bundling into open-source repositories with attribution.
+
+---
+
+### 5. Algorithms Textbook
+* **Document Filename:** `Algorithms-JeffE.pdf`
+* **Document Title:** *Algorithms* (1st Edition)
+* **Author / Rightsholder:** Jeff Erickson
+* **Authoritative Original Source:** [Algorithms by Jeff Erickson](https://jeffe.cs.illinois.edu/teaching/algorithms/)
+* **Direct Document Download:** [https://jeffe.cs.illinois.edu/teaching/algorithms/book/Algorithms-JeffE.pdf](https://jeffe.cs.illinois.edu/teaching/algorithms/book/Algorithms-JeffE.pdf)
+* **License:** **Creative Commons Attribution 4.0 International (CC BY 4.0)** ([License Deed](https://creativecommons.org/licenses/by/4.0/))
+* **Source Licensing Statement:** Published by the author under a Creative Commons Attribution 4.0 International License:
+  > *"This work is available under a Creative Commons Attribution 4.0 International License."*
+* **Required Attribution & Notices:** © 2019 Jeff Erickson. Published under the terms of the Creative Commons Attribution 4.0 International License.
+* **Changes Made:** None. Retained in original, unmodified form.
+* **Redistribution Eligibility:** CC BY 4.0 explicitly grants permissions to copy, redistribute, remix, transform, and build upon the material in any medium or format, for any purpose, including commercial and public repository inclusion, provided appropriate attribution is given.
 
 ---
 
