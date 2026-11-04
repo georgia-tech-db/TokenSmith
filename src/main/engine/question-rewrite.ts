@@ -72,3 +72,60 @@ export function parseQuestionRewrite(text: string, originalQuestion: string, has
   }
   throw new Error('The question rewriter returned an inconsistent response.')
 }
+
+export interface QuestionRewriteResolution {
+  rewrite: QuestionRewrite
+  /**
+   * Set when the model's response could not be used and the student's own
+   * question was searched instead. Carries the parser's complaint so the log
+   * still records exactly what the model got wrong.
+   */
+  fallbackReason?: string
+  /**
+   * Set on a fallback whose response carried no usable reasoning decision.
+   * The fallback then says reasoning is off, which a caller that must decide
+   * reasoning (Auto) should not accept silently.
+   */
+  reasoningMissing?: boolean
+}
+
+/**
+ * Resolves a rewriter response without ever failing the question.
+ *
+ * The rewriter only improves the search query; searching what the student
+ * actually typed is always a valid answer path, and it is what this pipeline
+ * already does for the first question in a conversation. So a model that
+ * misformats its JSON should cost a better query, not the whole answer.
+ *
+ * Small local models get this wrong in ways the schema cannot catch: llama3.2
+ * picks mode "clarify" for a vague question and then leaves the clarifying
+ * question empty, which asks the student nothing and satisfies no valid case.
+ */
+export function resolveQuestionRewriteText(
+  text: string,
+  originalQuestion: string,
+  hasSelectedPassage = false
+): QuestionRewriteResolution {
+  try {
+    return { rewrite: parseQuestionRewrite(text, originalQuestion, hasSelectedPassage) }
+  } catch (error) {
+    const reasoning = rewriteReasoningDecision(text)
+    return {
+      rewrite: { mode: 'standalone', query: originalQuestion, clarification: '', reasoning: reasoning ?? false },
+      fallbackReason: error instanceof Error ? error.message : 'The question rewriter failed.',
+      ...(reasoning === undefined ? { reasoningMissing: true } : {})
+    }
+  }
+}
+
+/** The reasoning decision of an otherwise unusable rewriter response, if it made one. */
+function rewriteReasoningDecision(text: string): boolean | undefined {
+  try {
+    const value: unknown = JSON.parse(text)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    const reasoning = (value as Record<string, unknown>).reasoning
+    return typeof reasoning === 'boolean' ? reasoning : undefined
+  } catch {
+    return undefined
+  }
+}

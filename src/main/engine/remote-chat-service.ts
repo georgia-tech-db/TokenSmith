@@ -13,7 +13,7 @@ import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../sh
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
 import { withModelContextMetadata } from './model-context-metadata'
-import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
+import { questionRewriteMessages, resolveQuestionRewriteText } from './question-rewrite'
 import {
   answerWithOrderedSources,
   followUpSuggestionMessages,
@@ -186,13 +186,13 @@ export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRe
     endpoint: `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`,
     modelName, apiKey: request.model.apiKey, settings, maxOutputTokens: request.model.maxOutputTokens
   }, messages, { maxTokens: 512, temperature: 0, requireComplete: true, signal })
-  const resolution = parseQuestionRewrite(text, request.prompt, Boolean(request.selectedPassage))
-  writeTokenSmithLog('chat_question_rewrite', {
+  const { rewrite, fallbackReason } = resolveQuestionRewriteText(text, request.prompt, Boolean(request.selectedPassage))
+  writeTokenSmithLog(fallbackReason ? 'chat_question_rewrite_fallback' : 'chat_question_rewrite', {
     modelName, prompt: request.prompt, modelMessages: messages,
-    rawResponse: text, resolution, query: resolution.query, conversationContextMode: resolution.mode,
-    durationMs: performance.now() - started
+    rawResponse: text, resolution: rewrite, query: rewrite.query, conversationContextMode: rewrite.mode,
+    durationMs: performance.now() - started, ...(fallbackReason ? { error: fallbackReason } : {})
   })
-  return resolution
+  return rewrite
 }
 
 async function generateRemoteFollowUpSuggestions(

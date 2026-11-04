@@ -1,0 +1,1498 @@
+[
+ {
+  "caseId": "pinning_needed",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Pinning makes an in-use page ineligible for eviction. Without it, an executor's page pointer could refer to invalid or reused memory, causing corruption or a crash."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "While a component is using a page, it pins it so the replacement policy cannot pick that page as a victim. If the page were evicted mid-scan, the executor would read garbage from whatever page was loaded into the frame."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Pinning does not make an in-use page ineligible for eviction. The buffer manager's replacement policy is free to choose a pinned page as a victim."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Pinning is needed so the buffer manager can compress pages before flushing them. Pinned pages are written to disk immediately to guarantee durability."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Pinning makes an in-use page ineligible for eviction. BuzzDB tracks pins with an atomic reference counter stored in every page header."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who wrote the novel Pride and Prejudice?",
+    "text": "Pride and Prejudice was written by Jane Austen and published in 1813."
+   }
+  ]
+ },
+ {
+  "caseId": "lru_sequential_scan",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A scan larger than the buffer pool admits a stream of pages that are used once and displaces useful cached pages. LRU relies on temporal locality, which a sequential scan lacks."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "When a sequential scan reads a table bigger than the buffer pool, each new page pushes older pages out, so every access misses the cache. LRU assumes recently used pages will be reused soon, but scan pages are used exactly once."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Sequential flooding makes LRU achieve a very high hit rate. Scan pages have strong temporal locality, so LRU keeps exactly the right pages cached."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Sequential flooding happens when too many threads write to the log at once. LRU fails because it cannot order log records by their sequence numbers."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "During sequential flooding, scan pages push useful pages out of the buffer pool. PostgreSQL solved this in 1996 by switching all of its caches to MRU."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the boiling point of water at sea level?",
+    "text": "Water boils at 100 degrees Celsius at sea level."
+   }
+  ]
+ },
+ {
+  "caseId": "bplus_vs_binary_tree",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A B+ tree packs many keys and child pointers into page-sized nodes. Its high fanout keeps the tree shallow, so a lookup needs far fewer disk reads than a binary search tree."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "A balanced binary tree over a billion rows is about 30 levels deep, so one lookup could take 30 separate disk reads. B+ tree nodes are the size of a disk page and hold hundreds of keys, which keeps the tree's height small."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A B+ tree uses small nodes and a very deep tree. Each node holds only one key and two pointers, just like a binary search tree."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "B+ trees are preferred because they store every record twice for redundancy. Binary search trees cannot be stored on SSDs at all."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Each B+ tree node is sized to fit a disk page. B+ trees were invented at IBM in 1985 specifically for BuzzDB."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the capital of Australia?",
+    "text": "The capital of Australia is Canberra."
+   }
+  ]
+ },
+ {
+  "caseId": "hash_range_queries",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The hash function destroys the natural ordering of the keys. Neighboring keys like 1000 and 1001 end up in unrelated locations, so a range query has to fall back to a brute-force search."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "To spread keys evenly, hashing scatters adjacent keys across the index. With no order preserved, the index cannot jump to the start of a range and must inspect every slot instead."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A hash index preserves the natural ordering of the keys. Neighboring keys like 1000 and 1001 are stored next to each other."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Hash indexes struggle with range queries because they only support string keys. Range queries also require a separate lock for every bucket."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Hashing scatters neighboring keys to unpredictable locations. Modern hash indexes fix this by keeping a sorted copy of every bucket in RAM."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who painted the Mona Lisa?",
+    "text": "Leonardo da Vinci painted the Mona Lisa in the early sixteenth century."
+   }
+  ]
+ },
+ {
+  "caseId": "bplus_sequence_set",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The sequence set is a linked list that connects the B+ tree's leaves through next pointers. A range scan finds the starting leaf and then follows those links, avoiding repeated traversals from the root."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "After locating the first leaf, the scan moves sideways along the leaf-level linked list instead of going back down from the root for each key. This keeps the I/O pattern largely sequential."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The B+ tree's leaves are not linked together. A range scan must traverse the tree from the root for every key in the range."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "The sequence set is a bitmap that records which leaves are dirty. Range scans are fast because the bitmap lets the tree skip the disk entirely."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Leaves in a B+ tree are connected by next pointers. BuzzDB stores the sequence set in a separate file that is rebuilt every night."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "How many players are on a soccer team?",
+    "text": "A soccer team fields eleven players, including the goalkeeper."
+   }
+  ]
+ },
+ {
+  "caseId": "aggregation_grouping",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "HashAggregationOperator uses an std::unordered_map whose key is the grouping key and whose value holds the running state of each aggregate. It builds all groups in a single pass over the input."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "The operator keeps a hash table from GROUP BY values to a vector of in-progress aggregates such as COUNT and SUM. The key can be a vector of fields, so composite keys like department and job title work."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "HashAggregationOperator does not use a hash table. It sorts the entire input by the grouping columns before computing any aggregates."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "BuzzDB implements GROUP BY by sending each group to a separate worker process. The results are merged with a B+ tree at the end."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "The hash table maps grouping keys to running aggregate states. BuzzDB spills the hash table to disk whenever it exceeds 64 megabytes."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What year did the Berlin Wall fall?",
+    "text": "The Berlin Wall fell in 1989."
+   }
+  ]
+ },
+ {
+  "caseId": "wal_write_ordering",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Write-ahead logging requires the log record describing a change to reach persistent storage before the changed page is written. The buffer manager enforces this by refusing to write a dirty page until its log records are flushed."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "The operating system's file cache flushes dirty blocks on its own schedule and cannot guarantee that log writes land before data writes. A custom buffer manager can hold a dirty page in memory until the matching log records are on disk, which keeps crash recovery possible."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Write-ahead logging requires data pages to be written to disk before their log records. The order of writes does not matter for crash recovery."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Write ordering control exists so the buffer manager can encrypt pages before writing them. The log is only used for query statistics."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "The log record for a change must be written before the page itself. BuzzDB writes its log to a remote server over the network for extra safety."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the tallest mountain on Earth?",
+    "text": "Mount Everest is the tallest mountain on Earth above sea level."
+   }
+  ]
+ },
+ {
+  "caseId": "oltp_vs_olap",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "OLTP is a high volume of small, rapid transactions such as updating a cart or an inventory count. OLAP runs complex queries that scan and aggregate large amounts of historical data to derive insights."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Day-to-day operations like adding a book to a cart are OLTP work and need responses within a fraction of a second. Questions like total revenue for a region over a season are OLAP work, where query response time is the key metric."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "OLTP runs complex queries that scan billions of historical records. OLAP handles a high volume of tiny transactions like updating a shopping cart."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "OLTP and OLAP are two names for the same workload. The only difference is that OLAP systems must be written in Java."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "OLTP consists of many small, fast transactions. OLAP systems are always cheaper to run because they never use disks."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the chemical symbol for gold?",
+    "text": "The chemical symbol for gold is Au."
+   }
+  ]
+ },
+ {
+  "caseId": "column_store_analytics",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A column store groups all values of one attribute together, so a query reads only the columns it needs. That avoids reading whole rows and discarding most of the data, which reduces I/O."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "If a query needs 2 of 8 columns, a column store only has to read about a quarter of the data a row store would. That reduction in I/O is the main reason column stores win on analytical workloads."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A column store stores all attributes of a record together, so a query must read every column. Column stores increase the amount of I/O for analytical queries."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Column stores are faster because they keep the entire table in the CPU cache. They also skip filtering entirely for analytical queries."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Column stores read only the columns a query needs. BuzzDB's column store uses GPU acceleration for every query."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "How many continents are there?",
+    "text": "There are seven continents on Earth."
+   }
+  ]
+ },
+ {
+  "caseId": "volcano_iterator_model_alias",
+  "split": "dev",
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The Volcano model processes one tuple at a time, paying a virtual function call for each operator on every tuple. The constant jumping between code disrupts the CPU's instruction cache and branch predictor."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Handling a single tuple per call means the per-tuple overhead of calls and context switching dwarfs the actual work. Once I/O is no longer the bottleneck, this CPU inefficiency dominates analytical queries."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The Volcano model processes large batches of tuples at once. It avoids virtual function calls and keeps the CPU's instruction cache warm."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "The Volcano model is inefficient because it stores tuples in JSON. It also requires a network round trip for every operator."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Tuple-at-a-time processing adds a virtual function call per tuple. BuzzDB replaced the Volcano model with a Rust rewrite in version 2."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What language is spoken in Brazil?",
+    "text": "The official language of Brazil is Portuguese."
+   }
+  ]
+ },
+ {
+  "caseId": "declarative_what_not_how",
+  "split": "dev",
+  "question": "What does it mean that a database query is declarative rather than procedural?",
+  "chunkIds": [
+   "ch01.044",
+   "ch01.063"
+  ],
+  "distractorChunkIds": [
+   "ch02.106"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A declarative query specifies what result is desired rather than how to compute it. The database is free to choose the best algorithm, whereas a procedural implementation is fixed and must be rewritten to change the algorithm."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "With a declarative request you just describe the result you want, and the system works out the execution strategy on its own. Procedural code instead spells out the exact execution steps and data structures, so switching to a different algorithm means rewriting the code."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A declarative query specifies how to compute the result rather than what result is desired. With SQL, the algorithm is fixed and the query itself must be rewritten to change it."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A declarative query is one that is compiled ahead of time into machine code. SQL queries only become declarative after the database caches their execution plans."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A declarative query specifies what result is desired rather than how to compute it. SQL was made declarative so that queries could run without ever reading from disk."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the capital of Australia?",
+    "text": "The capital of Australia is Canberra."
+   }
+  ]
+ },
+ {
+  "caseId": "why_index_duplicates_data",
+  "split": "dev",
+  "question": "Why does BuzzDB store its data in both the table and the index?",
+  "chunkIds": [
+   "ch01.074",
+   "ch01.075",
+   "ch01.076"
+  ],
+  "distractorChunkIds": [
+   "ch07.075"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The table vector is the primary storage and the system's source of truth, while the index map is an auxiliary copy organized to accelerate specific queries. Every insert does twice the work by writing to both, an upfront cost that pays off when it's time to query the data."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "The vector keeps every record in the order it arrived and is the authoritative copy; the map is a redundant structure that keeps values pre-grouped by key so certain questions can be answered faster. The price is that each insertion has to update both structures instead of one."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The index map is the primary storage and source of truth, while the table vector is just an auxiliary copy. Each insert writes to only one of the two structures, so duplication adds no extra work."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "BuzzDB stores the data twice so that one copy can be restored if the other becomes corrupted. The index map is rebuilt from the table every time the program shuts down."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "The table vector is the primary storage and source of truth, while the index map is an auxiliary copy that speeds up specific queries. The index is a hash table so that every lookup takes constant time."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Which planet is closest to the Sun?",
+    "text": "Mercury is the planet closest to the Sun."
+   }
+  ]
+ },
+ {
+  "caseId": "durability_in_memory",
+  "split": "dev",
+  "question": "What is durability, and why doesn't BuzzDB provide it?",
+  "chunkIds": [
+   "ch01.095"
+  ],
+  "distractorChunkIds": [
+   "ch04.089"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Durability guarantees that once a transaction has been committed, its data will survive any subsequent system failure, such as a software crash, a reboot, or a power outage. BuzzDB keeps all of its state in memory, so it offers zero durability."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "A durable system promises that work it has acknowledged as successful won't be lost even if the software crashes or the power goes out. Because BuzzDB holds everything in main memory, which is wiped when the program exits, any newly inserted sales simply disappear."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Durability does not guarantee that committed data survives a power outage. BuzzDB, by keeping its state in memory, fully provides durability."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Durability means the database can keep serving reads while it is being backed up. BuzzDB lacks it because it does not replicate its data to a second server."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Durability guarantees that once a transaction is committed, its data survives later failures like crashes or power outages. BuzzDB provides partial durability by writing its index to disk every few seconds."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who painted the Mona Lisa?",
+    "text": "The Mona Lisa was painted by Leonardo da Vinci."
+   }
+  ]
+ },
+ {
+  "caseId": "field_self_describing",
+  "split": "dev",
+  "question": "What makes a Field in BuzzDB self-describing?",
+  "chunkIds": [
+   "ch02.025",
+   "ch02.026",
+   "ch02.027"
+  ],
+  "distractorChunkIds": [
+   "ch04.064"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A Field holds both a value and a description of that value. Its type member is a FieldType tag, such as INT, FLOAT, or STRING, that tells the engine how to interpret the raw bytes stored in its data buffer."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Rather than storing only a raw value, every Field carries a tag saying what kind of data it contains. The engine checks that tag before comparing or printing the Field, because without it the bytes in its generic byte buffer would be meaningless."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A Field holds only a raw value, not a description of that value. The engine never checks a type tag before interpreting the Field's bytes."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A Field is self-describing because it stores the column name alongside its value. It also records a timestamp of when the value was last modified."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A Field holds both a value and a description of that value, using a FieldType tag to identify its type. Each Field also stores a checksum so that corrupted bytes can be detected."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What gas do plants absorb during photosynthesis?",
+    "text": "Plants absorb carbon dioxide from the air during photosynthesis."
+   }
+  ]
+ },
+ {
+  "caseId": "page_size_tradeoff",
+  "split": "dev",
+  "question": "How should a database choose between larger and smaller page sizes?",
+  "chunkIds": [
+   "ch02.056"
+  ],
+  "distractorChunkIds": [
+   "ch03.031"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Larger pages are better for scan-heavy workloads that read many consecutive tuples, since reading a 16 KB page is only marginally more expensive than reading a 4 KB page but yields four times the data. Smaller pages can be more efficient for lookup-heavy workloads, where reading a large page just to access one small record wastes memory and I/O throughput."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "If most queries sweep through lots of consecutive rows, bigger pages pay off because each read brings in far more data for little extra cost. If queries mostly fetch one small row at a time, smaller pages avoid hauling in bytes that are never used."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Smaller pages are better for scan-heavy workloads, while larger pages are more efficient for lookup-heavy workloads. Reading a 16 KB page costs about four times as much as reading a 4 KB page."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Page size should be chosen to match the CPU's cache line so tuples can be processed without stalls. Most databases default to 64 KB pages for this reason."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Larger pages are better for scan-heavy workloads that read many consecutive tuples. The page size can be changed at any time without rewriting the existing database files."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the longest river in South America?",
+    "text": "The Amazon is the longest river in South America."
+   }
+  ]
+ },
+ {
+  "caseId": "three_schema_levels",
+  "split": "dev",
+  "question": "What are the three levels of abstraction in a database system?",
+  "chunkIds": [
+   "ch02.105",
+   "ch02.106",
+   "ch02.107"
+  ],
+  "distractorChunkIds": [
+   "ch01.061"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The physical level describes how the data is actually stored, the logical level describes what data is stored and the relationships among it, and the view level describes only the part of the database tailored to a specific user or application. In BuzzDB, the physical level is the Page class and its serialization format, while the logical level is made up of the Tuple and Field classes."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "At the bottom sits the storage layer, which deals with files, byte ordering, and how records are laid out on disk pages. Above it, the logical layer presents data through a data model such as tables and rows, and at the top, views expose customized slices of the database to particular users, which BuzzDB does not support yet."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The physical level describes what data is stored, while the logical level describes how it is laid out in files and pages. In BuzzDB, the logical level is defined by the Page class and its serialization format."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "The three levels are the network level, the transaction level, and the query level. The transaction level decides which operations are allowed to run concurrently."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "The physical level describes how the data is actually stored, such as files and record layouts on pages. BuzzDB implements the view level through a ViewManager class that filters tuples for each user."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "In what year did World War I begin?",
+    "text": "World War I began in 1914."
+   }
+  ]
+ },
+ {
+  "caseId": "disk_access_time",
+  "split": "dev",
+  "question": "What makes up the time it takes to read a random page from a hard disk?",
+  "chunkIds": [
+   "ch03.083",
+   "ch03.084"
+  ],
+  "distractorChunkIds": [
+   "ch02.055"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "The time to read a randomly located page is the sum of seek time, rotational latency, and transfer time. For a single small read, the mechanical delays of seeking and rotation completely dominate, while the electronic transfer is very fast."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "First the arm has to swing the head to the right track, then the drive waits for the platter to spin the right sector underneath, and only then are the bytes moved into memory. The first two steps are mechanical and eat up almost all of the time; in the book's example the actual data transfer is under half a percent of the total."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "For a single small read, transfer time dominates the total I/O time. Seek time and rotational latency together account for less than 1% of the cost."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Most of the time to read a random page is spent decompressing data in the disk controller. Modern hard disks hide seek time entirely by caching every track in onboard memory."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "The time to read a random page is the sum of seek time, rotational latency, and transfer time. Seek time can be eliminated entirely by defragmenting the disk once a week."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "How many bones are in the adult human body?",
+    "text": "The adult human body has 206 bones."
+   }
+  ]
+ },
+ {
+  "caseId": "random_vs_sequential_io",
+  "split": "dev",
+  "question": "Why is sequential I/O so much faster than random I/O?",
+  "chunkIds": [
+   "ch03.087",
+   "ch03.088"
+  ],
+  "distractorChunkIds": [
+   "ch07.005"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "With random I/O, pages are scattered across the disk, so the disk must perform a separate seek and rotational delay for every page. With sequential I/O, the disk pays one seek and one rotational delay to reach the first page, and the remaining pages are read as they spin under the head with no additional mechanical delay."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "When the pages you need are spread all over the disk, the drive has to reposition its head and wait for the platter again for each one, so reading 100 of them costs roughly 100 single reads. When they sit next to each other, the head gets into place once and then simply streams the rest."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "With sequential I/O, the disk must perform a separate seek and rotational delay for every page. Random I/O pays for only one seek, after which the remaining pages are read with no additional mechanical delay."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Sequential I/O is faster because the operating system compresses contiguous pages into a single block before reading them. Random I/O is slower because each request must be checked against the file system's access control list."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "With random I/O, the disk pays a separate seek and rotational delay for every page it reads. Solid-state drives remove this difference completely, so random and sequential reads cost exactly the same on them."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the largest ocean on Earth?",
+    "text": "The Pacific Ocean is the largest ocean on Earth."
+   }
+  ]
+ },
+ {
+  "caseId": "slotted_page_layout",
+  "split": "dev",
+  "question": "How is a slotted page laid out?",
+  "chunkIds": [
+   "ch04.023",
+   "ch04.024"
+  ],
+  "distractorChunkIds": [
+   "ch03.024"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A slotted page is divided into a header containing metadata, a slot directory that acts as an index for the records, and a data area where the record bytes are stored. The header and slot array grow forward from the start of the page, the record data grows backward from the end, and the page is full only when they meet in the middle."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "The metadata and the array of slots sit at the front of the fixed-size block and expand toward the back, while the records themselves are packed in from the back toward the front. Whatever lies between the two is contiguous free space, so the page only runs out of room when the two sides collide."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The record data is placed at the beginning of the page and grows forward, while the slot array is placed at the end and grows backward. Free space is scattered between individual records rather than kept contiguous between the two regions."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A slotted page stores each record in its own fixed-size 64-byte slot. Records larger than a slot are automatically split across neighboring pages."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A slotted page has a header, a slot directory, and a data area where the record bytes are stored. The slot directory is kept sorted by key so records can be found with binary search."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who was the first person to walk on the Moon?",
+    "text": "Neil Armstrong was the first person to walk on the Moon, in 1969."
+   }
+  ]
+ },
+ {
+  "caseId": "slotted_delete_fragmentation",
+  "split": "dev",
+  "question": "What happens when a record is deleted from a slotted page?",
+  "chunkIds": [
+   "ch04.040",
+   "ch04.041"
+  ],
+  "distractorChunkIds": [
+   "ch07.072"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Instead of moving any record data, deleteTuple finds the corresponding slot and flips its empty flag from false to true. This is extremely fast, but it leaves a hole in the data area, which is known as internal fragmentation."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "The record's bytes are left exactly where they were, and only its slot is marked as empty, so the operation touches just the page's metadata. The catch is that the page is left with unused gaps inside its data area, a problem called internal fragmentation."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Deleting a record does not touch the slot's empty flag; instead, the remaining records are shifted left to fill the gap. Because data is always moved, deletion never leaves holes in the page."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "When a record is deleted, the slotted page immediately overwrites its bytes with zeros for security. The freed slot is then moved to the end of the slot directory."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Deleting a record simply flips its slot's empty flag to true without moving any data. BuzzDB then runs compaction automatically after every tenth deletion."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the chemical symbol for gold?",
+    "text": "The chemical symbol for gold is Au."
+   }
+  ]
+ },
+ {
+  "caseId": "record_id_stability",
+  "split": "dev",
+  "question": "Why do indexes refer to records by record ID instead of by byte offset?",
+  "chunkIds": [
+   "ch04.044",
+   "ch04.045",
+   "ch04.047"
+  ],
+  "distractorChunkIds": [
+   "ch07.023"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A record ID is a logical address made of a page_id and a slot_id. If a record's data moves to a different offset within its page, the RID stays valid because only the offset stored in that page's slot needs to be updated."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Raw byte offsets break as soon as the database reorganizes a page and shifts records around during compaction. Pointing at a page number plus a slot number adds a layer of indirection, so references held by indexes stay correct even after the record's bytes move."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A record ID does not remain valid when a record moves within its page, so every index entry pointing to it must be rewritten. Raw byte offsets are the more stable choice because compaction never moves records."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A record ID is a 64-bit hash of the record's contents. Because the hash changes whenever the record is updated, indexes must be rebuilt after every write."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A record ID combines a page_id and a slot_id to identify a record. Record IDs are assigned in primary-key order so range scans can follow them sequentially."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the tallest mountain in the world?",
+    "text": "Mount Everest is the tallest mountain in the world above sea level."
+   }
+  ]
+ },
+ {
+  "caseId": "clustered_vs_unclustered",
+  "split": "dev",
+  "question": "What's the difference between a clustered and an unclustered index?",
+  "chunkIds": [
+   "ch07.056",
+   "ch07.058"
+  ],
+  "distractorChunkIds": [
+   "ch04.077"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A clustered index determines the physical order of data records in a table, so a table can have at most one clustered index. An unclustered index is a separate structure whose logical order is independent of the physical order of the data rows, so a single table can have many of them."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "With a clustered index, the rows themselves are kept sorted on disk by the index key, and since data can only be physically sorted one way, a table gets just one. A secondary index lives apart from the data and maps keys to record IDs pointing into an unordered heap, so you can build several on the same table."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A table can have many clustered indexes, since each one keeps its own sorted copy of the rows. An unclustered index determines the physical order of the data records, so only one is allowed per table."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A clustered index is one that is distributed across several servers in a cluster. An unclustered index is kept on a single machine and is therefore faster for writes."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A clustered index determines the physical order of a table's rows, so a table can have at most one. Unclustered indexes are always implemented as hash tables, while clustered indexes are always B-trees."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Which organ pumps blood through the human body?",
+    "text": "The heart pumps blood through the human body."
+   }
+  ]
+ },
+ {
+  "caseId": "index_write_penalty",
+  "split": "dev",
+  "question": "What is the write penalty of adding indexes to a table?",
+  "chunkIds": [
+   "ch07.069",
+   "ch07.071",
+   "ch07.073"
+  ],
+  "distractorChunkIds": [
+   "ch04.078"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Every INSERT, DELETE, or UPDATE on a table may require a corresponding modification to every index on that table. The more indexes a table has, the higher this penalty for each data modification."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Indexes have to stay in sync with the data, so each change to a row also means extra work in every index on that table. Changing an indexed column is often the costliest case, because it effectively removes the old index entry and inserts a new one."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The more indexes a table has, the lower the cost of each data modification. Updates are the cheapest operation from an indexing perspective because the index entry never has to change."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "The write penalty is the delay caused by flushing the write-ahead log before each index lookup. It only affects SELECT queries that use more than one index."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Every INSERT, DELETE, or UPDATE may require changing every index on the table, so more indexes mean a higher write penalty. Most databases avoid this cost by updating their indexes only once per hour."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the speed of light in a vacuum?",
+    "text": "Light travels at about 299,792 kilometres per second in a vacuum."
+   }
+  ]
+ },
+ {
+  "caseId": "rtree_mbr_overlap",
+  "split": "heldout",
+  "question": "How do the bounding rectangles in an R-Tree node differ from the key ranges in a B+ Tree node?",
+  "chunkIds": [
+   "ch10.030",
+   "ch10.031"
+  ],
+  "distractorChunkIds": [
+   "ch09.023"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "An R-Tree groups nearby objects under Minimum Bounding Rectangles, the smallest axis-aligned rectangles enclosing a set of objects. Unlike a B+ Tree, whose internal-node ranges are ordered and do not overlap, the MBRs in an R-Tree node can and often do overlap."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Instead of sorting keys along one line, an R-Tree organizes data by spatial containment, with each internal entry's rectangle enclosing all the rectangles in its child node. Sibling rectangles in the same node are allowed to overlap, which is something a B+ Tree's non-overlapping, ordered key ranges never do."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "The MBRs in an R-Tree node are kept sorted and never overlap, exactly like the key ranges in a B+ Tree's internal nodes."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "R-Tree nodes store circles rather than rectangles so that diagonal regions can be covered precisely. Each node is limited to exactly four children, one per quadrant of the parent's space."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "An R-Tree groups nearby objects under Minimum Bounding Rectangles that completely enclose them. To prevent overlap, the R-Tree rebuilds the whole tree whenever two sibling MBRs intersect."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the capital of Australia?",
+    "text": "The capital of Australia is Canberra."
+   }
+  ]
+ },
+ {
+  "caseId": "inverted_index_posting_list",
+  "split": "heldout",
+  "question": "What is a posting list in an inverted index?",
+  "chunkIds": [
+   "ch10.056",
+   "ch10.058"
+  ],
+  "distractorChunkIds": [
+   "ch07.018"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "An inverted index maps each term to a list of all documents that contain it, and this list is called a posting list. In BuzzDB the posting list maps each document ID to a vector of the positions where the term appears in that document."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Like the index at the back of a book, the structure flips documents-containing-words into words-pointing-to-documents, and the per-word list of documents is the posting list. BuzzDB's version records not just which documents hold the term but also its word offsets inside each one, which helps answer proximity queries."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A posting list maps each document to the terms it contains, following the document's natural order. BuzzDB's posting lists store only document IDs and never record where a term appears inside a document."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A posting list is a compressed bitmap with one bit per document, stored in a B+ Tree keyed by term frequency. BuzzDB rebuilds every posting list from scratch whenever a new document is added."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "An inverted index maps each term to a posting list of the documents that contain it. BuzzDB keeps each posting list sorted by term frequency so the most relevant documents come first."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who painted the Mona Lisa?",
+    "text": "The Mona Lisa was painted by Leonardo da Vinci."
+   }
+  ]
+ },
+ {
+  "caseId": "hnsw_layers",
+  "split": "heldout",
+  "question": "Why does HNSW use multiple layers instead of one proximity graph?",
+  "chunkIds": [
+   "ch10.088",
+   "ch10.089"
+  ],
+  "distractorChunkIds": [
+   "ch08.007"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A single flat proximity graph can get stuck in a region far from the true nearest neighbor, so HNSW builds a hierarchy of layers. Layer 0 holds every point densely connected, while higher layers are sparse random subsets whose edges act as expressways for long jumps before the search descends for fine-grained refinement."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Walking a single flat graph toward the query can stall at a local minimum that is nowhere near the real nearest neighbor. With HNSW, the search crosses large distances quickly on the thin upper layers, where only a randomly promoted few nodes live, and then drops into the complete bottom layer to home in on the answer."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "In HNSW the base layer is the sparsest and contains only a random sample of the points, while the highest layer contains every point and is the densest."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "HNSW uses multiple layers so that each layer can store vectors at a different numeric precision, from 64-bit floats at the top to 8-bit integers at the bottom. Nodes are promoted to higher layers based on how often they are queried."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "HNSW uses a hierarchy of layers in which Layer 0 contains every data point. Each higher layer is built by clustering the layer below with k-means and keeping only the cluster centroids."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "How many bones are in the adult human body?",
+    "text": "An adult human body typically has 206 bones."
+   }
+  ]
+ },
+ {
+  "caseId": "materialization_vs_pipelining",
+  "split": "heldout",
+  "question": "How does materialization compare to pipelining in query execution?",
+  "chunkIds": [
+   "ch11.031",
+   "ch11.032"
+  ],
+  "distractorChunkIds": [
+   "ch06.084"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "In materialization, each operator runs to completion and writes its entire result to a temporary buffer before the next operator begins. Compared to pipelining, this has very high I/O cost and high latency to the first tuple, though individual operators are simpler to implement."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "With a materialized plan, the scan dumps every row to a temp file, the filter reads that file and writes another, and only then does the projection start. Pipelined execution instead streams tuples between operators in memory, so it avoids the intermediate disk writes and gets the first result to the client almost instantly, at the cost of trickier control flow."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Materialization has lower I/O cost and lower latency to the first tuple than pipelining, because intermediate results are passed directly between operators in memory."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Materialization is preferred in modern systems because temporary files are cached by the operating system, making them free to read back. Pipelining requires each operator to run on its own CPU core."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "In materialization, each operator runs to completion and writes its full result to a temporary buffer before the next one starts. BuzzDB uses materialization by default and only switches to pipelining for queries that return more than a thousand rows."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "In which year did the Berlin Wall fall?",
+    "text": "The Berlin Wall fell in 1989."
+   }
+  ]
+ },
+ {
+  "caseId": "hash_join_partially_blocking",
+  "split": "heldout",
+  "question": "Why is a hash join called partially blocking?",
+  "chunkIds": [
+   "ch11.089",
+   "ch11.090"
+  ],
+  "distractorChunkIds": [
+   "ch08.058"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A hash join first completely consumes its build input to construct an in-memory hash table, which is a blocking phase. After that it reads the probe input one tuple at a time and immediately outputs any matches, so it blocks on one input but pipelines the other."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "It works in two phases: it must swallow all of one side to build its hash table before anything can come out, but once that table exists it streams the other side, emitting joined rows as soon as each probe tuple finds a match. Only half of its work stalls the pipeline."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A hash join streams its build input tuple by tuple and must fully consume its probe input before producing any output."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "A hash join is partially blocking because it sorts both inputs on the join key before merging them. It spills every partition to disk and only starts emitting tuples after both partitions have been written."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A hash join first consumes its entire build input to construct an in-memory hash table. It then buffers the full probe input as well and outputs all matches only at the end."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Which country has won the most FIFA World Cup titles?",
+    "text": "Brazil has won the most FIFA World Cup titles, with five."
+   }
+  ]
+ },
+ {
+  "caseId": "direct_vs_indirect_operands",
+  "split": "heldout",
+  "question": "What is the difference between a DIRECT and an INDIRECT operand in a BuzzDB predicate?",
+  "chunkIds": [
+   "ch12.032",
+   "ch12.034"
+  ],
+  "distractorChunkIds": [
+   "ch14.037"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "A DIRECT operand contains a constant value, stored as a Field in directValue, which is how literals like 10 are represented. An INDIRECT operand refers to a column within a tuple, using an index that specifies the column number."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Each side of a predicate is treated as a recipe for finding a value rather than the value itself. A literal is held inline in the operand, whereas a column reference stores only a position inside the tuple, such as 0 for the first column or 1 for the second."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A DIRECT operand refers to a column within a tuple by its index, while an INDIRECT operand holds a constant literal value."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "An INDIRECT operand stores the name of the column as a string and looks it up in the catalog at evaluation time. DIRECT operands are evaluated once and cached across all tuples in the table."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "A DIRECT operand holds a constant value such as 10, while an INDIRECT operand refers to a column by its index within a tuple. INDIRECT operands can also reference columns in other tables, which is how BuzzDB evaluates join conditions."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the longest river in Africa?",
+    "text": "The Nile is the longest river in Africa."
+   }
+  ]
+ },
+ {
+  "caseId": "predicate_selectivity",
+  "split": "heldout",
+  "question": "What is the selectivity of a predicate?",
+  "chunkIds": [
+   "ch12.110",
+   "ch12.111"
+  ],
+  "distractorChunkIds": [
+   "ch07.056"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Selectivity is the fraction of tuples in a relation that are expected to satisfy a predicate. A selectivity close to 0 means the predicate filters out almost everything, while one close to 1 means it keeps almost all tuples."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "It measures how much a filter narrows things down: divide the number of rows that pass by the total number of rows. A lookup on a single student ID among 50,000 students scores 0.00002, which is very selective, whereas something like gpa > 0.0 lands near 1.0."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A selectivity close to 1 means the predicate is very selective and keeps very few tuples, while a selectivity close to 0 means it keeps almost all of them."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Selectivity is the number of distinct values in a column divided by the number of indexes defined on it. Predicates with selectivity above 0.5 are always rewritten to use an index scan."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Selectivity is the fraction of tuples in a relation that are expected to satisfy a predicate. Optimizers compute it exactly by running the predicate over a full scan of the table before each query."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What gas do plants absorb from the air during photosynthesis?",
+    "text": "Plants absorb carbon dioxide from the air during photosynthesis."
+   }
+  ]
+ },
+ {
+  "caseId": "predicate_pushdown",
+  "split": "heldout",
+  "question": "What is predicate pushdown and why does it help?",
+  "chunkIds": [
+   "ch12.119",
+   "ch12.121"
+  ],
+  "distractorChunkIds": [
+   "ch07.066"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Predicate pushdown is the rule of performing selections as early as possible. By applying filters before an expensive join, the join operates on much smaller inputs and runs dramatically faster."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Rather than joining two whole tables and throwing most of the combined rows away afterwards, the optimizer filters each table first. For example, keeping only CS students and only Advanced Databases enrollments shrinks both join inputs, so far less work is wasted."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "Predicate pushdown means applying selections as late as possible, after joins have finished, so that the filters run on the smallest possible result."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Predicate pushdown moves filter evaluation from the database server into the storage device's firmware. It only applies to queries that have no joins."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Predicate pushdown means performing selections as early as possible so that joins work on smaller inputs. It is disabled by default in most systems because it can change the results of a query."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Who was the first person to walk on the Moon?",
+    "text": "Neil Armstrong was the first person to walk on the Moon, in 1969."
+   }
+  ]
+ },
+ {
+  "caseId": "hash_combine_order",
+  "split": "heldout",
+  "question": "Why doesn't BuzzDB just add the field hashes together when hashing a composite GROUP BY key?",
+  "chunkIds": [
+   "ch13.038"
+  ],
+  "distractorChunkIds": [
+   "ch08.023"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Simply adding the field hashes would give keys like {'Sales', 'Q1'} and {'Q1', 'Sales'} the same hash, causing an incorrect collision. Instead, BuzzDB combines hashes with XOR, shifts and the golden-ratio constant 0x9e3779b9, similar to Boost's hash_combine, so field order affects the final hash."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Addition is order-insensitive, so two keys holding the same values in a different order would collide. The hasher therefore mixes each new field's hash into the running total using bitwise XOR, left and right shifts, and a large prime constant, which makes the result depend on where each field appears."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "BuzzDB adds the individual field hashes together because the order of fields in a composite key should not affect the final hash."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "BuzzDB hashes composite keys with SHA-256 to guarantee that no two distinct keys ever collide. The resulting digest is truncated to 16 bits to fit the hash table's bucket array."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Adding the field hashes would make keys with the same values in a different order collide. BuzzDB avoids this by sorting the fields alphabetically before hashing them."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the tallest mountain in the world?",
+    "text": "Mount Everest is the tallest mountain in the world above sea level."
+   }
+  ]
+ },
+ {
+  "caseId": "union_vs_union_all",
+  "split": "heldout",
+  "question": "Why is UNION ALL usually faster than UNION?",
+  "chunkIds": [
+   "ch13.096"
+  ],
+  "distractorChunkIds": [
+   "ch11.088"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "UNION ALL simply concatenates the results of two queries as a fast, streaming operation. UNION must also eliminate duplicate rows, which requires fully materializing both sides and then sorting or hashing them, costing significant memory and CPU time."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Plain concatenation can pass rows through as they arrive, so it never has to wait for all the data. Set semantics force the database to gather everything from both inputs and run a blocking sort or hash step to drop repeats, and nothing reaches the user until that finishes."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "UNION ALL eliminates duplicate rows, while UNION simply concatenates the two results as a streaming operation."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "UNION is slower because it locks both source tables for the duration of the query. UNION ALL skips locking by reading from a snapshot."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "UNION ALL concatenates the results of two queries as a fast, streaming operation. UNION is slower because it must also sort its output by the first column of the select list."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "Which ocean is the largest?",
+    "text": "The Pacific Ocean is the largest ocean on Earth."
+   }
+  ]
+ },
+ {
+  "caseId": "querycomponents_defaults",
+  "split": "heldout",
+  "question": "Why do the WHERE bounds in BuzzDB's QueryComponents default to the minimum and maximum integers?",
+  "chunkIds": [
+   "ch14.040",
+   "ch14.041"
+  ],
+  "distractorChunkIds": [
+   "ch12.093"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "lowerBound and upperBound default to the minimum and maximum possible integer values. If no WHERE clause is present, every tuple's value falls between them, so the filter becomes a no-op and the engine can apply it unconditionally."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "With the bounds stretched to INT_MIN and INT_MAX, a query without a WHERE clause still passes through the same range check, and every value simply passes it. The execution engine never needs a special case for missing filters, because the default range admits everything."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "lowerBound defaults to the maximum integer and upperBound to the minimum integer, so that when no WHERE clause is present the filter rejects every tuple."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "The bounds default to the extreme integers so that the parser can detect integer overflow in the query string. If a value exceeds them, BuzzDB rejects the query with a syntax error."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "lowerBound and upperBound default to the minimum and maximum integers, making the filter a no-op when there is no WHERE clause. The parser also sets whereAttributeIndex to 0 by default so the filter always targets the first column."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "What is the chemical symbol for gold?",
+    "text": "The chemical symbol for gold is Au."
+   }
+  ]
+ },
+ {
+  "caseId": "compiled_vs_interpreted",
+  "split": "heldout",
+  "question": "Why is a compiled query plan so much faster than the interpreted iterator model?",
+  "chunkIds": [
+   "ch14.090",
+   "ch14.094"
+  ],
+  "distractorChunkIds": [
+   "ch11.026"
+  ],
+  "answers": [
+   {
+    "kind": "reference",
+    "expect": "answer",
+    "text": "Compilation fuses scanning, filtering and aggregating into one tight loop with no virtual function calls, which improves instruction cache locality and lets the compiler keep values in CPU registers. The compiled version can be 10x, 100x or more than 1,000x faster, but the generated code is specific to a single query plan."
+   },
+   {
+    "kind": "paraphrase",
+    "expect": "answer",
+    "text": "Instead of each tuple bouncing between operator objects through virtual next() calls, the fused version does all the work for a row inside one inner loop. That removes per-tuple overhead and makes good use of the CPU cache, though the code has to be regenerated whenever the query changes."
+   },
+   {
+    "kind": "negation",
+    "expect": "abstain",
+    "text": "A compiled plan is slower than the interpreted one because fusing operators into one loop adds virtual function calls and hurts CPU cache locality."
+   },
+   {
+    "kind": "fabricated",
+    "expect": "abstain",
+    "text": "Compiled plans are faster because they run on the GPU, executing every tuple in parallel. BuzzDB caches each compiled plan permanently so it can be reused by any future query."
+   },
+   {
+    "kind": "mixed",
+    "expect": "not-supported",
+    "text": "Compilation fuses scanning, filtering and aggregating into a single loop without virtual function calls. BuzzDB generates this code automatically at runtime using an LLVM-based just-in-time compiler."
+   },
+   {
+    "kind": "unanswerable",
+    "expect": "abstain",
+    "question": "In which country are the ancient pyramids of Giza?",
+    "text": "The pyramids of Giza are in Egypt."
+   }
+  ]
+ }
+]

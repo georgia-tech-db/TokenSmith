@@ -15,6 +15,7 @@ import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, Sea
 import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
 import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
+import type { AnswerVerification } from '../../shared/confidence'
 
 interface PythonRequest {
   id: string
@@ -31,6 +32,7 @@ interface PythonRequest {
     | 'set_material_enabled'
     | 'remove_material'
     | 'resolve_source_document'
+    | 'verify_answer'
     | 'preview_cleaning'
     | 'preparation_report'
   payload: Record<string, unknown>
@@ -156,6 +158,7 @@ const visibleLogEvents = new Set([
   'chat_request_context',
   'chat_response_context',
   'chat_latency_trace',
+  'chat_answer_verification',
   'chat_runtime_context_budget',
   'chat_question_rewrite',
   'follow_up_suggestions',
@@ -253,6 +256,13 @@ function getPythonRuntimeRoot(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'app', 'app_runtime', 'python')
     : join(app.getAppPath(), 'app_runtime', 'python')
+}
+
+/** Must match `nliModel.name` in scripts/python-runtime-manifest.mjs. */
+const nliModelName = 'deberta-v3-base-tasksource-nli'
+
+function getNliModelDir(): string {
+  return join(dirname(getPythonRuntimeRoot()), 'models', nliModelName)
 }
 
 function getPythonExecutable(): string {
@@ -828,4 +838,21 @@ export async function locateCollectionFolder(materialId: string, path: string): 
   const material = result.materials.find(m => m.id === localId)
   if (!material?.path) throw new Error('This document is no longer in the library.')
   await collections().locateFolder(materialId, resolve(collection.path, material.kind === 'folder' ? material.path : dirname(material.path)), path)
+}
+
+export async function verifyAnswerWithPython(
+  question: string,
+  answer: string,
+  passages: string[]
+): Promise<AnswerVerification> {
+  return requestPython<AnswerVerification>(
+    'verify_answer',
+    {
+      question,
+      answer,
+      passages,
+      modelDir: getNliModelDir()
+    },
+    60_000
+  )
 }

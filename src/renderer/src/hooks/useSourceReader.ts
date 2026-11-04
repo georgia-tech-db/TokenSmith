@@ -10,7 +10,7 @@ export interface SourceReaderState {
   index: number
   inline: boolean
 }
-export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSourceDocument>) {
+export function useSourceReader(load: (source: ChatSource, searchTerm?: string) => Promise<AnswerSourceDocument>) {
   const [state, setState] = useState<SourceReaderState | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -22,7 +22,7 @@ export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSour
     setLoading(false)
     setError('')
   }, [])
-  const open = useCallback(async (source: ChatSource, candidates: ChatSource[], options: { inline?: boolean; initial?: SourceReaderState } = {}) => {
+  const open = useCallback(async (source: ChatSource, candidates: ChatSource[], options: { inline?: boolean; initial?: SourceReaderState; searchTerm?: string } = {}) => {
     const navigation = sourceNavigationList(source, candidates)
     if (navigation.index < 0) return
     const current = ++sequence.current
@@ -30,7 +30,7 @@ export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSour
     setLoading(true)
     setError('')
     try {
-      const document = await load(source)
+      const document = await load(source, options.searchTerm)
       if (sequence.current !== current) return
       setState({ document, ...navigation, inline: options.inline ?? false })
     } catch (reason) {

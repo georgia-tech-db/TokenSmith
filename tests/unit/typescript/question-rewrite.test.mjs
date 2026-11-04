@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { questionRewriteMessages, parseQuestionRewrite } = requireTranspiledTs('src/main/engine/question-rewrite.ts')
+const { questionRewriteMessages, parseQuestionRewrite, resolveQuestionRewriteText } = requireTranspiledTs('src/main/engine/question-rewrite.ts')
 const { prepareRewrittenStudyChat, lastChatExchange } = requireTranspiledTs('src/shared/study-chat-pipeline.ts')
 const { studyChatMessages, sourceContextBudgetForRequest, answerWithOrderedSources } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 const { resolveOllamaChatQuestion } = requireTranspiledTs('src/main/engine/ollama-service.ts')
@@ -255,4 +255,40 @@ test('Ollama and cloud rewriters honor selections without requiring a complete l
     } })).mode, 'contextual')
     assert.equal(calls, 2)
   } finally { globalThis.fetch = originalFetch }
+})
+
+test('resolveQuestionRewriteText searches the original question when clarify carries no question', () => {
+  // What llama3.2 actually returns for a vague follow-up: the mode without the payload.
+  const raw = '{"mode":"clarify","query":"","clarification":"","reasoning":false}'
+  const { rewrite, fallbackReason } = resolveQuestionRewriteText(raw, 'what is the project about')
+
+  assert.deepEqual(rewrite, {
+    mode: 'standalone',
+    query: 'what is the project about',
+    clarification: '',
+    reasoning: false
+  })
+  assert.match(fallbackReason, /inconsistent/)
+  assert.throws(() => parseQuestionRewrite(raw, 'what is the project about'))
+})
+
+test('resolveQuestionRewriteText falls back on malformed and non-JSON responses', () => {
+  for (const raw of ['not json at all', '[]', '{"mode":"standalone"}', '{"mode":"contextual","query":"","clarification":""}']) {
+    const { rewrite, fallbackReason } = resolveQuestionRewriteText(raw, 'original question')
+
+    assert.equal(rewrite.mode, 'standalone')
+    assert.equal(rewrite.query, 'original question')
+    assert.ok(fallbackReason, `expected a fallback reason for ${raw}`)
+  }
+})
+
+test('resolveQuestionRewriteText reports no fallback for a usable response', () => {
+  const { rewrite, fallbackReason } = resolveQuestionRewriteText(
+    '{"mode":"contextual","query":"How do checkpoints shorten recovery?","clarification":"","reasoning":false}',
+    'how does that help'
+  )
+
+  assert.equal(rewrite.mode, 'contextual')
+  assert.equal(rewrite.query, 'How do checkpoints shorten recovery?')
+  assert.equal(fallbackReason, undefined)
 })

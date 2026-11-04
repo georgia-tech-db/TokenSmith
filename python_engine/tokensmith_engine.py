@@ -101,6 +101,11 @@ except ImportError:  # pragma: no cover - allows direct package imports in tests
     )
 
 try:
+    from tokensmith_nli import verify_answer
+except ImportError:  # pragma: no cover - allows direct package imports in tests
+    from python_engine.tokensmith_nli import verify_answer
+
+try:
     import pypdfium2 as pdfium  # type: ignore
 except Exception:  # pragma: no cover - optional runtime dependency
     pdfium = None  # type: ignore
@@ -2059,6 +2064,7 @@ COMMANDS = {
     "set_material_enabled": set_material_enabled,
     "remove_material": remove_material,
     "resolve_source_document": resolve_source_document,
+    "verify_answer": verify_answer,
 }
 
 

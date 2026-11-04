@@ -1,3 +1,5 @@
+import type { AnswerConfidence } from './confidence'
+
 import type { PreparationSettings } from './preparation'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { LatencyTrace } from './latency-trace'
@@ -192,6 +194,7 @@ export interface AnswerVariant {
   sources: ChatSource[]
   responseDurationMs: number
   reasoning?: AnswerReasoning
+  confidence?: AnswerConfidence
   followUpSuggestions?: string[]
   followUpError?: string
   latencyTrace?: LatencyTrace
@@ -204,6 +207,7 @@ export interface ChatMessage {
   selectedPassage?: ChatSelectedPassage
   sources?: ChatSource[]
   reasoning?: AnswerReasoning
+  confidence?: AnswerConfidence
   conversationContextMode?: 'standalone' | 'contextual' | 'clarify'
   // The depth this answer was written at, so the reader knows what produced it.
   explanationDepth?: ExplanationDepth
