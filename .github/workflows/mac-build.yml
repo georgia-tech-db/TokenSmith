@@ -1,28 +1,45 @@
 name: macOS Build
 
 on:
+  pull_request:
+  merge_group:
   workflow_dispatch:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package-macos:
-    name: Package macOS App
-    runs-on: macos-latest
+    name: Package macOS App (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          architecture: ${{ matrix.arch }}
           cache: npm
 
       - name: Install Node dependencies
@@ -31,27 +48,71 @@ jobs:
       - name: Build Python runtime
         run: npm run setup:python-runtime
 
+      - name: Test native Python runtime and platform selection
+        run: |
+          node --test tests/unit/typescript/python-runtime-manifest.test.mjs tests/unit/typescript/device-capability-parsers.test.mjs tests/unit/typescript/mac-package.test.mjs
+          npm run test:unit:python
+          npm run test:integration
+
       - name: Package macOS app
         run: npm run package:mac
 
-      - name: Verify packaged Python runtime
+      - name: Verify installer and packaged Python runtime
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
+          hdiutil verify release/TokenSmith-*-mac-*.dmg
+          node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+          BINARY_ARCH="$EXPECTED_ARCH"
+          if [ "$BINARY_ARCH" = x64 ]; then BINARY_ARCH=x86_64; fi
+          lipo release/mac/TokenSmith.app/Contents/MacOS/TokenSmith -verify_arch "$BINARY_ARCH"
           RUNTIME="release/mac/TokenSmith.app/Contents/Resources/app/app_runtime/python"
           test -x "$RUNTIME/bin/python"
-          PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" \
-            "$RUNTIME/bin/python" -c 'import faiss, numpy, pypdfium2, PIL'
+          lipo "$RUNTIME/bin/python" -verify_arch "$BINARY_ARCH"
+          PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" PYTHONDONTWRITEBYTECODE=1 \
+            "$RUNTIME/bin/python" - <<'PY'
+          import os, platform
+          import faiss, numpy, pypdfium2, PIL
+          assert platform.machine() == {"x64": "x86_64", "arm64": "arm64"}[os.environ["EXPECTED_ARCH"]]
+          vectors = numpy.eye(2, dtype="float32")
+          index = faiss.IndexFlatL2(2)
+          index.add(vectors)
+          assert index.search(vectors[:1], 1)[1][0, 0] == 0
+          PY
+          if [ "$EXPECTED_ARCH" = x64 ]; then
+            test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' release/mac/TokenSmith.app/Contents/Info.plist)" = 15.0
+          fi
+          codesign --verify --deep --strict release/mac/TokenSmith.app
 
       - name: Upload macOS package
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: TokenSmith-macos-${{ github.run_number }}
+          name: TokenSmith-macos-${{ matrix.arch }}-${{ github.run_id }}
           path: release/TokenSmith-*-mac-*.dmg
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
+          compression-level: 0
+
+  publish-macos:
+    name: Publish macOS installers
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: package-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: TokenSmith-macos-*-${{ github.run_id }}
+          merge-multiple: true
+          path: release
 
       - name: Publish macOS package to GitHub Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           body_path: docs/releases/${{ github.ref_name }}.md
