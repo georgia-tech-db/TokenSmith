@@ -17,17 +17,14 @@ Local models run through Ollama. You can also connect a cloud model with an API 
 
 ## Download
 
-[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.15](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.15)
+[Latest release](https://github.com/georgia-tech-db/TokenSmith/releases/latest) | [Release notes for v0.1.16](https://github.com/georgia-tech-db/TokenSmith/releases/tag/v0.1.16)
 
-| Platform | Download v0.1.15 |
+| Platform | Download v0.1.16 |
 | --- | --- |
-| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-mac-arm64.dmg) |
-| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-win-x64.zip) |
-| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/TokenSmith-0.1.15-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.15/tokensmith_0.1.15_amd64.deb) |
-
-Intel Macs running macOS 15 or newer can use the same
-[setup and packaging commands](docs/development.md). An Intel installer has
-not yet been published for the listed v0.1.15 release.
+| macOS (Apple Silicon) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.16/TokenSmith-0.1.16-mac-arm64.dmg) |
+| macOS (Intel, macOS 15+) | [DMG](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.16/TokenSmith-0.1.16-mac-x64.dmg) |
+| Windows (x64) | [Portable ZIP](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.16/TokenSmith-0.1.16-win-x64.zip) |
+| Linux (x64) | [AppImage](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.16/TokenSmith-0.1.16-linux-x64.AppImage) or [Debian package](https://github.com/georgia-tech-db/TokenSmith/releases/download/v0.1.16/tokensmith_0.1.16_amd64.deb) |
 
 ## Demo
 
