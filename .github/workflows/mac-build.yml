@@ -57,10 +57,11 @@ jobs:
       - name: Package macOS app
         run: npm run package:mac
 
-      - name: Verify packaged Python runtime
+      - name: Verify installer and packaged Python runtime
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
+          hdiutil verify release/TokenSmith-*-mac-*.dmg
           node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
           BINARY_ARCH="$EXPECTED_ARCH"
           if [ "$BINARY_ARCH" = x64 ]; then BINARY_ARCH=x86_64; fi

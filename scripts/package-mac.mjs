@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { copyFile, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
@@ -292,49 +292,20 @@ async function signAppBundle() {
 }
 
 async function createDmg() {
-  const readWriteDmgPath = join(stagingDir, `${appName}-${appVersion}-rw.dmg`)
-  const mountPath = join(stagingDir, 'dmg-mount')
-  const appSize = await run('/usr/bin/du', ['-sk', appBundlePath])
-  const appSizeKb = Number.parseInt(appSize.stdout.split(/\s+/)[0] ?? '0', 10)
-  const dmgSizeMb = Math.max(320, Math.ceil((appSizeKb / 1024) * 1.35 + 80))
-
-  await rm(readWriteDmgPath, { recursive: true, force: true })
-  await rm(dmgPath, { recursive: true, force: true })
-  await rm(mountPath, { recursive: true, force: true })
-  await mkdir(mountPath, { recursive: true })
-
+  await symlink('/Applications', join(stagingDir, 'Applications'))
   await run('/usr/bin/hdiutil', [
     'create',
-    '-size',
-    `${dmgSizeMb}m`,
+    '-srcfolder',
+    stagingDir,
     '-fs',
     'HFS+',
     '-volname',
     volumeName,
+    '-format',
+    'UDZO',
     '-ov',
-    readWriteDmgPath
+    dmgPath
   ])
-
-  try {
-    await run('/usr/bin/hdiutil', ['attach', readWriteDmgPath, '-mountpoint', mountPath, '-nobrowse'])
-    await run('/usr/bin/ditto', [appBundlePath, join(mountPath, basename(appBundlePath))])
-
-    try {
-      await symlink('/Applications', join(mountPath, 'Applications'))
-    } catch {
-      // The link may already exist on repeated local runs.
-    }
-  } finally {
-    try {
-      await run('/usr/bin/hdiutil', ['detach', mountPath])
-    } catch {
-      await run('/usr/bin/hdiutil', ['detach', mountPath, '-force'])
-    }
-  }
-
-  await run('/usr/bin/hdiutil', ['convert', readWriteDmgPath, '-format', 'UDZO', '-o', dmgPath, '-ov'])
-  await rm(readWriteDmgPath, { recursive: true, force: true })
-  await rm(mountPath, { recursive: true, force: true })
 }
 
 if (process.platform !== 'darwin') {
