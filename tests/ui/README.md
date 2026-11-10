@@ -113,6 +113,16 @@ This drives the production UI with fake credentials: two chat models and one emb
 
 Service tests separately cover encrypted restart persistence, endpoint isolation, invalid embedding responses, concurrent connection changes, and main-process credential injection into indexing/search requests. No real cloud account is contacted.
 
+Practice uses the same reader through **Read while waiting** in Settings. This can
+be turned off while keeping **Show Sources** enabled. Run `node tests/ui/practice-source-preview-check.mjs` with
+`PRACTICE_UI_URL` pointing to the preview's `/tests/ui/practice.html` (default port
+5198). It checks matching evidence, completion, dismissal, cancellation, late/failed
+loads, navigation, saved preferences, manual reading, and desktop/mobile layout.
+The fixture uses simulated model replies and documents. Source cards appear before
+answering without clicking Source. Manual and automatic source reading do not count
+as help or suppress mastery; actual Chat help still does. Screenshots are saved
+under `/tmp/tokensmith-practice-source-preview`.
+
 ## Contents and mixed source navigation
 
 Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies two Markdown files and two PDFs, both as retrieved sources and as a Library collection.
@@ -146,3 +156,16 @@ books and practice records. It checks chapter/topic mastery bars, help, recent m
 collection isolation, preserved topic/source identity, filters, session deletion,
 reload, keyboard access, collapsible details, and compact desktop/mobile layouts. It makes no model calls and
 does not touch the desktop app's data. Screenshots go to `/tmp/tokensmith-mastery-ui`.
+
+Run `node tests/ui/practice-history-check.mjs` with `PRACTICE_UI_URL` pointing to
+`/tests/ui/practice.html` (default port 5198) to test the real Practice screen's
+compact action row, View mastery, export download, cancelled/confirmed history clearing, and
+saved mastery after reload. It uses disposable browser data and fake model replies.
+Desktop/mobile screenshots go to `/tmp/tokensmith-practice-history`.
+
+Run `node tests/ui/practice-limits-check.mjs` against the same fixture to check
+passage-based session limits, same-passage prompt history, completion without an
+extra model call, reload, reviewing old feedback, and switching topics. It uses
+disposable one- and six-passage topics on desktop and mobile; unit tests also
+cover ten passages and failed/cancelled requests. Screenshots go to
+`/tmp/tokensmith-practice-limits`.

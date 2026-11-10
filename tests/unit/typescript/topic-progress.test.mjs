@@ -72,7 +72,6 @@ test('unscored, invalid, untracked and incomplete assessment answers do not crea
     s => { first(s).submittedAt = 'invalid-date' },
     s => { delete first(s).observationVersion },
     s => { delete s.questions[0].concept },
-    s => { s.questions[0].text = 'Why does a node split?' },
     s => { s.assessment = { packId: 'pack', version: '1' } },
     s => { s.questions[0].format = 'short_answer'; first(s).feedback = { verdict: 'correct', checks: [], improvement: '', nextStep: '', questionIssue: '' } }
   ]

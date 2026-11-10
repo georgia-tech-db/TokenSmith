@@ -7,12 +7,12 @@ const { runOllamaStudyEngine } = requireTranspiledTs('src/main/engine/ollama-ser
 const { runRemoteStudyEngine } = requireTranspiledTs('src/main/engine/remote-chat-service.ts')
 const source = { title: 'Notes', materialId: 'c1', documentId: 1, chunkId: 'ch.1', excerpt: 'The ancestor path lets insertion propagate a split to its parent.' }
 const base = {
-  practiceTask: 'feedback', prompt: '{"answer":"My answer"}', messages: [], materials: [], settings: {},
+  practiceTask: 'true_false_question', prompt: '{"questionNumber":1,"targetAnswer":true}', messages: [], materials: [], settings: {},
   retrievedSources: [source], applicationSettings: { suggestionMode: 'on', explanationDepthEnabled: true, explanationDepth: 'detailed' },
   model: { engine: 'ollama', name: 'Test', ollamaModelName: 'test', contextLength: 8192 },
   modelSettings: { contextLength: 8192, maxLength: 1024, reasoningMode: 'off', thinking: false, systemMessage: 'Custom chat persona.' }
 }
-const raw = '{"checks":[],"nextStep":"Source 1 is quoted verbatim.","improvement":"","questionIssue":""}'
+const raw = '{"question":"Ancestor paths let insertion propagate splits to parents.","correctAnswer":true,"explanation":"Source 1 is quoted verbatim."}'
 
 async function mocked(handler, run) {
   const saved = globalThis.fetch
@@ -20,9 +20,9 @@ async function mocked(handler, run) {
   try { return await run() } finally { globalThis.fetch = saved }
 }
 
-test('practice has a dedicated grading prompt, evidence IDs, and no chat persona or history', () => {
+test('practice has a dedicated question prompt, evidence IDs, and no chat persona or history', () => {
   const prepared = prepareStudyChatMessages({ ...base, messages: [{ role: 'assistant', text: 'Unrelated chat history.' }] })
-  assert.match(prepared.messages[0].content, /formative feedback/)
+  assert.match(prepared.messages[0].content, /True\/False practice statement/)
   assert.doesNotMatch(prepared.messages[0].content, /Custom chat persona/)
   assert.match(prepared.messages[1].content, /Evidence ID: c1:1:ch.1/)
   assert.doesNotMatch(JSON.stringify(prepared.messages), /Unrelated chat history/)
@@ -30,9 +30,10 @@ test('practice has a dedicated grading prompt, evidence IDs, and no chat persona
   assert.equal(shouldGenerateFollowUps(base), false)
 })
 
-test('grading refuses to silently drop oversized saved evidence', () => {
-  assert.throws(() => prepareStudyChatMessages({ ...base, retrievedSources: [source,
-    { ...source, chunkId: 'large', excerpt: 'A long source sentence. '.repeat(10000) }] }), /full grading evidence/)
+test('question generation can use complete passages that fit without requiring all supplied evidence', () => {
+  const prepared = prepareStudyChatMessages({ ...base, retrievedSources: [source,
+    { ...source, chunkId: 'large', excerpt: 'A long source sentence. '.repeat(10000) }] })
+  assert.deepEqual(prepared.sources, [source])
 })
 
 test('Ollama practice uses structured output and preserves JSON, with no follow-up call', async () => {
@@ -42,11 +43,11 @@ test('Ollama practice uses structured output and preserves JSON, with no follow-
     calls.push(body)
     if (body.options.num_predict === 1) return { prompt_eval_count: 2000 }
     assert.equal(body.think, false)
-    assert.equal(body.options.temperature, 0)
-    assert.ok(body.format.required.includes('checks'))
+    assert.equal(body.options.temperature, 0.3)
+    assert.ok(body.format.required.includes('correctAnswer'))
     return { done_reason: 'stop', message: { content: raw } }
   }, () => runOllamaStudyEngine(base))
-  assert.equal(calls.length, 2) // Token preflight, then the feedback completion.
+  assert.equal(calls.length, 2) // Token preflight, then the question completion.
   assert.equal(result.text, raw)
   assert.deepEqual(result.sources, [source])
 })
@@ -59,7 +60,7 @@ test('Auto practice keeps the enlarged measured context for the actual completio
     assert.equal(body.think, false)
     if (body.options.num_predict === 1) return { prompt_eval_count: 7200 }
     assert.equal(body.options.num_predict, 1024)
-    assert.ok(body.format.required.includes('checks'))
+    assert.ok(body.format.required.includes('correctAnswer'))
     return { done_reason: 'stop', message: { content: raw } }
   }, () => runOllamaStudyEngine({ ...base, model: { ...base.model, ollamaModelName: 'practice-auto-grow' },
     modelSettings: { ...base.modelSettings, contextLengthMode: 'auto', contextLength: 2048 } }))
@@ -72,9 +73,9 @@ test('True/False preparation uses its dedicated schema on Ollama and prompt on r
   const request = { ...base, practiceTask: 'true_false_question', prompt: '{"questionNumber":3}' }
   const prepared = prepareStudyChatMessages(request)
   assert.match(prepared.messages[0].content, /True\/False practice statement/)
-  assert.match(prepared.messages[0].content, /questionIssue/)
+  assert.match(prepared.messages[0].content, /targetAnswer/)
   assert.equal(shouldGenerateFollowUps(request), false)
-  const binary = '{"correctAnswer":false,"questionIssue":""}'
+  const binary = '{"correctAnswer":false}'
   const local = await mocked((url, body) => {
     if (url.endsWith('/show')) return { capabilities: ['thinking'] }
     if (body.options.num_predict === 1) return { prompt_eval_count: 2000 }
@@ -94,14 +95,16 @@ test('True/False preparation uses its dedicated schema on Ollama and prompt on r
   assert.equal(remote.text, binary)
 })
 
-test('Ollama grading refuses actual-token overflow instead of pruning rubric evidence', async () => {
-  let completions = 0
+test('Ollama chapter generation refuses actual-token overflow instead of pruning chapter evidence', async () => {
+  let completions = 0, preflights = 0
   await assert.rejects(mocked((url, body) => {
     if (url.endsWith('/show')) return { capabilities: ['thinking'] }
     if (body.options.num_predict !== 1) completions++
+    else preflights++
     return { prompt_eval_count: 8000 }
-  }, () => runOllamaStudyEngine({ ...base, retrievedSources: [source, { ...source, chunkId: 'ch.2' }] })), /context|fit|room/i)
+  }, () => runOllamaStudyEngine({ ...base, practiceTask: 'chapter_topics', retrievedSources: [source, { ...source, chunkId: 'ch.2' }] })), /context|fit|room/i)
   assert.equal(completions, 0)
+  assert.equal(preflights, 1)
 })
 
 test('remote practice keeps raw structured output and reports truncated completions', async () => {
@@ -111,8 +114,8 @@ test('remote practice keeps raw structured output and reports truncated completi
     let calls = 0
     const run = () => mocked((_url, body) => {
       calls++
-      assert.match(body.messages[0].content, /formative feedback/)
-      assert.equal(body.temperature, 0)
+      assert.match(body.messages[0].content, /True\/False practice statement/)
+      assert.equal(body.temperature, 0.3)
       return { choices: [{ finish_reason, message: { content: raw } }] }
     }, () => runRemoteStudyEngine(request))
     if (finish_reason === 'length') await assert.rejects(run(), /limit|complete|truncat/i)
@@ -125,4 +128,35 @@ test('remote practice keeps raw structured output and reports truncated completi
 test('chapter review generation refuses incomplete context instead of generating from selected fragments', () => {
   assert.throws(() => prepareStudyChatMessages({ ...base, practiceTask: 'chapter_topics', retrievedSources: [source,
     { ...source, chunkId: 'large', excerpt: 'A long source sentence. '.repeat(10000) }] }), /full chapter text/)
+})
+
+test('chapter generation retains provider temperatures, structured output and no follow-up calls', async () => {
+  const request = { ...base, practiceTask: 'chapter_topics', practiceAllowedIds: ['c1:1:ch.1'], prompt: '{"chapter":"Trees"}' }
+  const reply = '{"topics":[{"title":"Splits","aliases":[],"objectives":["Follow the path","Update parents"],"sourceKeys":["c1:1:ch.1"]}]}'
+  assert.equal(shouldGenerateFollowUps(request), false)
+  let localCalls = 0
+  const local = await mocked((url, body) => {
+    if (url.endsWith('/show')) return { capabilities: ['thinking'] }
+    localCalls++
+    if (body.options.num_predict === 1) return { prompt_eval_count: 2000 }
+    assert.equal(body.think, false)
+    assert.equal(body.options.temperature, 0)
+    assert.deepEqual(body.format.required, ['topics'])
+    assert.deepEqual(body.format.properties.topics.items.properties.sourceKeys.items.enum, request.practiceAllowedIds)
+    return { done_reason: 'stop', message: { content: reply } }
+  }, () => runOllamaStudyEngine(request))
+  assert.equal(localCalls, 2)
+  assert.equal(local.text, reply)
+  assert.deepEqual(local.sources, [source])
+  let remoteCalls = 0
+  const remote = await mocked((_url, body) => {
+    remoteCalls++
+    assert.match(body.messages[0].content, /Review Terms for ONE textbook chapter/)
+    assert.equal(body.temperature, 0.3)
+    return { choices: [{ finish_reason: 'stop', message: { content: reply } }] }
+  }, () => runRemoteStudyEngine({ ...request, model: { ...request.model, engine: 'remote',
+    baseUrl: 'https://provider.example/v1', remoteModelName: 'test', apiKey: 'test' } }))
+  assert.equal(remoteCalls, 1)
+  assert.equal(remote.text, reply)
+  assert.deepEqual(remote.sources, [source])
 })

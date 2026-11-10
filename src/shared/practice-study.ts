@@ -1,4 +1,4 @@
-import { isTrueFalseFeedback, practiceQuestionIssue, type PracticeConcept, type PracticeQuestion, type PracticeSession } from './practice'
+import { isTrueFalseFeedback, type PracticeConcept, type PracticeQuestion, type PracticeSession } from './practice'
 import type { ModelRuntimeSettings } from './app-state'
 import { trueFalseStatementIssue } from './true-false-statement'
 
@@ -48,14 +48,14 @@ export function assessmentSession(pack: AssessmentPack, id: string, modelSetting
       concept: { ...i.concept, courseId: pack.courseId }, item: { id: i.id, version: i.revision, keyVersion: pack.revision, origin: 'reviewed', references: i.references },
       referenceAnswer: i.explanation, rubric: { objective: i.concept.title, assumptions: [],
         criteria: i.criteria.map((description, n) => ({ id: `c${n + 1}`, description, evidence: [] })) },
-      sources: [], draft: '', attempts: [], reviewing: false, timeline: [] })) }
+      sources: [], draft: '', attempts: [] })) }
 }
 
 export const assessmentLocked = (session: PracticeSession) => Boolean(session.assessment && !session.assessment.completedAt)
 
 export function assessmentDisplayQuestion(q: PracticeQuestion): PracticeQuestion {
-  return { id: q.id, text: q.text, format: q.format, sources: [], draft: q.draft, reviewing: false,
-    attempts: q.attempts.map(a => ({ ...a, feedback: 'Response saved. Feedback is available after completing the assessment.' })), timeline: q.timeline }
+  return { id: q.id, text: q.text, format: q.format, sources: [], draft: q.draft,
+    attempts: q.attempts.map(a => ({ ...a, feedback: 'Response saved. Feedback is available after completing the assessment.' })) }
 }
 
 export interface ScoreCorrection { sessionId: string; questionId: string; keyVersion: string; correct: boolean; reason: string }
@@ -66,7 +66,7 @@ export function scoredPracticeResponses(sessions: PracticeSession[], corrections
   const seen = new Set<string>()
   const rows = sessions.flatMap(s => s.questions.map(q => ({ s, q, a: q.attempts[0] })))
     .filter(r => r.a?.submittedAt && Number.isFinite(Date.parse(r.a.submittedAt)) && r.a.observationVersion === 1
-      && r.q.concept && !assessmentLocked(r.s) && !practiceQuestionIssue(r.q))
+      && r.q.concept && !assessmentLocked(r.s))
     .sort((a, b) => Date.parse(a.a.submittedAt!) - Date.parse(b.a.submittedAt!) || a.a.id.localeCompare(b.a.id))
   return rows.flatMap(({ s, q, a }) => {
     const responseKey = JSON.stringify([s.id, q.id])

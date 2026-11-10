@@ -115,6 +115,7 @@ export interface ApplicationSettings {
   explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
+  readWhileWaiting: boolean
   embeddingGpuEnabled: boolean
 }
 

@@ -107,6 +107,7 @@
 .practice-topic-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
 .practice-topic-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .practice-topic-bar button { font-size: .84rem; }
+.practice-session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
 .practice-topic-reference { margin: 0 0 28px; }
 .practice-topic-reference > summary { cursor: pointer; color: var(--muted); margin-bottom: 20px; }
 .practice-topic-reference .message-row:last-child { margin-bottom: 20px; }

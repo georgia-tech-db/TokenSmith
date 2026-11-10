@@ -524,8 +524,8 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   if (request.retrievedSources?.length && !sources.length) {
     throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
   }
-  if ((request.practiceTask === 'feedback' || request.practiceTask === 'chapter_topics' || request.practiceTask === 'verify_question') && sources.length !== request.retrievedSources?.length) {
-    throw new Error(request.practiceTask === 'chapter_topics' ? 'The full chapter text does not fit this model context.' : 'The full grading evidence does not fit this model context. Increase Context Length before checking the answer.')
+  if (request.practiceTask === 'chapter_topics' && sources.length !== request.retrievedSources?.length) {
+    throw new Error('The full chapter text does not fit this model context.')
   }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')

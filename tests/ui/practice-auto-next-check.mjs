@@ -21,7 +21,7 @@ const style = locator => locator.evaluate(el => {
 try {
   for (const [name, viewport] of Object.entries({ desktop: { width: 1440, height: 1000 }, mobile: { width: 390, height: 844 } })) {
     await page.setViewportSize(viewport)
-    await page.goto(`${base}?run=${crypto.randomUUID()}&practice&slow-model`)
+    await page.goto(`${base}?run=${crypto.randomUUID()}&practice&slow-model&many-sources`)
     await choosePracticeTopic(page)
     await practice.getByLabel('Your answer', { exact: true }).waitFor()
     await idlePractice(page)
@@ -33,7 +33,8 @@ try {
     if (name === 'mobile') await button('Toggle Documents').click()
     assert.deepEqual(await style(button('Manage libraries')), actionStyle)
     if (name === 'mobile') await button('Close Documents').click()
-    await button('False').evaluate(el => { el.click(); el.click() })
+    const firstAnswer = (await session()).questions[0].correctAnswer ? 'False' : 'True'
+    await button(firstAnswer).evaluate(el => { el.click(); el.click() })
     await practice.getByRole('region', { name: 'Practice feedback' }).getByText('Incorrect', { exact: true }).waitFor()
     await footer.getByRole('button', { name: 'Preparing question', exact: true }).waitFor()
     assert.equal(await button('Chat about this question').isEnabled(), true)
@@ -58,7 +59,7 @@ try {
     await page.waitForFunction(() => window.practiceTest.state().practice.sessions[0].questions.length === 2)
     await idlePractice(page)
     assert.equal((await session()).currentIndex, 1)
-    assert.equal((await session()).questions[0].attempts[0].answer, 'False')
+    assert.equal((await session()).questions[0].attempts[0].answer, firstAnswer)
     assert.equal(await button('True').isEnabled(), true)
     assert.equal(await calls(), 3)
     await page.waitForTimeout(250)
@@ -69,7 +70,8 @@ try {
 
     // Opening Chat during automatic preparation cancels only that next question.
     await reviewPracticeQuestion(page, 2)
-    await button('True').click()
+    const secondAnswer = (await session()).questions[1].correctAnswer ? 'False' : 'True'
+    await button(secondAnswer).click()
     await page.waitForFunction(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').length === 4)
     const requestId = await page.evaluate(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').at(-1).request.requestId)
     assert.equal(await button('Chat about this question').isEnabled(), true)
@@ -87,7 +89,7 @@ try {
       return state.conversations.find(c => c.id === state.activeConversationId)
     })
     assert.equal(copied.practiceReference.questionId, (await session()).questions[1].id)
-    assert.match(copied.messages[0].text, /My answer: True/)
+    assert.ok(copied.messages[0].text.includes(`My answer: ${secondAnswer}`))
     assert.match(copied.messages[1].text, /^Incorrect/)
     await page.waitForTimeout(2200)
     assert.equal((await session()).questions.length, 2, 'The cancelled next question must not arrive in Chat or Practice')
@@ -95,7 +97,7 @@ try {
     await page.screenshot({ path: `${output}/${name}-chat-cancelled.png` })
     await chat.getByRole('button', { name: 'Practice', exact: true }).click()
     await button('Retry question').waitFor()
-    assert.equal((await session()).questions[1].attempts[0].answer, 'True')
+    assert.equal((await session()).questions[1].attempts[0].answer, secondAnswer)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   }
   assert.deepEqual(errors, [])

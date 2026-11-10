@@ -989,7 +989,7 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
           Number(promptTokens) + prepared.budget.answerReserveTokens + prepared.budget.safetyMarginTokens), ceiling) } }
       continue
     }
-    if (candidate.practiceTask === 'feedback' || candidate.practiceTask === 'chapter_topics' || candidate.practiceTask === 'verify_question' || prepared.sources.length <= 1) {
+    if (candidate.practiceTask === 'chapter_topics' || prepared.sources.length <= 1) {
       throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
     }
     candidate = { ...candidate, retrievedSources: prepared.sources.slice(0, -1) }
@@ -1096,7 +1096,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   if (request.practiceTask) {
     const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
     const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, verified.request.modelSettings, {
-      format: practiceResponseSchema(request.practiceTask, request.practiceAllowedIds), temperature: ['feedback', 'chapter_topics', 'verify_question'].includes(request.practiceTask) ? 0 : 0.3,
+      format: practiceResponseSchema(request.practiceTask, request.practiceAllowedIds), temperature: request.practiceTask === 'chapter_topics' ? 0 : 0.3,
       thinking: false, signal: options.signal,
       timeoutMs: request.practiceTask === 'chapter_topics' ? 600_000 : undefined
     })

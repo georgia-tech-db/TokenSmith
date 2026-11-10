@@ -47,7 +47,7 @@ let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   models: params.has('model-selection') ? [model, cloud, { ...cloud, id: 'disconnected', remoteModelName: 'cloud-disconnected', cloudCredentialStatus: 'reconnect', status: 'needsRuntime' },
     { id: 'search', name: 'Search only', role: 'embedder', engine: 'ollama', ollamaModelName: 'search-only', status: 'ready' }] : [model],
   selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials,
-  settings: { application: { defaultModelId: model.id, suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources') },
+  settings: { application: { defaultModelId: model.id, suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources'), readWhileWaiting: params.has('preview-sources') },
     modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 }, cloud: { contextLength: 16384, maxLength: 2048 } } }
 }
 const calls = []
@@ -126,7 +126,7 @@ window.tokensmith = {
     const evidence = request.retrievedSources?.map(source => ({ sourceKey: `${source.materialId}:${source.documentId}:${source.sourceUnitId || source.chunkId}`, quote: source.context || source.excerpt })) || []
     const binary = kind === 'true_false_question'
     const questionNumber = preparing ? JSON.parse(request.prompt).questionNumber : 0
-    const correctAnswer = preparing && questionNumber % 2 === 1
+    const correctAnswer = preparing && JSON.parse(request.prompt).targetAnswer
     const text = preparing ? JSON.stringify({
       question: binary ? (params.has('duplicate-question') ? true : correctAnswer)
         ? `The ancestor path lets insertion propagate a split to its parent${questionNumber > 2 && !params.has('duplicate-question') ? ` in insertion example ${questionNumber}` : ''}.`
@@ -139,10 +139,9 @@ window.tokensmith = {
       objective: 'Explain how a split propagates through ancestors.', assumptions: [],
       criteria: [
         { id: 'c1', description: 'The path enables backtracking.', evidence: evidence.slice(0, 2) },
-        { id: 'c2', description: 'A split may need to update the parent.', evidence: params.has('many-sources') ? evidence.slice(2, 4) : evidence },
+        { id: 'c2', description: 'A split may need to update the parent.', evidence: evidence.length > 2 ? evidence.slice(2, 4) : evidence },
         ...(evidence.length > 4 ? [{ id: 'c3', description: 'Splits may propagate upward.', evidence: evidence.slice(4, 6) }] : [])
       ],
-      hint: 'Think about which node must change after a leaf splits.',
       explanation: Array(params.has('long-explanation') ? 12 : 1).fill('Record each internal node while descending. If a leaf splits, use this path to update its parent and continue upward if necessary.').join('\n\n')
     }) : 'The path tells insertion where to propagate a split without searching from the root again.'
     return { text, sources: request.retrievedSources || [] }

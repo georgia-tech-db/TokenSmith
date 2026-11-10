@@ -3,24 +3,27 @@ import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const { studyDocumentKey } = requireTranspiledTs('src/shared/study-scope.ts')
-const { emptyPracticeState, normalizePracticeState, practiceSourceKey, practiceAssisted, practiceReference,
-  practiceDiscussionPassage, practiceChatConversation, practiceReviewLabel, practiceTimeline, practiceMessages, practiceFeedbackText } = requireTranspiledTs('src/shared/practice.ts')
+const { emptyPracticeState, normalizePracticeState, practiceSourceKey, practiceReference,
+  practiceDiscussionPassage, practiceChatConversation, practiceReviewLabel, practiceMessages, practiceFeedbackText } = requireTranspiledTs('src/shared/practice.ts')
 const { parsePracticeQuestion, gradeTrueFalse } = requireTranspiledTs('src/shared/quiz.ts')
 const { createPracticeClient } = requireTranspiledTs('src/renderer/src/practice-client.ts')
+const { practiceQuestionPlan } = requireTranspiledTs('src/shared/practice-question-plan.ts')
 const { prepareStudyChatMessages } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 
 const source = { materialId: 'c1', documentId: 8, chunkId: 'ch.1', sourceUnitId: 'unit.1', excerpt: 'Ancestor paths let insertion propagate splits to parents.' }
 const packageData = { question: 'Why keep a path?', objective: 'Explain split propagation.', assumptions: [], criteria: [
   { id: 'c1', description: 'Propagation to parents.', evidence: [{ sourceKey: 'c1:8:unit.1', quote: source.excerpt }] }
-], explanation: 'The path lets insertion revisit parents after a split.', hint: 'Consider which node changes next.' }
+], explanation: 'The path lets insertion revisit parents after a split.' }
 const trueFalseData = { ...packageData, question: 'Paths let insertion propagate splits to parents.', correctAnswer: true,
   questionAssessment: 'The passage supports the statement.', questionIssue: '' }
-const question = { id: 'q1', ...parsePracticeQuestion(JSON.stringify(packageData), [source]), draft: 'To revisit ancestors.', attempts: [], reviewing: false }
+const question = { id: 'q1', text: packageData.question, format: 'short_answer', sources: [source],
+  rubric: { objective: packageData.objective, assumptions: packageData.assumptions, criteria: packageData.criteria },
+  referenceAnswer: packageData.explanation, draft: 'To revisit ancestors.', attempts: [] }
 const feedback = { questionAssessment: 'The question is supported and answerable.', checks: [{ criterionId: 'c1', status: 'met', feedback: 'You identified where updates propagate.' }], improvement: '', nextStep: '', questionIssue: '' }
 const model = { id: 'model1', status: 'ready' }
 const settings = { application: { suggestionMode: 'on', explanationDepthEnabled: true } }
 const session = { id: 's1', documents: [{ materialId: 'c1', documentId: 8 }], modelId: model.id,
-  modelSettings: { contextLengthMode: 'auto', contextLength: 8192, maxLength: 4096 }, questions: [], currentIndex: 0 }
+  modelSettings: { contextLengthMode: 'auto', contextLength: 8192, maxLength: 4096 }, questions: [], currentIndex: 0, topic: { title: 'Splits', sources: [source] } }
 
 function harness(overrides = {}) {
   const calls = []
@@ -30,42 +33,8 @@ function harness(overrides = {}) {
       text: JSON.stringify(trueFalseData), sources: [source] } },
     ...overrides
   }
-  const generate = bridge.sendChatMessage
-  bridge.sendChatMessage = async request => {
-    if (request.practiceTask !== 'verify_question') return generate(request)
-    calls.push(['verification', request])
-    return overrides.verifyQuestion ? overrides.verifyQuestion(request) : {text: JSON.stringify({answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'The passage supports the claim.'}), sources: request.retrievedSources}
-  }
-  return { calls, client: createPracticeClient(bridge, model, settings) }
+  return { calls, client: createPracticeClient(bridge, model, settings, undefined, [], () => 0) }
 }
-
-test('mastery questions are topic-checked, carry verified identity, and compare prior sessions within that concept', async () => {
-  const concept = { courseId: 'book', id: 'splits', title: 'Splits' }
-  const older = { ...session, id: 'old', createdAt: '2026-11-01T00:00:00Z', questions: [{ ...question, concept, text: 'Earlier claim.',
-    rubric: { ...question.rubric, criteria: [] } }] }
-  const unrelated = { ...older, id: 'other', questions: [{ ...older.questions[0], text: 'OTHER COLLECTION', concept: { ...concept, courseId: 'other' } }] }
-  const calls = []
-  const client = createPracticeClient({ sendChatMessage: async request => {
-    calls.push(request)
-    return { text: JSON.stringify(request.practiceTask === 'verify_question'
-      ? { answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'A new claim about splits.' } : trueFalseData), sources: request.retrievedSources }
-  } }, model, settings, undefined, [unrelated, older])
-  const result = await client.question({ ...session, topic: { title: 'Splits', objectives: ['Propagate node splits to parents.'], concept, sources: [source] } }, 'r', new AbortController().signal)
-  assert.equal(calls.length, 2)
-  const check = JSON.parse(calls[1].prompt)
-  assert.deepEqual(check, { statement: trueFalseData.question, topic: 'Splits', learningObjectives: ['Propagate node splits to parents.'], previousQuestions: ['Earlier claim.'] })
-  assert.deepEqual(JSON.parse(calls[0].prompt).learningObjectives, check.learningObjectives)
-  assert.deepEqual(result.masteryCheck, { version: 1, conceptKey: JSON.stringify(['book', 'splits']) })
-  assert.deepEqual(result.concept, concept)
-  assert.equal(check.correctAnswer, undefined)
-})
-
-test('off-topic and paraphrased claims fail the existing check and never become mastery questions', async () => {
-  for (const rejected of [{ topicMatch: 'related', relationship: 'new_claim' }, { topicMatch: 'direct', relationship: 'restatement' }]) {
-    const { client } = harness({ verifyQuestion: async request => ({ text: JSON.stringify({ answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Check specific knowledge.', ...rejected, reason: 'Fails the topic or novelty check.' }), sources: request.retrievedSources }) })
-    await assert.rejects(client.question({ ...session, topic: { title: 'Splits', sources: [source] } }, 'r', new AbortController().signal), /after 2 attempts/)
-  }
-})
 
 test('topic retrieval is scoped once, reused on Next, and never falls back to random passages', async () => {
   const calls = []
@@ -73,7 +42,7 @@ test('topic retrieval is scoped once, reused on Next, and never falls back to ra
   const bridge = {
     searchLibrary: async (...args) => { calls.push(['search', ...args]); return { sources: [outside, source, source] } },
     practiceSources: async () => { throw new Error('Unrelated whole-document sampling') },
-    sendChatMessage: async request => { calls.push(['model', request]); return { text: JSON.stringify(request.practiceTask === 'verify_question' ? {answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'Supported.'} : trueFalseData), sources: request.retrievedSources } }
+    sendChatMessage: async request => { calls.push(['model', request]); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources } }
   }
   const client = createPracticeClient(bridge, model, settings, { materials: [{ id: 'c1' }, { id: 'other' }], embeddingModels: [{ id: 'nomic' }] })
   const signal = new AbortController().signal
@@ -86,7 +55,7 @@ test('topic retrieval is scoped once, reused on Next, and never falls back to ra
   await client.prepareTopic(prepared, signal)
   assert.equal(calls.filter(call => call[0] === 'search').length, 1)
   assert.equal(JSON.parse(calls[1][1].prompt).topic, 'B+ trees')
-  await assert.rejects(client.question({ ...prepared, questions: [generated] }, 'duplicate', signal), error => /repeated an earlier question/.test(error.reason))
+  assert.equal((await client.question({ ...prepared, questions: [generated] }, 'duplicate', signal)).text, generated.text)
 })
 
 test('unsupported and cancelled topic retrieval cannot generate a whole-document question', async () => {
@@ -99,7 +68,7 @@ test('unsupported and cancelled topic retrieval cannot generate a whole-document
 
 
 test('Chat copies the selected exercise and visible feedback without revealing an unanswered key', () => {
-  const binary = { ...question, ...parsePracticeQuestion(JSON.stringify(trueFalseData), [source], 'true_false'), draft: 'False' }
+  const binary = { ...question, ...parsePracticeQuestion(JSON.stringify(trueFalseData), [source]), draft: 'False' }
   const unanswered = practiceChatConversation('chat-1', session, binary)
   assert.equal(unanswered.modelId, session.modelId)
   assert.equal(unanswered.messages.length, 1)
@@ -115,7 +84,6 @@ test('Chat copies the selected exercise and visible feedback without revealing a
   assert.deepEqual(copied.messages[1].sources, [source])
   assert.deepEqual(copied.documentScope, [{ materialId: 'c1', documentId: 8 }])
   assert.deepEqual(checked, before)
-  assert.equal(practiceAssisted({ ...binary, chatOpened: true }), true)
 })
 
 test('practice state preserves saved attempts, scopes, and old transcripts across reloads', () => {
@@ -144,7 +112,7 @@ test('saved practice context defaults migrate to Auto without changing custom si
   }
 })
 
-test('resuming a legacy 2K practice session leaves room for True/False questions and help', async () => {
+test('resuming a legacy 2K practice session leaves room for True/False questions', async () => {
   const old = { ...session, questions: [question], modelSettings: { ...session.modelSettings,
     contextLength: 2048, contextLengthMode: undefined } }
   const restored = normalizePracticeState({ mode: 'practice', sessions: [old] }).sessions[0]
@@ -159,8 +127,7 @@ test('resuming a legacy 2K practice session leaves room for True/False questions
     return { text: request.practiceTask === 'true_false_question' ? JSON.stringify(trueFalseData) : 'An explanation.', sources: [source] }
   } })
   await client.question(restored, 'next', new AbortController().signal)
-  await client.discuss(restored, question, 'Explain this term.', 'help')
-  assert.equal(requests.length, 2)
+  assert.equal(requests.length, 1)
   assert.ok(requests.every(request => request.modelSettings.contextLengthMode === 'auto'))
 })
 
@@ -170,18 +137,12 @@ test('document and evidence identity includes collection and document', () => {
   assert.equal(practiceSourceKey(source), 'c1:8:unit.1')
 })
 
-test('hints, explanations, and revisions are not mistaken for independent attempts', () => {
-  assert.equal(practiceAssisted(question), false)
-  for (const change of [{ hintUsed: true }, { answerRevealed: true }, { attempts: [{ answer: 'first' }] }, { discussions: [{ answer: 'Help' }] }]) {
-    assert.equal(practiceAssisted({ ...question, ...change }), true)
-  }
+test('review labels describe saved responses', () => {
   assert.equal(practiceReviewLabel(question), 'Not answered')
-  assert.equal(practiceReviewLabel({ ...question, answerRevealed: true }), 'Explanation viewed')
-  assert.equal(practiceReviewLabel({ ...question, attempts: [{ feedback: { verdict: 'partial', checks: [{ status: 'missing' }] } }] }), '1 point to explain')
-  assert.equal(practiceReviewLabel({ ...question, attempts: [{ feedback: { verdict: 'correct' }, assisted: true }] }), 'Key points covered')
+  assert.equal(practiceReviewLabel({ ...question, attempts: [{ feedback: 'Awaiting independent review.' }] }), 'Awaiting review')
 })
 
-test('discussion uses the submitted answer and feedback, never unrevealed explanations or hints', () => {
+test('Chat handoff uses the submitted answer and feedback, never the unrevealed explanation', () => {
   assert.equal(practiceReference(session, question).feedback, '')
   const answered = { ...question, draft: 'Unsubmitted revision', attempts: [{ answer: 'Submitted answer', feedback: 'Actual feedback' }] }
   const reference = practiceReference(session, answered)
@@ -192,11 +153,10 @@ test('discussion uses the submitted answer and feedback, never unrevealed explan
     question: 'Practice question: Why keep a path?\n\nMy answer: Submitted answer', text: 'Actual feedback' })
 })
 
-test('one question call prepares the question, saved criteria, hint and explanation', async () => {
+test('one question call prepares the question, saved criteria and explanation', async () => {
   const { calls, client } = harness()
   const result = await client.question({ ...session, questions: [question] }, 'r1', new AbortController().signal)
-  assert.deepEqual(calls[0], ['sources', session.documents, ['c1:8:unit.1'], 1])
-  const request = calls[1][1]
+  const request = calls[0][1]
   assert.equal(request.practiceTask, 'true_false_question')
   assert.deepEqual(request.messages, [])
   assert.deepEqual(request.materials, [])
@@ -207,20 +167,21 @@ test('one question call prepares the question, saved criteria, hint and explanat
   assert.equal(result.text, trueFalseData.question)
   assert.deepEqual(result.rubric, question.rubric)
   assert.equal(result.referenceAnswer, packageData.explanation)
-  assert.equal(result.hint, packageData.hint)
+  assert.equal('hint' in result, false)
   assert.deepEqual(result.attempts, [])
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 1)
   assert.equal(client.help, undefined)
 })
 
 test('practice generates only source-backed True/False statements from the first question onward', async () => {
   const { calls, client } = harness({ sendChatMessage: async request => {
     calls.push(['model', request])
-    return { text: JSON.stringify({ ...trueFalseData, question: `In example ${JSON.parse(request.prompt).questionNumber}, paths let insertion propagate splits to parents.` }), sources: [source] }
+    return { text: JSON.stringify({ ...trueFalseData, question: `In example ${JSON.parse(request.prompt).questionNumber}, paths let insertion propagate splits to parents.` }), sources: request.retrievedSources }
   } })
+  const topic = { ...session.topic, sources: Array.from({ length: 3 }, (_, i) => ({ ...source, sourceUnitId: `unit.${i}` })) }
   const questions = []
   for (let index = 0; index < 6; index++) {
-    questions.push(await client.question({ ...session, questions }, `r${index}`, new AbortController().signal))
+    questions.push(await client.question({ ...session, topic, questions }, `r${index}`, new AbortController().signal))
   }
   assert.ok(questions.every(question => question.format === 'true_false'))
   const generated = calls.filter(call => call[0] === 'model')
@@ -261,219 +222,194 @@ test('saved short-answer questions remain readable but cannot be graded', () => 
   assert.equal(calls.length, 0)
 })
 
-test('cancellation during passage loading prevents model calls', async () => {
-  let release
-  const { client, calls } = harness({ practiceSources: () => new Promise(resolve => { release = resolve }) })
-  const controller = new AbortController()
-  const pending = client.question(session, 'cancel', controller.signal)
-  controller.abort(); release([source])
-  await assert.rejects(pending, { name: 'AbortError' })
-  assert.equal(calls.length, 0)
-})
-
-test('invalid model output fails explicitly; older questions never get invented rubrics', async () => {
-  const empty = harness({ practiceSources: async () => [] })
-  assert.equal(await empty.client.question(session, 'r', new AbortController().signal), null)
+test('invalid model output fails once and an empty topic cannot sample the whole book', async () => {
+  const empty = harness()
+  assert.equal(await empty.client.question({ ...session, topic: undefined }, 'r', new AbortController().signal), null)
+  assert.equal(empty.calls.length, 0)
   for (const reply of [{ text: '', sources: [source] }, { text: 'Question?', sources: [] },
     { text: JSON.stringify(packageData), sources: [source] }]) {
-    const { client } = harness({ sendChatMessage: async () => reply })
-    await assert.rejects(client.question(session, 'r', new AbortController().signal), /valid question/)
+    let count = 0
+    const { client } = harness({ sendChatMessage: async () => { count++; return reply } })
+    await assert.rejects(client.question(session, 'r', new AbortController().signal), /Could not read/)
+    assert.equal(count, 1)
   }
 })
 
-test('open-ended practice bounds question history while retaining all used source identities', async () => {
-  const { calls, client } = harness()
+test('topic and same-passage history remain bounded across earlier sessions', async () => {
+  const calls = []
+  const concept = { courseId: 'book', id: 'splits', title: 'Splits' }
+  const current = { ...session, topic: { ...session.topic, concept } }
   const questions = Array.from({ length: 80 }, (_, index) => ({ ...question, id: `q${index}`, text: `Question ${index}` }))
-  await client.question({ ...session, questions }, 'r', new AbortController().signal)
-  assert.equal(calls[0][2].length, 80)
-  const input = JSON.parse(calls[1][1].prompt)
-  assert.equal(input.questionNumber, 81)
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    calls.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings, undefined, [{ ...current, id: 'old', createdAt: '2026-01-01', questions }])
+  await client.question(current, 'r', new AbortController().signal)
+  const input = JSON.parse(calls[0].prompt)
+  assert.equal(input.questionNumber, 1)
   assert.equal(input.totalQuestions, undefined)
   assert.equal(input.previousQuestions.length, 12)
   assert.equal(input.previousQuestions[0], 'Question 68')
+  assert.equal(input.previousQuestionsFromPassage.length, 12)
+  assert.equal(input.previousQuestionsFromPassage[0].question, 'Question 68')
 })
 
-test('inline help is not grading and does not reveal the hidden answer or unrelated exercises', async () => {
+test('practice messages use saved attempts directly with stable selectable IDs', () => {
+  const value = { ...question, attempts: [{ id: 'a1', answer: 'First', feedback: 'Correct' }] }
+  assert.deepEqual(practiceMessages(value).map(message => message.text), ['Why keep a path?', 'First', 'Correct'])
+  assert.equal(new Set(practiceMessages(value).map(message => message.id)).size, 3)
+})
+
+test('quality gates are absent: repeated wording, invented quotes and requested-key mismatches remain observable', async () => {
+  const output = { ...trueFalseData, question: 'What happens?', correctAnswer: false, questionIssue: 'Uncertain.',
+    criteria: [{ ...trueFalseData.criteria[0], evidence: [{ sourceKey: 'invented', quote: 'Not in the passage.' }] }] }
   const { calls, client } = harness({ sendChatMessage: async request => {
-    calls.push(['help', request]); return { text: 'Explanation', sources: [source] }
+    calls.push(['model', request]); return { text: JSON.stringify(output), sources: [source] }
   } })
-  const withHistory = { ...question, discussions: Array.from({ length: 50 }, (_, index) => ({
-    id: `help${index}`, question: `Help ${index}`, answer: index === 49 ? 'Last explanation' : 'OLD UNRELATED HELP'
-  })) }
-  await client.discuss({ ...session, questions: [question, { ...question, text: 'OTHER EXERCISE' }] }, withHistory, 'Why is that needed?', 'help')
-  const request = calls[0][1]
+  const result = await client.question({ ...session, questions: [{ ...question, text: output.question }] }, 'r', new AbortController().signal)
   assert.equal(calls.length, 1)
-  assert.equal(request.practiceTask, undefined)
-  assert.equal(request.prompt, 'Why is that needed?')
-  assert.equal(request.applicationSettings.suggestionMode, 'off')
-  assert.deepEqual(request.messages, [])
-  assert.deepEqual(request.retrievedSources, [source])
-  const body = JSON.stringify(request)
-  assert.match(body, /Why keep a path/)
-  assert.match(body, /Help 49/)
-  assert.match(body, /Last explanation/)
-  assert.doesNotMatch(body, /OLD UNRELATED HELP|OTHER EXERCISE/)
-  assert.ok(!body.includes(packageData.explanation))
-  assert.ok(!body.includes(packageData.hint))
-  assert.equal(request.rubric, undefined)
+  assert.equal(result.requestedAnswer, true)
+  assert.equal(result.correctAnswer, false, 'Do not silently change the returned key to the requested key')
+  assert.equal(result.text, output.question)
+  assert.equal(result.rubric.criteria[0].evidence[0].sourceKey, 'invented')
+  assert.deepEqual(result.sources, [source], 'Show the actual input passage, regardless of generated citation text')
+  assert.equal(gradeTrueFalse(result, 'False').correct, true)
 })
 
-test('help context stays bounded and retains an explicit quotation', async () => {
-  const { calls, client } = harness({ sendChatMessage: async request => {
-    calls.push(request); return { text: 'Explanation', sources: [source] }
-  } })
-  await client.discuss(session, { ...question,
-    helpPassage: { messageId: 'q1', role: 'assistant', text: 'Selected phrase' },
-    discussions: [{ question: 'Explain', answer: 'Long context '.repeat(2000) }] }, 'Why?', 'help')
-  assert.equal(calls[0].selectedPassage.text, 'Selected phrase')
-  assert.ok(calls[0].selectedPassage.question.length < 4100)
-  await assert.rejects(client.discuss({ ...session, modelId: 'missing' }, question, 'Why?', 'help'), /unavailable/)
+test('random targets allow runs of the same answer and do not alternate by question number', async () => {
+  const draws = [0, 0.49, 0.5, 0.99, 0.1, 0.9], targets = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    targets.push(JSON.parse(request.prompt).targetAnswer)
+    return { text: JSON.stringify({ ...trueFalseData, correctAnswer: targets.at(-1) }), sources: [source] }
+  } }, model, settings, undefined, [], () => draws.shift())
+  for (let i = 0; i < 6; i++) await client.question(session, String(i), new AbortController().signal)
+  assert.deepEqual(targets, [true, true, false, false, true, false])
+  assert.equal(draws.length, 0)
 })
 
-test('timeline keeps feedback, help and later revisions in order with stable selectable messages', () => {
-  const value = { ...question, attempts: [{ id: 'a1', answer: 'First', feedback: 'Partial' }, { id: 'a2', answer: 'Revision', feedback: 'Correct' }],
-    discussions: [{ id: 'd1', question: 'Explain?', answer: 'Help' }], hint: 'Hint', hintUsed: true,
-    timeline: [{ kind: 'attempt', id: 'a1' }, { kind: 'discussion', id: 'd1' }, { kind: 'hint' }, { kind: 'attempt', id: 'a2' }] }
-  assert.deepEqual(practiceTimeline(value), value.timeline)
-  assert.deepEqual(practiceMessages(value).map(message => message.text), ['Why keep a path?', 'First', 'Partial', 'Explain?', 'Help', 'Hint', 'Revision', 'Correct'])
-  const messages = practiceMessages(value)
-  assert.equal(new Set(messages.map(message => message.id)).size, messages.length)
-  assert.equal(practiceTimeline({ ...value, timeline: undefined }).length, 4)
-  assert.deepEqual(normalizePracticeState({ mode: 'practice', sessions: [{ ...session, questions: [value] }] }).sessions[0].questions[0], value)
+test('manual retry keeps the truth target and advances the passage across saved restarts', async () => {
+  const pool = [source, { ...source, chunkId: 'ch.2', sourceUnitId: 'unit.2' }]
+  let saved = { ...session, topic: { title: 'Splits', sources: pool } }, calls = 0, draws = 0
+  const requests = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    requests.push(request)
+    if (++calls === 1) return { text: 'broken JSON', sources: request.retrievedSources }
+    return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings, undefined, [], () => { draws++; return 0.8 })
+  const remember = (cursor, _sources, target) => { saved = { ...saved, questionSourceCursor: cursor, questionTargetAnswer: target } }
+  await assert.rejects(client.question(saved, 'first', new AbortController().signal, remember), /Could not read/)
+  saved = normalizePracticeState(JSON.parse(JSON.stringify({ sessions: [saved] }))).sessions[0]
+  await client.question(saved, 'retry', new AbortController().signal, remember)
+  assert.equal(draws, 1)
+  assert.deepEqual(requests.map(r => r.retrievedSources[0].chunkId), ['ch.1', 'ch.2'])
+  assert.deepEqual(requests.map(r => JSON.parse(r.prompt).targetAnswer), [false, false])
 })
 
-test('invalid statement or quotation gets one targeted retry while a valid package needs one call', async () => {
-  for (const invalid of [
-    { ...trueFalseData, question: 'If a crash interrupts an update, what state results?' },
-    { ...trueFalseData, criteria: [{ ...trueFalseData.criteria[0], evidence: [{ sourceKey: 'c1:8:unit.1', quote: 'Not in this passage.' }] }] }
-  ]) {
+test('rotation stays within the topic, wraps, and continues across sessions without crossing collections', async () => {
+  const concept = { courseId: 'book', id: 'splits', title: 'Splits' }
+  const pool = [source, { ...source, chunkId: 'ch.2', sourceUnitId: 'unit.2' }, { ...source, chunkId: 'ch.3', sourceUnitId: 'unit.3' }]
+  const old = { ...session, id: 'old', createdAt: '2026-01-01', questionSourceCursor: 2, topic: { ...session.topic, concept }, questions: [{ ...question, text: 'Old claim.' }] }
+  const unrelated = { ...old, id: 'unrelated', questionSourceCursor: 99, topic: { ...old.topic, concept: { ...concept, courseId: 'other' } } }
+  let saved = { ...session, topic: { title: 'Splits', concept, sources: pool } }
+  const requests = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    requests.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings, undefined, [unrelated, old], () => 0)
+  for (let i = 0; i < 4; i++) {
+    const result = await client.question(saved, String(i), new AbortController().signal, cursor => { saved = { ...saved, questionSourceCursor: cursor } })
+    assert.deepEqual(result.masteryCheck, { version: 1, conceptKey: JSON.stringify(['book', 'splits']), verification: 'none' })
+  }
+  assert.deepEqual(requests.map(r => r.retrievedSources[0].chunkId), ['ch.3', 'ch.1', 'ch.2', 'ch.3'])
+  assert.deepEqual(JSON.parse(requests[0].prompt).previousQuestions, ['Old claim.'])
+})
+
+test('a mapped topic is authoritative even when an older session contains broad search results', async () => {
+  const mapped = Array.from({ length: 10 }, (_, i) => ({ ...source, materialId: 'book/1', chunkId: `ch.${i}`, sourceUnitId: `part.${i}` }))
+  const topic = { id: 'saved', title: 'Splits', concept: { courseId: 'book', id: 'saved', title: 'Splits' }, sources: mapped }
+  const inventory = { version: 3, complete: true, indexRevision: 'revision', topics: [topic] }
+  const bridge = { loadTopicInventory: async () => inventory, searchLibrary: async () => { throw new Error('Must not search') } }
+  const client = createPracticeClient(bridge, model, settings, { materials: [{ id: 'book/1', collectionRevision: 'revision' }], embeddingModels: [] })
+  const prepared = await client.prepareTopic({ ...session, documents: [{ materialId: 'book/1', documentId: 8 }],
+    topic: { ...topic, prepared: true, sources: [{ ...mapped[0], chunkId: 'unrelated' }] } }, new AbortController().signal)
+  assert.deepEqual(prepared.topic.sources, mapped, 'Preserve all mapped passages, including those beyond eight')
+  inventory.topics = []
+  await assert.rejects(client.prepareTopic(prepared, new AbortController().signal), /saved topic is unavailable/)
+})
+
+test('cancellation and connection failure never trigger another model call', async () => {
+  let count = 0
+  const controller = new AbortController()
+  const { client } = harness({ sendChatMessage: async () => { count++; throw new Error('Connection refused') } })
+  await assert.rejects(client.question(session, 'cancel', controller.signal, () => controller.abort()), { name: 'AbortError' })
+  assert.equal(count, 0)
+  await assert.rejects(client.question(session, 'offline', new AbortController().signal), /Connection refused/)
+  assert.equal(count, 1)
+})
+
+test('one passage yields two questions, ten yield twenty, and completion makes no extra model call', async () => {
+  for (const count of [1, 10]) {
+    const pool = Array.from({ length: count }, (_, i) => ({ ...source, chunkId: `ch.${i}`, sourceUnitId: `unit.${i}` }))
+    let saved = { ...session, topic: { ...session.topic, sources: pool }, questions: [] }
     const requests = []
-    const { client } = harness({ sendChatMessage: async request => {
-      requests.push(request)
-      return { text: JSON.stringify(requests.length === 1 ? invalid : trueFalseData), sources: [source] }
-    } })
-    const result = await client.question(session, 'repair', new AbortController().signal)
-    assert.equal(result.text, trueFalseData.question)
-    assert.equal(requests.length, 2)
-    const correction = JSON.parse(requests[1].prompt).correction
-    assert.match(correction, /failed validation/)
-    assert.match(correction, /declarative True\/False statement/)
-    assert.match(correction, /SAME supplied passage/)
-    assert.deepEqual(requests[0].retrievedSources, requests[1].retrievedSources)
-    assert.equal(requests[0].requestId, requests[1].requestId, 'Stop controls the entire preparation including its retry')
+    const client = createPracticeClient({ sendChatMessage: async request => {
+      requests.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+    } }, model, settings)
+    assert.equal(practiceQuestionPlan(saved).totalQuestions, count * 2)
+    for (let i = 0; i < count * 2; i++) {
+      const next = await client.question(saved, String(i), new AbortController().signal, cursor => { saved.questionSourceCursor = cursor })
+      saved = normalizePracticeState(JSON.parse(JSON.stringify({ sessions: [{ ...saved, questions: [...saved.questions, next] }] }))).sessions[0]
+    }
+    assert.equal(await client.question(saved, 'complete', new AbortController().signal), null)
+    assert.equal(requests.length, count * 2)
+    assert.deepEqual(requests.map(r => r.retrievedSources[0].chunkId), [...pool, ...pool].map(s => s.chunkId))
+    assert.equal(practiceQuestionPlan(saved).source, undefined)
   }
 })
 
-test('repair stops after two invalid packages and cancellation prevents a repair request', async () => {
-  const invalid = { ...trueFalseData, question: 'What happens after a crash?' }
-  let count = 0
-  const { client } = harness({ sendChatMessage: async () => { count++; return { text: JSON.stringify(invalid), sources: [source] } } })
-  await assert.rejects(client.question(session, 'bad', new AbortController().signal), /valid question/)
-  assert.equal(count, 2)
-  const controller = new AbortController()
-  const cancelled = harness({ sendChatMessage: async () => { count++; controller.abort(); return { text: JSON.stringify(invalid), sources: [source] } } })
-  await assert.rejects(cancelled.client.question(session, 'cancel', controller.signal), { name: 'AbortError' })
-  assert.equal(count, 3)
+test('question limits ignore duplicate, empty and out-of-scope mapped passages', () => {
+  const mapped = [source, { ...source }, { ...source, materialId: 'another-book' },
+    { ...source, sourceUnitId: 'empty', excerpt: '' }]
+  assert.equal(practiceQuestionPlan({ ...session, topic: { ...session.topic, sources: mapped } }).totalQuestions, 2)
+  assert.equal(practiceQuestionPlan({ ...session, topic: { ...session.topic, sources: [] } }).totalQuestions, 0)
 })
 
-test('saved malformed True/False attempts are retained but their incorrect verdict is suppressed everywhere', () => {
-  const saved = { ...question, format: 'true_false', correctAnswer: true,
-    text: 'If the crash happens between table and index updates, what state results?',
-    attempts: [{ id: 'old', answer: 'False', feedback: { kind: 'true_false', correct: false, explanation: 'Hidden invalid answer guide.' } }] }
-  const before = structuredClone(saved)
-  assert.equal(practiceReviewLabel(saved), 'Question needs review')
-  assert.match(practiceMessages(saved).at(-1).text, /cannot be graded/)
-  const copied = practiceChatConversation('fixed-chat', session, saved)
-  assert.match(copied.messages[0].text, /My answer: False/)
-  assert.match(copied.messages[1].text, /cannot be graded/)
-  assert.doesNotMatch(copied.messages[1].text, /Incorrect|Hidden invalid answer guide/)
-  assert.deepEqual(saved, before)
-})
-
-
-test('rejected questions try distinct in-topic passages and save the cursor for manual retry', async () => {
-  const pool = Array.from({length: 8}, (_, i) => ({...source, chunkId: `chunk-${i}`, sourceUnitId: `unit-${i}`}))
-  let cursor, fail = true
+test('rotation skips passages with two saved questions and failed attempts do not consume slots', async () => {
+  const second = { ...source, chunkId: 'ch.2', sourceUnitId: 'unit.2' }
+  let saved = { ...session, topic: { ...session.topic, sources: [source, second] }, questionSourceCursor: 0,
+    questions: [{ ...question, id: 'first' }, { ...question, id: 'second' }] }
   const requests = []
-  const {client} = harness({sendChatMessage: async request => {
+  const client = createPracticeClient({ sendChatMessage: async request => {
     requests.push(request)
-    const evidence = request.retrievedSources[0]
-    return {text: JSON.stringify({...trueFalseData, criteria: [{...trueFalseData.criteria[0], evidence: [{
-      sourceKey: practiceSourceKey(evidence), quote: fail ? 'Not in this passage.' : evidence.excerpt
-    }]}]}), sources: request.retrievedSources}
-  }})
-  const target = {...session, topic: {title: 'B+ trees', sources: pool, prepared: true}}
-  await assert.rejects(client.question(target, 'bounded', new AbortController().signal, next => {cursor = next}), /after 4 attempts/)
-  assert.equal(cursor, 4)
-  assert.deepEqual(requests.map(r => r.retrievedSources[0].chunkId), ['chunk-0','chunk-1','chunk-2','chunk-3'])
-  assert.ok(requests.every(r => r.requestId === 'bounded' && JSON.parse(r.prompt).topic === 'B+ trees'))
-  const resumed = normalizePracticeState(JSON.parse(JSON.stringify({sessions: [{...target, questionSourceCursor: cursor}]}))).sessions[0]
-  fail = false
-  const result = await client.question(resumed, 'manual', new AbortController().signal)
-  assert.equal(result.sources[0].chunkId, 'chunk-4')
-  assert.equal(requests.length, 5)
+    return { text: requests.length === 1 ? 'broken JSON' : JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings)
+  const remember = (cursor, _sources, target) => { saved = { ...saved, questionSourceCursor: cursor, questionTargetAnswer: target } }
+  await assert.rejects(client.question(saved, 'failed', new AbortController().signal, remember), /Could not read/)
+  for (let i = 0; i < 2; i++) {
+    const next = await client.question(saved, String(i), new AbortController().signal, remember)
+    saved = { ...saved, questions: [...saved.questions, next], questionTargetAnswer: undefined }
+  }
+  assert.equal(await client.question(saved, 'complete', new AbortController().signal), null)
+  assert.deepEqual(requests.map(r => r.retrievedSources[0].chunkId), ['ch.2', 'ch.2', 'ch.2'])
+  assert.equal(saved.questions.length, 4)
 })
 
-test('automatic retry succeeds on an alternative passage without reusing a rejected question', async () => {
-  const alternate = {...source, chunkId: 'other', sourceUnitId: 'other'}
+test('same-passage history survives the topic history cutoff and includes tested ideas, not student answers', async () => {
+  const concept = { courseId: 'book', id: 'splits', title: 'Splits' }
+  const earlier = { ...question, text: 'Earlier same-passage claim.', correctAnswer: true, draft: 'Private student answer' }
+  const otherPassage = { ...source, chunkId: 'other', sourceUnitId: 'other' }
+  const history = [{ ...session, id: 'old', createdAt: '2026-01-01', questionSourceCursor: 0,
+    topic: { ...session.topic, concept }, questions: [earlier, ...Array.from({ length: 15 }, (_, i) =>
+      ({ ...question, id: `q${i}`, text: `Other passage ${i}.`, sources: [otherPassage] }))] },
+    { ...session, id: 'other-book', createdAt: '2026-01-02', questions: [{ ...earlier, sources: [{ ...source, materialId: 'another-book' }] }] }]
   const requests = []
-  const {client} = harness({sendChatMessage: async request => {
-    requests.push(request)
-    const evidence = request.retrievedSources[0]
-    return {text: requests.length === 1 ? 'invalid JSON' : JSON.stringify({...trueFalseData,
-      criteria: [{...trueFalseData.criteria[0], evidence: [{sourceKey: practiceSourceKey(evidence), quote: evidence.excerpt}]}]}), sources: request.retrievedSources}
-  }})
-  const result = await client.question({...session, topic: {title: 'Splits', sources: [source, alternate]}}, 'r', new AbortController().signal)
-  assert.equal(requests.length, 2)
-  assert.deepEqual(result.sources, [alternate])
-})
-
-test('duplicate statements are retried automatically, not shown again', async () => {
-  let calls = 0
-  const {client} = harness({sendChatMessage: async request => ({sources: request.retrievedSources,
-    text: JSON.stringify({...trueFalseData, question: ++calls === 1 ? trueFalseData.question : 'Keeping the ancestor path allows insertion to revisit a parent after a split.'})})})
-  const result = await client.question({...session, questions: [{...question, text: trueFalseData.question}]}, 'r', new AbortController().signal)
-  assert.equal(calls, 2)
-  assert.notEqual(result.text, trueFalseData.question)
-})
-
-test('cancellation between attempts and connection errors never trigger further model calls', async () => {
-  const controller = new AbortController()
-  let calls = 0
-  const {client} = harness({sendChatMessage: async () => {calls++;return {text: 'bad', sources: [source]}}})
-  await assert.rejects(client.question(session, 'r', controller.signal, (_cursor, attempt) => {if(attempt === 2) controller.abort()}), {name: 'AbortError'})
-  assert.equal(calls, 1)
-  const offline = harness({sendChatMessage: async () => {calls++;throw new Error('Connection refused')}})
-  await assert.rejects(offline.client.question(session, 'r', new AbortController().signal), /Connection refused/)
-  assert.equal(calls, 2)
-})
-
-test('empty or truncated completions can retry, and overlapping topic references do not count as new passages', async () => {
-  let calls = 0
-  const {client} = harness({sendChatMessage: async request => {
-    if (++calls === 1) throw new Error('The structured model response exceeded its output limit.')
-    return {text: JSON.stringify({...trueFalseData, criteria: [{...trueFalseData.criteria[0], evidence: [{sourceKey: practiceSourceKey(request.retrievedSources[0]), quote: source.excerpt}]}]}), sources: request.retrievedSources}
-  }})
-  const result = await client.question({...session, topic: {title: 'Splits', sources: [source, {...source, sourceUnitId: 'saved-topic-copy'}]}}, 'r', new AbortController().signal)
-  assert.equal(calls, 2)
-  assert.equal(result.sources.length, 1)
-})
-
-
-test('blind answer-key disagreements retry with new evidence and never reveal the proposed key to the checker', async () => {
-  const alternate = {...source, chunkId: 'alternate', sourceUnitId: 'alternate'}
-  let checks = 0
-  const {calls, client} = harness({
-    sendChatMessage: async request => ({text: JSON.stringify({...trueFalseData, criteria: [{...trueFalseData.criteria[0], evidence: [{sourceKey: practiceSourceKey(request.retrievedSources[0]), quote: source.excerpt}]}]}), sources: request.retrievedSources}),
-    verifyQuestion: async request => {
-      assert.deepEqual(JSON.parse(request.prompt), {statement: trueFalseData.question, topic: 'Splits', previousQuestions: []})
-      assert.deepEqual(request.messages, [])
-      assert.equal(request.modelSettings.maxLength, 512)
-      return {text: JSON.stringify({answer: ++checks === 1 ? 'false' : 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'Checked the complete passage.'}), sources: request.retrievedSources}
-    }
-  })
-  const result = await client.question({...session, topic: {title: 'Splits', sources: [source, alternate]}}, 'r', new AbortController().signal)
-  assert.equal(checks, 2)
-  assert.equal(result.sources[0].chunkId, 'alternate')
-  assert.ok(calls.filter(c=>c[0]==='verification').every(c=>c[1].requestId==='r'))
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    requests.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings, undefined, history)
+  const current = { ...session, createdAt: '2026-01-03', topic: { ...session.topic, concept } }
+  const next = await client.question(current, 'new-session', new AbortController().signal)
+  const prompt = JSON.parse(requests[0].prompt)
+  assert.equal(prompt.previousQuestions.includes(earlier.text), false, 'Old question fell outside recent topic history')
+  assert.deepEqual(prompt.previousQuestionsFromPassage, [{ question: earlier.text, correctAnswer: true,
+    testedIdeas: [packageData.criteria[0].description], supportingQuotes: [source.excerpt] }])
+  assert.equal(requests[0].prompt.includes('Private student answer'), false)
+  assert.equal(practiceQuestionPlan({ ...current, questions: [next] }).totalQuestions, 2, 'Earlier sessions do not consume this session’s allowance')
 })

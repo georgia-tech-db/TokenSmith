@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
-const { practiceMastery, updateMastery, chapterMastery } = requireTranspiledTs('src/shared/practice-mastery.ts')
+const { practiceMastery, updateMastery, chapterMastery, removePracticeHistory } = requireTranspiledTs('src/shared/practice-mastery.ts')
 const { practiceConceptKey, exportPractice } = requireTranspiledTs('src/shared/practice-study.ts')
 const { normalizePracticeState } = requireTranspiledTs('src/shared/practice.ts')
 const concept = { courseId: 'book', id: 'trees', title: 'Trees' }
@@ -18,6 +18,38 @@ function session(id, correct = true, options = {}) {
 }
 const q = s => s.questions[0]
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-10, `${a} differs from ${b}`)
+
+test('source-view assistance flags are repaired without changing answers or genuine help', () => {
+  const reading = session(1, true, { assisted: true })
+  const help = session(2, true, { assisted: true })
+  for (const s of [reading, help]) {
+    s.observations = [{ id: `source-read:${s.id}`, questionId: 'q1', kind: 'help_shown', at: s.createdAt }]
+    q(s).attempts[0].assistanceIds = [`source-read:${s.id}`]
+  }
+  help.observations.push({ id: 'help:chat', questionId: 'q1', kind: 'help_shown', at: help.createdAt })
+  q(help).attempts[0].assistanceIds.push('help:chat')
+  const before = structuredClone([reading, help])
+  const state = normalizePracticeState({ mode: 'practice', sessions: [reading, help] })
+  assert.equal(q(state.sessions[0]).attempts[0].assisted, false)
+  assert.equal(q(state.sessions[0]).attempts[0].answer, 'True')
+  assert.deepEqual(state.sessions[0].observations, [])
+  assert.equal(q(state.sessions[1]).attempts[0].assisted, true)
+  assert.deepEqual(q(state.sessions[1]).attempts[0].assistanceIds, ['help:chat'])
+  const mastery = practiceMastery(state.sessions).get(key)
+  assert.equal(mastery.answers, 1)
+  assert.equal(mastery.withHelp, 1)
+  assert.deepEqual(normalizePracticeState(state), state)
+  assert.deepEqual([reading, help], before)
+})
+
+test('source flag repair preserves genuine help recorded by an older version', () => {
+  const s = session(1, true, { assisted: true })
+  q(s).hintUsed = true
+  q(s).attempts[0].assistanceIds = ['source-read:1']
+  const restored = normalizePracticeState({ mode: 'practice', sessions: [s] }).sessions[0]
+  assert.equal(q(restored).attempts[0].assisted, true)
+  assert.equal(practiceMastery([restored]).get(key).answers, 0)
+})
 
 test('mastery reproduces the proposed answer sequence and remains unknown until evidence exists', () => {
   assert.equal(practiceMastery([]).size, 0)
@@ -77,14 +109,22 @@ test('collection and topic identity isolate scores, regardless of matching label
   assert.ok(rows.get(practiceConceptKey(other)).score < .1)
 })
 
-test('unverified, mismatched, malformed, incomplete and unscored responses never earn mastery', () => {
+test('untracked, mismatched, incomplete and unscored responses never earn mastery', () => {
   for (const change of [s => delete q(s).masteryCheck, s => q(s).masteryCheck.version = 2,
     s => q(s).masteryCheck.conceptKey = 'wrong-topic', s => q(s).format = 'short_answer',
-    s => q(s).text = 'Why do nodes split?', s => q(s).rubric = undefined, s => q(s).attempts = [],
+    s => q(s).rubric = undefined, s => q(s).attempts = [],
     s => delete q(s).attempts[0].observationVersion, s => q(s).attempts[0].feedback = 'Awaiting review.',
     s => s.assessment = { packId: 'p', version: '1' }]) {
     const s = session(0); change(s); assert.equal(practiceMastery([s]).size, 0)
   }
+})
+
+test('single-call questions use the generated key without a hidden wording or verifier gate', () => {
+  const s = session(0)
+  q(s).text = 'Why do nodes split?'
+  q(s).masteryCheck.verification = 'none'
+  assert.equal(practiceMastery([s]).get(key).answers, 1)
+  assert.equal(exportPractice([s]).sessions[0].questions[0].masteryCheck.verification, 'none')
 })
 
 test('parent progress includes unassessed topics as zero and does not double count identities', () => {
@@ -96,7 +136,7 @@ test('parent progress includes unassessed topics as zero and does not double cou
   assert.deepEqual(chapterMastery([], rows), { total: 0, assessed: 0, score: 0 })
 })
 
-test('replay is chronological, survives save/export/reload, and responds to deletion or key correction', () => {
+test('replay is chronological, survives save/export/reload, and responds to key correction', () => {
   const a = session(0, false, { at: '2026-11-10T08:00:00-05:00' }), b = session(1, true, { at: '2026-11-10T12:00:00Z' })
   const expected = practiceMastery([b, a])
   assert.deepEqual(practiceMastery([a, b]), expected)
@@ -107,4 +147,48 @@ test('replay is chronological, survives save/export/reload, and responds to dele
   const corrections = [{ sessionId: a.id, questionId: q(a).id, keyVersion: '2', correct: true, reason: 'Reviewed correction' }]
   assert.ok(practiceMastery([a, b], corrections).get(key).score > expected.get(key).score)
   assert.equal(q(a).attempts[0].feedback.correct, false)
+})
+
+const masteryOf = state => practiceMastery(state.sessions, [], state.masteryRecords)
+
+test('clearing conversations keeps mastery, assistance, recent mistakes and topic identity after reload', () => {
+  const original = { mode: 'practice', activeSessionId: '2', sessions: [session(0), session(1, true, { assisted: true }), session(2, false),
+    session(3, true, { concept: { ...concept, courseId: 'another-book' } })] }
+  const expected = masteryOf(original)
+  const cleared = removePracticeHistory(original)
+  assert.deepEqual(cleared.sessions, [])
+  assert.equal(cleared.activeSessionId, undefined)
+  assert.equal(original.sessions.length, 4, 'Do not mutate the current snapshot before saving')
+  assert.deepEqual(masteryOf(cleared), expected)
+  const restored = normalizePracticeState(JSON.parse(JSON.stringify(cleared)))
+  assert.deepEqual(masteryOf(restored), expected)
+  assert.deepEqual(removePracticeHistory(restored), restored, 'Repeated clear is a no-op')
+  const serialized = JSON.stringify(restored.masteryRecords)
+  assert.doesNotMatch(serialized, /Claim 0|Evidence for|Checked\.|modelSettings|sources|attempts|referenceAnswer/)
+})
+
+test('individual deletion preserves chronology even when deleted and retained answers are interleaved', () => {
+  let state = { mode: 'practice', activeSessionId: '2', sessions: [session(0, false), session(1), session(2, false), session(3)] }
+  const expected = masteryOf(state)
+  state = removePracticeHistory(state, '1')
+  assert.equal(state.activeSessionId, '2')
+  assert.deepEqual(masteryOf(state), expected)
+  state = removePracticeHistory(state, '2')
+  assert.equal(state.activeSessionId, undefined)
+  assert.deepEqual(masteryOf(state), expected)
+  state.sessions.push(session(4))
+  assert.deepEqual(masteryOf(state), practiceMastery([session(0, false), session(1), session(2, false), session(3), session(4)]))
+  assert.deepEqual(masteryOf(removePracticeHistory(state)), masteryOf(state))
+})
+
+test('deleted questions and supporting claims cannot earn repeated mastery credit', () => {
+  const first = session(0)
+  const cleared = removePracticeHistory({ mode: 'practice', sessions: [first] })
+  const repeated = session(1), paraphrase = session(2)
+  q(repeated).text = 'CLAIM 0 IS TRUE!'
+  q(paraphrase).rubric = structuredClone(q(first).rubric)
+  const result = masteryOf({ ...cleared, sessions: [first, repeated, paraphrase] }).get(key)
+  assert.equal(result.answers, 1, 'Also deduplicate a restored original session against its saved record')
+  assert.equal(result.repeated, 2)
+  close(result.score, masteryOf(cleared).get(key).score)
 })

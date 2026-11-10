@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, SendHorizonal } from 'lucide-react'
 import type { CourseMaterial } from '@shared/app-state'
-import type { PracticeSession, PracticeTopic } from '@shared/practice'
+import type { PracticeMasteryRecord, PracticeSession, PracticeTopic } from '@shared/practice'
 import { practiceConceptKey } from '@shared/practice-study'
 import { chapterMastery, practiceMastery } from '@shared/practice-mastery'
 import { MasteryMeter, TopicMasteryDetails } from './MasteryMeter'
@@ -9,9 +9,10 @@ import { studyScopeKey, type StudyDocumentRef } from '@shared/study-scope'
 import { loadSavedTopics } from '../../shared/saved-topics'
 import type { InventoryTopic } from '../../shared/topic-inventory'
 
-export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, onChoose }: {
+export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose }: {
   isActive: boolean; ready: boolean; disabled: boolean; scope: StudyDocumentRef[]; materials: CourseMaterial[]
   sessions: PracticeSession[]
+  masteryRecords?: PracticeMasteryRecord[]
   onChoose: (topic: PracticeTopic) => void
 }) {
   const [text, setText] = useState('')
@@ -27,7 +28,7 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
   const scopeKey = studyScopeKey(scope)
   const key = JSON.stringify([3, scopeKey, materials.filter(material => scope.some(doc => doc.materialId === material.id))
     .map(material => [material.id, material.collectionRevision, material.indexedAt, material.chunkCount])])
-  const progress = useMemo(() => practiceMastery(sessions), [sessions])
+  const progress = useMemo(() => practiceMastery(sessions, [], masteryRecords), [sessions, masteryRecords])
   const topicProgress = (topic: PracticeTopic) => topic.concept ? progress.get(practiceConceptKey(topic.concept)) : undefined
   const matchesProgress = (topic: PracticeTopic) => filter === 'all' || (filter === 'new' ? topicProgress(topic)?.score == null : topicProgress(topic)?.recentMistake)
   const groups = new Map<string, { id: string; title: string; collection: string; topics: InventoryTopic[] }>()

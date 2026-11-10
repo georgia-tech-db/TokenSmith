@@ -148,9 +148,9 @@ test('Windows ARM and Intel Macs can use the conservative CPU fallback', () => {
   }
 })
 
-test('catalog, fallback, and context agree with the measured setup', () => {
+test('default chat model is Gemma 26B and device recommendations use the catalog', () => {
   const {recommendedOllamaChatModel} = requireTranspiledTs('src/shared/ollama.ts')
-  assert.equal(recommendedOllamaChatModel, 'gemma4:e4b')
+  assert.equal(recommendedOllamaChatModel, 'gemma4:26b')
   assert.equal(localModelCatalog.length, 3)
   assert.equal(localModelCatalog.some(m => /31b|gemma3/.test(m.id)), false)
   assert.equal(defaultDeviceTierPolicy.assumedContextTokens, 8192)

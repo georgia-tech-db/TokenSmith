@@ -72,7 +72,7 @@ try {
 
   // Removed options must also stay absent while another question is loading.
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await open('&slow-model')
+  await open('&slow-model&many-sources')
   await next(2)
   await practice.getByRole('button', { name: 'True', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.practice-frame').getAttribute('aria-busy') === 'true')

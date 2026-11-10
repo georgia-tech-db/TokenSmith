@@ -18,7 +18,8 @@ export function TopicMasteryDetails({ result }: { result?: TopicMastery }) {
     <p>This is an early estimate of your understanding, not a grade. It accounts for guessing on True/False questions and gives more weight to recent answers.</p>
     <p>{result?.answers ?? 0} independent {result?.answers === 1 ? 'answer' : 'answers'} · {result?.correct ?? 0} correct.
       {' '}Excluded: {result?.withHelp ?? 0} with help, {result?.repeated ?? 0} repeated.</p>
-    <p>Only first answers to checked questions count. Try different questions without help to build evidence. An empty bar means we have not assessed this topic yet.</p>
+    <p>Only first answers without help count. Chat help before answering leaves mastery unchanged. Reading source passages, including Read while waiting, does not count as help. Revisions do not count again.</p>
+    <p>Try different questions without help to build evidence. An empty bar means we have not assessed this topic yet. Clearing practice history keeps this estimate.</p>
     {result?.lastAssessedAt && <p>Last assessed <time dateTime={result.lastAssessedAt}>{new Date(result.lastAssessedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time>.</p>}
   </details>
 }

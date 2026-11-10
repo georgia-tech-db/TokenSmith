@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { PracticeTopicPicker } from '../../src/renderer/src/PracticeTopicPicker'
 import { normalizePracticeState } from '../../src/shared/practice'
 import { practiceConceptKey } from '../../src/shared/practice-study'
-import { practiceMastery } from '../../src/shared/practice-mastery'
+import { practiceMastery, removePracticeHistory } from '../../src/shared/practice-mastery'
 import { MasteryMeter } from '../../src/renderer/src/MasteryMeter'
 import '../../src/renderer/src/styles.css'
 import '../../src/renderer/src/practice.css'
@@ -52,10 +52,10 @@ function Preview() {
   window.topicProgressTest = { reads, selected, state,
     answer: (correct, assisted = false) => update(current => ({ ...current, sessions: [...current.sessions,
       answered(crypto.randomUUID(), 'a', 'trees', correct, assisted, new Date(Date.parse('2026-11-10T15:00:00Z') + current.sessions.length * 1000).toISOString())] })),
-    deleteSession: id => update(current => ({ ...current, sessions: current.sessions.filter(s => s.id !== id) })),
-    clear: () => update(current => ({ ...current, sessions: [] }))
+    deleteSession: id => update(current => removePracticeHistory(current, id)),
+    clear: () => update(current => removePracticeHistory(current))
   }
-  const live = selected?.concept && practiceMastery(state.sessions).get(practiceConceptKey(selected.concept))
+  const live = selected?.concept && practiceMastery(state.sessions, [], state.masteryRecords).get(practiceConceptKey(selected.concept))
   return <main className="practice-frame" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
     <div role="group" aria-label="Fixture documents" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 12 }}>
       <button type="button" onClick={() => setScope([documents[0]])}>Book A</button>
@@ -63,7 +63,7 @@ function Preview() {
       <button type="button" onClick={() => setScope(documents)}>Both books</button>
     </div>
     {selected && <div className="practice-topic-bar" aria-label="Active topic"><span>{selected.title}</span><div className="practice-live-mastery" aria-live="polite"><MasteryMeter score={live?.score ?? null} /></div></div>}
-    <div className="practice-scroll"><PracticeTopicPicker isActive ready disabled={false} scope={scope} materials={materials} sessions={state.sessions} onChoose={setSelected} /></div>
+    <div className="practice-scroll"><PracticeTopicPicker isActive ready disabled={false} scope={scope} materials={materials} sessions={state.sessions} masteryRecords={state.masteryRecords} onChoose={setSelected} /></div>
   </main>
 }
 createRoot(document.getElementById('root')).render(<Preview />)
