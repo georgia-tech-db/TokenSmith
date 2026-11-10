@@ -22,6 +22,8 @@ from tests.benchmarks.test_buzzdb_grounding import (
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "tests/fixtures/buzzdb/buzzdb-book.tokensmith.md"
 MODEL = json.loads((ROOT / "tests/benchmarks/embedding-model.json").read_text())
+if os.environ.get("TOKENSMITH_BENCHMARK_OLLAMA_VERSION"):
+    MODEL["ollamaVersion"] = os.environ["TOKENSMITH_BENCHMARK_OLLAMA_VERSION"]
 BASE_URL = engine.normalize_ollama_base_url(os.environ.get("TOKENSMITH_BENCHMARK_OLLAMA_URL", ""))
 MODEL_SPEC = {"engine": "ollama", "role": "embedder", "ollamaModelName": MODEL["name"], "ollamaBaseUrl": BASE_URL}
 MODEL_KEY = engine.ollama_embedding_model_key(MODEL_SPEC)
@@ -158,7 +160,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         store.rebuild_faiss(cls.user_data_path, MODEL_KEY)
         cls.measurements["index_rebuild_seconds"] = time.perf_counter() - start
 
-    def retrieve_sources(self, question, top_k):
+    def retrieve_sources(self, question, top_k, search_mode="hybrid"):
         vector_hit_count = 0
         query_count = 0
         embedding_errors = []
@@ -186,14 +188,14 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         with patch.object(engine, "ollama_embedding", side_effect=embed_query), \
                 patch.object(engine, "vector_search", side_effect=vector_search):
             result = engine.search_library({
-                "userDataPath": self.user_data_path, "query": question, "searchMode": "hybrid", "limit": top_k,
+                "userDataPath": self.user_data_path, "query": question, "searchMode": search_mode, "limit": top_k,
                 "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
                 "documents": store.study_documents(self.user_data_path),
                 "embeddingModels": [MODEL_SPEC],
             })
         self.assertFalse(embedding_errors, "Query embedding failed: " + "; ".join(embedding_errors))
         self.assertEqual(query_count, 1, "Each retrieval must embed the current question afresh.")
-        self.assertGreater(vector_hit_count, 0, "Hybrid benchmark must not silently fall back to keyword-only search.")
+        self.assertGreater(vector_hit_count, 0, f"{search_mode} benchmark must not silently fall back to keyword-only search.")
         self.assertIsNone(result.get("reason"), result.get("reason"))
         return result
 
