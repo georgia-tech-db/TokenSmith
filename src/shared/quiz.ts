@@ -35,7 +35,11 @@ const feedbackSchema = object({
 
 
 export function practiceResponseSchema(task: PracticeTask, allowedIds?: string[]): Record<string, unknown> {
-  if (task === 'verify_question') return object({ answer: { type: 'string', enum: ['true', 'false', 'uncertain'] }, reason: string })
+  if (task === 'verify_question') return object({ topicReason: { ...string, description: 'First name the specific knowledge this statement tests and compare it with the requested topic and learning objectives.' },
+    topicMatch: { type: 'string', enum: ['direct', 'related', 'unrelated'], description: 'Does the statement directly test the requested concept, merely relate to it, or concern an unrelated concept?' },
+    noveltyReason: { ...string, description: 'Compare the underlying claim with previousQuestions before deciding distinct. Name any equivalent earlier claim.' },
+    relationship: { type: 'string', enum: ['new_claim', 'restatement', 'negation'], description: 'Compare conditions first: changed substantive conditions or mechanisms mean new_claim. Under the SAME conditions, equivalent meaning is restatement and the opposite assertion is negation. With no previous questions, choose new_claim.' },
+    answer: { type: 'string', enum: ['true', 'false', 'uncertain'] }, reason: string })
   if (task === 'chapter_topics') return object({ topics: list(object({ title: string, aliases: list(string, 0, 6), objectives: list(string, 2, 5), sourceKeys: list(allowedIds?.length ? { ...string, enum: allowedIds } : string, 1, 6) }), 1, 20) })
   return task === 'feedback' ? feedbackSchema : task === 'true_false_question' ? trueFalseSchema : questionSchema
 }
@@ -46,6 +50,8 @@ export function practiceSystemPrompt(task: PracticeTask, allowedIds?: string[]):
     'Read the entire passage, including qualifications and counterexamples. An exact quotation alone does not establish the statement. A property shared by all objects at a given moment does not imply that it never changes over time. Check scope, quantifiers, negation, and conditions; do not turn a conditional or typical property into a universal guarantee.',
     'Require comparisons to name both sides. If same or equal length could mean equality across objects OR constancy over time, and the statement does not say which, return uncertain. Do not silently supply a missing comparison or condition from the source.',
     'Return true only when the passage supports the complete statement; false only when it contradicts the statement. Return uncertain for ambiguity, conflicting evidence, or insufficient support. Absence of evidence does not make a statement false.',
+    'First write topicReason: name the requested concept, then name the concept actually tested by the statement. Are these the SAME concept? Classify topicMatch as direct, related, or unrelated. Related background, an alternative design, or a broader chapter theme is not a direct match. Do not broaden the requested topic to fit the passage. Use learningObjectives to clarify its scope. A true, well-supported statement can still be off-topic. With no topic supplied, explain that it is unrestricted and choose direct.',
+    'Next write noveltyReason, comparing the statement with previousQuestions, then classify its relationship to the closest earlier claim. Compare the assumptions and conditions first. A different operating condition, constraint, mechanism or substantive application is a new_claim, even if the outcome differs. Only under the SAME conditions is an equivalent claim a restatement or the opposite assertion a negation. Paraphrases and cosmetic example changes are restatements. With no earlier questions choose new_claim. Topic relevance and factual truth do not imply novelty.',
     'Give one concise reason referencing the relevant passage content. Return JSON only.',
     'JSON schema: ' + JSON.stringify(practiceResponseSchema(task))
   ].join('\n')
@@ -98,7 +104,7 @@ export function quizQuestionPrompt({ questionNumber, previousQuestions = [], top
 }): string {
   return JSON.stringify({ task: 'Prepare one source-backed True/False statement package. The question field must contain a declarative statement, not a question.', questionNumber, previousQuestions,
     ...(correction ? { correction } : {}),
-    ...(topic ? { topic: topic.title, ...(topic.question && topic.answer ? {
+    ...(topic ? { topic: topic.title, ...(topic.objectives?.length ? { learningObjectives: topic.objectives } : {}), ...(topic.question && topic.answer ? {
       chatReference: trimReferenceExchange({ question: topic.question, answer: topic.answer }, 3000) } : {}) } : {}) })
 }
 
@@ -179,6 +185,11 @@ export function checkPracticeQuestionAnswer(raw: string, expected: boolean): voi
   try {
     const value = record(JSON.parse(raw))
     const reason = text(value.reason)
+    const topicReason = text(value.topicReason)
+    if (!topicReason) throw new Error('The separate answer check did not explain its topic judgment.')
+    if (!text(value.noveltyReason)) throw new Error('The separate answer check did not explain its novelty judgment.')
+    if (value.topicMatch !== 'direct') throw new Error(`The statement does not assess the requested topic: ${topicReason}`)
+    if (value.relationship !== 'new_claim') throw new Error(`The statement repeats an earlier claim: ${text(value.noveltyReason)}`)
     if (!['true', 'false', 'uncertain'].includes(String(value.answer))) throw new Error('The separate answer check returned no usable judgment.')
     if (value.answer === 'uncertain' || (value.answer === 'true') !== expected)
       throw new Error(`The separate answer check could not confirm the key: ${reason}`)

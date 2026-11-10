@@ -134,3 +134,15 @@ persistence, and desktop/mobile layout. It uses `query-plan.html` and the full-a
 `reasoning-retry.html?plan-test` fixture. See [query-plan.md](../../docs/query-plan.md)
 for commands. Set `QUERY_PLAN_UI_URL` to the fixture server origin (default
 `http://127.0.0.1:5196`) and optionally `QUERY_PLAN_OUTPUT` for screenshots.
+
+## Topic practice progress
+
+Run `node tests/ui/topic-progress-check.mjs` against the fixture server, with
+`TOPIC_PROGRESS_UI_URL` pointing to `/tests/ui/topic-progress.html` (default port
+5197). Set `PLAYWRIGHT_MODULE` and `CHROME_PATH` for an external browser installation.
+
+This uses the production topic picker and saved-state normalization with disposable
+books and practice records. It checks chapter/topic mastery bars, help, recent mistakes,
+collection isolation, preserved topic/source identity, filters, session deletion,
+reload, keyboard access, collapsible details, and compact desktop/mobile layouts. It makes no model calls and
+does not touch the desktop app's data. Screenshots go to `/tmp/tokensmith-mastery-ui`.

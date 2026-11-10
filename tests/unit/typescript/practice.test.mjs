@@ -39,6 +39,34 @@ function harness(overrides = {}) {
   return { calls, client: createPracticeClient(bridge, model, settings) }
 }
 
+test('mastery questions are topic-checked, carry verified identity, and compare prior sessions within that concept', async () => {
+  const concept = { courseId: 'book', id: 'splits', title: 'Splits' }
+  const older = { ...session, id: 'old', createdAt: '2026-11-01T00:00:00Z', questions: [{ ...question, concept, text: 'Earlier claim.',
+    rubric: { ...question.rubric, criteria: [] } }] }
+  const unrelated = { ...older, id: 'other', questions: [{ ...older.questions[0], text: 'OTHER COLLECTION', concept: { ...concept, courseId: 'other' } }] }
+  const calls = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    calls.push(request)
+    return { text: JSON.stringify(request.practiceTask === 'verify_question'
+      ? { answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'A new claim about splits.' } : trueFalseData), sources: request.retrievedSources }
+  } }, model, settings, undefined, [unrelated, older])
+  const result = await client.question({ ...session, topic: { title: 'Splits', objectives: ['Propagate node splits to parents.'], concept, sources: [source] } }, 'r', new AbortController().signal)
+  assert.equal(calls.length, 2)
+  const check = JSON.parse(calls[1].prompt)
+  assert.deepEqual(check, { statement: trueFalseData.question, topic: 'Splits', learningObjectives: ['Propagate node splits to parents.'], previousQuestions: ['Earlier claim.'] })
+  assert.deepEqual(JSON.parse(calls[0].prompt).learningObjectives, check.learningObjectives)
+  assert.deepEqual(result.masteryCheck, { version: 1, conceptKey: JSON.stringify(['book', 'splits']) })
+  assert.deepEqual(result.concept, concept)
+  assert.equal(check.correctAnswer, undefined)
+})
+
+test('off-topic and paraphrased claims fail the existing check and never become mastery questions', async () => {
+  for (const rejected of [{ topicMatch: 'related', relationship: 'new_claim' }, { topicMatch: 'direct', relationship: 'restatement' }]) {
+    const { client } = harness({ verifyQuestion: async request => ({ text: JSON.stringify({ answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Check specific knowledge.', ...rejected, reason: 'Fails the topic or novelty check.' }), sources: request.retrievedSources }) })
+    await assert.rejects(client.question({ ...session, topic: { title: 'Splits', sources: [source] } }, 'r', new AbortController().signal), /after 2 attempts/)
+  }
+})
+
 test('topic retrieval is scoped once, reused on Next, and never falls back to random passages', async () => {
   const calls = []
   const outside = { ...source, materialId: 'other' }
@@ -438,7 +466,7 @@ test('blind answer-key disagreements retry with new evidence and never reveal th
   const {calls, client} = harness({
     sendChatMessage: async request => ({text: JSON.stringify({...trueFalseData, criteria: [{...trueFalseData.criteria[0], evidence: [{sourceKey: practiceSourceKey(request.retrievedSources[0]), quote: source.excerpt}]}]}), sources: request.retrievedSources}),
     verifyQuestion: async request => {
-      assert.deepEqual(JSON.parse(request.prompt), {statement: trueFalseData.question})
+      assert.deepEqual(JSON.parse(request.prompt), {statement: trueFalseData.question, topic: 'Splits', previousQuestions: []})
       assert.deepEqual(request.messages, [])
       assert.equal(request.modelSettings.maxLength, 512)
       return {text: JSON.stringify({answer: ++checks === 1 ? 'false' : 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'Checked the complete passage.'}), sources: request.retrievedSources}

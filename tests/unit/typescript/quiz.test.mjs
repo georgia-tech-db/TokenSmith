@@ -164,3 +164,10 @@ test('independent answer checks reject disagreement, uncertainty and malformed j
   assert.match(practiceSystemPrompt('verify_question'),/FULL passage/)
   assert.match(practiceSystemPrompt('verify_question'),/No proposed answer key/)
 })
+
+test('mastery verification rejects off-topic, repeated and missing judgments even with the right answer key', () => {
+  const valid = { answer: 'true', noveltyReason: 'No equivalent earlier claim.', topicReason: 'Assesses the requested concept.', topicMatch: 'direct', relationship: 'new_claim', reason: 'Supported.' }
+  for (const change of [{ topicMatch: 'related' }, { topicMatch: 'unrelated' }, { relationship: 'restatement' }, { relationship: 'negation' }, { topicMatch: true }, { relationship: undefined }, { topicReason: '' }, { noveltyReason: '' }])
+    assert.throws(() => checkPracticeQuestionAnswer(JSON.stringify({ ...valid, ...change }), true), /valid question/)
+  assert.deepEqual(practiceResponseSchema('verify_question').required, ['topicReason', 'topicMatch', 'noveltyReason', 'relationship', 'answer', 'reason'])
+})

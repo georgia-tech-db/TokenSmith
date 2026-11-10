@@ -75,6 +75,7 @@ export interface PracticeQuestion {
   concept?: PracticeConcept
   item?: { id: string; version: string; keyVersion: string; origin: 'generated' | 'reviewed'; references?: string[] }
   generationMs?: number
+  masteryCheck?: { version: 1; conceptKey: string }
 }
 
 export interface PracticeDiscussion {
@@ -90,6 +91,7 @@ export type PracticeActivity = { kind: 'attempt' | 'discussion'; id: string } | 
 
 export interface PracticeTopic {
   title: string
+  objectives?: string[]
   concept?: PracticeConcept
   sources?: ChatSource[]
   prepared?: boolean

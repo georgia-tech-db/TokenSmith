@@ -2,7 +2,7 @@
 
 ## In the app
 
-Use normal Practice to collect generated questions and first responses. New sessions attach course/document scope and a session-local concept ID; free-form titles are never automatically treated as the same concept. For stable cross-session concept comparisons, use reviewed packs with explicit IDs.
+Use normal Practice to collect generated questions and first responses. Saved collection topics supply stable collection-scoped concept IDs across sessions. Free-form titles are never automatically treated as the same concept. Reviewed packs can also supply explicit concept IDs.
 
 In a new Practice session, choose **Import reviewed assessment** and select a version 1 JSON pack. The file shape is illustrated by `tests/fixtures/assessment-pack.json`; that file is a software fixture, not a validated study instrument. Each item has an ID/revision, course-scoped concept, format, reviewed criteria and explanation, plus a boolean key for True/False. Optional `references` are source-locator strings retained in the item record. Import rejects duplicate items, missing criteria and malformed keys. The importer cannot establish that a claimed reviewed key is scientifically correct: authors must review it independently.
 
@@ -35,7 +35,17 @@ The summary computes three deliberately simple baselines:
 2. `recency`: exponentially weighted correctness with factor 0.9 per observation.
 3. `assistance`: the same decay, with observed assisted responses receiving half the observation weight, not an automatic incorrect half-answer.
 
-These are practice-performance estimators, not calibrated mastery probabilities. They exclude incomplete assessments, ungraded items and records without stable concepts/new timestamps. The UI shows only the first-response baseline and its sample count. The CLI produces all three for experiments.
+These are practice-performance estimators, not calibrated mastery probabilities. They exclude incomplete assessments, ungraded items and records without stable concepts/new timestamps. The CLI produces all three for experiments; the student-facing topic view uses the separate estimate below.
+
+## Student-facing topic mastery
+
+The chapter/topic picker and active Practice header replay saved answers through `src/shared/practice-mastery.ts`. Topic rows show an estimate and a bar; objectives, sources and scoring details expand on demand. Unassessed topics show **Not practiced**, not an inferred failure. The chapter bar averages all child topic estimates, with unassessed topics contributing zero, and shows coverage separately. It is a progress summary, not a chapter-level probability. **Practice next** chooses the lowest estimate, including unassessed topics.
+
+Only a first, independently answered True/False question with a versioned topic check contributes. The existing blind verifier checks the key, explains topic fit using the saved learning objectives, and rejects repeated claims. It sees up to 12 prior questions on that collection/topic across sessions. Exact statements and identical quoted evidence are also checked across the full history. These safeguards are conservative; they cannot guarantee semantic novelty or correct model judgments.
+
+Version 1 uses prior `0.2`, guessing `0.5`, slip `0.1`, retention `0.9`. Starting with evidence `E = 0`, an eligible answer updates `E = 0.9 * E + log(0.9 / 0.5)` when correct or `E = 0.9 * E + log(0.1 / 0.5)` when incorrect. The estimate is `sigmoid(logit(0.2) + E)`. Correct, correct, incorrect, correct, correct gives approximately **31%, 43%, 12%, 21%, 32%**. These are provisional assumptions, not calibrated student probabilities or grades.
+
+Help, revisions and repeated claims neither change nor decay the estimate. There is no time-based forgetting rule. Old unverified answers, short answers and reviewed assessments do not feed this generated-question estimate. Replaying or deleting saved sessions recomputes results; no duplicate score store or historical migration is needed. Manual review and export remain available for separate study analysis.
 
 To replay independently reviewed corrections without changing original attempts, supply a JSON array:
 
@@ -72,5 +82,7 @@ node tests/ui/practice-assessment-check.mjs
 ```
 
 Set `PLAYWRIGHT_MODULE` and `CHROME_PATH` if Playwright/Chromium are installed outside the repository. The browser test checks key/help withholding, response timing, reload, short answers, completion, export, and failed-save retry without model calls.
+
+`node tests/experiments/practice-mastery.mjs` is an opt-in live diagnostic using installed Ollama `gemma4:e4b` (override with `PRACTICE_MODEL`). It checks topic fit and repeated claims on fixed BuzzDB passages through the production provider, then generates and scores one question with a scripted answer. It saves model replies to `/tmp/tokensmith-mastery-live.json` (override with `PRACTICE_OUTPUT`) without changing the app's history. It tests question validation and score wiring, not retrieval accuracy or the calibration of mastery estimates.
 
 Run `node tests/integration/practice-comparison.test.mjs` on a desktop with Electron available to check the live runner against a temporary local test server. It verifies startup, all six conditions, both reasoning settings, and continued result recording after an injected failure. It uses no real model or user profile; it does not measure model quality or inference latency.

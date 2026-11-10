@@ -1,4 +1,6 @@
-import { assessmentSession, assessmentLocked, assessmentDisplayQuestion, parseAssessmentPack, exportPractice, practicePerformance } from '@shared/practice-study'
+import { assessmentSession, assessmentLocked, assessmentDisplayQuestion, parseAssessmentPack, exportPractice, practiceConceptKey } from '@shared/practice-study'
+import { practiceMastery } from '@shared/practice-mastery'
+import { MasteryMeter, TopicMasteryDetails } from './MasteryMeter'
 import { usePracticeClock } from './hooks/usePracticeClock'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw, Upload } from 'lucide-react'
@@ -64,6 +66,8 @@ export function PracticeScreen(props: Props) {
   const [reviewOpen, setReviewOpen] = useState(false)
   const operation = useRef<{ id: string; controller: AbortController; sessionId: string; scopeKey: string } | null>(null)
   const session = state.sessions.find(item => item.id === state.activeSessionId)
+  const mastery = useMemo(() => practiceMastery(state.sessions), [state.sessions])
+  const topicMastery = session?.topic?.concept ? mastery.get(practiceConceptKey(session.topic.concept)) : undefined
   const activeSession = useRef({ id: session?.id, active: isActive })
   activeSession.current = { id: session?.id, active: isActive }
   const question = session?.questions[session.currentIndex]
@@ -189,7 +193,7 @@ export function PracticeScreen(props: Props) {
     progress.begin({ id, materialIds: target.documents.map(d => d.materialId), kind: 'quiz', label, conversationId: target.id, model: selectedModel,
       settings: target.modelSettings, onStop: stop })
     try {
-      const result = await run(createPracticeClient(window.tokensmith, selectedModel, settings, { materials: props.materials, embeddingModels: props.embeddingModels }), id, controller.signal)
+      const result = await run(createPracticeClient(window.tokensmith, selectedModel, settings, { materials: props.materials, embeddingModels: props.embeddingModels }, state.sessions), id, controller.signal)
       if (operation.current?.id !== id || controller.signal.aborted) return
       complete(result, performance.now() - started)
       progress.finish(id, 'Practice ready')
@@ -217,7 +221,7 @@ export function PracticeScreen(props: Props) {
         progress.stage(id, attempt === 1 ? 'Preparing question' : `Trying another question (${attempt}/${total})`)
       }, label => progress.stage(id, label))
     }, (generated, generationMs) => updateSession(target.id, current => generated
-      ? { ...current, topic: prepared.topic, questions: [...current.questions, { ...generated, generationMs, concept: current.topic?.concept, item: { id: generated.id, version: '1', keyVersion: '1', origin: 'generated' as const } }], currentIndex: current.questions.length }
+      ? { ...current, topic: prepared.topic, questions: [...current.questions, { ...generated, generationMs, item: { id: generated.id, version: '1', keyVersion: '1', origin: 'generated' as const } }], currentIndex: current.questions.length }
       : { ...current, topic: prepared.topic, sourcesExhausted: true }))
   }
   function start(topic: PracticeTopic) {
@@ -304,6 +308,7 @@ export function PracticeScreen(props: Props) {
           aria-pressed={reviewOpen} disabled={Boolean(pending)} onClick={() => setReviewOpen(open => !open)}><ChartColumn size={18} aria-hidden="true" /></button>}
       </StudyHeader>
       {session && <div className="practice-topic-bar"><span title={session.topic?.title}>{session.topic?.title ?? session.title}</span>
+        {!session.assessment && <div className="practice-live-mastery" aria-live="polite"><MasteryMeter score={topicMastery?.score ?? null} empty={topicMastery?.withHelp ? 'Try without help' : 'Not practiced'} /></div>}
         <button className="study-action-button" type="button" onClick={() => chooseSession()}>Practice another topic</button></div>}
       {session && <div className="practice-topic-bar">
         <button type="button" className="practice-link" disabled={Boolean(unsaved) || saving} onClick={exportSession}>Export practice record</button>
@@ -319,7 +324,7 @@ export function PracticeScreen(props: Props) {
             {item.answerRevealed && <p className="practice-muted">Explanation viewed</p>}
             <button type="button" className="practice-link" onClick={() => continueQuestion(index)}>Review question<ArrowRight size={16} /></button>
           </details>)}
-          {!locked && practicePerformance([session]).map(row => <p key={JSON.stringify(row.concept)}>{row.concept.title}: {Math.round(row.performance * 100)}% practice performance · {row.observations} scored first responses · {row.assisted} with observed help</p>)}
+          {!session.assessment && <div className="practice-review-mastery"><MasteryMeter score={topicMastery?.score ?? null} /><TopicMasteryDetails result={topicMastery} /></div>}
           <div className="practice-footer"><button type="button" className="practice-button" onClick={() => setReviewOpen(false)}><ArrowLeft size={16} />Return to practice</button><button type="button" className="practice-button" onClick={() => chooseSession()}><Plus size={16} />New practice</button></div>
       </div></div> : session ? <>
         <ConversationViewport key={session.id} messages={messages} navigationQuestions={navigationQuestions} pending={Boolean(pending)} isActive={isActive}

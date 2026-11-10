@@ -5,9 +5,11 @@ import { practiceSourceKey, practiceReference, practiceDiscussionPassage, practi
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { parsePracticeQuestion, checkPracticeQuestionAnswer, PracticeQuestionValidationError, quizQuestionPrompt } from '../../shared/quiz'
 import { sourcesInScope } from '../../shared/study-scope'
+import { practiceConceptKey } from '../../shared/practice-study'
+import { masteryEvidenceKey } from '../../shared/practice-mastery'
 
 export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel, settings: TokenSmithSettings,
-  retrieval?: { materials: CourseMaterial[]; embeddingModels: LocalModel[] }) {
+  retrieval?: { materials: CourseMaterial[]; embeddingModels: LocalModel[] }, history: PracticeSession[] = []) {
   async function send(session: PracticeSession, requestId: string, prompt: string, sources: ChatSource[], practiceTask: 'true_false_question' | 'verify_question' = 'true_false_question') {
     if (model.id !== session.modelId || model.status !== 'ready') throw new Error('The model used for this session is unavailable. Reconnect it before continuing.')
     return bridge.sendChatMessage({
@@ -58,8 +60,12 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       // One self-contained passage per attempt avoids stitching unrelated claims.
       // Visit alternatives before reusing evidence; a lone passage gets one repair.
       const total = Math.min(4, Math.max(2, pool.length))
+      const concept = session.topic?.concept
+      const conceptKey = concept && practiceConceptKey(concept)
+      const previous = [...history.filter(s => s.id !== session.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).flatMap(s => s.questions)
+        .filter(q => conceptKey && q.concept && practiceConceptKey(q.concept) === conceptKey), ...session.questions]
       const prompt = { questionNumber: session.questions.length + 1,
-        previousQuestions: session.questions.slice(-12).map(practiceQuestionText), topic: session.topic }
+        previousQuestions: previous.slice(-12).map(practiceQuestionText), topic: session.topic }
       let lastError: PracticeQuestionValidationError | undefined
       for (let attempt = 0; attempt < total; attempt++) {
         signal.throwIfAborted()
@@ -71,13 +77,18 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
           const reply = await send(session, requestId, quizQuestionPrompt({ ...prompt, correction }), sources)
           signal.throwIfAborted()
           const prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false')
-          if (session.questions.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase()))
+          if (previous.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase()))
             throw new PracticeQuestionValidationError('The model repeated an earlier question. Choose a different claim on this topic.')
+          if (conceptKey && previous.some(question => masteryEvidenceKey(question) === masteryEvidenceKey(prepared)))
+            throw new PracticeQuestionValidationError('The question reuses an earlier supporting claim. Test another aspect of this topic using fresh evidence.')
           onStage?.('Checking answer')
-          const checked = await send(session, requestId, JSON.stringify({ statement: prepared.text }), prepared.sources, 'verify_question')
+          const checked = await send(session, requestId, JSON.stringify({ statement: prepared.text,
+            topic: session.topic?.title, learningObjectives: session.topic?.objectives, previousQuestions: prompt.previousQuestions }), prepared.sources, 'verify_question')
           signal.throwIfAborted()
           checkPracticeQuestionAnswer(checked.text, prepared.correctAnswer!)
-          return { id: crypto.randomUUID(), ...prepared, draft: '', attempts: [], reviewing: false, timeline: [] }
+          return { id: crypto.randomUUID(), ...prepared,
+            ...(concept && conceptKey ? { concept, masteryCheck: { version: 1 as const, conceptKey } } : {}),
+            draft: '', attempts: [], reviewing: false, timeline: [] }
         } catch (error) {
           signal.throwIfAborted()
           if (error instanceof PracticeQuestionValidationError) lastError = error
