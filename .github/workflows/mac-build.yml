@@ -115,5 +115,6 @@ jobs:
       - name: Publish macOS package to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           body_path: docs/releases/${{ github.ref_name }}.md
           files: release/TokenSmith-*-mac-*.dmg

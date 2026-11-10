@@ -163,7 +163,7 @@ tests the native runtime, and verifies packaged binary architectures and vector
 search. It runs on pull requests, merge queues, manual requests, and `v*` release
 tags. PR builds have read-only repository permissions and do not publish installers.
 Manual and tag builds retain separate installer artifacts for three days. A
-separate job publishes both installers to the release only after both tag builds
+separate job attaches both installers to the draft release only after both tag builds
 pass.
 
 Create a Windows portable ZIP:
@@ -178,5 +178,11 @@ Create Linux packages:
 npm run package:linux
 ```
 
-When publishing a new release, update the version and installer links in the
-[README download table](../README.md#download) after verifying the assets exist.
+For a new release, update `package.json` and `package-lock.json`, add notes in
+`docs/releases/v<version>.md`, and push the release commit. Wait for CI and the
+accuracy benchmark to pass, then push its `v<version>` tag. The platform workflows
+attach installers to a draft release. After all packaging checks pass and the
+Apple Silicon DMG, Intel DMG, Windows ZIP, and Linux packages are uploaded,
+publish that draft as the latest release. Update the version and installer links
+in the [README download table](../README.md#download) after verifying the assets
+exist.
