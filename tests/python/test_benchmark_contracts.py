@@ -59,6 +59,18 @@ class BenchmarkContractTests(unittest.TestCase):
         failures = validate_grounding_case(case, [], ["a", "b"], normalize_text("std::max"))
         self.assertTrue(any("initializer" in failure for failure in failures))
 
+    def test_unified_inventory_keeps_original_checks_and_merges_repeated_questions(self):
+        original = load_grounding_cases()
+        combined = benchmark.load_retrieval_cases()
+        self.assertEqual(len(combined), 57)
+        self.assertEqual(len({case['question'].casefold().strip() for case in combined}), 57)
+        by_id = {case['id']: case for case in combined}
+        for case in original:
+            for key, value in case.items():
+                self.assertEqual(by_id[case['id']][key], value)
+        strengthened = [case for case in original if 'groups' in by_id[case['id']]]
+        self.assertEqual(len(strengthened), 5)
+
     def cache_state(self):
         chunks = [{"tokensmithChunkId": "a", "text": "First passage"},
                   {"tokensmithChunkId": "b", "text": "Second passage"}]

@@ -112,6 +112,8 @@ export function formatBenchmarkSummary(suites) {
     if (item.question) parts.push(`**Question:** ${escapeCell(item.question)}`)
     if (item.answer) parts.push(`**Actual model answer (ungraded):** ${escapeCell(item.answer.text)}`)
     if (item.referenceAnswer) parts.push(`**Reference answer (not generated):** ${escapeCell(item.referenceAnswer)}`)
+    if (item.requiredFacts) parts.push(`**Required facts (reviewed expectations, not generated):** ${escapeCell(item.requiredFacts.join('; '))}`)
+    if (item.pairedWith) parts.push(`**Background variant of:** ${escapeCell(item.pairedWith)}`)
     if (item.evidence) {
       parts.push(`**${escapeCell(item.evidenceLabel)}:**`)
       if (!item.evidence.length) parts.push('No evidence returned.')

@@ -59,3 +59,19 @@ test('a missing embedder runtime fails the benchmark and still reports the failu
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('reviewed evidence cases expose required facts, background pairs, and misses', () => {
+  const summary = formatBenchmarkSummary([{
+    name: 'hybrid_retrieval', label: 'retrieval', passed: 0, total: 1, cases: [{
+      id: 'background', passed: false, question: 'Why?', pairedWith: 'base-case',
+      requiredFacts: ['Log < data | ordering'],
+      evidenceLabel: 'Retrieved evidence (rank order)', evidence: [],
+      failures: ['Missing evidence for wal']
+    }]
+  }])
+  assert.match(summary, /Required facts \(reviewed expectations, not generated\):\*\* Log &lt; data &#124; ordering/)
+  assert.match(summary, /Background variant of:\*\* base-case/)
+  assert.match(summary, /Missing evidence for wal/)
+  assert.match(summary, /\| FAIL \|/)
+  assert.doesNotMatch(summary, /Reference answer \(not generated\):/)
+})

@@ -1,5 +1,5 @@
 {
-  "version": "buzzdb-reviewed-retrieval-1",
+  "version": "buzzdb-reviewed-retrieval-2",
   "source": {
     "id": "buzzdb",
     "path": "tests/fixtures/buzzdb/buzzdb-book.tokensmith.md",
@@ -51,13 +51,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.084"
-        ]
-      },
-      "questionSha256": "e42135d91240643c0fb36af1c0d511f7dbeca91b2f1de8456da05f5a2eec0eee",
       "answerability": "answerable",
       "groups": [
         {
@@ -238,13 +231,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.084"
-        ]
-      },
-      "questionSha256": "e96bb9cc8932d24b36a21404c020143190d2db149e314dbd98b25ae6253bc65f",
       "answerability": "answerable",
       "groups": [
         {
@@ -437,13 +423,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.014"
-        ]
-      },
-      "questionSha256": "c57399b1c62876758fdfa175297db109fef6810944cf08de4244aad312b08b4c",
       "answerability": "answerable",
       "groups": [
         {
@@ -682,13 +661,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.014"
-        ]
-      },
-      "questionSha256": "5b19ac53ac0830adf95f72309ed9522b19c6e96e603b6b85fb4a76d557edfe84",
       "answerability": "answerable",
       "groups": [
         {
@@ -942,13 +914,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch09.019"
-        ]
-      },
-      "questionSha256": "246045d9226902eb66fc296235930a7a9b101455d66c920ef9f48ed0c2d012f1",
       "answerability": "answerable",
       "groups": [
         {
@@ -1094,13 +1059,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch09.019"
-        ]
-      },
-      "questionSha256": "412949760365d60e1c8fc1fa2126d429894f1c8e7e6cf5b1c3f4af7eb28d4d9c",
       "answerability": "answerable",
       "groups": [
         {
@@ -1220,13 +1178,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch07.051"
-        ]
-      },
-      "questionSha256": "110b4bbe898e3049eb93d214f718176126ffc5277db8d771f09889524cbf854f",
       "answerability": "answerable",
       "groups": [
         {
@@ -1540,13 +1491,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch08.045"
-        ]
-      },
-      "questionSha256": "19988b70b00f385c93c4556fc4ea846deeb28f77331c0b8ec46d0fa5bb714464",
       "answerability": "answerable",
       "groups": [
         {
@@ -1784,13 +1728,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch13.022"
-        ]
-      },
-      "questionSha256": "2586a801bf5e946cf6f3693bb2e54e9987dcf2de3539cb99401f5b0924dfc598",
       "answerability": "answerable",
       "groups": [
         {
@@ -2050,13 +1987,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch07.032"
-        ]
-      },
-      "questionSha256": "b16c60c6013642022f37fd782f2aaa0333aef3659d928cebe2931a84681d4e7f",
       "answerability": "answerable",
       "groups": [
         {
@@ -2299,14 +2229,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch05.016",
-          "ch05.102"
-        ]
-      },
-      "questionSha256": "76af930176c2010777b56463d60cfa0819f86a9aa37f62b90c022cfd5a9587fa",
       "answerability": "answerable",
       "groups": [
         {
@@ -2566,13 +2488,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch03.040"
-        ]
-      },
-      "questionSha256": "b93157dd9f0767f136a4a96845b6588b7cad1408f01c48dbfb7c47e46db7664f",
       "answerability": "answerable",
       "groups": [
         {
@@ -2782,13 +2697,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch01.074"
-        ]
-      },
-      "questionSha256": "796b78a0e85ad8c5f9c51e298aac45ab11902e861eaea7cb83660561659fd890",
       "answerability": "answerable",
       "groups": [
         {
@@ -3025,13 +2933,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch13.025"
-        ]
-      },
-      "questionSha256": "46058b3ac32feb38231be7dd41065962d3b75f0a38ae1f1b5579063bc4f91f6c",
       "answerability": "answerable",
       "groups": [
         {
@@ -3250,13 +3151,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch15.090"
-        ]
-      },
-      "questionSha256": "717b2417ac8d987ab2f9deed5ec8d22a368f78622892773ae49834af24163db1",
       "answerability": "answerable",
       "groups": [
         {
@@ -3331,13 +3225,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch15.074"
-        ]
-      },
-      "questionSha256": "62d3bf03728172b0f0588d623e3d0f482ef0ccc22f0eaee50cc16c995eb63f0d",
       "answerability": "answerable",
       "groups": [
         {
@@ -3460,13 +3347,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch13.090"
-        ]
-      },
-      "questionSha256": "c96297484591bac1fad20f12b3fcd5f1256bdbaa5d38fdb40417b53782e9ef98",
       "answerability": "answerable",
       "groups": [
         {
@@ -3642,13 +3522,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch09.050"
-        ]
-      },
-      "questionSha256": "2b4d63fffe4e2ec1f246aba5f82b12ad882a9dd059dee384695a4f2c56585702",
       "answerability": "answerable",
       "groups": [
         {
@@ -3894,14 +3767,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch07.026",
-          "ch09.021"
-        ]
-      },
-      "questionSha256": "1b3e5466b8a9db940a85389edbe69c12c3a6e7b3a5f0fa621024e4aa7fb7939b",
       "answerability": "answerable",
       "groups": [
         {
@@ -4074,14 +3939,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch03.039",
-          "ch05.084"
-        ]
-      },
-      "questionSha256": "6f3c3f3a984c6d6f7c274e7dab8758210be15d652bd8a2534414b12d8100324f",
       "answerability": "answerable",
       "groups": [
         {
@@ -4238,2198 +4095,53 @@
     },
     {
       "id": "indirect_pinning_needed__background",
-      "question": "My study notes also cover delta encoding and bit-packing in a separate analytics example.\n\nAn operator keeps a pointer to a page while another request needs buffer space. What must stop that page from being chosen as the victim?",
-      "familyId": "pinning_needed",
-      "evaluationProfile": {
-        "queryForm": "described_behavior",
-        "distinction": null,
-        "evidenceStructure": {
-          "requiredFacts": 1,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "indirect_pinning_needed",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.084"
-        ]
-      },
       "pairedWith": "indirect_pinning_needed",
-      "background": "My study notes also cover delta encoding and bit-packing in a separate analytics example.",
-      "questionSha256": "aafca2882dfca55f44a552323ce7182eae1f6519e3c8c36dddbd8b12ae811e55",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "eviction",
-          "claim": "Pinning excludes active pages from eviction.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "eviction-ch05.084-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.084",
-                  "quotes": [
-                    "making it ineligible for eviction"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "eviction-ch05.084-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.084",
-                  "quotes": [
-                    "the buffer manager's replacement policy is forbidden from choosing it as a victim"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "reviewed-pin-count",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.091",
-                  "quotes": [
-                    "only allowed to choose a victim from the set of pages with a pin count of zero"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-eviction-ch11.043",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.043",
-                  "quotes": [
-                    "ensuring it isn't evicted while the operator is using it"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch05.092",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.092",
-                  "quotes": [
-                    "a page remains in memory as long as at least one thread is actively using it."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch05.102",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "The client finishes its work and unpins the page.",
-                    "If the count reaches zero, the page is now unpinned and becomes a candidate for eviction."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch05.102",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "Let's walk through the transitions:\n\n1. **On Disk → In Pool, Clean, Pinned:** A request is made for a page that is not in the buffer pool (a miss). The `BufferManager` reads the page from disk into an available frame. Its dirty bit is `false` (clean), and because it was just handed to a client, its pin count is at least 1 (pinned).\n2. **In Pool, Clean, Pinned → In Pool, Dirty, Pinned:** While pinned, a client modifies the page. The `BufferManager` sets the page's dirty bit to `true`. It remains pinned.\n3. **In Pool, Pinned → In Pool, Unpinned:** The client finishes its work and unpins the page. The pin count is decremented. If the count reaches zero, the page is now unpinned and becomes a candidate for eviction. This can happen whether the page is clean or dirty.\n4. **In Pool, Clean, Unpinned → On Disk (Conceptually):** The replacement policy chooses a clean, unpinned page as a victim. Since it's clean, no flush is needed. The frame is simply overwritten with a new page. The old page's data is gone from memory, and the on-disk version remains the authoritative copy.\n5. **In Pool, Dirty, Unpinned → On Disk:** The replacement policy chooses a dirty, unpinned page as a victim. The `BufferManager` must first write the page's contents to disk (flush it). Only after the I/O completes can the frame be reused. The page is now back on disk, with its modifications made durable."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch11.077",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.077",
-                  "quotes": [
-                    "**4. Cleanup: `close()`**\n\nFinally, once the `while` loop terminates (because `next()` returned `false`), the client must call `scanOperator.close();`. This is the final step in the operator lifecycle. The `close()` method gives the operator an opportunity to release any resources it has held during execution. For the `ScanOperator`, this is critically important. It must unpin the last page it was using from the buffer pool. Forgetting to call `close()` would lead to a resource leak; the page would remain pinned in memory indefinitely, preventing it from being evicted and reducing the effective size of the buffer pool for subsequent queries."
-                  ]
-                }
-              ]
-            }
-          ],
-          "scopeNote": "The chapter-11 alternative supports the stated residency/pinning intent only; this benchmark does not endorse automatic pinning by a raw reference or smart-pointer type."
-        },
-        {
-          "id": "invalid-reference",
-          "claim": "Reusing an active page frame can corrupt data or crash.",
-          "required": false,
-          "alternatives": [
-            {
-              "id": "invalid-reference-ch05.084-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.084",
-                  "quotes": [
-                    "silent data corruption"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch05.090",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.090",
-                  "quotes": [
-                    "The `BufferManager`, unaware that Thread A is still actively using page 10, evicts it.",
-                    "it now contains the data for page 55.",
-                    "leading to incorrect query results or a crash."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_invalid_reference-ch05.090",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.090",
-                  "quotes": [
-                    "However, this implicit pinning mechanism would break down in a concurrent environment. Consider a scenario with two threads:\n\n1. **Thread A** calls `getPage(10)` and receives a reference to the page. It begins a long-running scan of the tuples on that page.\n2. **Thread B** needs to insert a tuple. It requests a different page, say page 55. The buffer pool is full, and the `BufferManager` must evict a page. The LRU policy identifies page 10 as the victim, since Thread A has been holding it for a while.\n3. The `BufferManager`, unaware that Thread A is still actively using page 10, evicts it. It flushes the page to disk, removes it from its internal data structures, and loads page 55 into the same memory frame.\n4. **Thread A** resumes its scan. The memory it is pointing to no longer contains page 10's data; it now contains the data for page 55. Thread A proceeds to read garbage data, leading to incorrect query results or a crash."
-                  ]
-                }
-              ]
-            }
-          ],
-          "rejectedEvidence": [
-            {
-              "sourceId": "buzzdb",
-              "chunkId": "ch08.091",
-              "reason": "The shared corruption phrase describes a concurrent hash insertion race, not eviction of an active page."
-            },
-            {
-              "sourceId": "buzzdb",
-              "chunkId": "ch05.090",
-              "reason": "Avoid relying on its misleading C++ reference-as-implicit-pin explanation for the general pinning guarantee."
-            }
-          ]
-        }
-      ]
+      "background": "My study notes also cover delta encoding and bit-packing in a separate analytics example."
     },
     {
       "id": "indirect_lru_sequential_scan__background",
-      "question": "Earlier in this study session, I reviewed B+ tree leaf splits and separator keys.\n\nA report reads a table once from beginning to end and afterward the frequently reused pages are gone from memory. Why did the replacement policy make this worse?",
-      "familyId": "lru_sequential_scan",
-      "evaluationProfile": {
-        "queryForm": "described_behavior",
-        "distinction": null,
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "indirect_lru_sequential_scan",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch05.014"
-        ]
-      },
       "pairedWith": "indirect_lru_sequential_scan",
-      "background": "Earlier in this study session, I reviewed B+ tree leaf splits and separator keys.",
-      "questionSha256": "8efcd3f551d653036fb1b2f6f535a105f97e7d0975d8f14850171a47bf6018ec",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "locality",
-          "claim": "LRU assumes recent access predicts reuse.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "locality-ch06.012-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.012",
-                  "quotes": [
-                    "The central assumption of LRU is **temporal locality**"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-locality-ch05.119",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.119",
-                  "quotes": [
-                    "good temporal locality (where recently accessed items are likely to be accessed again soon)"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-locality-ch06.055",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.055",
-                  "quotes": [
-                    "It assumes that any page accessed recently is important"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review2-locality",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.016",
-                  "quotes": [
-                    "moves every single scan page to the front of the `lruList`",
-                    "the pages at the front have no chance of being reused"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_locality-ch05.014",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.014",
-                  "quotes": [
-                    "Let's break down these differences:\n\n1. **Access Pattern Knowledge:** When you execute `SELECT * FROM employees;`, the DBMS knows you are about to perform a full sequential scan of the `employees` table. It will read every page of that table once and likely never touch them again during this query. A general-purpose OS cache, typically using a Least Recently Used (LRU) replacement policy, would handle this poorly. It would diligently load every page of the `employees` table into its cache, pushing out other, more valuable cached data (like parts of an important index). The DBMS, knowing this is a one-off scan, can use a more appropriate policy, like placing the scanned pages in a part of the cache that is first to be evicted, thus protecting the more \"hot\" data."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_locality-ch06.002",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.002",
-                  "quotes": [
-                    "## 6.1 The Limits of a Single Strategy\n\nA database buffer manager acts as the gatekeeper between the fast, expensive world of main memory and the slow, cavernous realm of disk storage. Its mission is simple to state but complex to execute: keep the most useful data pages in memory to minimize costly disk I/O. When a query requests a page, the buffer manager first checks its in-memory cache, the buffer pool. If the page is present—a \"hit\"—it can be handed over to the query executor almost instantly. If the page is not in memory—a \"miss\"—the manager must read it from disk, an operation thousands of times slower.\n\nThis process is straightforward until the buffer pool fills up. When a new page must be loaded from disk into a full pool, the buffer manager faces a critical decision: which page currently in memory should be evicted to make room? The logic governing this choice is called the **replacement policy**. It is the heart of the buffer manager's intelligence, and its effectiveness directly impacts the entire system's performance.\n\nThe ideal policy would be clairvoyant, evicting the page that will not be needed for the longest time in the future. Since predicting the future is impossible, system designers rely on heuristics that use past behavior to guess future needs. One of the most venerable and intuitive heuristics is the **Least Recently Used (LRU)** policy. It operates on a simple, powerful assumption: pages that have been accessed recently are likely to be accessed again soon. Therefore, when a page must be evicted, LRU chooses the one that has gone the longest without being used.\n\nSource excerpts:"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_locality-ch06.037",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.037",
-                  "quotes": [
-                    "## 6.3 Implementing Classic Policies\n\nThe Strategy pattern gives us a powerful architectural tool: it separates the *mechanism* of buffer management from the *policy* of page replacement. The `BufferManager` is now a neutral arbiter, responsible for pinning pages, tracking dirty status, and coordinating with the disk. When it needs to make a value judgment—\"which page should I sacrifice to make room for a new one?\"—it delegates that decision to a `Policy` object. This design is clean, extensible, and testable.\n\nBut this clean separation pushes the complexity elsewhere. We have traded a monolithic `BufferManager` for a simpler one that relies on a potentially complex `Policy` implementation. Now, we must confront the details of that implementation. What does it actually take to build a policy like Least Recently Used (LRU)? The core idea is simple: when you need to evict a page, choose the one that has gone the longest without being accessed. The intuition is that pages used recently are likely to be used again soon, a principle known as temporal locality.\n\nExecuting this simple idea efficiently under pressure is a classic data structures problem. A buffer pool might handle thousands of requests per second. For every single request that \"touches\" a page, the policy must update its internal state to record that this page is now the *most* recently used. When an eviction is needed, it must be able to identify the *least* recently used page almost instantly. A naive implementation, perhaps scanning a list of all pages in the buffer to find the one with the oldest timestamp, would be disastrously slow. The cost of managing the policy cannot be allowed to dominate the cost of the actual database work. This is the central tension: the policy must be smart, but it must also be fast.\n\nSource excerpts:"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_locality-ch06.081",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.081",
-                  "quotes": [
-                    "Both policies scored five hits during the warm-up phase. The difference came after the scan. LRU, which treats all pages equally based only on recency, was completely fooled. The long, sequential scan of pages 6 through 15 methodically pushed every one of the valuable hot pages (1-5) out of the cache. When the workload returned to the hot set, the cache was filled with the five *most recently used* but *least useful* pages (`[15,14,13,12,11]`). The result was five consecutive misses, a catastrophic failure of the cache.\n\nThe 2Q policy, in contrast, demonstrated its resilience. During the warm-up, it correctly identified pages 1-5 as having been accessed more than once and promoted them to its protected LRU list. When the scan began, the new pages (6, 7, 8...) were admitted to the FIFO queue. Because these scan pages were never accessed a second time, they were never promoted. The `evict` method in 2Q is designed to be clever:\n\n```cpp\nPageID evict() {\n // ...\n if (!FIFO.empty()) {\n evictedPageId = FIFO.front();\n FIFO.pop_front();\n // ...\n } else {\n evictedPageId = LRU.back();\n LRU.pop_back();\n // ...\n }\n // ...\n}\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_locality-ch06.091",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.091",
-                  "quotes": [
-                    "### 6.6.2 From Policies to Hints\n\nThis is where the query plan becomes invaluable. The query executor knows it's about to perform a hash join. It knows the working set will be large. It also knows that a sequential scan has a completely different access pattern. The executor can provide **hints** to the buffer manager, giving it the semantic context it needs to make better decisions.\n\nConsider the access pattern of a sequential scan. The pages are read once and are not needed again. This is a classic case of \"no temporal locality.\" An LRU policy would treat these pages just like any other, placing them at the MRU end of the list. A large scan could therefore \"pollute\" the entire buffer pool, flushing out valuable, frequently-used index pages. A better approach would be to treat these pages differently. The executor could hint to the buffer manager, \"This is a one-time sequential scan. Please use a Most-Recently-Used (MRU) eviction policy for these pages.\" With an MRU policy, the pages from the scan would be the very first candidates for eviction, protecting the rest of the cache.\n\nThis idea requires a richer communication channel between the components that request pages and the buffer manager that serves them. In BuzzDB, our `Policy` interface is simple and abstract:\n\n```cpp\nclass Policy {\npublic:\n virtual void touch(PageID page_id) = 0;\n virtual PageID evict() = 0;\n virtual ~Policy() = default;\n};\n```"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "pollution",
-          "claim": "A large one-time scan evicts valuable reused pages.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "pollution-ch06.012-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.012",
-                  "quotes": [
-                    "make room for scan pages that will be used exactly once"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-pollution-ch05.119",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.119",
-                  "quotes": [
-                    "The stream of new, sequentially accessed pages constantly pushes out older pages from the cache"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-pollution-ch06.055",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.055",
-                  "quotes": [
-                    "replacing every page that was there before—index root pages, frequently accessed user profiles, system catalog data"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review2-pollution",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.016",
-                  "quotes": [
-                    "they have been needlessly flushed from memory",
-                    "sequential scan has polluted the cache with pages that have no reuse value"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_pollution-ch05.014",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.014",
-                  "quotes": [
-                    "Let's break down these differences:\n\n1. **Access Pattern Knowledge:** When you execute `SELECT * FROM employees;`, the DBMS knows you are about to perform a full sequential scan of the `employees` table. It will read every page of that table once and likely never touch them again during this query. A general-purpose OS cache, typically using a Least Recently Used (LRU) replacement policy, would handle this poorly. It would diligently load every page of the `employees` table into its cache, pushing out other, more valuable cached data (like parts of an important index). The DBMS, knowing this is a one-off scan, can use a more appropriate policy, like placing the scanned pages in a part of the cache that is first to be evicted, thus protecting the more \"hot\" data."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_pollution-ch06.076",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.076",
-                  "quotes": [
-                    "2. **Phase 2: The Sequential Scan (`{6, 7, ..., 15}`)**\n This phase simulates a table scan or another operation that reads a long sequence of pages exactly once. These pages are not part of the hot working set. From the cache's perspective, they are transient; once read, they are unlikely to be needed again soon. This kind of access pattern is notorious for causing \"cache pollution,\" where useless, one-off pages displace valuable, frequently used ones."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_pollution-ch06.081",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.081",
-                  "quotes": [
-                    "Both policies scored five hits during the warm-up phase. The difference came after the scan. LRU, which treats all pages equally based only on recency, was completely fooled. The long, sequential scan of pages 6 through 15 methodically pushed every one of the valuable hot pages (1-5) out of the cache. When the workload returned to the hot set, the cache was filled with the five *most recently used* but *least useful* pages (`[15,14,13,12,11]`). The result was five consecutive misses, a catastrophic failure of the cache.\n\nThe 2Q policy, in contrast, demonstrated its resilience. During the warm-up, it correctly identified pages 1-5 as having been accessed more than once and promoted them to its protected LRU list. When the scan began, the new pages (6, 7, 8...) were admitted to the FIFO queue. Because these scan pages were never accessed a second time, they were never promoted. The `evict` method in 2Q is designed to be clever:\n\n```cpp\nPageID evict() {\n // ...\n if (!FIFO.empty()) {\n evictedPageId = FIFO.front();\n FIFO.pop_front();\n // ...\n } else {\n evictedPageId = LRU.back();\n LRU.pop_back();\n // ...\n }\n // ...\n}\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-lru_pollution-ch06.091",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.091",
-                  "quotes": [
-                    "### 6.6.2 From Policies to Hints\n\nThis is where the query plan becomes invaluable. The query executor knows it's about to perform a hash join. It knows the working set will be large. It also knows that a sequential scan has a completely different access pattern. The executor can provide **hints** to the buffer manager, giving it the semantic context it needs to make better decisions.\n\nConsider the access pattern of a sequential scan. The pages are read once and are not needed again. This is a classic case of \"no temporal locality.\" An LRU policy would treat these pages just like any other, placing them at the MRU end of the list. A large scan could therefore \"pollute\" the entire buffer pool, flushing out valuable, frequently-used index pages. A better approach would be to treat these pages differently. The executor could hint to the buffer manager, \"This is a one-time sequential scan. Please use a Most-Recently-Used (MRU) eviction policy for these pages.\" With an MRU policy, the pages from the scan would be the very first candidates for eviction, protecting the rest of the cache.\n\nThis idea requires a richer communication channel between the components that request pages and the buffer manager that serves them. In BuzzDB, our `Policy` interface is simple and abstract:\n\n```cpp\nclass Policy {\npublic:\n virtual void touch(PageID page_id) = 0;\n virtual PageID evict() = 0;\n virtual ~Policy() = default;\n};\n```"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "Earlier in this study session, I reviewed B+ tree leaf splits and separator keys."
     },
     {
       "id": "indirect_bplus_vs_binary_tree__background",
-      "question": "The same notebook contains a separate worked example of COUNT and SUM aggregation.\n\nTwo indexes contain the same keys, but one stores hundreds of branches in each disk page and the other only two. Why does the first usually need fewer reads?",
-      "familyId": "bplus_vs_binary_tree",
-      "evaluationProfile": {
-        "queryForm": "described_behavior",
-        "distinction": {
-          "id": "branching_vs_tree_depth",
-          "reason": "High branching factor versus a binary tree; connect structure to page reads."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 1,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "indirect_bplus_vs_binary_tree",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch09.019"
-        ]
-      },
       "pairedWith": "indirect_bplus_vs_binary_tree",
-      "background": "The same notebook contains a separate worked example of COUNT and SUM aggregation.",
-      "questionSha256": "9ef7ddc282accbf2b624d423a82ccfd43e82a71bce00b11775fd7acd7d8ab88b",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "fanout",
-          "claim": "A page-sized node holds many keys and pointers.",
-          "required": false,
-          "alternatives": [
-            {
-              "id": "fanout-ch09.019-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.019",
-                  "quotes": [
-                    "By making each node in the tree large enough to hold hundreds or even thousands of pointers"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "fanout-ch09.023-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.023",
-                  "quotes": [
-                    "Each node is designed to be the size of a disk page"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-fanout-ch09.025",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.025",
-                  "quotes": [
-                    "more key/pointer pairs to fit into a single disk page",
-                    "increases the fan-out and keeps the tree shallow"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "depth-io",
-          "claim": "Shallower trees reduce separate disk reads.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "depth-io-ch09.019-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.019",
-                  "quotes": [
-                    "This structure dramatically reduces the number of I/O operations"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "depth-io-ch09.023-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.023",
-                  "quotes": [
-                    "a single lookup could require 30 separate disk reads"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-depth-io-ch09.025",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.025",
-                  "quotes": [
-                    "more key/pointer pairs to fit into a single disk page",
-                    "increases the fan-out and keeps the tree shallow"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "The same notebook contains a separate worked example of COUNT and SUM aggregation."
     },
     {
       "id": "indirect_hash_range_queries__background",
-      "question": "Earlier lecture notes in my notebook discuss page pinning and dirty-page flushing.\n\nAn index can find customer 500 immediately but cannot efficiently return customers 500 through 600. What property of its layout causes this?",
-      "familyId": "hash_range_queries",
-      "evaluationProfile": {
-        "queryForm": "described_behavior",
-        "distinction": {
-          "id": "point_vs_range_access",
-          "reason": "A point lookup succeeds while interval access is inefficient; identify the ordering distinction."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 1,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "indirect_hash_range_queries",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch08.045"
-        ]
-      },
       "pairedWith": "indirect_hash_range_queries",
-      "background": "Earlier lecture notes in my notebook discuss page pinning and dirty-page flushing.",
-      "questionSha256": "4ed1e6a1c5de1ebafe9d5c18a244363ab4519c6b46cf5d5506fe6317df3fbe2f",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "ordering",
-          "claim": "Hashing destroys natural key order.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "ordering-ch09.002-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.002",
-                  "quotes": [
-                    "intentionally obliterates the natural ordering of the data"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "ordering-ch10.007-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch10.007",
-                  "quotes": [
-                    "The hash function scrambles the keys, destroying any natural ordering"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-ordering-ch08.057",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.057",
-                  "quotes": [
-                    "It sacrifices all notion of order"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-ordering-ch09.008",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.008",
-                  "quotes": [
-                    "The inherent order of the keys is completely lost"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_order-ch08.045",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.045",
-                  "quotes": [
-                    "#### `HashIndex::rangeQuery` in `31-buzzdb.cpp:563-574`\n\nThe rangeQuery method and its accompanying comment, which explicitly demonstrate the O(N) cost of performing a range scan on a hash index, highlighting a key weakness.\n\n```cpp\n563 // This method is not efficient for range queries \n 564 // as this is an unordered index\n 565 // but is included for comparison\n 566 std::vector<int> rangeQuery(int lowerBound, int upperBound) const {\n 567 std::vector<int> values;\n 568 for (size_t i = 0; i < capacity; ++i) {\n 569 if (hashTable[i].exists && hashTable[i].key >= lowerBound && hashTable[i].key <= upperBound) {\n 570 values.push_back(hashTable[i].value);\n 571 }\n 572 }\n 573 return values;\n 574 }\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_order-ch08.054",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.054",
-                  "quotes": [
-                    "A good hash function is designed to be pseudo-random.",
-                    "It takes similar keys (e.g., 100, 101, 102) and scatters them across the array to avoid collisions."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_order-ch08.055",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.055",
-                  "quotes": [
-                    "These queries rely on the idea of \"locality\"—that keys with similar values are stored near each other. A hash index deliberately and violently destroys this locality. To find all keys between a `lowerBound` and an `upperBound`, the index has no shortcuts. It cannot jump to the start of the range and scan forward. The keys could be anywhere. The only possible algorithm is to visit every single bucket in the hash table, inspect the key, and check if it falls within the desired range.\n\nBuzzDB's `rangeQuery` method demonstrates this unfortunate reality with stark clarity.\n\n```cpp\n 563 // This method is not efficient for range queries \n 564 // as this is an unordered index\n 565 // but is included for comparison\n 566 std::vector<int> rangeQuery(int lowerBound, int upperBound) const {\n 567 std::vector<int> values;\n 568 for (size_t i = 0; i < capacity; ++i) {\n 569 if (hashTable[i].exists && hashTable[i].key >= lowerBound && hashTable[i].key <= upperBound) {\n 570 values.push_back(hashTable[i].value);\n 571 }\n 572 }\n 573 return values;\n 574 }\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_order-ch08.058",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.058",
-                  "quotes": [
-                    "### 8.3.3 Hash Index vs. B+ Tree: The Big Picture\n\nThe severe limitation of hash indexes for range queries begs the question: what is the alternative? The most common and versatile indexing structure used in modern databases is the B+ Tree, which we will explore in detail in the next chapter.\n\nUnlike a hash index, a B+ Tree is an ordered data structure. It maintains its keys in sorted order, much like a balanced binary search tree, but optimized for disk-based storage. This fundamental difference in design leads to a completely different performance profile. While we won't delve into the implementation details here, we can conceptually compare the trade-offs between the two structures.\n\nThe following table summarizes the average-case performance of hash indexes and B+ trees for common database operations. Here, *N* is the number of items in the index, and *k* is the number of items returned by a query.\n\n| Operation | Hash Index (Average Case) | B+ Tree (Average Case) | Notes |\n| :--- | :--- | :--- | :--- |\n| **Point Query** | **O(1)** | O(log N) | A hash index computes the location directly. A B+ tree must traverse from the root to a leaf, taking logarithmic time. For pure point queries, the hash index is theoretically faster. |\n| **Range Query** | **O(N)** | **O(log N + k)** | The B+ tree is vastly superior. It performs one O(log N) search to find the start of the range, then scans sequentially through the *k* matching items at the leaf level. |\n| **Sorted Scan** | O(N log N) | **O(N)** | To get sorted data from a hash index, you must extract all *N* items and sort them externally. A B+ tree's leaf nodes are linked, allowing for a simple, efficient O(N) traversal in sorted order. |\n| **Insertion** | **O(1)** | O(log N) | Both are extremely fast. The cost for a B+ tree involves a search to the appropriate leaf page. The cost for a hash index involves a hash and handling potential collisions. |\n| **Deletion** | **O(1)** | O(log N) | Similar to insertion, both structures are highly efficient at removing items. |"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "scan",
-          "claim": "A range needs a full scan rather than an ordered interval walk.",
-          "required": false,
-          "alternatives": [
-            {
-              "id": "scan-ch09.008-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.008",
-                  "quotes": [
-                    "check *every single bucket* in the entire hash table"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "scan-ch09.013-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.013",
-                  "quotes": [
-                    "The hash index must scan its entire capacity"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "source-review-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.002",
-                  "quotes": [
-                    "resort to a brute-force search"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "source-review-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.015",
-                  "quotes": [
-                    "The hash index's O(N) performance is catastrophic",
-                    "grows linearly"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-scan-ch10.007",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch10.007",
-                  "quotes": [
-                    "It would have no choice but to scan all records"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_full_scan-ch08.045",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.045",
-                  "quotes": [
-                    "#### `HashIndex::rangeQuery` in `31-buzzdb.cpp:563-574`\n\nThe rangeQuery method and its accompanying comment, which explicitly demonstrate the O(N) cost of performing a range scan on a hash index, highlighting a key weakness.\n\n```cpp\n563 // This method is not efficient for range queries \n 564 // as this is an unordered index\n 565 // but is included for comparison\n 566 std::vector<int> rangeQuery(int lowerBound, int upperBound) const {\n 567 std::vector<int> values;\n 568 for (size_t i = 0; i < capacity; ++i) {\n 569 if (hashTable[i].exists && hashTable[i].key >= lowerBound && hashTable[i].key <= upperBound) {\n 570 values.push_back(hashTable[i].value);\n 571 }\n 572 }\n 573 return values;\n 574 }\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_full_scan-ch08.055",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.055",
-                  "quotes": [
-                    "These queries rely on the idea of \"locality\"—that keys with similar values are stored near each other. A hash index deliberately and violently destroys this locality. To find all keys between a `lowerBound` and an `upperBound`, the index has no shortcuts. It cannot jump to the start of the range and scan forward. The keys could be anywhere. The only possible algorithm is to visit every single bucket in the hash table, inspect the key, and check if it falls within the desired range.\n\nBuzzDB's `rangeQuery` method demonstrates this unfortunate reality with stark clarity.\n\n```cpp\n 563 // This method is not efficient for range queries \n 564 // as this is an unordered index\n 565 // but is included for comparison\n 566 std::vector<int> rangeQuery(int lowerBound, int upperBound) const {\n 567 std::vector<int> values;\n 568 for (size_t i = 0; i < capacity; ++i) {\n 569 if (hashTable[i].exists && hashTable[i].key >= lowerBound && hashTable[i].key <= upperBound) {\n 570 values.push_back(hashTable[i].value);\n 571 }\n 572 }\n 573 return values;\n 574 }\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_full_scan-ch08.058",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch08.058",
-                  "quotes": [
-                    "### 8.3.3 Hash Index vs. B+ Tree: The Big Picture\n\nThe severe limitation of hash indexes for range queries begs the question: what is the alternative? The most common and versatile indexing structure used in modern databases is the B+ Tree, which we will explore in detail in the next chapter.\n\nUnlike a hash index, a B+ Tree is an ordered data structure. It maintains its keys in sorted order, much like a balanced binary search tree, but optimized for disk-based storage. This fundamental difference in design leads to a completely different performance profile. While we won't delve into the implementation details here, we can conceptually compare the trade-offs between the two structures.\n\nThe following table summarizes the average-case performance of hash indexes and B+ trees for common database operations. Here, *N* is the number of items in the index, and *k* is the number of items returned by a query.\n\n| Operation | Hash Index (Average Case) | B+ Tree (Average Case) | Notes |\n| :--- | :--- | :--- | :--- |\n| **Point Query** | **O(1)** | O(log N) | A hash index computes the location directly. A B+ tree must traverse from the root to a leaf, taking logarithmic time. For pure point queries, the hash index is theoretically faster. |\n| **Range Query** | **O(N)** | **O(log N + k)** | The B+ tree is vastly superior. It performs one O(log N) search to find the start of the range, then scans sequentially through the *k* matching items at the leaf level. |\n| **Sorted Scan** | O(N log N) | **O(N)** | To get sorted data from a hash index, you must extract all *N* items and sort them externally. A B+ tree's leaf nodes are linked, allowing for a simple, efficient O(N) traversal in sorted order. |\n| **Insertion** | **O(1)** | O(log N) | Both are extremely fast. The cost for a B+ tree involves a search to the appropriate leaf page. The cost for a hash index involves a hash and handling potential collisions. |\n| **Deletion** | **O(1)** | O(log N) | Similar to insertion, both structures are highly efficient at removing items. |"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "Earlier lecture notes in my notebook discuss page pinning and dirty-page flushing."
     },
     {
       "id": "indirect_aggregation_grouping__background",
-      "question": "I have just finished reviewing write-ahead logging and crash recovery for another part of the course.\n\nWhile reading sales rows one at a time, how can the engine maintain a separate running total for every region without sorting first?",
-      "familyId": "aggregation_grouping",
-      "evaluationProfile": {
-        "queryForm": "described_behavior",
-        "distinction": null,
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "code",
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "indirect_aggregation_grouping",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch07.032"
-        ]
-      },
       "pairedWith": "indirect_aggregation_grouping",
-      "background": "I have just finished reviewing write-ahead logging and crash recovery for another part of the course.",
-      "questionSha256": "042aabd748c54e606a05fb40e474cdecc898205c353f942f689ef547962d9a54",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "mapping",
-          "claim": "Maintain separate running aggregate state identified by each grouping key; a hash table is one implementation, not the only accepted structure.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "mapping-ch13.022-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.022",
-                  "quotes": [
-                    "By using the grouping columns as a key into an in-memory hash table"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "mapping-ch13.028-1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.028",
-                  "quotes": [
-                    "The map's key represents the grouping key, and its value holds the running state"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-mapping-ch13.045",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.045",
-                  "quotes": [
-                    "group_keys.push_back(*tuple[index]);",
-                    "hash_table[group_keys] = aggr_values;"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-mapping-ch13.052",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.052",
-                  "quotes": [
-                    "group_keys.push_back(*tuple[index]);",
-                    "hash_table[group_keys] = aggr_values;"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-mapping-ch13.082",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.082",
-                  "quotes": [
-                    "group_keys.push_back(*tuple[index]);",
-                    "hash_table[group_keys] = aggr_values;"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review2-group-state",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.032",
-                  "quotes": [
-                    "Instead of keeping a list of all sales for each category",
-                    "maintain a single, running total"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review2-hash-state",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.017",
-                  "quotes": [
-                    "in-memory hash table where the keys are the region names",
-                    "the values are the running totals"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch13.031",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.031",
-                  "quotes": [
-                    "Look up this key in the internal hash table.",
-                    "The key is the department name",
-                    "the operator retrieves the existing aggregate state",
-                    "updates it using the data from the new tuple."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-group_mapping-ch13.017",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.017",
-                  "quotes": [
-                    "This process requires a fundamentally different kind of operator than `Scan` or `Select`. An aggregation operator cannot be a simple pipeline component that handles one tuple at a time. It must be a **blocking operator**. It needs to consume all of its input tuples to ensure it has formed the complete groups before it can produce its output. To do this, it must maintain state. For our `SUM` example, the operator might use an in-memory hash table where the keys are the region names ('North', 'South', 'West') and the values are the running totals.\n\nConsider another example. Given a `Products` table, we want to find the average price for each product category.\n\n**`Products` Table**\n\n| product_id | category | price |\n| :--- | :--- | :--- |\n| 1 | Books | 15.00 |\n| 2 | Books | 25.00 |\n| 3 | Music | 12.50 |\n| 4 | Tech | 499.99 |\n| 5 | Music | 10.00 |\n| 6 | Tech | 899.99 |\n| 7 | Books | 20.00 |"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "incremental",
-          "claim": "Incoming tuples update the state of their own group.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "incremental-ch13.022-0",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.022",
-                  "quotes": [
-                    "process each tuple as it arrives and immediately place it into the correct"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-incremental-ch13.045",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.045",
-                  "quotes": [
-                    "auto& aggr_values = hash_table[group_keys];",
-                    "updateAggregate(aggr_funcs[i], aggr_values[i]"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-incremental-ch13.052",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.052",
-                  "quotes": [
-                    "auto& aggr_values = hash_table[group_keys];",
-                    "updateAggregate(aggr_funcs[i], aggr_values[i]"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-incremental-ch13.082",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.082",
-                  "quotes": [
-                    "auto& aggr_values = hash_table[group_keys];",
-                    "updateAggregate(aggr_funcs[i], aggr_values[i]"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review2-arrival-update",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.032",
-                  "quotes": [
-                    "When a new sale comes in",
-                    "we simply add its amount to the running total for its category"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch13.031",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.031",
-                  "quotes": [
-                    "Look up this key in the internal hash table.",
-                    "The key is the department name",
-                    "the operator retrieves the existing aggregate state",
-                    "updates it using the data from the new tuple."
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "I have just finished reviewing write-ahead logging and crash recovery for another part of the course."
     },
     {
       "id": "b01__background",
-      "question": "Earlier in this study session, I reviewed linked B+ tree leaves and range scans.\n\nA frame contains an unpinned dirty page whose update log is not durable. Another frame contains a pinned clean page. A caller says the dirty frame is reusable because nobody is using it. Explain the safe sequence and why the clean page is not a shortcut.",
-      "familyId": "b01",
-      "evaluationProfile": {
-        "queryForm": "technical_scenario",
-        "distinction": {
-          "id": "eviction_eligibility_vs_write_safety",
-          "reason": "Distinguish unpinned/dirty from pinned/clean, then apply WAL and writeback ordering."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 3,
-          "minimumKnownChunks": 2,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "b01",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch05.016",
-          "ch05.102"
-        ]
-      },
       "pairedWith": "b01",
-      "background": "Earlier in this study session, I reviewed linked B+ tree leaves and range scans.",
-      "questionSha256": "5909d953f3a9a40fbcab504f97eacc0b6fcd3fe0f607860d50568b5fd37aecb6",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "pinning",
-          "claim": "An in-use pinned page is ineligible for eviction.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "pinning-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.084",
-                  "quotes": [
-                    "While the page is pinned, the buffer manager's replacement policy is forbidden from choosing it as a victim."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.091",
-                  "quotes": [
-                    "only allowed to choose a victim from the set of pages with a pin count of zero"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.092",
-                  "quotes": [
-                    "a page remains in memory as long as at least one thread is actively using it"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a4",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "If the count reaches zero, the page is now unpinned and becomes a candidate for eviction"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-pinning-ch11.043",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.043",
-                  "quotes": [
-                    "ensuring it isn't evicted while the operator is using it"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch05.092",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.092",
-                  "quotes": [
-                    "This explicit counting mechanism ensures that a page remains in memory as long as at least one thread is actively using it. BuzzDB v015 does not implement a pin count, as its single-threaded execution model makes the simpler reference-based approach sufficient. However, understanding the role of the pin count is crucial for building robust, concurrent database systems."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch05.102",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "Let's walk through the transitions:\n\n1. **On Disk → In Pool, Clean, Pinned:** A request is made for a page that is not in the buffer pool (a miss). The `BufferManager` reads the page from disk into an available frame. Its dirty bit is `false` (clean), and because it was just handed to a client, its pin count is at least 1 (pinned).\n2. **In Pool, Clean, Pinned → In Pool, Dirty, Pinned:** While pinned, a client modifies the page. The `BufferManager` sets the page's dirty bit to `true`. It remains pinned.\n3. **In Pool, Pinned → In Pool, Unpinned:** The client finishes its work and unpins the page. The pin count is decremented. If the count reaches zero, the page is now unpinned and becomes a candidate for eviction. This can happen whether the page is clean or dirty.\n4. **In Pool, Clean, Unpinned → On Disk (Conceptually):** The replacement policy chooses a clean, unpinned page as a victim. Since it's clean, no flush is needed. The frame is simply overwritten with a new page. The old page's data is gone from memory, and the on-disk version remains the authoritative copy.\n5. **In Pool, Dirty, Unpinned → On Disk:** The replacement policy chooses a dirty, unpinned page as a victim. The `BufferManager` must first write the page's contents to disk (flush it). Only after the I/O completes can the frame be reused. The page is now back on disk, with its modifications made durable."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch11.077",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.077",
-                  "quotes": [
-                    "**4. Cleanup: `close()`**\n\nFinally, once the `while` loop terminates (because `next()` returned `false`), the client must call `scanOperator.close();`. This is the final step in the operator lifecycle. The `close()` method gives the operator an opportunity to release any resources it has held during execution. For the `ScanOperator`, this is critically important. It must unpin the last page it was using from the buffer pool. Forgetting to call `close()` would lead to a resource leak; the page would remain pinned in memory indefinitely, preventing it from being evicted and reducing the effective size of the buffer pool for subsequent queries."
-                  ]
-                }
-              ]
-            }
-          ],
-          "scopeNote": "The chapter-11 alternative supports the stated residency/pinning intent only; this benchmark does not endorse automatic pinning by a raw reference or smart-pointer type."
-        },
-        {
-          "id": "wal",
-          "claim": "The relevant log must become durable before writing its changed page.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "wal-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.016",
-                  "quotes": [
-                    "before* the page itself is written"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "wal-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch06.096",
-                  "quotes": [
-                    "before* the changed data pages themselves are written"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "dirty-writeback",
-          "claim": "The dirty page must be written before its frame is reused.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "dirty-writeback-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.093",
-                  "quotes": [
-                    "must first flush the page to disk before it can reuse the frame"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "dirty-writeback-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.097",
-                  "quotes": [
-                    "must be flushed before its frame can be reused"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "dirty-writeback-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "Only after the I/O completes can the frame be reused"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "dirty-writeback-a4",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.066",
-                  "quotes": [
-                    "updates are persisted before the in-memory copy is destroyed"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch05.088",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.088",
-                  "quotes": [
-                    "If the bit is `true`, the manager must first flush the page to disk before reusing the frame."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-dirty_writeback-ch05.088",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.088",
-                  "quotes": [
-                    "To avoid this waste, production-grade buffer managers use a simple but powerful tool: the \"dirty bit.\" This is a flag associated with each frame in the buffer pool. When a page is first loaded from disk, its dirty bit is set to `false`. If any component modifies the page, the buffer manager sets its dirty bit to `true`. Now, when the time comes to evict a page, the buffer manager can make an intelligent decision. If the victim page's dirty bit is `false`, the frame can be overwritten immediately. If the bit is `true`, the manager must first flush the page to disk before reusing the frame. Together, pinning and the dirty bit form the core of the page lifecycle, governing how a page is safely used, modified, and eventually removed from memory."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-dirty_writeback-ch05.116",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.116",
-                  "quotes": [
-                    "The call to `sm.pages[page_itr]` has been replaced by `buffer_manager.getPage(page_itr)`. This is not just a renaming. The new call is a request, not a direct memory access. When `getPage` is called, the `BufferManager` performs a complex sequence of actions that we explored in the previous section:\n\n1. It checks if the requested page is already in one of its buffer pool frames.\n2. If it is (a cache hit), it pins the page and returns a reference to it.\n3. If it is not (a cache miss), it finds a victim frame to evict (using its LRU policy), writes the victim to disk if it's dirty, reads the requested page from disk into the newly freed frame, pins the new page, and returns a reference."
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "Earlier in this study session, I reviewed linked B+ tree leaves and range scans."
     },
     {
       "id": "b03__background",
-      "question": "Earlier exercises in this study session covered LRU and the two-list replacement policy.\n\nA record referenced by RID (12,4) moves to a different byte offset on page 12. Later it moves to page 18, slot 1. Which move can leave the original index reference unchanged? Assume no forwarding mechanism, and explain why the two cases differ.",
-      "familyId": "b03",
-      "evaluationProfile": {
-        "queryForm": "technical_scenario",
-        "distinction": {
-          "id": "within_page_vs_cross_page",
-          "reason": "Within-page byte relocation preserves the page/slot RID; cross-page relocation is a different case."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "b03",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch03.040"
-        ]
-      },
       "pairedWith": "b03",
-      "background": "Earlier exercises in this study session covered LRU and the two-list replacement policy.",
-      "questionSha256": "50e88958f748d4865eea018e9db1de2c3c0373e93b81508ff688aa356e499c31",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "address-scope",
-          "claim": "RID resolves a page ID and a slot within that specific page.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "address-scope-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.036",
-                  "quotes": [
-                    "rid = (page_id, slot_id)"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "address-scope-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.037",
-                  "quotes": [
-                    "which page in the database file contains the record",
-                    "within* that page"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "address-scope-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.040",
-                  "quotes": [
-                    "go to page `page_id`, look at the third entry in its slot array"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "address-scope-a4",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.044",
-                  "quotes": [
-                    "RID = (page_id, slot_id)"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "address-scope-a5",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.045",
-                  "quotes": [
-                    "The number of the page within the file",
-                    "slot in that page's slot directory"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "address-scope-a6",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.046",
-                  "quotes": [
-                    "Use the `page_id` (23) to read the correct page",
-                    "Use the `slot_id` (4)"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_address-ch07.018",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.018",
-                  "quotes": [
-                    "### 7.2.1 What Does an Index Store? Data Entries\n\nLet's formalize the structure of the information stored alongside a search key. In a database system, every tuple in a table is stored at a specific physical location on disk. This location can be identified by a **Record ID**, or **RID**. An RID is a stable pointer to a record; it doesn't change even if the contents of the record are updated (as long as the record doesn't outgrow its space). A common way to implement an RID is as a pair: `(page_id, slot_id)`. The `page_id` identifies the disk page where the record resides, and the `slot_id` identifies the specific slot within that page's directory that points to the record's starting byte.\n\nWith the concept of an RID in hand, we can now define the three primary strategies for what an index's data entries can contain.\n\n**Alternative 1: The Full Data Record**\n\nThe most direct approach is to store the entire data record within the index itself. If the search key is found, the database has the complete tuple immediately, with no need to fetch it from another location. An index that stores the full records is called a **clustered index** (or in some systems, an index-organized table). Because the data records themselves form the leaf level of the index, the table's rows are physically stored on disk in the order of the search key. For example, if we have a clustered index on a `student_id` column, the student records will be physically sorted by `student_id` in the data file. A table can have at most one clustered index, for the same reason that a book can only be physically sorted in one way (e.g., by chapter, but not by chapter and by author's name simultaneously)."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_address-ch07.019",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.019",
-                  "quotes": [
-                    "**Alternative 2: `<search key, RID>`**\n\nA more common and flexible approach, especially for secondary indexes (any index that is not the clustered index), is to store a pair consisting of the search key and the RID of the record that contains that key. For example, if we have an index on the `email` column of a `Users` table, a data entry might look like `('buzz@db.edu', (page=503, slot=4))`. To find the full record for this user, the database first searches the index to get the RID, and then performs a second disk I/O to fetch page 503 and read the record from slot 4. This extra step is called \"RID lookup\" or \"tuple lookup\". While it requires an additional I/O, this design keeps the index small and allows a single table to have many secondary indexes.\n\n**Alternative 3: `<search key, list of RIDs>`**\n\nThe second alternative works perfectly if the search key is unique for each record. But what if it's not? Consider an index on the `zip_code` column. Many users will share the same zip code. We could create a separate `<key, RID>` entry for each of them:"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_address-ch07.058",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.058",
-                  "quotes": [
-                    "### 7.4.2 Unclustered Indexes: A Separate Logical Order\n\nIn contrast, an **unclustered index** (often called a secondary index) is a data structure that is separate from the data file. Its logical order is independent of the physical order of the data rows. The data itself is typically stored in a structure called a **heap**, which is an unordered collection of records. New rows are simply added wherever there is available space.\n\nThe unclustered index contains the index key values, and for each key, a \"pointer\" to the corresponding data record. This pointer, often called a Record ID (RID), uniquely identifies the location of the row, typically by encoding its page number and the slot number within that page. Because unclustered indexes are separate structures, a single table can have **many** of them. You could have one unclustered index on `LastName`, another on `Department`, and a third on `StartDate`, all pointing to the same underlying data heap.\n\nThis is precisely the model that BuzzDB employs. The `HashIndex` is a structure held in memory, completely separate from the on-disk data file managed by the `StorageManager`. The process of building this index, shown in the `scanTableToBuildIndex` method, makes this separation clear.\n\n```cpp\nvoid scanTableToBuildIndex(){\n // ...\n auto num_pages = buffer_manager.getNumPages();\n\n for (size_t page_itr = 0; page_itr < num_pages; page_itr++) {\n auto& page = buffer_manager.getPage(page_itr);\n char* page_buffer = page->page_data.get();\n Slot* slot_array = reinterpret_cast<Slot*>(page_buffer);\n for (size_t slot_itr = 0; slot_itr < MAX_SLOTS; slot_itr++) {\n if (slot_array[slot_itr].empty == false){\n // ... deserialize tuple ...\n int key = loadedTuple->fields[0]->asInt();\n int value = loadedTuple->fields[1]->asInt();\n\n // Build index\n index.insertOrUpdate(key, value);\n }\n }\n }\n}\n```"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "within-page-indirection",
-          "claim": "Within-page byte relocation updates the slot offset while preserving external references.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "within-page-indirection-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.040",
-                  "quotes": [
-                    "The only thing we need to update is the single offset value",
-                    "rid `(page_id, slot_id)` remains constant"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "within-page-indirection-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.047",
-                  "quotes": [
-                    "different offset within page 23",
-                    "update the `offset` value",
-                    "All external references from indexes"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_within_page-ch03.039",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.039",
-                  "quotes": [
-                    "Here's how it works:\n\n* **Page Header:** Contains metadata about the page, such as the number of slots currently in use and a pointer to the start of the free space.\n* **Tuple Data:** The actual tuple data is packed at the end of the page, growing backward toward the header.\n* **Slot Array (or Slot Directory):** A fixed-size array of \"slots\" grows forward from the beginning of the page (just after the header). The `slot_id` from the rid is a direct index into this array. Each slot contains two pieces of information: the offset of the corresponding tuple within the page and its length."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_within_page-ch04.050",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.050",
-                  "quotes": [
-                    "## 4.3 Record Formats: From Tuples to Bytes\n\nThe slotted page architecture from the previous section gives us a powerful mechanism for managing space on a page. It tells us *where* to find a record's data, providing a stable `(page_id, slot_id)` pointer that survives deletions and data movement within the page. However, the slot directory only points to a starting byte and tells us the record's length. It offers no opinion on what the sequence of bytes at that location actually *means*. A record is, from the page's perspective, just an opaque blob of data.\n\nHow do we transform a logical concept—like a student's ID, name, and GPA—into that blob of bytes? And, crucially, how do we reverse the process to reconstruct the logical tuple when we read it back from the disk? This is the fundamental problem of record formatting. The process of converting an in-memory data structure into a format suitable for storage is called **serialization**, and the reverse process is **deserialization**.\n\nImagine we have a simple `students` table with three columns: `id` (an integer), `name` (a string), and `gpa` (a floating-point number). A single row, or tuple, might be `(101, 'Alice', 3.8)`. A naive approach to serialization might be to simply copy the raw binary representations of these values into a contiguous block of memory. But this immediately creates ambiguity. An integer might take 4 bytes and a double might take 8, but how long is the string 'Alice'? Without a clear rule for where one field ends and the next begins, the data is unparsable. The record format must encode not just the data values, but also enough structural information to resolve these ambiguities.\n\nSource excerpts:"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "Earlier exercises in this study session covered LRU and the two-list replacement policy."
     },
     {
       "id": "b05__background",
-      "question": "My notebook also contains a separate explanation of high-fanout B+ tree nodes and disk reads.\n\nFor separate fresh groups, trace the book's original MAX on [-11,-4] and MIN on [7,9]. Explain why a single zero initializer creates both wrong results and why changing every aggregate initializer to INT_MIN is not a general fix.",
-      "familyId": "b05",
-      "evaluationProfile": {
-        "queryForm": "technical_scenario",
-        "distinction": {
-          "id": "aggregate_specific_initialization",
-          "reason": "Different aggregate functions and input signs need different initialization rules."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 1,
-          "minimumKnownChapters": 1,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "code",
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "b05",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch13.025"
-        ]
-      },
       "pairedWith": "b05",
-      "background": "My notebook also contains a separate explanation of high-fanout B+ tree nodes and disk reads.",
-      "questionSha256": "5a71c0ec6025123dee6793eaca5d5acd430d425d2b939a159fe387ab9ae575e3",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "zero-initializer",
-          "claim": "The actual aggregation code initializes new aggregate state with Field(0).",
-          "required": false,
-          "alternatives": [
-            {
-              "id": "zero-initializer-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.045",
-                  "quotes": [
-                    "aggr_values(aggr_funcs.size(), Field(0))"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "zero-initializer-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.052",
-                  "quotes": [
-                    "aggr_values(aggr_funcs.size(), Field(0))"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "zero-initializer-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.082",
-                  "quotes": [
-                    "aggr_values(aggr_funcs.size(), Field(0))"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "zero-initializer-a4",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.060",
-                  "quotes": [
-                    "The provided code initializes aggregate values with `Field(0)`"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-zero_initializer-ch13.053",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.053",
-                  "quotes": [
-                    "The `while (input->next())` loop on line 994 is the pipeline break made manifest. This loop will not terminate until the child operator (`input`) has exhausted its entire result set. The call to `open()` will not return to its parent until this loop is finished. Inside the loop, for each tuple that arrives:\n\n1. **Key Extraction**: Lines 998-1001 construct the `group_keys` vector from the current tuple. This key will be used to look up the group in the `hash_table`.\n2. **Group Initialization**: Line 1004 checks if this is the first time we've seen this group. If `hash_table.count(group_keys)` is false, it means a new group has been found. Lines 1006-1007 initialize the aggregate values for this new group (e.g., setting initial counts and sums to zero) and insert it into the hash table.\n3. **Group Update**: Lines 1011-1014 handle the core aggregation logic. The code retrieves the current aggregate values for the group and calls `updateAggregate` for each aggregate function. This function takes the old value, the new value from the current tuple, and computes the updated aggregate value."
-                  ]
-                }
-              ]
-            }
-          ],
-          "scopeNote": "Zero initialization is explicitly supplied in the question, not an additional unknown retrieval fact."
-        },
-        {
-          "id": "min-max-update",
-          "claim": "The implementation compares new values with the existing state using min and max.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "min-max-update-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.025",
-                  "quotes": [
-                    "std::max(currentAggr.asInt(), newValue.asInt())",
-                    "std::min(currentAggr.asInt(), newValue.asInt())"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "min-max-update-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.083",
-                  "quotes": [
-                    "std::max(currentAggr.asInt(), newValue.asInt())",
-                    "std::min(currentAggr.asInt(), newValue.asInt())"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-min_max_update-ch13.042",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.042",
-                  "quotes": [
-                    "This returned `Field` then replaces the old sum in the hash table's value vector for the \"Engineering\" key. The logic for `COUNT` is even simpler: it ignores the `newValue` entirely and just increments the `currentAggr` count. The `MAX` and `MIN` cases use `std::max` and `std::min` respectively to compare the current aggregate with the new value and return the appropriate result.\n\nThis clean separation of concerns—with `FieldVectorHasher` handling key creation and `updateAggregate` handling value updates—makes the core loop of the `HashAggregationOperator` clear and maintainable. It focuses on the high-level algorithm of probing and updating the hash table, delegating the complex details to these specialized helper components."
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "sum-count-baseline",
-          "claim": "At least one actual COUNT or SUM update rule supplies a counterexample to INT_MIN as a universal initializer.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "sum-count-baseline-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.025",
-                  "quotes": [
-                    "currentAggr.asInt() + 1",
-                    "currentAggr.asInt() + newValue.asInt()"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "sum-count-baseline-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.083",
-                  "quotes": [
-                    "currentAggr.asInt() + 1",
-                    "currentAggr.asInt() + newValue.asInt()"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "sum-count-baseline-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.060",
-                  "quotes": [
-                    "This works well for `SUM` and can be adapted for `COUNT`"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "sum-count-reviewed-switch",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.040",
-                  "quotes": [
-                    "currentAggr.asInt() + 1",
-                    "currentAggr.asInt() + newValue.asInt()"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-count_sum_baseline-ch13.042",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.042",
-                  "quotes": [
-                    "This returned `Field` then replaces the old sum in the hash table's value vector for the \"Engineering\" key. The logic for `COUNT` is even simpler: it ignores the `newValue` entirely and just increments the `currentAggr` count. The `MAX` and `MIN` cases use `std::max` and `std::min` respectively to compare the current aggregate with the new value and return the appropriate result.\n\nThis clean separation of concerns—with `FieldVectorHasher` handling key creation and `updateAggregate` handling value updates—makes the core loop of the `HashAggregationOperator` clear and maintainable. It focuses on the high-level algorithm of probing and updating the hash table, delegating the complex details to these specialized helper components."
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "My notebook also contains a separate explanation of high-fanout B+ tree nodes and disk reads."
     },
     {
       "id": "range_then_group_memory__background",
-      "question": "Earlier in this study session, I reviewed write-ahead logging and dirty-page flushing.\n\nA report first retrieves a contiguous key interval and then performs GROUP BY session_id on the selected rows. Explain how the book's B+ tree can scan that interval without restarting from the root for each key, and why the later hash aggregation can still require a large amount of memory when almost every session_id is distinct. Explain both stages.",
-      "familyId": "range_then_group_memory",
-      "evaluationProfile": {
-        "queryForm": "technical_scenario",
-        "distinction": {
-          "id": "access_path_vs_aggregation_state",
-          "reason": "An efficient range access path does not bound the memory used by the following aggregation."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 2,
-          "minimumKnownChapters": 2,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "code",
-            "prose",
-            "table"
-          ],
-          "necessaryUnderCurrentLabels": [],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "range_then_group_memory",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch07.026",
-          "ch09.021"
-        ]
-      },
       "pairedWith": "range_then_group_memory",
-      "background": "Earlier in this study session, I reviewed write-ahead logging and dirty-page flushing.",
-      "questionSha256": "e750427f91e1b0df28df63538327947822435861cc7d9eb27a318b1a44f99e47",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "ordered-range-walk",
-          "claim": "Find the start of the interval and follow linked leaves rather than restarting from the root for every key.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "ordered-range-walk-ch09.021",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.021",
-                  "quotes": [
-                    "Traverse to the leaf node containing the lowerBound",
-                    "node = node->next;"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "ordered-range-walk-ch09.033",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.033",
-                  "quotes": [
-                    "avoided the expensive process of repeatedly traversing the tree from the root for each key"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "ordered-range-walk-ch09.102",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.102",
-                  "quotes": [
-                    "entire scan happens at one level of the tree",
-                    "traversing a simple linked list"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-ordered-range-walk-ch09.031",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch09.031",
-                  "quotes": [
-                    "Traverse to the leaf node containing the lowerBound",
-                    "node = node->next;"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "distinct-groups",
-          "claim": "Hash aggregation stores per-distinct-group state, so equal input row counts do not determine equal state size.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "distinct-groups-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.090",
-                  "quotes": [
-                    "memory consumption is directly proportional to the number of distinct groups"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "distinct-groups-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.093",
-                  "quotes": [
-                    "Proportional to the number of distinct groups"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "top50-review-ch13.048",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.048",
-                  "quotes": [
-                    "must store the intermediate state for every group",
-                    "high cardinality",
-                    "the internal hash table can grow very large, consuming significant memory."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_memory-ch07.026",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch07.026",
-                  "quotes": [
-                    "The data entry for key `10` is the list `[500, 300]`. This design is a clever simplification. It captures the \"one-to-many\" nature of a non-unique index without requiring the complexity of a tuple storage layer and record identifiers. It effectively materializes the values from the second column inside the index. This makes certain queries very fast. For example, to find all values associated with `group_id=10`, the system can just retrieve the vector from the map—no secondary lookups are needed.\n\nIn a later version, BuzzDB introduces a new `HashIndex` class to support a specific kind of aggregation query. Its internal storage looks quite different.\n\n```cpp\n// From v024-buzzdb.cpp\nclass HashIndex {\nprivate:\n std::unordered_map<int, int> hash_index;\n// ...\npublic:\n void insertOrUpdate(int key, int value) {\n auto it = hash_index.find(key);\n if (it != hash_index.end()) {\n // Key already exists, increment its value\n it->second += value;\n } else {\n // Key doesn't exist, insert it with the given value\n hash_index[key] = value;\n }\n }\n// ...\n};\n```"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_memory-ch13.048",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.048",
-                  "quotes": [
-                    "The `HashAggregate` operator acts like a dam. The `Scan` operator begins sending employee tuples upwards, one by one. However, the `HashAggregate` operator does not immediately pass anything on. Instead, it consumes each tuple and uses it to build an internal data structure—in BuzzDB's case, a hash table—that tracks the running aggregate values for each department. It continues this process until the `Scan` operator signals that there are no more tuples. Only after the *entire* `employees` table has been processed can the `HashAggregate` operator begin to produce its output, sending the final `(department, average_salary)` tuples upwards.\n\nThis distinction is not merely academic; it has profound performance implications.\n\n1. **Latency to First Result**: In a pipelined plan, the user can start seeing results almost immediately. For a blocking operator, there is a potentially long delay between starting the query and seeing the first output tuple, as the operator must first process its entire input.\n2. **Memory Consumption**: A pipelined `Select` operator needs very little memory—just enough to hold the single tuple it's currently evaluating. A blocking `HashAggregationOperator`, however, must store the intermediate state for every group it has encountered. If a `GROUP BY` is performed on a column with high cardinality (many unique values), the internal hash table can grow very large, consuming significant memory. If this state exceeds available RAM, the system may need to spill intermediate data to disk, incurring a severe performance penalty."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-hash_memory-ch13.080",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch13.080",
-                  "quotes": [
-                    "## 13.5 Broader Context and Alternative Strategies\n\nIn the previous section, we dissected BuzzDB’s `HashAggregationOperator`. It is an elegant and effective implementation of a core database feature. The logic is straightforward: as it pulls tuples from its child operator, it uses an in-memory hash table to collect them into groups. For each tuple, it extracts the `GROUP BY` key, hashes it, finds the corresponding entry in the table, and updates the running aggregate values. Once the entire input has been consumed, the operator iterates through the hash table and transforms the completed groups into output tuples.\n\nThis design is a perfect example of a *blocking operator*. The call to `open()` does all the work, reading every single input tuple before the first call to `next()` can return a result. You can see this clearly in the implementation: the `while (input->next())` loop on line 994 must complete and populate the `hash_table` before the operator can even begin to prepare its `output_tuples`.\n\nThis approach works wonderfully as long as one critical assumption holds: the hash table, which contains one entry for every distinct group, must fit entirely in main memory. For a query like `SELECT country, COUNT(*) FROM users GROUP BY country`, this is a safe bet. There are fewer than 200 countries in the world; the hash table will be trivially small. But what about a query like `SELECT user_id, COUNT(*) FROM web_logs GROUP BY user_id` on a table with billions of rows and millions of unique users? The `hash_table` could easily grow to consume gigabytes of RAM, potentially exhausting available memory and causing the entire query to fail.\n\nSource excerpts:"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "background": "Earlier in this study session, I reviewed write-ahead logging and dirty-page flushing."
     },
     {
       "id": "rid_stability_vs_residency__background",
-      "question": "A separate section of my study notes compares hash aggregation with sort-based aggregation.\n\nAn index refers to a record by RID (12,4). Compaction moves the record's bytes to another offset within page 12 while preserving slot 4. An operator is also actively reading the in-memory page. Explain why the original RID can remain usable after compaction, and what separate mechanism must prevent the buffer frame from being evicted during the operator's access. Does slot indirection itself provide that residency guarantee?",
-      "familyId": "rid_stability_vs_residency",
-      "evaluationProfile": {
-        "queryForm": "technical_scenario",
-        "distinction": {
-          "id": "logical_address_vs_residency",
-          "reason": "Stable page-local addressing does not itself protect a buffer frame from eviction."
-        },
-        "evidenceStructure": {
-          "requiredFacts": 2,
-          "minimumKnownChunks": 2,
-          "minimumKnownChapters": 2,
-          "documents": 1
-        },
-        "evidenceFormats": {
-          "availableForRequiredFacts": [
-            "prose"
-          ],
-          "necessaryUnderCurrentLabels": [
-            "prose"
-          ],
-          "interpretation": "Formats of quoted supporting evidence, not words in the question or a whole-chunk content-type label."
-        },
-        "perturbation": {
-          "type": "same_domain_irrelevant_background",
-          "originalId": "rid_stability_vs_residency",
-          "identicalEvidenceGroups": true
-        }
-      },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch03.039",
-          "ch05.084"
-        ]
-      },
       "pairedWith": "rid_stability_vs_residency",
-      "background": "A separate section of my study notes compares hash aggregation with sort-based aggregation.",
-      "questionSha256": "a49f9ef453f0eba042b4ea0504812423cb2a9ad45576212ba3592abaf42535bd",
-      "answerability": "answerable",
-      "groups": [
-        {
-          "id": "within-page-indirection",
-          "claim": "Within-page byte relocation updates the slot offset while preserving external references.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "within-page-indirection-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.040",
-                  "quotes": [
-                    "The only thing we need to update is the single offset value",
-                    "rid `(page_id, slot_id)` remains constant"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "within-page-indirection-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.047",
-                  "quotes": [
-                    "different offset within page 23",
-                    "update the `offset` value",
-                    "All external references from indexes"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_within_page-ch03.039",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch03.039",
-                  "quotes": [
-                    "Here's how it works:\n\n* **Page Header:** Contains metadata about the page, such as the number of slots currently in use and a pointer to the start of the free space.\n* **Tuple Data:** The actual tuple data is packed at the end of the page, growing backward toward the header.\n* **Slot Array (or Slot Directory):** A fixed-size array of \"slots\" grows forward from the beginning of the page (just after the header). The `slot_id` from the rid is a direct index into this array. Each slot contains two pieces of information: the offset of the corresponding tuple within the page and its length."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_within_page-ch04.048",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.048",
-                  "quotes": [
-                    "### 4.2.5 The Compaction Trade-off\n\nWe've established that fast deletions lead to internal fragmentation, where a page can be riddled with unused holes. While BuzzDB's `addTuple` logic can reuse these holes if a new record is small enough, this is not a complete solution. Over time, a page might have plenty of total free space, but it's all in small, non-contiguous chunks, preventing the insertion of a larger new record.\n\nThe solution to this problem is **page compaction** (also called reorganization). Compaction is the process of tidying up a page by eliminating all the holes and making the free space contiguous again. The algorithm is straightforward:\n\n1. Iterate through the slot directory.\n2. Keep track of a \"high water mark\" for where the next compacted record should be placed.\n3. For each active (non-empty) slot, move its data from its current fragmented location to the high water mark.\n4. Update the `offset` in that slot to point to the new, compacted location.\n5. Advance the high water mark by the length of the record just moved."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-rid_within_page-ch04.050",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch04.050",
-                  "quotes": [
-                    "## 4.3 Record Formats: From Tuples to Bytes\n\nThe slotted page architecture from the previous section gives us a powerful mechanism for managing space on a page. It tells us *where* to find a record's data, providing a stable `(page_id, slot_id)` pointer that survives deletions and data movement within the page. However, the slot directory only points to a starting byte and tells us the record's length. It offers no opinion on what the sequence of bytes at that location actually *means*. A record is, from the page's perspective, just an opaque blob of data.\n\nHow do we transform a logical concept—like a student's ID, name, and GPA—into that blob of bytes? And, crucially, how do we reverse the process to reconstruct the logical tuple when we read it back from the disk? This is the fundamental problem of record formatting. The process of converting an in-memory data structure into a format suitable for storage is called **serialization**, and the reverse process is **deserialization**.\n\nImagine we have a simple `students` table with three columns: `id` (an integer), `name` (a string), and `gpa` (a floating-point number). A single row, or tuple, might be `(101, 'Alice', 3.8)`. A naive approach to serialization might be to simply copy the raw binary representations of these values into a contiguous block of memory. But this immediately creates ambiguity. An integer might take 4 bytes and a double might take 8, but how long is the string 'Alice'? Without a clear rule for where one field ends and the next begins, the data is unparsable. The record format must encode not just the data values, but also enough structural information to resolve these ambiguities.\n\nSource excerpts:"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "pinning",
-          "claim": "An in-use pinned page is ineligible for eviction.",
-          "required": true,
-          "alternatives": [
-            {
-              "id": "pinning-a1",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.084",
-                  "quotes": [
-                    "While the page is pinned, the buffer manager's replacement policy is forbidden from choosing it as a victim."
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a2",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.091",
-                  "quotes": [
-                    "only allowed to choose a victim from the set of pages with a pin count of zero"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a3",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.092",
-                  "quotes": [
-                    "a page remains in memory as long as at least one thread is actively using it"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "pinning-a4",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch05.102",
-                  "quotes": [
-                    "If the count reaches zero, the page is now unpinned and becomes a candidate for eviction"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "review-added-pinning-ch11.043",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.043",
-                  "quotes": [
-                    "ensuring it isn't evicted while the operator is using it"
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "bounded-pin_residency-ch11.077",
-              "passages": [
-                {
-                  "sourceId": "buzzdb",
-                  "chunkId": "ch11.077",
-                  "quotes": [
-                    "**4. Cleanup: `close()`**\n\nFinally, once the `while` loop terminates (because `next()` returned `false`), the client must call `scanOperator.close();`. This is the final step in the operator lifecycle. The `close()` method gives the operator an opportunity to release any resources it has held during execution. For the `ScanOperator`, this is critically important. It must unpin the last page it was using from the buffer pool. Forgetting to call `close()` would lead to a resource leak; the page would remain pinned in memory indefinitely, preventing it from being evicted and reducing the effective size of the buffer pool for subsequent queries."
-                  ]
-                }
-              ]
-            }
-          ],
-          "scopeNote": "The chapter-11 alternative supports the stated residency/pinning intent only; this benchmark does not endorse automatic pinning by a raw reference or smart-pointer type."
-        }
-      ]
+      "background": "A separate section of my study notes compares hash aggregation with sort-based aggregation."
     },
     {
       "id": "code_hash_missing_sentinel",
@@ -6457,13 +4169,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch07.017"
-        ]
-      },
-      "questionSha256": "c08b3b7d7e872d1fa5671c994f67e1913a2ef51844dd5a21098421edb9d05339",
       "answerability": "answerable",
       "groups": [
         {
@@ -6573,13 +4278,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch09.021"
-        ]
-      },
-      "questionSha256": "49695ab28d90c03d7930d7eb8790e2838c60d9fd90f2879d88798e6297ae882d",
       "answerability": "answerable",
       "groups": [
         {
@@ -6676,13 +4374,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch12.072"
-        ]
-      },
-      "questionSha256": "6bc4aa23e530dcfae5d89e22f32063a14527f7d403ef7c646621ebc6308164b1",
       "answerability": "answerable",
       "groups": [
         {
@@ -6783,13 +4474,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch15.055"
-        ]
-      },
-      "questionSha256": "d4dd8dbfaed39a7927150359cf2174a7b21c9cfe530fb71192c35b3316224298",
       "answerability": "answerable",
       "groups": [
         {
@@ -6892,13 +4576,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch03.008"
-        ]
-      },
-      "questionSha256": "270143b4dab5da0bc0dc4c6b78b2b3e4d8b119b40cc11d042e8f4fc234736ade",
       "answerability": "answerable",
       "groups": [
         {
@@ -6967,13 +4644,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch13.011"
-        ]
-      },
-      "questionSha256": "8069b60f345f239104d3877ac32d5a5803ccc54bd9225749ae5de51c6a51097f",
       "answerability": "answerable",
       "groups": [
         {
@@ -7068,13 +4738,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch06.078"
-        ]
-      },
-      "questionSha256": "0cb13f1c6260b9831864b63de315c553870ca3be5a0d01fb735ba61462762e6c",
       "answerability": "answerable",
       "groups": [
         {
@@ -7161,13 +4824,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch01.096"
-        ]
-      },
-      "questionSha256": "8e5bfb7aa23c9afa3dda533501146dcbd13d0a6d17f336def50c14d7f2c1c352",
       "answerability": "answerable",
       "groups": [
         {
@@ -7241,14 +4897,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch10.004",
-          "ch10.065"
-        ]
-      },
-      "questionSha256": "f4aa3c82e1efa606fe9f451042622c85d11078e66cd913bf015356cd4b0a9047",
       "answerability": "answerable",
       "groups": [
         {
@@ -7412,14 +5060,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch13.019",
-          "ch13.024"
-        ]
-      },
-      "questionSha256": "11845579259a2d7526623f2d5b5c442e4d6e0d8673880684a1bda40f5abab1e6",
       "answerability": "answerable",
       "groups": [
         {
@@ -7622,13 +5262,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 1,
-        "exampleSufficientSet": [
-          "ch15.036"
-        ]
-      },
-      "questionSha256": "e5eb5c5604fb0ff61add3793309bca38153ca4662083b606fe5c7f42c0873047",
       "answerability": "answerable",
       "groups": [
         {
@@ -7812,14 +5445,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch06.056",
-          "ch13.048"
-        ]
-      },
-      "questionSha256": "eb080627e0e6ff888aaab36fd68829d8f9edec6d5ce45a21dfa0f4162192553a",
       "answerability": "answerable",
       "groups": [
         {
@@ -8051,15 +5676,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 3,
-        "exampleSufficientSet": [
-          "ch12.070",
-          "ch14.023",
-          "ch14.052"
-        ]
-      },
-      "questionSha256": "8fdb20a2307721f3efc15affb7f16130cdd7a560ca6143190eb51244a9b23a0d",
       "answerability": "answerable",
       "groups": [
         {
@@ -8185,14 +5801,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch05.016",
-          "ch07.074"
-        ]
-      },
-      "questionSha256": "6ca0449965ac804027fc1da75849b9a0cb943883bd7109778749b7512814e7c1",
       "answerability": "answerable",
       "groups": [
         {
@@ -8294,14 +5902,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch10.005",
-          "ch10.011"
-        ]
-      },
-      "questionSha256": "84ced206471417fd651aff88b8f24b622ff0b1186c2b1d9441e5d51178325b89",
       "answerability": "answerable",
       "groups": [
         {
@@ -8602,14 +6202,6 @@
           "type": "none"
         }
       },
-      "knownEvidenceStructure": {
-        "minimumChunksUnderCurrentLabels": 2,
-        "exampleSufficientSet": [
-          "ch15.055",
-          "ch15.056"
-        ]
-      },
-      "questionSha256": "80913b553e065331fcf7ab2cde39b3b7f811ec7ede86f4f63bb0185b95a88fcf",
       "answerability": "answerable",
       "groups": [
         {

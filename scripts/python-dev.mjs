@@ -445,9 +445,6 @@ if (task === 'setup' || task === 'setup-runtime') {
   process.exit(runPython(python.executable, ['-m', 'unittest', 'discover', '-s', 'tests/python', '-p', 'test_*.py']))
 } else if (task === 'benchmark') {
   runBenchmark()
-} else if (task === 'retrieval-benchmark') {
-  const python = requireRuntimePython()
-  process.exit(runPython(python.executable, ['tests/benchmarks/buzzdb_retrieval.py', 'run', ...taskArgs]))
 } else if (task === 'embedding-benchmark') {
   const python = requireRuntimePython()
   process.exit(runPython(
@@ -479,6 +476,6 @@ if (task === 'setup' || task === 'setup-runtime') {
 } else if (task === 'integration') {
   runIntegration()
 } else {
-  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|retrieval-benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration>')
+  console.error('Usage: node scripts/python-dev.mjs <setup|setup-runtime|unit|benchmark|embedding-benchmark|build-embedding-benchmark-cache|coverage|integration>')
   process.exit(1)
 }

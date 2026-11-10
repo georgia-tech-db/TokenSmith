@@ -14,6 +14,7 @@ import numpy as np
 
 from python_engine import tokensmith_engine as engine
 from python_engine import tokensmith_store as store
+from tests.benchmarks.buzzdb_retrieval import load as load_reviewed_cases, score_evidence
 from tests.benchmarks.test_buzzdb_grounding import (
     assert_all_case_chunks_exist, load_grounding_cases, normalize_text, validate_grounding_case,
 )
@@ -120,6 +121,21 @@ def validate_bundle(bundle, chunks):
         raise AssertionError("Embedding cache contains invalid passage_embeddings.")
 
 
+def load_retrieval_cases():
+    original = load_grounding_cases()
+    reviewed, _ = load_reviewed_cases()
+    by_question = {case["question"].casefold().strip(): case for case in original}
+    for case in reviewed.values():
+        key = case["question"].casefold().strip()
+        # Five reviewed questions already exist. Add their stronger evidence
+        # requirements without double-counting them or losing the old checks.
+        by_question[key] = {**case, **by_question[key]} if key in by_question else case
+    cases = list(by_question.values())
+    if len({case["id"] for case in cases}) != len(cases):
+        raise ValueError("Duplicate benchmark case IDs.")
+    return cases
+
+
 class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -129,7 +145,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temp_dir.cleanup)
         cls.user_data_path = cls.temp_dir.name
-        cls.cases = load_grounding_cases()
+        cls.cases = load_retrieval_cases()
         cls.chunks = all_chunks()
         assert_all_case_chunks_exist(cls.cases, {chunk["tokensmithChunkId"]: chunk for chunk in cls.chunks})
         cls.bundle = load_embedding_bundle()
@@ -160,7 +176,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         store.rebuild_faiss(cls.user_data_path, MODEL_KEY)
         cls.measurements["index_rebuild_seconds"] = time.perf_counter() - start
 
-    def retrieve_sources(self, question, top_k, search_mode="hybrid"):
+    def retrieve_sources(self, question, top_k):
         vector_hit_count = 0
         query_count = 0
         embedding_errors = []
@@ -188,14 +204,14 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         with patch.object(engine, "ollama_embedding", side_effect=embed_query), \
                 patch.object(engine, "vector_search", side_effect=vector_search):
             result = engine.search_library({
-                "userDataPath": self.user_data_path, "query": question, "searchMode": search_mode, "limit": top_k,
+                "userDataPath": self.user_data_path, "query": question, "searchMode": "hybrid", "limit": top_k,
                 "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
                 "documents": store.study_documents(self.user_data_path),
                 "embeddingModels": [MODEL_SPEC],
             })
         self.assertFalse(embedding_errors, "Query embedding failed: " + "; ".join(embedding_errors))
         self.assertEqual(query_count, 1, "Each retrieval must embed the current question afresh.")
-        self.assertGreater(vector_hit_count, 0, f"{search_mode} benchmark must not silently fall back to keyword-only search.")
+        self.assertGreater(vector_hit_count, 0, "Hybrid benchmark must not silently fall back to keyword-only search.")
         self.assertIsNone(result.get("reason"), result.get("reason"))
         return result
 
@@ -205,6 +221,8 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         for case in self.cases:
             hits = []
             sources = []
+            groups = []
+            query_started = time.perf_counter()
             try:
                 response = self.retrieve_sources(case.get("retrievalQuery") or case["question"], int(case.get("topK", 8)))
                 sources = response["sources"]
@@ -212,11 +230,22 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
                                          for chunk_id in (source.get("sourceChunkIds") or [source["tokensmithChunkId"]])))
                 context = normalize_text("\n\n".join(source["context"] for source in sources))
                 failures = validate_grounding_case(case, response.get("keywordTerms", []), hits, context)
+                if "groups" in case:
+                    selected = [{"document": "buzzdb", "chunk_id": chunk_id, "text": source["context"]}
+                                for source in sources for chunk_id in
+                                (source.get("sourceChunkIds") or [source["tokensmithChunkId"]])]
+                    groups = score_evidence(case, selected)["groups"]
+                    failures += [f"Missing evidence for {group['id']}" for group in groups
+                                 if group["required"] and not group["hit"]]
             except Exception as error:
                 failures = [str(error)]
             results.append({
                 "id": case["id"], "question": case["question"],
-                "referenceAnswer": case["referenceAnswer"],
+                **({"referenceAnswer": case["referenceAnswer"]} if "referenceAnswer" in case else {}),
+                **({"requiredFacts": [group["claim"] for group in case["groups"] if group["required"]],
+                    "evidenceGroups": groups, "pairedWith": case.get("pairedWith")}
+                   if "groups" in case else {}),
+                "retrievalSeconds": time.perf_counter() - query_started,
                 "passed": not failures, "hits": hits, "failures": failures,
                 "evidenceLabel": "Retrieved evidence (rank order)",
                 "evidence": [{"chunkIds": source.get("sourceChunkIds") or [source["tokensmithChunkId"]],
@@ -234,7 +263,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         print(f"Ollama Nomic hybrid benchmark: {passed}/{len(results)} questions; {self.measurements}")
         self.assertGreater(len(results), 0, "No benchmark cases were loaded.")
         self.assertEqual(passed, len(results), "Hybrid evidence regression: " + json.dumps(
-            [result for result in results if not result["passed"]]))
+            [{"id": result["id"], "failures": result["failures"]} for result in results if not result["passed"]]))
 
 
 if __name__ == "__main__":

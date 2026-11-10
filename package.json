@@ -16,7 +16,6 @@
     "test:coverage:ts": "c8 node --test tests/unit/typescript/*.test.mjs",
     "test:coverage:python": "node scripts/python-dev.mjs coverage",
     "test:benchmark": "node scripts/python-dev.mjs benchmark",
-    "test:retrieval-benchmark": "node scripts/python-dev.mjs retrieval-benchmark",
     "test:embedding-benchmark": "node scripts/python-dev.mjs embedding-benchmark",
     "build:embedding-benchmark-cache": "node scripts/python-dev.mjs build-embedding-benchmark-cache",
     "test:integration": "node scripts/python-dev.mjs integration",

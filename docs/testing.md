@@ -17,7 +17,10 @@ The benchmark uses the bundled Python runtime and TokenSmith's production Ollama
 embedding function. The exact model digest and Ollama version are pinned in
 [embedding-model.json](../tests/benchmarks/embedding-model.json); use that version
 of Ollama locally. A changed model tag fails validation instead of silently
-changing the benchmark.
+changing the benchmark. For a deliberate local comparison with another installed
+Ollama version, set `TOKENSMITH_BENCHMARK_OLLAMA_VERSION` for both cache creation
+and execution. That version is validated and recorded, and needs its own cache;
+CI continues to use the pinned version.
 
 ## Embedding Device Check
 
@@ -81,8 +84,28 @@ Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally
 
 ### Harder BuzzDB Questions
 
-The regular benchmark has 16 live hybrid-retrieval questions (10 conceptual and
-6 application/reasoning questions), plus 16 mocked conversation-contract checks.
+The regular benchmark has 57 distinct live hybrid-retrieval questions, plus 16 mocked
+conversation-contract checks. The original 16 questions retain all their checks. The
+[reviewed cases](../tests/benchmarks/buzzdb_retrieval_cases.json) supply 36 questions
+and 10 paired variants with irrelevant background. Five questions already exist;
+their source-bound requirements are combined with the existing checks, so each
+question is run and counted once. This adds 41 distinct inputs. They cover descriptions
+without topic names, code traces, tables, and evidence from multiple chapters.
+All use the same Nomic cache, rebuilt index, and production hybrid search at eight
+sources. Every question is embedded afresh. Missing required evidence fails the
+existing accuracy check; there is no separate runner or passing score threshold.
+
+For reviewed cases, each required fact needs a complete accepted alternative:
+all its passages and quoted spans must survive in the returned context, bound to
+the correct document and chunk. Matching a chunk ID alone cannot pass. The
+Actions details show required facts, ranked sources, and missing evidence groups.
+Paired variants inherit the same evidence requirements as their base question.
+These are assistant-reviewed development labels, mostly revised after examining
+retrieval results, not independent held-out gold. An unlisted passage may still
+be relevant; a failure needs source review before changing retrieval or labels.
+The added questions are sent directly to search, without an LLM rewrite.
+These checks isolate retrieval; neither they nor the original coverage checks
+grade generated answers or the complete chat pipeline.
 The six harder families cover buffer safety/WAL, 2Q traces, aggregate initialization
 bugs, column-page reads, aggregation trade-offs, and batching speedups. Each has
 three turns and four evaluator-only criteria per turn in
