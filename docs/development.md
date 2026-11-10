@@ -158,10 +158,13 @@ Packaging checks the Electron and Python binaries before building the app;
 after changing Node.js architectures, reinstall Node dependencies and rerun
 `npm run setup:python-runtime`.
 
-The macOS release workflow builds both architectures on native GitHub
-runners, tests the native runtime, verifies packaged binary architectures and
-vector search, and keeps their artifacts separate.
-It runs manually or when a `v*` release tag is pushed.
+The macOS workflow builds both architectures on native macOS 15 GitHub runners,
+tests the native runtime, and verifies packaged binary architectures and vector
+search. It runs on pull requests, merge queues, manual requests, and `v*` release
+tags. PR builds have read-only repository permissions and do not publish installers.
+Manual and tag builds retain separate installer artifacts for three days. A
+separate job publishes both installers to the release only after both tag builds
+pass.
 
 Create a Windows portable ZIP:
 

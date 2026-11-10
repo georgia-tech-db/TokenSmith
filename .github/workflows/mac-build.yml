@@ -1,13 +1,19 @@
 name: macOS Build
 
 on:
+  pull_request:
+  merge_group:
   workflow_dispatch:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package-macos:
@@ -16,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-latest
+          - runner: macos-15
             arch: arm64
           - runner: macos-15-intel
             arch: x64
@@ -26,6 +32,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -76,16 +84,34 @@ jobs:
           codesign --verify --deep --strict release/mac/TokenSmith.app
 
       - name: Upload macOS package
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: TokenSmith-macos-${{ matrix.arch }}-${{ github.run_number }}
+          name: TokenSmith-macos-${{ matrix.arch }}-${{ github.run_id }}
           path: release/TokenSmith-*-mac-*.dmg
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
+          compression-level: 0
+
+  publish-macos:
+    name: Publish macOS installers
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: package-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: TokenSmith-macos-*-${{ github.run_id }}
+          merge-multiple: true
+          path: release
 
       - name: Publish macOS package to GitHub Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           body_path: docs/releases/${{ github.ref_name }}.md
