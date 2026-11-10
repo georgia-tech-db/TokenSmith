@@ -10,6 +10,11 @@ export interface SourceReaderState {
   index: number
   inline: boolean
 }
+export interface SourceReaderProps {
+  state: SourceReaderState
+  navigation?: SourceNavigationProps
+  onClose: () => void
+}
 export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSourceDocument>) {
   const [state, setState] = useState<SourceReaderState | null>(null)
   const [loading, setLoading] = useState(false)

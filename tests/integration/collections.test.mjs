@@ -18,6 +18,7 @@ Module._load = function (name, ...args) {
 const service = requireTranspiledTs('src/main/python/python-engine-service.ts')
 Module._load = originalLoad
 const registry = service.collections()
+const { loadSavedTopics } = requireTranspiledTs('src/shared/saved-topics.ts')
 let embeddings = 0
 let held, release
 const server = createServer(async (request, response) => {
@@ -63,8 +64,18 @@ try {
   const key = [first[0].materialId, first[0].documentId, first[0].sourceUnitId || first[0].chunkId || first[0].chunkRowid || first[0].excerpt].join(':')
   const nextSources = await service.practiceSourcesWithPython(refs(left), [key], 0)
   assert.ok(nextSources.every(s => [s.materialId, s.documentId, s.sourceUnitId || s.chunkId || s.chunkRowid || s.excerpt].join(':') !== key))
-  await registry.saveTopics(refs(left), [{ title: 'B+ trees' }], registry.get(a.collection.id).indexRevision)
-  assert.deepEqual(await registry.topics(refs(left)), [{ title: 'B+ trees' }])
+  const revision = registry.get(a.collection.id).indexRevision
+  const topic = { id: 'integration-trees', title: 'B+ trees', area: 'Databases', aliases: [],
+    objectives: ['Explain why insertion records the ancestor path.'],
+    concept: { courseId: a.collection.id, id: 'integration-trees', title: 'B+ trees' }, sources: JSON.parse(JSON.stringify(first)) }
+  const inventory = { version: 3, collectionId: a.collection.id, indexRevision: revision, modelId: 'fixture-topics',
+    batches: { chapter: { fingerprint: 'fixture-chapter', topics: [topic] } }, topics: [topic], complete: true, completed: 1, total: 1 }
+  const savedTopics = () => loadSavedTopics({ loadTopicInventory: id => registry.topicInventory(id) }, refs(left),
+    [{ ...a.material, collectionRevision: registry.get(a.collection.id).indexRevision }])
+  await registry.saveTopicInventory(inventory, revision)
+  assert.deepEqual(await registry.topicInventory(a.collection.id), inventory)
+  assert.deepEqual(await savedTopics(), [topic], 'Practice reads the saved topics and their mapped passages')
+  assert.equal(await registry.topicInventory(b.collection.id), null, 'Topics remain isolated by collection')
   await writeFile(join(a.path, 'graph.bin'), 'optional graph remains intact')
   const databaseBefore = await readFile(join(a.path, 'tokensmith.sqlite'))
   const callsBefore = embeddings
@@ -77,6 +88,7 @@ try {
   assert.equal(embeddings, callsBefore, 'Loading/unloading never embeds or generates')
   assert.deepEqual(await readFile(join(a.path, 'tokensmith.sqlite')), databaseBefore)
   assert.equal(await readFile(join(a.path, 'graph.bin'), 'utf8'), 'optional graph remains intact')
+  assert.deepEqual(await savedTopics(), [topic], 'Topic inventory survives unloading and reopening')
   for (let i = 0; i < 5; i++) { await registry.unload(a.collection.id); await registry.load(a.path) }
   assert.equal((await search('ancestor', [a.material], left, 'keyword')).sources[0].materialId, a.material.id)
 
@@ -118,7 +130,9 @@ try {
   release(); held = undefined
   assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
   await registry.load(a.path)
-  assert.deepEqual(await registry.topics(refs(left)), [], 'Index updates invalidate derived topics')
+  assert.deepEqual(await registry.topicInventory(a.collection.id), inventory, 'Index updates retain checkpoints for regeneration')
+  await assert.rejects(savedTopics(), /topics are not ready/, 'Practice cannot use topics from an outdated index')
+  await assert.rejects(registry.saveTopicInventory(inventory, revision), /collection changed/, 'Stale writes cannot overwrite the updated inventory')
   await registry.unload(a.collection.id)
   await registry.unload(b.collection.id)
 

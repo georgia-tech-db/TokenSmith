@@ -41,6 +41,7 @@ export interface EngineInfo {
 
 export interface EngineChatRequest {
   practiceTask?: import('./quiz').PracticeTask
+  practiceAllowedIds?: string[]
   requestId?: string
   prompt: string
   selectedPassage?: ChatSelectedPassage

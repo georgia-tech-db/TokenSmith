@@ -21,7 +21,7 @@
 .study-materials-body { display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
 .study-materials-body.has-sources { grid-template-rows: fit-content(45%) minmax(0, 1fr); }
 .study-materials-scroll { padding: 4px 16px 18px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; overflow-wrap: anywhere; }
-.study-materials > footer { flex-shrink: 0; padding: 12px 16px; border-top: 1px solid var(--line); }
+.study-materials > footer { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; flex-shrink: 0; padding: 12px 16px; border-top: 1px solid var(--line); }
 .study-materials-scroll:focus-visible, .source-tray-list:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .study-scope-note { display: grid; gap: 4px; padding: 12px 0; }
 .study-scope-note button { justify-self: start; text-align: left; }

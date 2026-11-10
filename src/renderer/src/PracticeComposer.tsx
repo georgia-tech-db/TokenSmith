@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { MessageSquare } from 'lucide-react'
-import { practiceQuestionIssue, type PracticeQuestion } from '@shared/practice'
+import { type PracticeQuestion } from '@shared/practice'
 import './answer-explanation.css'
 
 export function PracticeComposer({ question, busy, isActive, onCheck, assessment = false, onDraft }: {
@@ -16,7 +16,6 @@ export function PracticeComposer({ question, busy, isActive, onCheck, assessment
   useEffect(() => {
     if (isActive && !attempt) choices.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [question.id, isActive, attempt])
-  if (!assessment && practiceQuestionIssue(question)) return null
   return <div className="composer-area practice-composer" role="region" aria-label="Practice composer">
     {binary && !answerReady && <p className="practice-muted">This saved question has no usable answer guide. Prepare another question.</p>}
     {assessment && !binary && <form onSubmit={e => { e.preventDefault(); onCheck(question.draft) }}>

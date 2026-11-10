@@ -11,7 +11,7 @@ export type LocalModelRole = 'generator' | 'embedder' | 'both'
 
 export interface MaterialIndexProgress {
   materialId: string
-  phase: 'parsing' | 'chunking' | 'embedding' | 'saving' | 'complete' | 'error'
+  phase: 'parsing' | 'chunking' | 'embedding' | 'saving' | 'topics' | 'complete' | 'error'
   percent: number
   processedFiles?: number
   totalFiles?: number
@@ -115,6 +115,7 @@ export interface ApplicationSettings {
   explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
+  readWhileWaiting: boolean
   embeddingGpuEnabled: boolean
 }
 

@@ -59,5 +59,6 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           body_path: docs/releases/${{ github.ref_name }}.md
           files: release/TokenSmith-*-win-*.zip

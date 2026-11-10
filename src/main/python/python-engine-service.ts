@@ -1,3 +1,4 @@
+import { observeModelLoading } from '../engine/model-loading'
 import { localDocuments, qualifyMaterial, qualifyDocument, qualifySource, mergeCollectionSources } from '../collections/collection-routing'
 import { CollectionRegistry, type MountedCollection } from '../collections/collection-registry'
 import { collectionMaterialId, splitMaterialId } from '../../shared/collections'
@@ -25,6 +26,7 @@ interface PythonRequest {
     | 'index_material'
     | 'search'
     | 'starter_sources'
+    | 'topic_sources'
     | 'study_documents'
     | 'practice_sources'
     | 'list_materials'
@@ -661,7 +663,8 @@ export async function indexMaterialWithPython(
   materialPath: string,
   model?: LocalModel,
   materialId?: string,
-  options?: IndexMaterialOptions
+  options?: IndexMaterialOptions,
+  onProgress: (progress: MaterialIndexProgress) => void = sendIndexProgress
 ): Promise<CourseMaterial> {
   if (!materialId) throw new Error('Open a library before adding documents.')
   const { collection, localId } = collections().forMaterial(materialId)
@@ -683,7 +686,7 @@ export async function indexMaterialWithPython(
       userDataPath: collection.path
     },
     180_000,
-    progress => { if (collections().loaded().some(item => item.epoch === collection.epoch)) sendIndexProgress({ ...progress, materialId }) },
+    progress => { if (collections().loaded().some(item => item.epoch === collection.epoch)) onProgress({ ...progress, materialId }) },
     materialId
   )
 
@@ -750,17 +753,35 @@ export async function searchLibraryWithPython(query: string, materials: CourseMa
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
   if (groups.length && searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
-  const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
+  const search = () => Promise.all(groups.map(async ({ collection, ...scope }) => {
     const result = await storeRequest<SearchResult>(collection, 'search', { ...scope, query, limit,
       embeddingModels: resolvedEmbeddingModels, searchMode, embeddingGpuEnabled })
     return { ...result, sources: result.sources.map(source => qualifySource(collections(), collection, source)) }
   }))
+  const selectedMaterials = materials.filter(material => options?.documents
+    ? options.documents.some(document => document.materialId === material.id) : material.isActive !== false)
+  const needed = searchMode === 'keyword' ? [] : resolvedEmbeddingModels.filter(model => model.engine === 'ollama' && model.ollamaModelName &&
+    selectedMaterials.some(material => material.embeddingModelId === model.id || material.embeddingModel === `ollama:${model.ollamaModelName}`))
+  const searchWithLoading = (index: number): ReturnType<typeof search> => index === needed.length ? search()
+    : observeModelLoading({ baseUrl: needed[index].ollamaBaseUrl || 'http://127.0.0.1:11434',
+        modelName: needed[index].ollamaModelName!, role: 'embedder' }, () => searchWithLoading(index + 1))
+  const results = await searchWithLoading(0)
   groups.forEach(group => collections().current(group.collection))
   const sources = mergeCollectionSources(results.map(result => result.sources), limit)
   writeLog('library_search_result', { query, sourceCount: sources.length, sources: sources.map(logSource) })
   return { sources, reason: results.map(result => result.reason).filter(Boolean).join(' ') || undefined,
     retrievalChildren: results.flatMap(result => (result.latencySpans ?? []).map(pythonLatencySpan)
       .filter((span): span is LatencySpan => Boolean(span))) }
+}
+
+export async function topicSourcesWithPython(documents: StudyDocumentRef[]): Promise<ChatSource[]> {
+  const groups = requestGroups([], documents)
+  const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
+    const result = await storeRequest<SearchResult>(collection, 'topic_sources', scope)
+    collections().current(collection)
+    return result.sources.map(source => qualifySource(collections(), collection, source))
+  }))
+  return results.flat()
 }
 
 export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {
@@ -776,7 +797,12 @@ export async function starterSourcesWithPython(materials: CourseMaterial[], limi
 export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]> {
   const results = await Promise.all(collections().loaded().map(async collection => {
     const result = await storeRequest<ListMaterialsResult>(collection, 'list_materials', {})
-    return result.materials.map(material => qualifyMaterial(collections(), collection, material))
+    const inventory = await collections().topicInventory(collection.id)
+    const topicsReady = inventory?.complete && inventory.indexRevision === collection.indexRevision
+    return result.materials.map(material => qualifyMaterial(collections(), collection, material.status === 'ready' && !topicsReady ? {
+      ...material, status: 'needsReview', detail: 'Chapter topics need preparation',
+      error: 'Finish or resume book preparation to generate chapter topics.'
+    } : material))
   }))
   return results.flat()
 }

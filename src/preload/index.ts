@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { TokenSmithBridge } from '../shared/bridge'
 
 const tokenSmithBridge: TokenSmithBridge = {
+  onModelLoading: callback => {
+    const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => callback(progress)
+    ipcRenderer.on('engine:model-loading', listener)
+    return () => { ipcRenderer.off('engine:model-loading', listener) }
+  },
   getModelContextMetadata: (model) => ipcRenderer.invoke('models:context-metadata', model),
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,
@@ -82,8 +87,7 @@ const tokenSmithBridge: TokenSmithBridge = {
   loadCollection: path => ipcRenderer.invoke('collections:load', path),
   unloadCollection: id => ipcRenderer.invoke('collections:unload', id),
   locateCollectionFolder: (materialId, path) => ipcRenderer.invoke('collections:locate-folder', materialId, path),
-  collectionTopics: documents => ipcRenderer.invoke('collections:topics', documents),
-  saveCollectionTopics: (documents, topics, revision) => ipcRenderer.invoke('collections:save-topics', documents, topics, revision),
+  loadTopicInventory: id => ipcRenderer.invoke('collections:topic-inventory', id),
   preparationReport: (path, documentPath, materialId) => ipcRenderer.invoke('library:preparation-report', path, documentPath, materialId),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>
     ipcRenderer.invoke('library:index-material', materialId, materialPath, embeddingModel, options) as Promise<

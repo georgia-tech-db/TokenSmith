@@ -211,6 +211,7 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
+  readWhileWaiting: true,
   embeddingGpuEnabled: true
 }
 
@@ -404,6 +405,7 @@ function normalizeIndexingProgress(material: CourseMaterial): MaterialIndexProgr
     rawPhase === 'chunking' ||
     rawPhase === 'embedding' ||
     rawPhase === 'saving' ||
+    rawPhase === 'topics' ||
     rawPhase === 'complete' ||
     rawPhase === 'error'
       ? rawPhase
@@ -813,6 +815,7 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): 
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
+    readWhileWaiting: settings?.readWhileWaiting ?? defaultApplicationSettings.readWhileWaiting,
     embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
   }
 }
@@ -1223,10 +1226,6 @@ export function App() {
     }
   }
   function openLog() { setIsLogCardOpen(true); void refreshLogFile() }
-  const practiceReader = useSourceReader(readSourceDocument)
-  const activePracticeSession = practiceState.sessions.find(item => item.id === practiceState.activeSessionId)
-  const activePracticeQuestionId = activePracticeSession?.questions[activePracticeSession.currentIndex]?.id
-  useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
   }
@@ -1263,7 +1262,7 @@ export function App() {
   function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
     const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
     setPracticeChatDraft({ conversationId: conversation.id,
-      draft: { text: question.helpDraft ?? '', selectedPassage: passage ?? question.helpPassage } })
+      draft: { text: '', selectedPassage: passage } })
     updateAppState(current => {
       const next = changeStudyScope(current, session.documents)
       const practice = next.practice ?? emptyPracticeState()
@@ -1271,8 +1270,7 @@ export function App() {
         conversations: [conversation, ...next.conversations],
         practice: { ...practice, mode: 'chat', activeSessionId: session.id,
           sessions: practice.sessions.map(item => item.id !== session.id ? item : { ...item,
-            currentIndex: item.questions.findIndex(value => value.id === question.id),
-            questions: item.questions.map(value => value.id === question.id ? { ...value, chatOpened: true } : value) }) } }
+            currentIndex: item.questions.findIndex(value => value.id === question.id) }) } }
     })
   }
   function practiceTopic(topic: PracticeTopic) {
@@ -1513,7 +1511,7 @@ export function App() {
               return {
                 ...material,
                 status: 'ready',
-                detail: 'Ready for chat',
+                detail: 'Ready for chat and practice',
                 indexing: undefined,
                 isActive: true
               }
@@ -2283,10 +2281,7 @@ export function App() {
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
           onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
           onOpenLibrary={() => updateAppState(current => ({ ...current, activeScreen: 'library' }))}
-          onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
-          sourceError={practiceReader.error} progress={generation.api} />}
-        {activeScreen === 'chat' && practiceState.mode === 'practice' && practiceReader.state &&
-          <SourceDocumentReader state={practiceReader.state} navigation={practiceReader.navigation} onClose={practiceReader.close} />}
+          readSource={readSourceDocument} SourceReader={SourceDocumentReader} progress={generation.api} />}
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
             documents={studyCatalog.documents} documentsLoading={studyCatalog.status === 'loading'} documentsError={studyCatalog.error} onReloadDocuments={studyCatalog.reload}
@@ -2467,6 +2462,9 @@ function ChatScreen({
   const reader = useSourceReader(readSourceDocument)
   const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
   const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  useEffect(() => {
+    if (!settings.application.showSources || !settings.application.readWhileWaiting) sourcePreview.dismiss()
+  }, [settings.application.showSources, settings.application.readWhileWaiting, sourcePreview])
   useLayoutEffect(() => {
     sourcePreview.dismiss()
     reader.close()
@@ -2582,7 +2580,7 @@ function ChatScreen({
     : setupRecommendation?.recommendedModelId ?? recommendedOllamaChatModel
   const setupChatModelLabel = recommendsCloudChat
     ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
-    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
+    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 26B A4B'
   const composerPlaceholder = selectedModel
       ? 'Ask about your documents...'
       : needsDocumentSetup
@@ -3591,7 +3589,7 @@ function ChatScreen({
 
   function previewFirstSource(requestId: string, sources: ChatSource[]) {
     const source = sources[0]
-    if (!settings.application.showSources || !source || !canOpenSource(source)) return
+    if (!settings.application.showSources || !settings.application.readWhileWaiting || !source || !canOpenSource(source)) return
     void sourcePreview.open(requestId, async () => ({
       document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
     }))
@@ -3776,7 +3774,7 @@ function ChatScreen({
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
+              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope, requestId: progressId })
           }
         })
         clientLatencySpans = prepared.latencySpans
@@ -6020,6 +6018,10 @@ function SettingsScreen({
                   checked={settings.application.showSources}
                   onChange={(showSources) => updateApplicationSettings({ showSources })}
                 />
+              </SettingsRow>
+              <SettingsRow label="Read while waiting" description="Open a source while Chat prepares an answer or Practice prepares a question. Reading sources does not count as help or prevent mastery updates.">
+                <CheckboxField ariaLabel="Read while waiting" checked={settings.application.readWhileWaiting}
+                  onChange={readWhileWaiting => updateApplicationSettings({ readWhileWaiting })} />
               </SettingsRow>
             </SettingsGroup>
 

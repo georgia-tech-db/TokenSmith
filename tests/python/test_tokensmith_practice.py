@@ -34,6 +34,16 @@ class PracticeTests(unittest.TestCase):
         self.assertEqual([d['title'] for d in self.documents].count('one.md'), 2)
         self.assertTrue(all(d['chunkCount'] > 0 for d in self.documents))
 
+    def test_topic_sources_cover_every_selected_indexed_chunk_deterministically(self):
+        selected = self.documents[:2]
+        payload = {'userDataPath': self.root, 'documents': selected}
+        sources = engine.topic_sources(payload)['sources']
+        self.assertEqual(len(sources), len(store.practice_source_rows(self.root, selected)))
+        self.assertEqual(sources, engine.topic_sources(payload)['sources'])
+        self.assertEqual({(s['materialId'], s['documentId']) for s in sources},
+                         {(d['materialId'], d['documentId']) for d in selected})
+        self.assertEqual(engine.topic_sources({'userDataPath': self.root, 'documents': []}), {'sources': []})
+
     def test_selected_document_only_and_document_rotation(self):
         for index, document in enumerate(self.documents):
             for selection in [[document], self.documents]:

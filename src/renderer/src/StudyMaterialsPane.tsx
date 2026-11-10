@@ -6,10 +6,11 @@ import { StudyDocumentPicker, type StudyDocumentExpansion } from './StudyDocumen
 import './study-workspace.css'
 import './answer-explanation.css'
 
-export function StudyMaterialsPane({ catalog, scope, open, disabled, onChange, onClose, onManage, children, collectionExpansion, onCollectionExpansionChange }: {
+export function StudyMaterialsPane({ catalog, scope, open, disabled, onChange, onClose, onManage, children, footerActions, collectionExpansion, onCollectionExpansionChange }: {
   catalog: StudyCatalog; scope: StudyDocumentRef[]; open: boolean; disabled?: boolean
   onChange: (scope: StudyDocumentRef[]) => void; onClose: () => void; onManage: () => void
   children?: ReactNode
+  footerActions?: ReactNode
 } & StudyDocumentExpansion) {
   const available = new Set(catalog.documents.map(studyDocumentKey))
   const missing = scope.filter(item => !available.has(studyDocumentKey(item))).length
@@ -30,6 +31,6 @@ export function StudyMaterialsPane({ catalog, scope, open, disabled, onChange, o
       </div>
       {children}
     </div>
-    <footer><button className="study-action-button" type="button" onClick={onManage}><FolderOpen size={17} aria-hidden="true" />Manage libraries</button></footer>
+    <footer>{footerActions}<button className="study-action-button" type="button" onClick={onManage}><FolderOpen size={17} aria-hidden="true" />Manage libraries</button></footer>
   </aside>
 }

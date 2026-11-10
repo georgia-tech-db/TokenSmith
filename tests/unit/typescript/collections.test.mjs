@@ -79,27 +79,6 @@ test('invalid loads, duplicate copies, and nonempty creates leave current mounts
   assert.throws(() => f.registry.sourcePath(f.registry.get(f.one.id), '../outside.md'), /leaves/)
 })
 
-test('saved topics are scoped and revision checked; optional malformed data is ignored', async t => {
-  const f = await fixture(t)
-  const doc = { materialId: collectionMaterialId(f.one.id, '1'), documentId: 1 }
-  await f.registry.saveTopics([doc], [{ title: 'B+ trees' }], f.registry.get(f.one.id).indexRevision)
-  assert.deepEqual(await f.registry.topics([doc]), [{ title: 'B+ trees' }])
-  assert.deepEqual(await f.registry.topics([{ ...doc, documentId: 2 }]), [])
-  const otherDoc = { ...doc, documentId: 2 }
-  await f.registry.saveTopics([otherDoc], [{ title: 'Query plans' }], f.registry.get(f.one.id).indexRevision)
-  assert.deepEqual(await f.registry.topics([doc]), [{ title: 'B+ trees' }], 'Saving one scope preserves topics for other documents')
-  assert.deepEqual(await f.registry.topics([otherDoc]), [{ title: 'Query plans' }])
-  const revision = f.registry.get(f.one.id).indexRevision
-  await f.registry.revise(f.registry.get(f.one.id))
-  await f.registry.saveTopics([doc], [{ title: 'Stale generation' }], revision)
-  assert.deepEqual(await f.registry.topics([doc]), [])
-  await writeFile(join(f.a, 'topics.json'), 'broken JSON')
-  assert.deepEqual(await f.registry.topics([doc]), [])
-  await f.registry.saveTopics([doc], [{ title: 'Replacement' }], f.registry.get(f.one.id).indexRevision)
-  assert.equal(await readFile(join(f.a, 'topics.json'), 'utf8'), 'broken JSON')
-  await f.registry.unload(f.one.id)
-  await assert.rejects(f.registry.topics([doc]), /closed/)
-})
 
 test('unload waits for cancellation and worker exit before a queued reload', async t => {
   const f = await fixture(t)
@@ -158,4 +137,18 @@ test('managed libraries allocate separate storage and close/reopen without touch
   } })
   await assert.rejects(broken.createManaged('Failed creation'), /Disk unavailable/)
   assert.deepEqual(await readdir(join(f.root, 'app', 'libraries')), namesBefore)
+})
+
+test('topic inventory checkpoints survive reopening and reject stale writes without touching legacy topics', async t => {
+  const f = await fixture(t)
+  const revision = f.registry.get(f.one.id).indexRevision
+  const value = { version: 3, modelId: 'gemma4:26b', collectionId: f.one.id, indexRevision: revision, batches: {}, topics: [], complete: false, completed: 0, total: 3 }
+  await f.registry.saveTopicInventory(value,revision)
+  assert.deepEqual(await f.registry.topicInventory(f.one.id),value)
+  await f.registry.revise(f.registry.get(f.one.id))
+  await assert.rejects(f.registry.saveTopicInventory(value,revision),/changed/)
+  assert.deepEqual(await f.registry.topicInventory(f.one.id),value,'Old checkpoints remain reusable by content fingerprint')
+  await f.registry.unload(f.one.id)
+  await f.registry.load(f.a)
+  assert.deepEqual(await f.registry.topicInventory(f.one.id),value)
 })

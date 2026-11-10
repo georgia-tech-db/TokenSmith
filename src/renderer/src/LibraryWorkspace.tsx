@@ -33,7 +33,7 @@ interface Props {
 }
 
 const leaf = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'Documents'
-const label = (item: CourseMaterial) => item.status === 'ready' ? 'Ready for chat' : item.status === 'paused' ? 'Paused'
+const label = (item: CourseMaterial) => item.status === 'ready' ? 'Ready for chat and practice' : item.status === 'paused' ? 'Paused'
   : item.status === 'needsReview' ? 'Needs attention' : item.indexing?.message || 'Preparing'
 
 export function LibraryWorkspace(props: Props) {

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { once } from 'node:events'
 
-const rootDir = resolve(new URL('../..', import.meta.url).pathname)
+const rootDir = fileURLToPath(new URL('../..', import.meta.url))
 const workerPath = join(rootDir, 'python_engine', 'tokensmith_engine.py')
 const bundledPythonPath = process.platform === 'win32'
   ? join(rootDir, 'app_runtime', 'python', 'python.exe')

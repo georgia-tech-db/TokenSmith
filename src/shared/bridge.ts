@@ -39,6 +39,7 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  onModelLoading: (callback: (event: import('./model-loading').ModelLoadingEvent) => void) => () => void
   listCollections: () => Promise<import('./collections').Collection[]>
   createCollection: (path: string, name: string) => Promise<import('./collections').Collection[]>
   createLibrary: (name: string) => Promise<import('./collections').Collection[]>
@@ -46,8 +47,7 @@ export interface TokenSmithBridge {
   loadCollection: (path: string) => Promise<import('./collections').Collection[]>
   unloadCollection: (id: string) => Promise<import('./collections').Collection[]>
   locateCollectionFolder: (materialId: string, path: string) => Promise<void>
-  collectionTopics: (documents: StudyDocumentRef[]) => Promise<import('./practice').PracticeTopic[]>
-  saveCollectionTopics: (documents: StudyDocumentRef[], topics: import('./practice').PracticeTopic[], expectedRevision: string) => Promise<void>
+  loadTopicInventory: (collectionId: string) => Promise<import('./topic-inventory').TopicInventory | null>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
   getAppVersion: () => Promise<string>

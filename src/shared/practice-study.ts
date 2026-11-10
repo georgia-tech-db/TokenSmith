@@ -48,37 +48,56 @@ export function assessmentSession(pack: AssessmentPack, id: string, modelSetting
       concept: { ...i.concept, courseId: pack.courseId }, item: { id: i.id, version: i.revision, keyVersion: pack.revision, origin: 'reviewed', references: i.references },
       referenceAnswer: i.explanation, rubric: { objective: i.concept.title, assumptions: [],
         criteria: i.criteria.map((description, n) => ({ id: `c${n + 1}`, description, evidence: [] })) },
-      sources: [], draft: '', attempts: [], reviewing: false, timeline: [] })) }
+      sources: [], draft: '', attempts: [] })) }
 }
 
 export const assessmentLocked = (session: PracticeSession) => Boolean(session.assessment && !session.assessment.completedAt)
 
 export function assessmentDisplayQuestion(q: PracticeQuestion): PracticeQuestion {
-  return { id: q.id, text: q.text, format: q.format, sources: [], draft: q.draft, reviewing: false,
-    attempts: q.attempts.map(a => ({ ...a, feedback: 'Response saved. Feedback is available after completing the assessment.' })), timeline: q.timeline }
+  return { id: q.id, text: q.text, format: q.format, sources: [], draft: q.draft,
+    attempts: q.attempts.map(a => ({ ...a, feedback: 'Response saved. Feedback is available after completing the assessment.' })) }
 }
 
 export interface ScoreCorrection { sessionId: string; questionId: string; keyVersion: string; correct: boolean; reason: string }
 export type PerformanceMethod = 'first_response' | 'recency' | 'assistance'
-export function practicePerformance(sessions: PracticeSession[], method: PerformanceMethod = 'first_response', corrections: ScoreCorrection[] = []) {
-  const groups = new Map<string, { concept: PracticeConcept; observations: number; assisted: number; correct: number; weight: number }>()
+export const practiceConceptKey = (concept: PracticeConcept) => JSON.stringify([concept.courseId, concept.id])
+
+export function scoredPracticeResponses(sessions: PracticeSession[], corrections: ScoreCorrection[] = []) {
+  const seen = new Set<string>()
   const rows = sessions.flatMap(s => s.questions.map(q => ({ s, q, a: q.attempts[0] })))
-    .filter(r => r.a?.submittedAt && r.a.observationVersion === 1 && r.q.concept && !assessmentLocked(r.s))
-    .sort((a, b) => a.a.submittedAt!.localeCompare(b.a.submittedAt!) || a.a.id.localeCompare(b.a.id))
-  for (const { s, q, a } of rows) {
+    .filter(r => r.a?.submittedAt && Number.isFinite(Date.parse(r.a.submittedAt)) && r.a.observationVersion === 1
+      && r.q.concept && !assessmentLocked(r.s))
+    .sort((a, b) => Date.parse(a.a.submittedAt!) - Date.parse(b.a.submittedAt!) || a.a.id.localeCompare(b.a.id))
+  return rows.flatMap(({ s, q, a }) => {
+    const responseKey = JSON.stringify([s.id, q.id])
+    if (seen.has(responseKey)) return []
+    seen.add(responseKey)
     const correction = corrections.find(c => c.sessionId === s.id && c.questionId === q.id && c.keyVersion && c.reason)
     const correct = correction?.correct ?? (isTrueFalseFeedback(a.feedback) ? a.feedback.correct : undefined)
-    if (correct === undefined) continue
-    const key = JSON.stringify([q.concept!.courseId, q.concept!.id])
-    const g = groups.get(key) ?? { concept: q.concept!, observations: 0, assisted: 0, correct: 0, weight: 0 }
+    return typeof correct === 'boolean' ? [{ session: s, question: q, attempt: a, correct }] : []
+  })
+}
+
+export function practicePerformance(sessions: PracticeSession[], method: PerformanceMethod = 'first_response', corrections: ScoreCorrection[] = []) {
+  const groups = new Map<string, { concept: PracticeConcept; observations: number; assisted: number; correct: number; weight: number;
+    correctResponses: number; lastPracticedAt: string; recentMistake: boolean }>()
+  for (const { question: q, attempt: a, correct } of scoredPracticeResponses(sessions, corrections)) {
+    const key = practiceConceptKey(q.concept!)
+    const g = groups.get(key) ?? { concept: q.concept!, observations: 0, assisted: 0, correct: 0, weight: 0,
+      correctResponses: 0, lastPracticedAt: a.submittedAt!, recentMistake: false }
     const decay = method === 'first_response' ? 1 : 0.9
     const weight = method === 'assistance' && a.assisted ? 0.5 : 1
     g.correct = g.correct * decay + Number(correct) * weight
     g.weight = g.weight * decay + weight
     g.observations++; g.assisted += Number(a.assisted)
+    g.correctResponses += Number(correct)
+    g.lastPracticedAt = a.submittedAt!
+    // Help-assisted answers and later revisions must not clear an independent mistake.
+    if (!a.assisted) g.recentMistake = !correct
     groups.set(key, g)
   }
   return [...groups.values()].map(g => ({ concept: g.concept, observations: g.observations, assisted: g.assisted,
+    correctResponses: g.correctResponses, lastPracticedAt: g.lastPracticedAt, recentMistake: g.recentMistake,
     performance: g.correct / g.weight, method, estimatorVersion: 1 }))
 }
 
@@ -90,7 +109,7 @@ export function exportPractice(sessions: PracticeSession[], participantId = '') 
       maxLength: s.modelSettings.maxLength, temperature: s.modelSettings.temperature, reasoningMode: s.modelSettings.reasoningMode,
       topP: s.modelSettings.topP, topK: s.modelSettings.topK, minP: s.modelSettings.minP, repeatPenalty: s.modelSettings.repeatPenalty },
     documents: s.documents.map(d => ({ materialId: d.materialId, documentId: d.documentId, title: d.title })),
-    questions: s.questions.map(q => ({ id: q.id, text: q.text, format: q.format, concept: q.concept, item: q.item,
+    questions: s.questions.map(q => ({ id: q.id, text: q.text, format: q.format, concept: q.concept, item: q.item, masteryCheck: q.masteryCheck,
       correctAnswer: assessmentLocked(s) ? undefined : q.correctAnswer, referenceAnswer: assessmentLocked(s) ? undefined : q.referenceAnswer,
       rubric: assessmentLocked(s) ? undefined : q.rubric, generationMs: q.generationMs,
       sources: assessmentLocked(s) ? [] : q.sources.map(x => ({ materialId: x.materialId, documentId: x.documentId, chunkId: x.chunkId,

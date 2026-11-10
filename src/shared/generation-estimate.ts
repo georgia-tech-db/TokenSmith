@@ -1,19 +1,21 @@
 import type { LocalModel, ModelRuntimeSettings } from './app-state'
 import type { DeviceCapabilities } from './device-capabilities'
 
-export type GenerationKind = 'answer' | 'starter' | 'follow-ups' | 'simplify' | 'quiz'
+export type GenerationKind = 'answer' | 'starter' | 'follow-ups' | 'simplify' | 'quiz' | 'model-load'
 export interface TimingContext {
   kind: GenerationKind
-  model: LocalModel
+  model: Pick<LocalModel, 'id' | 'name' | 'engine' | 'ollamaBaseUrl' | 'baseUrl' | 'ollamaModelName' | 'remoteModelName' | 'quant' | 'contextLength' | 'inputTokenLimit' | 'role'>
   settings?: ModelRuntimeSettings
   inputChars?: number
   contextual?: boolean
   count?: number
   depth?: string
+  loadContextLength?: number
 }
 export interface TimingSample { key: string; family: string; ms: number; at: number }
 export interface WaitEstimate { expectedMs: number; lowerMs: number; upperMs: number; samples: number }
-export const timingStorageKey = 'tokensmith-generation-timings-v1'
+// Old samples mixed model startup with generation and cannot be separated reliably.
+export const timingStorageKey = 'tokensmith-generation-timings-v2'
 
 // Store opaque configuration keys and durations, never prompts, sources or credentials.
 function fingerprint(value: string): string {
@@ -25,6 +27,10 @@ export function timingKeys(context: TimingContext) {
   const { model, settings, kind } = context
   let endpoint = model.ollamaBaseUrl || model.baseUrl || 'local'
   try { const url = new URL(endpoint); endpoint = url.origin + url.pathname } catch { endpoint = 'local' }
+  if (kind === 'model-load') {
+    const family = fingerprint(JSON.stringify(['load', endpoint, model.ollamaModelName || model.id, model.role]))
+    return { family, key: fingerprint(JSON.stringify([family, context.loadContextLength])) }
+  }
   const family = fingerprint(JSON.stringify([model.engine, endpoint, model.ollamaModelName || model.remoteModelName || model.id, model.quant, kind, settings?.contextLength, settings?.contextLengthMode,
     model.contextLength, model.inputTokenLimit, settings?.maxLength, settings?.thinking, settings?.reasoningMode]))
   const key = fingerprint(JSON.stringify([family, settings?.contextLength, settings?.maxLength, settings?.thinking, settings?.reasoningMode,
@@ -54,11 +60,15 @@ export function estimateWait(context: TimingContext, samples: TimingSample[], de
   // Broad priors, not hardware performance promises. Completed local runs replace these.
   let prior = context.model.engine === 'remote' ? 20_000
     : /26b/.test(modelName) ? 45_000 : /12b/.test(modelName) ? 125_000 : /e4b|4b/.test(modelName) ? 40_000 : 60_000
-  if (context.model.engine !== 'remote' && device && !device.accelerators.some(a => a.runtimeSupport === 'supported')) prior *= 2.5
-  if (context.kind === 'starter' || context.kind === 'follow-ups') prior *= 0.45 * Math.max(0.6, Math.min(2, (context.count ?? 3) / 3))
-  else prior *= Math.max(0.5, Math.min(2, Math.sqrt((context.settings?.maxLength ?? 1536) / 1536)))
-  if (context.settings?.thinking) prior *= 1.7
-  if (context.contextual && context.kind === 'answer') prior *= 1.3
+  if (context.kind === 'model-load') {
+    prior = context.model.role === 'embedder' ? 20_000 : /26b|31b/.test(modelName) ? 50_000 : 35_000
+  } else {
+    if (context.model.engine !== 'remote' && device && !device.accelerators.some(a => a.runtimeSupport === 'supported')) prior *= 2.5
+    if (context.kind === 'starter' || context.kind === 'follow-ups') prior *= 0.45 * Math.max(0.6, Math.min(2, (context.count ?? 3) / 3))
+    else prior *= Math.max(0.5, Math.min(2, Math.sqrt((context.settings?.maxLength ?? 1536) / 1536)))
+    if (context.settings?.thinking) prior *= 1.7
+    if (context.contextual && context.kind === 'answer') prior *= 1.3
+  }
   let expectedMs = prior
   if (history.length) {
     let total = 0, weights = 0

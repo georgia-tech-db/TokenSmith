@@ -1,66 +1,129 @@
-import { useEffect, useState } from 'react'
-import { RefreshCw, SendHorizonal } from 'lucide-react'
-import type { CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import type { PracticeState, PracticeTopic } from '@shared/practice'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ChevronDown, ChevronRight, SendHorizonal } from 'lucide-react'
+import type { CourseMaterial } from '@shared/app-state'
+import type { PracticeMasteryRecord, PracticeSession, PracticeTopic } from '@shared/practice'
+import { practiceConceptKey } from '@shared/practice-study'
+import { chapterMastery, practiceMastery } from '@shared/practice-mastery'
+import { MasteryMeter, TopicMasteryDetails } from './MasteryMeter'
 import { studyScopeKey, type StudyDocumentRef } from '@shared/study-scope'
-import type { GenerationProgressApi } from './hooks/useGenerationProgress'
-import { createPracticeClient } from './practice-client'
+import { loadSavedTopics } from '../../shared/saved-topics'
+import type { InventoryTopic } from '../../shared/topic-inventory'
 
-export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, model, settings, modelSettings, progress, cache, onCache, onChoose }: {
+export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose }: {
   isActive: boolean; ready: boolean; disabled: boolean; scope: StudyDocumentRef[]; materials: CourseMaterial[]
-  model?: LocalModel; settings: TokenSmithSettings; modelSettings: ModelRuntimeSettings; progress: GenerationProgressApi
-  cache: PracticeState['topicSuggestions']; onCache: (cache: NonNullable<PracticeState['topicSuggestions']>) => void
+  sessions: PracticeSession[]
+  masteryRecords?: PracticeMasteryRecord[]
   onChoose: (topic: PracticeTopic) => void
 }) {
   const [text, setText] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [revision, setRevision] = useState(0)
+  const [chapterId, setChapterId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'all' | 'new' | 'mistakes'>('all')
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null)
+  const [topics, setTopics] = useState<InventoryTopic[]>([])
+  const [error, setError] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  const focusHeading = useRef(false)
   const scopeKey = studyScopeKey(scope)
-  const key = JSON.stringify([scopeKey, materials.filter(material => scope.some(doc => doc.materialId === material.id))
+  const key = JSON.stringify([3, scopeKey, materials.filter(material => scope.some(doc => doc.materialId === material.id))
     .map(material => [material.id, material.collectionRevision, material.indexedAt, material.chunkCount])])
-  const topics = cache?.key === key ? cache.topics : []
-  useEffect(() => {
-    if (!isActive || !ready) return
-    if (cache?.key === key) { setStatus('ready'); return }
-    if (disabled || !model || !window.tokensmith) return
-    const bridge = window.tokensmith
-    const id = crypto.randomUUID()
-    const controller = new AbortController()
-    let finished = false
-    const stop = () => {
-      if (finished) return
-      window.clearTimeout(timer)
-      controller.abort(); progress.cancel(id)
-      void bridge.cancelChatRequest(id).catch(() => {})
+  const progress = useMemo(() => practiceMastery(sessions, [], masteryRecords), [sessions, masteryRecords])
+  const topicProgress = (topic: PracticeTopic) => topic.concept ? progress.get(practiceConceptKey(topic.concept)) : undefined
+  const matchesProgress = (topic: PracticeTopic) => filter === 'all' || (filter === 'new' ? topicProgress(topic)?.score == null : topicProgress(topic)?.recentMistake)
+  const groups = new Map<string, { id: string; title: string; collection: string; topics: InventoryTopic[] }>()
+  for (const topic of topics) {
+    const source = topic.sources[0]
+    const id = JSON.stringify([source?.materialId, source?.documentId, topic.area])
+    let group = groups.get(id)
+    if (!group) {
+      group = { id, title: topic.area,
+        collection: materials.find(m => m.id === source?.materialId)?.collectionTitle || source?.collectionName || '', topics: [] }
+      groups.set(id, group)
     }
-    const timer = window.setTimeout(async () => {
-      setStatus('loading')
-      const saved = await bridge.collectionTopics?.(scope).catch(() => [])
-      if (controller.signal.aborted) return
-      if (saved?.length) { finished = true; onCache({ key, topics: saved }); setStatus('ready'); return }
-      progress.begin({ id, materialIds: scope.map(d => d.materialId), conversationId: 'practice-topics', kind: 'starter', label: 'Finding topics', model,
-        settings: { ...modelSettings, maxLength: Math.min(modelSettings.maxLength, 768), reasoningMode: 'off', thinking: false },
-        onStop: () => { stop(); setStatus('error') } })
-      void createPracticeClient(bridge, model, settings, { materials, embeddingModels: [] })
-        .topics(scope, modelSettings, id, controller.signal).then(topics => {
-          if (controller.signal.aborted) return
-          void bridge.saveCollectionTopics?.(scope, topics, materials.find(m => scope.some(d => d.materialId === m.id))?.collectionRevision ?? '').catch(() => {})
-          finished = true; onCache({ key, topics }); setStatus('ready'); progress.finish(id, 'Topics ready')
-        }).catch(() => {
-          if (controller.signal.aborted) return
-          finished = true; setStatus('error'); progress.cancel(id)
-        })
-    }, 0)
-    return stop
-  }, [isActive, ready, disabled, key, model?.id, revision])
+    group.topics.push(topic)
+  }
+  const chapters = [...groups.values()]
+  const chapter = chapterId ? groups.get(chapterId) : undefined
+  const query = search.trim().toLowerCase()
+  const visibleChapters = chapters.filter(c => `${c.title} ${c.collection}`.toLowerCase().includes(query) && c.topics.some(matchesProgress))
+  const visibleTopics = chapter?.topics.filter(t => matchesProgress(t) && [t.title, ...t.aliases].join(' ').toLowerCase().includes(query)) ?? []
+  const chapterProgress = chapter && chapterMastery(chapter.topics, progress)
+  const nextTopic = chapter && [...chapter.topics].sort((a, b) => (topicProgress(a)?.score ?? 0) - (topicProgress(b)?.score ?? 0))[0]
+  function navigate(id: string | null) {
+    focusHeading.current = true
+    setChapterId(id); setSearch(''); setExpandedTopic(null)
+  }
+  useEffect(() => {
+    if (focusHeading.current) { heading.current?.focus(); focusHeading.current = false }
+  }, [chapterId])
+  useEffect(() => {
+    setTopics([]); setChapterId(null); setSearch(''); setFilter('all'); setExpandedTopic(null)
+    if (!ready || !isActive || !window.tokensmith) return
+    let active = true
+    setError(''); setStatus('loading')
+    void loadSavedTopics(window.tokensmith, scope, materials).then(topics => {
+      if (active) { setTopics(topics); setStatus('ready') }
+    }).catch(reason => { if (active) { setError((reason as Error).message); setStatus('error') } })
+    return () => { active = false }
+  }, [isActive, ready, key])
   return <div className="practice-topic-picker">
-    <h1>What would you like to practice?</h1>
-    {ready && !disabled && status === 'loading' && <p className="practice-muted" role="status">Finding topics...</p>}
-    {topics.length > 0 && <div className="answer-simplify-action practice-topic-suggestions" role="group" aria-label="Suggested topics">
-      {topics.map(topic => <button key={topic.title} type="button" disabled={disabled} onClick={() => onChoose(topic)}>{topic.title}</button>)}
+    {chapter && <button className="practice-link practice-chapter-back" type="button" onClick={() => navigate(null)}><ArrowLeft size={16} aria-hidden="true" />All chapters</button>}
+    <h1 ref={heading} tabIndex={-1}>{chapter?.title ?? 'What would you like to practice?'}</h1>
+    {!chapter && <p className="practice-muted">Choose a chapter to explore its topics.</p>}
+    {chapterProgress && <div className="practice-chapter-progress">
+      <div><MasteryMeter score={chapterProgress.score} label="Chapter progress" />
+        <small className="practice-muted" title="Unassessed topics contribute zero to chapter progress.">{chapterProgress.assessed} of {chapterProgress.total} topics assessed</small></div>
+      {nextTopic && <button type="button" className="practice-button" disabled={disabled} onClick={() => onChoose(nextTopic)}>Practice next: {nextTopic.title}</button>}
     </div>}
-    {ready && status === 'error' && <p className="practice-muted">Topic suggestions are unavailable. You can enter your own.
-      <button className="practice-link" type="button" disabled={disabled} onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} />Retry topics</button></p>}
+    {ready && status === 'loading' && <p className="practice-muted" role="status">Loading saved topics…</p>}
+    {topics.length > 0 && <div className="practice-topic-inventory">
+      <div className="practice-topic-toolbar"><div className="study-mode-tabs practice-topic-filters" role="group" aria-label="Filter topics by practice progress">
+        {([['all', 'All'], ['new', 'Not practiced'], ['mistakes', 'Recent mistakes']] as const).map(([value, label]) =>
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
+      </div>
+      <input className="practice-topic-search" aria-label={chapter ? 'Find a topic in this chapter' : 'Find a chapter'} placeholder={chapter ? 'Find a topic…' : 'Find a chapter…'} value={search} onChange={event => setSearch(event.target.value)} />
+      </div>
+      {filter !== 'all' && <p className="practice-muted practice-topic-progress-note">{filter === 'mistakes' ? 'Topics whose latest independent answer was incorrect.' : 'Topics without an independent mastery check yet.'}</p>}
+      {chapter ? <>
+        {visibleTopics.length === 0 && <p className="practice-muted">No matching topics in this chapter.</p>}
+        {visibleTopics.length > 0 && <div className="practice-topic-columns" aria-hidden="true"><span>Topic</span><span>Estimated mastery</span></div>}
+        {visibleTopics.map(topic => {
+          const result = topicProgress(topic)
+          const topicKey = topic.concept ? practiceConceptKey(topic.concept) : topic.id
+          const expanded = expandedTopic === topicKey
+          const detailsId = `topic-details-${encodeURIComponent(topicKey)}`
+          return <div className="practice-topic-entry" key={topicKey}>
+            <div className="practice-topic-heading">
+              <button type="button" className="practice-topic-start" disabled={disabled} onClick={() => onChoose(topic)}>{topic.title}<ChevronRight size={16} aria-hidden="true" /></button>
+              <MasteryMeter compact score={result?.score ?? null} label="Estimated mastery" empty={result?.withHelp ? 'Try without help' : 'Not practiced'} />
+              <button type="button" className="practice-topic-expand" aria-label={`Details for ${topic.title}`} aria-expanded={expanded} aria-controls={detailsId}
+                onClick={() => setExpandedTopic(expanded ? null : topicKey)}><ChevronDown size={16} aria-hidden="true" /></button>
+            </div>
+            <div id={detailsId} className="practice-topic-details" hidden={!expanded}>
+            <p>{topic.objectives.slice(0, 2).join(' · ')}</p>
+            <TopicMasteryDetails result={result} />
+            <details><summary>Sources ({topic.sources.length} {topic.sources.length === 1 ? 'passage' : 'passages'})</summary>
+              <small>{[...new Set(topic.sources.map(s => `${s.documentTitle}${s.sectionHeader ? ` — ${s.sectionHeader.split(' / ')[0]}` : ''}`))].join('; ')}</small>
+            </details>
+            </div>
+          </div>
+        })}
+      </> : <>
+        {visibleChapters.length === 0 && <p className="practice-muted">No matching chapters.</p>}
+        <div className="practice-chapter-list" aria-label="Chapters">
+          {visibleChapters.map(item => {
+            const result = chapterMastery(item.topics, progress)
+            return <button key={item.id} type="button" className="practice-chapter-button" onClick={() => navigate(item.id)}>
+              <span className="practice-chapter-overview"><strong>{item.title}</strong><small>{item.collection && `${item.collection} · `}{result.assessed} of {result.total} topics assessed</small></span>
+              <MasteryMeter compact score={result.score} label="Chapter progress" /><ChevronRight size={18} aria-hidden="true" />
+            </button>
+          })}
+        </div>
+      </>}
+    </div>}
+    {ready && status === 'ready' && topics.length === 0 && <p className="practice-muted">No saved topics for the selected documents.</p>}
+    {ready && status === 'error' && <p className="practice-muted" role="status">{error}</p>}
     <form onSubmit={event => { event.preventDefault(); if (!disabled && text.trim()) onChoose({ title: text.trim() }) }}>
       <label htmlFor="practice-topic">Your topic</label>
       <div className="composer">

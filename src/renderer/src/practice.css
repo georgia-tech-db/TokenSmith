@@ -97,9 +97,8 @@
   .practice-composer textarea { font-size: 16px; }
 }
 
-.practice-topic-picker { width: min(620px, 100%); margin: 48px auto; }
-.practice-topic-picker h1 { font-size: 1.45rem; line-height: 1.4; margin: 0 0 24px; }
-.practice-topic-picker .practice-topic-suggestions { margin: 0 0 24px; }
+.practice-topic-picker { width: min(760px, 100%); margin: 8px auto; }
+.practice-topic-picker h1 { font-size: 1.25rem; line-height: 1.4; margin: 0 0 8px; }
 .practice-topic-picker form > label { display: block; margin-bottom: 8px; font-weight: 600; }
 .practice-topic-picker .composer { display: flex; align-items: center; padding: 10px 12px; }
 .practice-topic-picker input { flex: 1; min-width: 0; padding: 8px; border: 0; background: transparent; color: var(--ink); font: inherit; }
@@ -108,7 +107,64 @@
 .practice-topic-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
 .practice-topic-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .practice-topic-bar button { font-size: .84rem; }
+.practice-session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
 .practice-topic-reference { margin: 0 0 28px; }
 .practice-topic-reference > summary { cursor: pointer; color: var(--muted); margin-bottom: 20px; }
 .practice-topic-reference .message-row:last-child { margin-bottom: 20px; }
-@media (max-width: 480px) { .practice-topic-bar { padding: 8px 14px; } .practice-topic-picker { margin: 24px auto; } }
+@media (max-width: 480px) { .practice-topic-bar { padding: 8px 14px; } .practice-topic-picker { margin: 14px auto; } }
+
+.practice-topic-inventory { margin: 12px 0 20px; }
+.practice-topic-entry { border-bottom: 1px solid var(--line); padding: 2px 0; }
+.practice-topic-entry button { text-align: left; font-weight: 600; }
+.practice-topic-entry p { margin: .4rem 0; font-size: .9rem; }
+.practice-topic-entry small { display: block; opacity: .7; overflow-wrap: anywhere; }
+.practice-topic-filters { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; }
+.practice-topic-filters button { font: inherit; font-size: .85rem; }
+.practice-topic-picker .practice-topic-progress-note { font-size: .82rem; margin: 8px 0 14px; }
+.practice-topic-heading { display: flex; align-items: center; gap: 10px; }
+.practice-topic-columns { display: flex; justify-content: space-between; padding: 6px 42px 2px 0; color: var(--muted); font-size: .75rem; }
+.practice-topic-start { display: inline-flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; border: 0; padding: 5px 0; color: var(--ink); background: transparent; font: inherit; cursor: pointer; }
+.practice-topic-start svg { flex-shrink: 0; }
+.practice-topic-expand { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.practice-topic-expand:hover { background: var(--panel-soft); }
+.practice-topic-expand[aria-expanded="true"] svg { transform: rotate(180deg); }
+.practice-topic-details { padding: 4px 0 10px; }
+.practice-topic-start:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 3px; }
+.mastery-meter { display: block; width: 190px; max-width: 100%; min-width: 0; }
+.mastery-meter-label { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: .78rem; color: var(--muted); margin-bottom: 7px; }
+.mastery-meter-label strong { color: var(--ink); font-weight: 650; white-space: nowrap; }
+.mastery-meter-track { display: block; height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-muted, var(--panel-soft)); border: 1px solid var(--line); }
+.mastery-meter-track > span { display: block; height: 100%; background: var(--green); border-radius: inherit; }
+.mastery-meter-compact { display: flex; flex-direction: row-reverse; align-items: center; gap: 10px; width: 168px; flex-shrink: 0; }
+.mastery-meter-compact .mastery-meter-label { margin: 0; }
+.mastery-meter-compact .mastery-meter-label > span { display: none; }
+.mastery-meter-compact .mastery-meter-track { flex: 1; min-width: 30px; }
+.mastery-details { font-size: .8rem; color: var(--muted); margin: 12px 0; }
+.mastery-details summary { cursor: pointer; width: fit-content; }
+.practice-topic-entry .mastery-details p { font-size: .8rem; line-height: 1.5; }
+.practice-chapter-progress { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; margin: 12px 0; }
+.practice-chapter-progress > div { flex: 1; min-width: 160px; max-width: 300px; }
+.practice-chapter-progress .mastery-meter { width: 100%; margin-bottom: 4px; }
+.practice-chapter-progress small { font-size: .78rem; }
+.practice-chapter-progress .practice-button { padding: 7px 10px; font-size: .85rem; }
+.practice-chapter-overview { flex: 1; min-width: 0; }
+.practice-live-mastery { flex: 0 1 190px; min-width: 150px; }
+.practice-review-mastery { margin-top: 24px; }
+@media (max-width: 480px) {
+  .practice-topic-heading { flex-wrap: wrap; gap: 0 8px; }
+  .practice-topic-heading .practice-topic-start { flex-basis: calc(100% - 40px); }
+  .practice-topic-heading .mastery-meter { order: 3; width: 100%; padding: 0 40px 6px 0; box-sizing: border-box; }
+  .practice-chapter-button { flex-wrap: wrap; }
+  .practice-chapter-button .practice-chapter-overview { flex-basis: calc(100% - 32px); }
+  .practice-chapter-button .mastery-meter { order: 3; width: 100%; }
+}
+
+.practice-topic-picker .practice-chapter-back { margin: 0 0 12px; }
+.practice-topic-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+.practice-topic-picker .practice-topic-search { flex: 1 1 170px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; }
+.practice-chapter-list { display: grid; gap: 8px; }
+.practice-chapter-button { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.practice-chapter-button:hover { background: var(--surface-muted, var(--panel-soft)); }
+.practice-chapter-button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.practice-chapter-button strong { display: block; font-weight: 600; }
+.practice-chapter-button small { display: block; margin-top: 5px; color: var(--muted); }
