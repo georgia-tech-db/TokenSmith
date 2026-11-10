@@ -29,6 +29,26 @@ test('presentation tolerance still rejects changed operators, variables, powers,
   assert.equal(hasSupportingQuote(passage, '$$'), false)
 })
 
+test('copied spans match despite case, backticks, quote glyphs, a leading ellipsis or trailing punctuation', () => {
+  const prose = 'The core of the decision is the simple but crucial condition: `used_size + tuple_size > PAGE_SIZE`. ' +
+    'A pathological behavior known as **sequential flooding** occurs, pushing pages towards the “least recently used” end, until they are evicted.'
+  assert.equal(hasSupportingQuote(prose, 'the core of the decision is the simple but crucial condition: `used_size + tuple_size > PAGE_SIZE`.'), true)
+  assert.equal(hasSupportingQuote(prose, 'A pathological behavior known as "sequential flooding" occurs'), true)
+  assert.equal(hasSupportingQuote(prose, '...pushing pages towards the "least recently used" end, until they are evicted.'), true)
+  assert.equal(hasSupportingQuote(prose, '`A pathological behavior known as sequential flooding` occurs,'), true)
+  assert.equal(hasSupportingQuote(prose, 'The core of the decision is the simple but crucial condition'), true)
+})
+
+test('the copied-span tolerance still rejects changed, dropped or added words', () => {
+  const prose = 'Any concrete class that inherits from `UnaryOperator` now has a convenient `this->input` pointer. ' +
+    'This key will be inserted into the parent\'s key list. The `hash_table` could easily grow to consume gigabytes of RAM.'
+  assert.equal(hasSupportingQuote(prose, 'A concrete class that inherits from `UnaryOperator` now has a convenient `this->input` pointer.'), false)
+  assert.equal(hasSupportingQuote(prose, 'This will be inserted into the parent\'s key list.'), false)
+  assert.equal(hasSupportingQuote(prose, 'The hash table could easily grow to consume gigabytes of RAM.'), false)
+  assert.equal(hasSupportingQuote(prose, 'At that point, it gives up: This key will be inserted into the parent\'s key list.'), false)
+  assert.equal(hasSupportingQuote(prose, '...'), false)
+})
+
 test('exact code quotes and whitespace differences still work, without paraphrase matching', () => {
   assert.equal(hasSupportingQuote('if (a < b) {\n return false;\n}', 'if (a < b) { return false; }'), true)
   assert.equal(hasSupportingQuote('The *page* contains 4 records.', 'The page contains 4 records.'), true)
