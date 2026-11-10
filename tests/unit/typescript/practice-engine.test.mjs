@@ -120,3 +120,9 @@ test('remote practice keeps raw structured output and reports truncated completi
     assert.equal(calls, 1)
   }
 })
+
+
+test('chapter review generation refuses incomplete context instead of generating from selected fragments', () => {
+  assert.throws(() => prepareStudyChatMessages({ ...base, practiceTask: 'chapter_topics', retrievedSources: [source,
+    { ...source, chunkId: 'large', excerpt: 'A long source sentence. '.repeat(10000) }] }), /full chapter text/)
+})

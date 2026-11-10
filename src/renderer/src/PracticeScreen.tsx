@@ -1,7 +1,7 @@
 import { assessmentSession, assessmentLocked, assessmentDisplayQuestion, parseAssessmentPack, exportPractice, practicePerformance } from '@shared/practice-study'
 import { usePracticeClock } from './hooks/usePracticeClock'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
 import { practiceQuestionIssue, practiceAttemptFeedback, practiceMessages, practiceQuestionText, practiceTimeline, practiceReviewLabel,
   type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
@@ -57,6 +57,7 @@ export function PracticeScreen(props: Props) {
   const { historyOpen: sidebarOpen, onHistoryOpenChange: setSidebarOpen, materialsOpen, onMaterialsOpenChange: setMaterialsOpen } = props
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const quizFileInput = useRef<HTMLInputElement>(null)
   const [unsaved, setUnsaved] = useState<SaveAction>()
   const submitting = useRef(false)
   const [pending, setPending] = useState<{ id: string } | null>(null)
@@ -209,7 +210,12 @@ export function PracticeScreen(props: Props) {
     let prepared = target
     void perform(target, 'Preparing question', async (client, id, signal) => {
       prepared = await client.prepareTopic(target, signal)
-      return client.question(prepared, id, signal)
+      return client.question(prepared, id, signal, (questionSourceCursor, attempt, total) => {
+        if (operation.current?.id !== id || signal.aborted) return
+        // Save the prepared pool and cursor even when all attempts fail, so Retry advances.
+        updateSession(target.id, current => ({ ...current, topic: prepared.topic, questionSourceCursor }))
+        progress.stage(id, attempt === 1 ? 'Preparing question' : `Trying another question (${attempt}/${total})`)
+      }, label => progress.stage(id, label))
     }, (generated, generationMs) => updateSession(target.id, current => generated
       ? { ...current, topic: prepared.topic, questions: [...current.questions, { ...generated, generationMs, concept: current.topic?.concept, item: { id: generated.id, version: '1', keyVersion: '1', origin: 'generated' as const } }], currentIndex: current.questions.length }
       : { ...current, topic: prepared.topic, sourcesExhausted: true }))
@@ -327,10 +333,9 @@ export function PracticeScreen(props: Props) {
           {(!question || practiceQuestionIssue(question) || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted &&
             <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady || saving || Boolean(unsaved)} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />{question && practiceQuestionIssue(question) ? 'Prepare another question' : 'Retry question'}</button></div>}
         </ConversationViewport>
-      </> : <div className="practice-scroll"><div className="practice-content"><label>Import reviewed assessment <input type="file" accept=".json,application/json" aria-label="Import reviewed assessment" disabled={saving || Boolean(unsaved)} onChange={e => { void importPack(e.target.files?.[0]); e.target.value = '' }} /></label></div><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
-        disabled={!scopeReady || !available || saving || Boolean(unsaved)} scope={scope} materials={props.materials} model={model} settings={settings}
-        modelSettings={model ? props.modelSettingsFor(model.id) : settings.modelDefaults} progress={progress}
-        cache={state.topicSuggestions} onCache={cache => onChange(current => ({ ...current, topicSuggestions: cache }))} onChoose={start} /></div>}
+      </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
+        disabled={!scopeReady || !available || saving || Boolean(unsaved)} scope={scope} materials={props.materials} sessions={state.sessions}
+        onChoose={start} /></div>}
       <div className="practice-status">
         {unsaved && <p role="alert">Changes have not been saved. <button type="button" disabled={saving} onClick={() => void persist(unsaved, current => current)}>Retry saving</button></p>}
         {error && <p className="practice-error" role="alert">{error}</p>}
@@ -344,7 +349,11 @@ export function PracticeScreen(props: Props) {
     </section>
     <StudyMaterialsPane catalog={catalog} scope={scope} open={materialsOpen}
       collectionExpansion={props.collectionExpansion} onCollectionExpansionChange={props.onCollectionExpansionChange}
-      onChange={setScope} onClose={() => setMaterialsOpen(false)} onManage={props.onOpenLibrary}>
+      onChange={setScope} onClose={() => setMaterialsOpen(false)} onManage={props.onOpenLibrary}
+      footerActions={!session && <>
+        <button type="button" className="study-action-button" disabled={saving || Boolean(unsaved)} onClick={() => quizFileInput.current?.click()}><Upload size={17} aria-hidden="true" />Import Quiz</button>
+        <input ref={quizFileInput} type="file" hidden accept=".json,application/json" aria-label="Import Quiz" disabled={saving || Boolean(unsaved)} onChange={e => { void importPack(e.target.files?.[0]); e.target.value = '' }} />
+      </>}>
       {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={props.sourceError}
         onOpenSource={source => props.onOpenSource(source, sources ?? [])} />}
     </StudyMaterialsPane>

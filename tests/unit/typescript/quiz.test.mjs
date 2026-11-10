@@ -3,7 +3,7 @@ import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
 const { quizFeedbackPrompt, quizQuestionPrompt, practiceSystemPrompt,
-  parsePracticeQuestion, parsePracticeTopics, parsePracticeFeedback, gradeTrueFalse, practiceResponseSchema } = requireTranspiledTs('src/shared/quiz.ts')
+  parsePracticeQuestion, checkPracticeQuestionAnswer, parsePracticeFeedback, gradeTrueFalse, practiceResponseSchema } = requireTranspiledTs('src/shared/quiz.ts')
 const source = { materialId: 'c', documentId: 1, chunkId: '1', excerpt: 'A missing index gives no direct key lookup. Heap records are not ordered by key.' }
 const packageData = { question: 'Why might searching an unindexed heap require a scan?', objective: 'Connect organization to lookup cost.',
   assumptions: ['No usable index.'], criteria: [
@@ -16,16 +16,6 @@ const feedback = { questionAssessment: 'The question states the necessary uninde
   { criterionId: 'c2', status: 'missing', feedback: 'You have not connected the file organization to the search.' }
 ], improvement: '', nextStep: 'Explain whether the organization narrows the search to a page.', questionIssue: '' }
 
-test('topic suggestions require evidence from the packed documents and short concept names', () => {
-  const raw = topics => JSON.stringify({ topics })
-  const topic = { title: 'Heap files', sourceKeys: ['c:1:1'] }
-  assert.deepEqual(parsePracticeTopics(raw([topic, { ...topic, title: 'heap files' }]), [source]), [{ title: 'heap files', sources: [source] }])
-  for (const invalid of [{ ...topic, sourceKeys: ['other:1:1'] }, { ...topic, sourceKeys: [] }, { ...topic, title: '' }, { ...topic, title: 'A question?' }]) {
-    assert.throws(() => parsePracticeTopics(raw([invalid]), [source]), /usable topic suggestions/)
-  }
-  assert.match(practiceSystemPrompt('topics'), /B\+ trees or Volcano model/)
-  assert.match(practiceSystemPrompt('topics'), /do not suggest them unless the documents cover them/)
-})
 
 test('topic prompts preserve the chosen concept and bound the copied Chat exchange', () => {
   const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 4, previousQuestions: ['Earlier statement'],
@@ -93,6 +83,7 @@ test('True/False keys are explicit booleans, backed by quoted evidence and an am
     assert.throws(() => gradeTrueFalse({ ...parsed, ...changes }, 'True'), /no usable/)
   }
   assert.equal(practiceResponseSchema('true_false_question').properties.correctAnswer.type, 'boolean')
+  assert.equal(practiceResponseSchema('true_false_question').properties.criteria.maxItems, 1)
   assert.match(practiceSystemPrompt('true_false_question'), /absence of evidence is not evidence of falsity/)
   assert.match(practiceSystemPrompt('true_false_question'), /unstated conditions/)
   assert.doesNotMatch(practiceSystemPrompt('true_false_question'), /heap|LRU|B\+|pinning/)
@@ -162,4 +153,14 @@ test('True/False rejects open-ended prompts even when the model supplies a confi
     'The text "What happens?" is stored as a string.',
     'A query explains how the data is selected.'
   ]) assert.doesNotThrow(() => parsePracticeQuestion(JSON.stringify({ ...binary, question: statement }), [source], 'true_false'))
+})
+
+
+test('independent answer checks reject disagreement, uncertainty and malformed judgments', () => {
+  const valid = {answer:'false',noveltyReason: 'No equivalent earlier claim.', topicReason:'Assesses the requested concept.',topicMatch:'direct',relationship:'new_claim',reason:'The passage contradicts the claim.'}
+  assert.doesNotThrow(()=>checkPracticeQuestionAnswer(JSON.stringify(valid),false))
+  for(const raw of ['bad', '{}', JSON.stringify(valid), JSON.stringify({...valid, answer:'uncertain'}), JSON.stringify({...valid, answer:'invalid'})])
+    assert.throws(()=>checkPracticeQuestionAnswer(raw,true),/valid question/)
+  assert.match(practiceSystemPrompt('verify_question'),/FULL passage/)
+  assert.match(practiceSystemPrompt('verify_question'),/No proposed answer key/)
 })

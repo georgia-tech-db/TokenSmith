@@ -404,6 +404,7 @@ function normalizeIndexingProgress(material: CourseMaterial): MaterialIndexProgr
     rawPhase === 'chunking' ||
     rawPhase === 'embedding' ||
     rawPhase === 'saving' ||
+    rawPhase === 'topics' ||
     rawPhase === 'complete' ||
     rawPhase === 'error'
       ? rawPhase
@@ -1513,7 +1514,7 @@ export function App() {
               return {
                 ...material,
                 status: 'ready',
-                detail: 'Ready for chat',
+                detail: 'Ready for chat and practice',
                 indexing: undefined,
                 isActive: true
               }

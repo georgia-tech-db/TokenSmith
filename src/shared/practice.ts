@@ -109,6 +109,7 @@ export interface PracticeSession {
   questions: PracticeQuestion[]
   currentIndex: number
   sourcesExhausted?: boolean
+  questionSourceCursor?: number
   topic?: PracticeTopic
   observations?: PracticeObservation[]
   assessment?: { packId: string; version: string; completedAt?: string }

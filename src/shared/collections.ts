@@ -1,5 +1,3 @@
-import type { StudyDocumentRef } from './study-scope'
-
 export interface CollectionManifest {
   format: 'tokensmith-collection'
   version: 1
@@ -29,10 +27,4 @@ export function splitMaterialId(id: string): { collectionId: string; localId: st
 
 export function materialCollectionId(id?: string): string | undefined {
   return id?.includes('/') ? id.slice(0, id.indexOf('/')) : undefined
-}
-
-export interface SavedCollectionTopics {
-  version: 1
-  indexRevision: string
-  topics: Array<{ title: string; documents: StudyDocumentRef[] }>
 }

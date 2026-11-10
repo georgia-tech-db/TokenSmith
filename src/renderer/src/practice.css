@@ -99,7 +99,6 @@
 
 .practice-topic-picker { width: min(620px, 100%); margin: 48px auto; }
 .practice-topic-picker h1 { font-size: 1.45rem; line-height: 1.4; margin: 0 0 24px; }
-.practice-topic-picker .practice-topic-suggestions { margin: 0 0 24px; }
 .practice-topic-picker form > label { display: block; margin-bottom: 8px; font-weight: 600; }
 .practice-topic-picker .composer { display: flex; align-items: center; padding: 10px 12px; }
 .practice-topic-picker input { flex: 1; min-width: 0; padding: 8px; border: 0; background: transparent; color: var(--ink); font: inherit; }
@@ -112,3 +111,22 @@
 .practice-topic-reference > summary { cursor: pointer; color: var(--muted); margin-bottom: 20px; }
 .practice-topic-reference .message-row:last-child { margin-bottom: 20px; }
 @media (max-width: 480px) { .practice-topic-bar { padding: 8px 14px; } .practice-topic-picker { margin: 24px auto; } }
+
+.practice-topic-inventory { margin: 1.5rem 0 2rem; }
+.practice-topic-entry { border-bottom: 1px solid var(--border-color, #ddd); padding: .7rem 0; }
+.practice-topic-entry button { text-align: left; font-weight: 600; }
+.practice-topic-entry p { margin: .4rem 0; font-size: .9rem; }
+.practice-topic-entry small { display: block; opacity: .7; overflow-wrap: anywhere; }
+.practice-topic-filters { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; }
+.practice-topic-filters button { font: inherit; font-size: .85rem; }
+.practice-topic-picker .practice-topic-progress-note { font-size: .82rem; margin: 8px 0 14px; }
+.practice-topic-entry .practice-topic-progress { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: .8rem; margin: 8px 0; }
+
+.practice-topic-picker .practice-chapter-back { margin: 0 0 12px; }
+.practice-topic-picker .practice-topic-search { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
+.practice-chapter-list { display: grid; gap: 8px; }
+.practice-chapter-button { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.practice-chapter-button:hover { background: var(--surface-muted, var(--panel-soft)); }
+.practice-chapter-button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.practice-chapter-button strong { display: block; font-weight: 600; }
+.practice-chapter-button small { display: block; margin-top: 5px; color: var(--muted); }

@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { Collection, CollectionManifest, SavedCollectionTopics } from '../../shared/collections'
-import { collectionMaterialId, splitMaterialId } from '../../shared/collections'
-import type { StudyDocumentRef } from '../../shared/study-scope'
-import type { PracticeTopic } from '../../shared/practice'
+import type { Collection, CollectionManifest } from '../../shared/collections'
+import { splitMaterialId } from '../../shared/collections'
 
 const manifestName = 'collection.json'
 interface Entry { id: string; path: string; name: string; loaded: boolean; mappings?: Record<string, { from: string; to: string }> }
@@ -191,41 +189,23 @@ export class CollectionRegistry {
     if (item.sourceBasePath && inside(item.path, path)) return resolve(item.sourceBasePath, relative(item.path, path))
     return path
   }
-  async topics(documents: StudyDocumentRef[]): Promise<PracticeTopic[]> {
-    const keys = new Set(documents.map(d => `${d.materialId}:${d.documentId}`))
-    const ids = [...new Set(documents.map(d => splitMaterialId(d.materialId).collectionId))]
-    const result: PracticeTopic[] = []
-    for (const id of ids) {
-      const item = this.get(id)
-      try {
-        const saved = await readJson(join(item.path, 'topics.json')) as SavedCollectionTopics
-        this.current(item)
-        if (saved.version !== 1 || saved.indexRevision !== item.indexRevision || !Array.isArray(saved.topics)) continue
-        for (const topic of saved.topics) {
-          if (typeof topic.title !== 'string' || !topic.title.trim() || topic.title.length > 100 || !Array.isArray(topic.documents) || !topic.documents.length) continue
-          if (topic.documents.every(d => keys.has(`${collectionMaterialId(id, d.materialId)}:${d.documentId}`))) result.push({ title: topic.title })
-        }
-      } catch (error) { this.current(item) /* Missing or malformed optional data never prevents basic search. */ }
-    }
-    return [...new Map(result.map(t => [t.title.toLowerCase(), t])).values()].slice(0, 6)
+  async topicInventory(id: string): Promise<import('../../shared/topic-inventory').TopicInventory | null> {
+    const item = this.get(id)
+    try {
+      const value = await readJson(join(item.path, 'topic-inventory.json'), 20_000_000) as import('../../shared/topic-inventory').TopicInventory
+      this.current(item)
+      if (value.version !== 3 || value.collectionId !== id || !value.batches || !Array.isArray(value.topics)) return null
+      return value
+    } catch { this.current(item); return null }
   }
-  async saveTopics(documents: StudyDocumentRef[], topics: PracticeTopic[], expectedRevision: string) {
+  async saveTopicInventory(value: import('../../shared/topic-inventory').TopicInventory, revision: string) {
     return this.serial(async () => {
-      const ids = [...new Set(documents.map(d => splitMaterialId(d.materialId).collectionId))]
-      if (ids.length !== 1) return
-      const item = this.get(ids[0])
-      if (item.indexRevision !== expectedRevision) return
-      const refs = documents.map(d => ({ ...d, materialId: splitMaterialId(d.materialId).localId }))
-      let previous: SavedCollectionTopics['topics'] = []
-      try {
-        const saved = await readJson(join(item.path, 'topics.json')) as SavedCollectionTopics
-        if (saved.version !== 1 || !Array.isArray(saved.topics)) return
-        const key = (docs: StudyDocumentRef[]) => docs.map(d => `${d.materialId}:${d.documentId}`).sort().join('|')
-        if (saved.indexRevision === item.indexRevision) previous = saved.topics.filter(t => Array.isArray(t.documents) && key(t.documents) !== key(refs))
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return }
-      const saved: SavedCollectionTopics = { version: 1, indexRevision: item.indexRevision,
-        topics: [...topics.filter(t => t.title.trim() && t.title.length <= 100).slice(0, 6).map(t => ({ title: t.title, documents: refs })), ...previous].slice(0, 200) }
-      await writeJson(join(item.path, 'topics.json'), saved)
+      const item = this.get(value.collectionId)
+      if (item.indexRevision !== revision) throw new Error('The collection changed. Resume topic generation with the updated documents.')
+      if (value.version !== 3 || value.indexRevision !== revision || !Array.isArray(value.topics) || !value.batches ||
+          JSON.stringify(value).length > 20_000_000) throw new Error('Invalid topic inventory.')
+      await writeJson(join(item.path, 'topic-inventory.json'), value)
+      this.current(item)
     })
   }
 }

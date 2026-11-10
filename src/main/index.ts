@@ -1,3 +1,5 @@
+import { createBookPreparation } from './collections/book-preparation'
+import { runOllamaStudyEngine } from './engine/ollama-service'
 import { createStateWriter } from './atomic-state'
 import { materialCollectionId } from '../shared/collections'
 import type { IndexMaterialOptions } from '../shared/preparation'
@@ -23,7 +25,8 @@ import {
   resolveSourceDocumentWithPython,
   searchLibraryWithPython,
   setMaterialEnabledWithPython,
-  starterSourcesWithPython
+  starterSourcesWithPython,
+  topicSourcesWithPython
 } from './python/python-engine-service'
 import { getModelContextMetadata } from './engine/model-context-metadata'
 import { CloudGeneratorService, cloudResult } from './engine/cloud-generator-service'
@@ -60,6 +63,20 @@ import type {
   PickMaterialFolderResult,
   PickMaterialsResult
 } from '../shared/engine'
+
+const bookPreparation = createBookPreparation({
+  state: () => loadAppState(),
+  index: (id, path, model, options, progress) => indexMaterialWithPython(path, model, id, options, progress),
+  cancelIndex: cancelMaterialIndexingWithPython,
+  progress: progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:index-progress', progress) },
+  topics: signal => ({
+    studyDocuments: studyDocumentsWithPython, topicSources: topicSourcesWithPython,
+    loadTopicInventory: id => collections().topicInventory(id),
+    saveTopicInventory: (inventory, revision) => collections().saveTopicInventory(inventory, revision),
+    sendChatMessage: request => runOllamaStudyEngine(request, { signal })
+  })
+})
+app.on('before-quit', () => bookPreparation.cancelAll())
 
 const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
@@ -523,11 +540,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('collections:load', (_event, path: string) => collections().load(path))
   ipcMain.handle('collections:unload', (_event, id: string) => collections().unload(id, async () => {
     for (const request of collectionRequests) if (request.ids.has(id)) request.controller.abort()
+    await bookPreparation.cancelCollection(id)
     await cancelCollectionIndexing(id)
   }))
   ipcMain.handle('collections:locate-folder', (_event, materialId: string, path: string) => locateCollectionFolder(materialId, path))
-  ipcMain.handle('collections:topics', (_event, documents: StudyDocumentRef[]) => collections().topics(documents))
-  ipcMain.handle('collections:save-topics', (_event, documents: StudyDocumentRef[], topics: import('../shared/practice').PracticeTopic[], revision: string) => collections().saveTopics(documents, topics, revision))
+  ipcMain.handle('collections:topic-inventory', (_event, id: string) => collections().topicInventory(id))
   ipcMain.handle('library:pick-materials', () => pickMaterials())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) =>
@@ -546,7 +563,7 @@ app.whenReady().then(async () => {
   )
   ipcMain.handle('library:get-markdown-for-source', (_event, source: ChatSource) => getMarkdownForSource(source))
   ipcMain.handle('library:cancel-index-material', (_event, materialId: string) =>
-    cancelMaterialIndexingWithPython(materialId)
+    bookPreparation.cancel(materialId)
   )
   ipcMain.handle(
     'library:preview-cleaning',
@@ -567,7 +584,7 @@ app.whenReady().then(async () => {
       materialPath: string,
       embeddingModel?: LocalModel,
       options?: IndexMaterialOptions
-    ) => indexMaterialWithPython(materialPath, embeddingModel, materialId, options)
+    ) => bookPreparation.run(materialId, materialPath, embeddingModel, options)
   )
   ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string, materialId?: string) => preparationReportWithPython(path, documentPath, materialId))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())

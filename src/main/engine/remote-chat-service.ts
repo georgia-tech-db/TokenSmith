@@ -252,7 +252,7 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
   if (request.practiceTask) {
     const prepared = prepareStudyChatMessages(runtimeRequest)
     const text = await runRemoteChatCompletion(config, prepared.messages, {
-      temperature: request.practiceTask === 'feedback' ? 0 : 0.3, requireComplete: true, signal: options.signal
+      temperature: ['feedback', 'verify_question'].includes(request.practiceTask) ? 0 : 0.3, requireComplete: true, signal: options.signal
     })
     return { engineId: 'tokensmith', modelName: request.model.name, text, sources: prepared.sources }
   }

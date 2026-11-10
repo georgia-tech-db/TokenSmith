@@ -848,6 +848,7 @@ function ollamaOptions(settings?: ModelRuntimeSettings): Record<string, number> 
 }
 
 interface OllamaCompletionOverrides {
+  timeoutMs?: number
   maxTokens?: number
   temperature?: number
   format?: Record<string, unknown>
@@ -869,7 +870,7 @@ async function requestOllamaChatCompletion(
       settings.contextLength) }
   }
   // Keep cancellation and timeout active until the response body is consumed.
-  const timeout = AbortSignal.timeout(overrides.thinking ? 300_000 : 180_000)
+  const timeout = AbortSignal.timeout(overrides.timeoutMs ?? (overrides.thinking ? 300_000 : 180_000))
   const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
     method: 'POST',
     headers: {
@@ -950,7 +951,8 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
     // Its generated token is discarded; it is never reused as answer/history.
     const preflightTimer = startLatencySpan('Context check')
     const measured = await requestOllamaChatCompletion(baseUrl, modelName, prepared.messages, candidate.modelSettings, {
-      maxTokens: 1, temperature: 0, thinking: candidate.modelSettings?.thinking === true, signal
+      maxTokens: 1, temperature: 0, thinking: candidate.modelSettings?.thinking === true, signal,
+      timeoutMs: request.practiceTask === 'chapter_topics' ? 600_000 : undefined
     })
     const promptTokens = measured.prompt_eval_count
     if (!Number.isInteger(promptTokens) || Number(promptTokens) <= 0) {
@@ -984,7 +986,7 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
           Number(promptTokens) + prepared.budget.answerReserveTokens + prepared.budget.safetyMarginTokens), ceiling) } }
       continue
     }
-    if (candidate.practiceTask === 'feedback' || prepared.sources.length <= 1) {
+    if (candidate.practiceTask === 'feedback' || candidate.practiceTask === 'chapter_topics' || candidate.practiceTask === 'verify_question' || prepared.sources.length <= 1) {
       throw new Error('The complete question and source cannot fit with the answer allowance. Increase Context Length or reduce Max Length.')
     }
     candidate = { ...candidate, retrievedSources: prepared.sources.slice(0, -1) }
@@ -1091,8 +1093,9 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   if (request.practiceTask) {
     const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
     const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, verified.request.modelSettings, {
-      format: practiceResponseSchema(request.practiceTask), temperature: request.practiceTask === 'feedback' ? 0 : 0.3,
-      thinking: false, signal: options.signal
+      format: practiceResponseSchema(request.practiceTask, request.practiceAllowedIds), temperature: ['feedback', 'chapter_topics', 'verify_question'].includes(request.practiceTask) ? 0 : 0.3,
+      thinking: false, signal: options.signal,
+      timeoutMs: request.practiceTask === 'chapter_topics' ? 600_000 : undefined
     })
     return { engineId: 'tokensmith', modelName: request.model.name, text, sources: verified.sources }
   }

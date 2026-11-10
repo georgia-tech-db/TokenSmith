@@ -1,42 +1,24 @@
-import type { ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
+import type { ChatSource, CourseMaterial, LocalModel, TokenSmithSettings } from '@shared/app-state'
 import type { TokenSmithBridge } from '@shared/bridge'
 import type { PracticeQuestion, PracticeSession } from '@shared/practice'
 import { practiceSourceKey, practiceReference, practiceDiscussionPassage, practiceQuestionText } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
-import { parsePracticeQuestion, PracticeQuestionValidationError, parsePracticeTopics, quizQuestionPrompt } from '../../shared/quiz'
-import { sourcesInScope, type StudyDocumentRef } from '../../shared/study-scope'
+import { parsePracticeQuestion, checkPracticeQuestionAnswer, PracticeQuestionValidationError, quizQuestionPrompt } from '../../shared/quiz'
+import { sourcesInScope } from '../../shared/study-scope'
 
 export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel, settings: TokenSmithSettings,
   retrieval?: { materials: CourseMaterial[]; embeddingModels: LocalModel[] }) {
-  async function send(session: PracticeSession, requestId: string, prompt: string, sources: ChatSource[]) {
+  async function send(session: PracticeSession, requestId: string, prompt: string, sources: ChatSource[], practiceTask: 'true_false_question' | 'verify_question' = 'true_false_question') {
     if (model.id !== session.modelId || model.status !== 'ready') throw new Error('The model used for this session is unavailable. Reconnect it before continuing.')
     return bridge.sendChatMessage({
-      requestId, practiceTask: 'true_false_question', prompt, messages: [], materials: [], model, settings,
+      requestId, practiceTask, prompt, messages: [], materials: [], model, settings,
       retrievedSources: sources, conversationContextMode: 'standalone', reasoning: false,
       applicationSettings: { ...settings.application, suggestionMode: 'off', explanationDepthEnabled: false },
       modelSettings: { ...session.modelSettings, systemMessage: '', reasoningMode: 'off', thinking: false,
-        maxLength: Math.min(session.modelSettings.maxLength, 2048) }
+        maxLength: Math.min(session.modelSettings.maxLength, practiceTask === 'verify_question' ? 512 : 2048) }
     })
   }
   return {
-    async topics(documents: StudyDocumentRef[], modelSettings: ModelRuntimeSettings, requestId: string, signal: AbortSignal) {
-      const sources = sourcesInScope(await bridge.starterSources(retrieval?.materials ?? [], 24, documents), documents)
-      signal.throwIfAborted()
-      if (!sources.length) return []
-      // Short temporary IDs are easier for small models to copy than stored chunk hashes.
-      const evidence = sources.map((source, index) => ({ ...source, sourceUnitId: `topic-${index + 1}`,
-        context: undefined, excerpt: (source.context || source.excerpt).slice(0, 500) }))
-      const reply = await bridge.sendChatMessage({ requestId, practiceTask: 'topics', model, settings, materials: [], messages: [],
-        prompt: 'Select a few named concepts or methods to practice. Name one concept per topic. Do not summarize the whole document or merge distinct concepts into broad categories.',
-        retrievedSources: evidence,
-        applicationSettings: { ...settings.application, suggestionMode: 'off', explanationDepthEnabled: false }, reasoning: false,
-        modelSettings: { ...modelSettings, systemMessage: '', reasoningMode: 'off', thinking: false, maxLength: Math.min(modelSettings.maxLength, 768) } })
-      signal.throwIfAborted()
-      const included = new Set(reply.sources.map(practiceSourceKey))
-      const originals = new Map(evidence.map((source, index) => [practiceSourceKey(source), sources[index]]))
-      return parsePracticeTopics(reply.text, evidence.filter(source => included.has(practiceSourceKey(source))))
-        .map(topic => ({ ...topic, sources: topic.sources!.map(source => originals.get(practiceSourceKey(source))!) }))
-    },
     async prepareTopic(session: PracticeSession, signal: AbortSignal): Promise<PracticeSession> {
       if (!session.topic) return session
       let sources = sourcesInScope(session.topic.sources ?? [], session.documents)
@@ -59,34 +41,52 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       if (!sources.length) throw new Error('No supporting passages were found for this topic in the selected documents. Choose another topic or change the selected documents.')
       return { ...session, topic: { ...session.topic, sources, prepared: true } }
     },
-    async question(session: PracticeSession, requestId: string, signal: AbortSignal): Promise<PracticeQuestion | null> {
-      const pool = session.topic ? sourcesInScope(session.topic.sources ?? [], session.documents) : []
-      const offset = pool.length ? session.questions.length % pool.length : 0
-      const sources = session.topic ? [...pool.slice(offset), ...pool.slice(0, offset)].slice(0, 4)
+    async question(session: PracticeSession, requestId: string, signal: AbortSignal,
+      onAttempt?: (nextCursor: number, attempt: number, total: number) => void, onStage?: (label: string) => void): Promise<PracticeQuestion | null> {
+      signal.throwIfAborted()
+      const candidates = session.topic ? sourcesInScope(session.topic.sources ?? [], session.documents)
         : await bridge.practiceSources(session.documents,
           session.questions.flatMap(question => question.sources.map(practiceSourceKey)), session.questions.length)
       signal.throwIfAborted()
-      if (!sources.length) return null
+      // Saved topic citations and retrieval can refer to the same chunk with different unit IDs.
+      const pool = [...new Map(candidates.map(source => [
+        [source.materialId, source.documentId, source.chunkId || source.chunkRowid || practiceSourceKey(source)].join(':'), source
+      ])).values()]
+      if (!pool.length) return null
+      const cursor = Number.isSafeInteger(session.questionSourceCursor) && session.questionSourceCursor! >= 0
+        ? session.questionSourceCursor! : session.questions.length
+      // One self-contained passage per attempt avoids stitching unrelated claims.
+      // Visit alternatives before reusing evidence; a lone passage gets one repair.
+      const total = Math.min(4, Math.max(2, pool.length))
       const prompt = { questionNumber: session.questions.length + 1,
         previousQuestions: session.questions.slice(-12).map(practiceQuestionText), topic: session.topic }
-      let prepared: ReturnType<typeof parsePracticeQuestion> | undefined
-      let correction: string | undefined
-      for (let attempt = 0; attempt < 2; attempt++) {
+      let lastError: PracticeQuestionValidationError | undefined
+      for (let attempt = 0; attempt < total; attempt++) {
         signal.throwIfAborted()
-        const reply = await send(session, requestId, quizQuestionPrompt({ ...prompt, correction }), sources)
+        const sources = [pool[(cursor + attempt) % pool.length]]
+        onAttempt?.(cursor + attempt + 1, attempt + 1, total)
         signal.throwIfAborted()
-        try { prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false'); break }
-        catch (error) {
-          if (!(error instanceof PracticeQuestionValidationError) || attempt === 1) throw error
-          correction = `The previous package failed validation: ${error.reason} Return a fresh, declarative True/False statement with a period, not a question or instruction. For each citation, copy a short exact quote and its Evidence ID from the SAME supplied passage. Do not combine quotes or alter their markup. Recheck the answer key against that evidence.`
+        const correction = lastError && `The previous package failed validation: ${lastError.reason} Prepare a fresh, declarative True/False statement with a period, not a question or instruction. Use only the passage supplied NOW. Copy one short exact quote and its Evidence ID from the SAME supplied passage; never stitch table rows or cite a table header. Recheck the answer key against that evidence.`
+        try {
+          const reply = await send(session, requestId, quizQuestionPrompt({ ...prompt, correction }), sources)
+          signal.throwIfAborted()
+          const prepared = parsePracticeQuestion(reply.text, reply.sources, 'true_false')
+          if (session.questions.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase()))
+            throw new PracticeQuestionValidationError('The model repeated an earlier question. Choose a different claim on this topic.')
+          onStage?.('Checking answer')
+          const checked = await send(session, requestId, JSON.stringify({ statement: prepared.text }), prepared.sources, 'verify_question')
+          signal.throwIfAborted()
+          checkPracticeQuestionAnswer(checked.text, prepared.correctAnswer!)
+          return { id: crypto.randomUUID(), ...prepared, draft: '', attempts: [], reviewing: false, timeline: [] }
+        } catch (error) {
+          signal.throwIfAborted()
+          if (error instanceof PracticeQuestionValidationError) lastError = error
+          else if (error instanceof Error && /structured model response exceeded its output limit|Ollama returned an empty response/.test(error.message))
+            lastError = new PracticeQuestionValidationError('The response was incomplete. Keep the question package concise.')
+          else throw error // Connection/configuration failures need attention, not more model calls.
         }
       }
-      if (!prepared) throw new Error('Could not prepare a True/False statement. Try again.')
-      if (session.topic && session.questions.some(question => question.text.trim().toLocaleLowerCase() === prepared.text.trim().toLocaleLowerCase())) {
-        throw new Error('The model repeated an earlier question. Try another question, or choose Practice another topic.')
-      }
-      return { id: crypto.randomUUID(), ...prepared,
-        draft: '', attempts: [], reviewing: false, timeline: [] }
+      throw new PracticeQuestionValidationError(lastError!.reason, total)
     },
     async discuss(session: PracticeSession, question: PracticeQuestion, prompt: string, requestId: string) {
       if (model.id !== session.modelId || model.status !== 'ready') throw new Error('The model used for this session is unavailable. Reconnect it before continuing.')
