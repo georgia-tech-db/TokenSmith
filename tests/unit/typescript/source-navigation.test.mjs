@@ -28,3 +28,11 @@ test('Library navigation uses collection files, preserves the clicked passage an
   assert.equal(list[3].pageStart,1)
   assert.equal(list[3].materialId,'collection')
 })
+
+test('library reader keeps each document identity when files were added separately', () => {
+  const documents = sources.map((source, i) => ({ ...source, materialId: `library/${i}`, documentId: i + 1 }))
+  const clicked = { ...documents[0], lineFrom: 12 }
+  const list = collectionDocumentSources(clicked, documents)
+  assert.equal(list[0], clicked)
+  assert.deepEqual(list.map(s => [s.materialId, s.documentId]), documents.map(d => [d.materialId, d.documentId]))
+})

@@ -1945,6 +1945,14 @@ def practice_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"sources": sources, "reason": None if sources else "no_unused_passages"}
 
 
+def topic_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
+    documents = validate_study_documents(payload["userDataPath"], payload.get("documents", []))
+    if not documents:
+        return {"sources": []}
+    rows = practice_source_rows(payload["userDataPath"], documents)
+    return {"sources": [source_from_sqlite_chunk(row, [], strip_exercises=True) for row in rows]}
+
+
 def starter_sources(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_data_path = payload["userDataPath"]
     limit = int(payload.get("limit") or 4)
@@ -2039,13 +2047,21 @@ def resolve_source_document(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"source": source_document_for_source(payload["userDataPath"], source)}
 
 
+try:
+    import tokensmith_collections
+except ImportError:
+    from python_engine import tokensmith_collections
+
 COMMANDS = {
+    'validate_collection': tokensmith_collections.validate,
+    'create_collection': tokensmith_collections.create,
     "health": health,
     "preview_cleaning": preview_cleaning,
     "index_material": index_material,
     "preparation_report": preparation_report,
     "search": search_library,
     "starter_sources": starter_sources,
+    "topic_sources": topic_sources,
     "study_documents": list_study_documents,
     "practice_sources": practice_sources,
     "list_materials": list_indexed_materials,

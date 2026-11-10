@@ -89,6 +89,7 @@ interface SourceContextOptions {
   explanationDepth?: ExplanationDepth
   systemInstructions?: string
   includeEvidenceIds?: boolean
+  compactSources?: boolean
   wholeSources?: boolean
 }
 
@@ -308,7 +309,7 @@ export function packSourceContext(
   let truncatedSourceCount = 0
 
   for (const source of sources) {
-    const prefix = (options.includeEvidenceIds ? `Evidence ID: ${practiceSourceKey(source)}\n` : '') + sourcePrefix(source)
+    const prefix = (options.includeEvidenceIds ? `Evidence ID: ${practiceSourceKey(source)}\n` : '') + (options.compactSources ? `${source.sectionHeader ? `Section: ${source.sectionHeader}\n` : ''}Text: ` : sourcePrefix(source))
     const suffix = '\n### End source unit\n'
     if (!options.includeBudget) {
       const unbudgetedText = sourceText(source)
@@ -496,7 +497,7 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     | Partial<ModelRuntimeSettings>
     | undefined
   const modelSettings = request.practiceTask ? { ...runtimeSettings, systemMessage: '' } : runtimeSettings
-  const practiceInstructions = request.practiceTask ? practiceSystemPrompt(request.practiceTask) : undefined
+  const practiceInstructions = request.practiceTask ? practiceSystemPrompt(request.practiceTask, request.practiceAllowedIds) : undefined
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = answerPromptForRequest(request)
   const referenceText = request.practiceTask ? '' : chatReferenceText(request)
@@ -511,7 +512,8 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     explanationDepth: request.practiceTask ? undefined : requestExplanationDepth(request.applicationSettings),
     systemInstructions: practiceInstructions,
     includeEvidenceIds: Boolean(request.practiceTask),
-    wholeSources: Boolean(request.practiceTask)
+    wholeSources: Boolean(request.practiceTask),
+    compactSources: request.practiceTask === 'chapter_topics'
   })
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
@@ -522,8 +524,8 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   if (request.retrievedSources?.length && !sources.length) {
     throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
   }
-  if (request.practiceTask === 'feedback' && sources.length !== request.retrievedSources?.length) {
-    throw new Error('The full grading evidence does not fit this model context. Increase Context Length before checking the answer.')
+  if (request.practiceTask === 'chapter_topics' && sources.length !== request.retrievedSources?.length) {
+    throw new Error('The full chapter text does not fit this model context.')
   }
   const userContent = context || referenceText
     ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')

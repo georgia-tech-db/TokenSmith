@@ -1,5 +1,29 @@
 # Chat Interaction Checks
 
+## Collection lifecycle
+
+With the preview server below, run `node tests/ui/collections-check.mjs` (set
+`PRACTICE_UI_URL` to the server's `/tests/ui/practice.html` URL). This exercises
+New/Load/Unload, invalid-folder recovery, restart state, saved topics, unloading
+during Chat and Practice, rejection of late replies, and desktop/narrow layouts.
+The fixture never uses real model calls or personal app data.
+
+After `npm run build`, `node tests/ui/collection-native-check.mjs` exercises the
+built Electron app and its real preload/IPC with disposable app data and real
+empty indexes. It verifies legacy study-data reset while retaining settings and
+models, creation, unload, restart, and reload. `ELECTRON_PATH` can override the
+default macOS development executable. Both checks accept `PLAYWRIGHT_MODULE`;
+the browser check also accepts `CHROME_PATH`.
+
+`npm run test:integration` includes real document indexing and retrieval across
+two collection databases with overlapping IDs. Embedding responses come from a
+local deterministic server. It checks moved folders, source relocation, saved
+topics, byte-preserving load/unload, repeated reload, and cancellation of real
+Python search/indexing workers. Registry/format edge cases also run in the
+TypeScript and Python unit suites.
+
+## Chat fixture
+
 Run `npx vite --config tests/ui/vite.config.mjs --host 127.0.0.1 --port 5186`, then open
 `http://127.0.0.1:5186/tests/ui/chat-interactions.html`.
 
@@ -89,6 +113,16 @@ This drives the production UI with fake credentials: two chat models and one emb
 
 Service tests separately cover encrypted restart persistence, endpoint isolation, invalid embedding responses, concurrent connection changes, and main-process credential injection into indexing/search requests. No real cloud account is contacted.
 
+Practice uses the same reader through **Read while waiting** in Settings. This can
+be turned off while keeping **Show Sources** enabled. Run `node tests/ui/practice-source-preview-check.mjs` with
+`PRACTICE_UI_URL` pointing to the preview's `/tests/ui/practice.html` (default port
+5198). It checks matching evidence, completion, dismissal, cancellation, late/failed
+loads, navigation, saved preferences, manual reading, and desktop/mobile layout.
+The fixture uses simulated model replies and documents. Source cards appear before
+answering without clicking Source. Manual and automatic source reading do not count
+as help or suppress mastery; actual Chat help still does. Screenshots are saved
+under `/tmp/tokensmith-practice-source-preview`.
+
 ## Contents and mixed source navigation
 
 Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies two Markdown files and two PDFs, both as retrieved sources and as a Library collection.
@@ -110,3 +144,28 @@ persistence, and desktop/mobile layout. It uses `query-plan.html` and the full-a
 `reasoning-retry.html?plan-test` fixture. See [query-plan.md](../../docs/query-plan.md)
 for commands. Set `QUERY_PLAN_UI_URL` to the fixture server origin (default
 `http://127.0.0.1:5196`) and optionally `QUERY_PLAN_OUTPUT` for screenshots.
+
+## Topic practice progress
+
+Run `node tests/ui/topic-progress-check.mjs` against the fixture server, with
+`TOPIC_PROGRESS_UI_URL` pointing to `/tests/ui/topic-progress.html` (default port
+5197). Set `PLAYWRIGHT_MODULE` and `CHROME_PATH` for an external browser installation.
+
+This uses the production topic picker and saved-state normalization with disposable
+books and practice records. It checks chapter/topic mastery bars, help, recent mistakes,
+collection isolation, preserved topic/source identity, filters, session deletion,
+reload, keyboard access, collapsible details, and compact desktop/mobile layouts. It makes no model calls and
+does not touch the desktop app's data. Screenshots go to `/tmp/tokensmith-mastery-ui`.
+
+Run `node tests/ui/practice-history-check.mjs` with `PRACTICE_UI_URL` pointing to
+`/tests/ui/practice.html` (default port 5198) to test the real Practice screen's
+compact action row, View mastery, export download, cancelled/confirmed history clearing, and
+saved mastery after reload. It uses disposable browser data and fake model replies.
+Desktop/mobile screenshots go to `/tmp/tokensmith-practice-history`.
+
+Run `node tests/ui/practice-limits-check.mjs` against the same fixture to check
+passage-based session limits, same-passage prompt history, completion without an
+extra model call, reload, reviewing old feedback, and switching topics. It uses
+disposable one- and six-passage topics on desktop and mobile; unit tests also
+cover ten passages and failed/cancelled requests. Screenshots go to
+`/tmp/tokensmith-practice-limits`.

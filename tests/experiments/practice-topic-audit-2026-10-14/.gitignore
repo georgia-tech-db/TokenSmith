@@ -1,0 +1,4 @@
+# Local captures contain full course excerpts and machine-specific paths.
+/results.json
+/verification.json
+/report.html

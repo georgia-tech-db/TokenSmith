@@ -1,3 +1,7 @@
+import { observeModelLoading } from '../engine/model-loading'
+import { localDocuments, qualifyMaterial, qualifyDocument, qualifySource, mergeCollectionSources } from '../collections/collection-routing'
+import { CollectionRegistry, type MountedCollection } from '../collections/collection-registry'
+import { collectionMaterialId, splitMaterialId } from '../../shared/collections'
 import type { IndexMaterialOptions, PreparationReport } from '../../shared/preparation'
 import type { StudyDocument, StudyDocumentRef, LibrarySearchOptions } from '../../shared/study-scope'
 import { normalizeEmbeddingGpuEnabled } from '../../shared/embedding-settings'
@@ -6,7 +10,7 @@ import { modelWithRememberedRemoteApiKey } from '../engine/remote-model-secrets'
 import { app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
@@ -17,9 +21,12 @@ interface PythonRequest {
   id: string
   command:
     | 'health'
+    | 'validate_collection'
+    | 'create_collection'
     | 'index_material'
     | 'search'
     | 'starter_sources'
+    | 'topic_sources'
     | 'study_documents'
     | 'practice_sources'
     | 'list_materials'
@@ -121,21 +128,7 @@ function pythonLatencySpan(value: unknown): LatencySpan | undefined {
   }
 }
 
-let worker: ChildProcessWithoutNullStreams | null = null
 const prepareEmbeddingDevice = createEmbeddingDeviceManager()
-let workerBuffer = ''
-const pendingRequests = new Map<
-  string,
-  {
-    command: PythonRequest['command']
-    materialId?: string
-    reject: (reason?: unknown) => void
-    onProgress?: (progress: MaterialIndexProgress) => void
-    resolve: (value: unknown) => void
-    timeout: NodeJS.Timeout
-    timeoutMs: number
-  }
->()
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -357,222 +350,243 @@ function appPythonEnv(pythonExecutable: string): Record<string, string> {
       }
 }
 
-function rejectPendingRequests(reason: Error): void {
-  for (const request of pendingRequests.values()) {
-    clearTimeout(request.timeout)
-    request.reject(reason)
-  }
-  pendingRequests.clear()
-}
-
-function killWorkerProcess(activeWorker: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  const pid = activeWorker.pid
-
-  if (pid && process.platform !== 'win32') {
-    try {
-      process.kill(-pid, signal)
-      return
-    } catch {
-      // Fall back to killing the direct child when process-group termination is unavailable.
+const terminatingWorkers = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>()
+function terminatePythonWorker(child: ChildProcessWithoutNullStreams): Promise<void> {
+  const pending = terminatingWorkers.get(child)
+  if (pending) return pending
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  const termination = new Promise<void>(resolve => {
+    const kill = (signal: NodeJS.Signals) => {
+      if (child.pid && process.platform !== 'win32') {
+        try { process.kill(-child.pid, signal); return } catch { /* Fall back to the child. */ }
+      }
+      child.kill(signal)
     }
-  }
-
-  activeWorker.kill(signal)
+    const forceKill = setTimeout(() => kill('SIGKILL'), 1500)
+    forceKill.unref?.()
+    child.once('close', () => { clearTimeout(forceKill); resolve() })
+    kill('SIGTERM')
+  })
+  terminatingWorkers.set(child, termination)
+  return termination
 }
 
-function terminateWorker(reason: string): void {
-  const activeWorker = worker
-  if (!activeWorker) {
-    return
+function createPythonWorker() {
+  let worker: ChildProcessWithoutNullStreams | null = null
+  let workerBuffer = ''
+  const pendingRequests = new Map<
+    string,
+    {
+      command: PythonRequest['command']
+      materialId?: string
+      reject: (reason?: unknown) => void
+      onProgress?: (progress: MaterialIndexProgress) => void
+      resolve: (value: unknown) => void
+      timeout: NodeJS.Timeout
+      timeoutMs: number
+    }
+  >()
+
+  function rejectPendingRequests(reason: Error): void {
+    for (const request of pendingRequests.values()) {
+      clearTimeout(request.timeout)
+      request.reject(reason)
+    }
+    pendingRequests.clear()
   }
 
-  writeLog('python_worker_terminating', {
-    reason,
-    pid: activeWorker.pid
-  })
-
-  if (worker === activeWorker) {
+  function terminateWorker(reason: string): Promise<void> {
+    const activeWorker = worker
+    if (!activeWorker) return Promise.resolve()
+    writeLog('python_worker_terminating', { reason, pid: activeWorker.pid })
     worker = null
+    return terminatePythonWorker(activeWorker)
   }
 
-  killWorkerProcess(activeWorker, 'SIGTERM')
+  function createRequestTimeout(
+    id: string,
+    command: PythonRequest['command'],
+    timeoutMs: number,
+    reject: (reason?: unknown) => void
+  ): NodeJS.Timeout {
+    return setTimeout(() => {
+      pendingRequests.delete(id)
+      writeLog('python_request_timeout', { id, command, timeoutMs })
+      reject(new Error(`The Python engine timed out while running ${command}.`))
+      if (command === 'index_material') {
+        terminateWorker('index_material_timeout')
+      }
+    }, timeoutMs)
+  }
 
-  const forceKill = setTimeout(() => {
-    if (activeWorker.exitCode === null && activeWorker.signalCode === null) {
-      writeLog('python_worker_force_kill', {
-        reason,
-        pid: activeWorker.pid
-      })
-      killWorkerProcess(activeWorker, 'SIGKILL')
+  function handleWorkerLine(line: string): void {
+    if (!line.trim()) {
+      return
     }
-  }, 1500)
 
-  forceKill.unref?.()
-}
-
-function createRequestTimeout(
-  id: string,
-  command: PythonRequest['command'],
-  timeoutMs: number,
-  reject: (reason?: unknown) => void
-): NodeJS.Timeout {
-  return setTimeout(() => {
-    pendingRequests.delete(id)
-    writeLog('python_request_timeout', { id, command, timeoutMs })
-    reject(new Error(`The Python engine timed out while running ${command}.`))
-    if (command === 'index_material') {
-      terminateWorker('index_material_timeout')
+    let response: PythonResponse<unknown>
+    try {
+      response = JSON.parse(line) as PythonResponse<unknown>
+    } catch {
+      return
     }
-  }, timeoutMs)
-}
 
-function handleWorkerLine(line: string): void {
-  if (!line.trim()) {
-    return
-  }
+    const pending = pendingRequests.get(response.id)
+    if (!pending) {
+      return
+    }
 
-  let response: PythonResponse<unknown>
-  try {
-    response = JSON.parse(line) as PythonResponse<unknown>
-  } catch {
-    return
-  }
+    if (response.progress) {
+      clearTimeout(pending.timeout)
+      pending.timeout = createRequestTimeout(response.id, pending.command, pending.timeoutMs, pending.reject)
+      pending.onProgress?.(response.progress)
+      return
+    }
 
-  const pending = pendingRequests.get(response.id)
-  if (!pending) {
-    return
-  }
-
-  if (response.progress) {
     clearTimeout(pending.timeout)
-    pending.timeout = createRequestTimeout(response.id, pending.command, pending.timeoutMs, pending.reject)
-    pending.onProgress?.(response.progress)
-    return
+    pendingRequests.delete(response.id)
+
+    if (!response.ok) {
+      writeLog('python_request_error', {
+        id: response.id,
+        error: response.error ?? 'The Python engine returned an error.'
+      })
+      pending.reject(new Error(response.error ?? 'The Python engine returned an error.'))
+      return
+    }
+
+    writeLog('python_request_success', { id: response.id })
+    pending.resolve(response.result)
   }
 
-  clearTimeout(pending.timeout)
-  pendingRequests.delete(response.id)
+  function ensureWorker(): ChildProcessWithoutNullStreams {
+    if (worker && !worker.killed) {
+      return worker
+    }
 
-  if (!response.ok) {
-    writeLog('python_request_error', {
-      id: response.id,
-      error: response.error ?? 'The Python engine returned an error.'
+    const scriptPath = getWorkerPath()
+    if (!existsSync(scriptPath)) {
+      throw new Error('The Python engine worker script was not found.')
+    }
+
+    const pythonExecutable = getPythonExecutable()
+    const logFile = getLogFilePath()
+
+    writeLog('python_worker_starting', {
+      pythonExecutable,
+      scriptPath,
+      userDataPath: app.getPath('userData')
     })
-    pending.reject(new Error(response.error ?? 'The Python engine returned an error.'))
-    return
-  }
 
-  writeLog('python_request_success', { id: response.id })
-  pending.resolve(response.result)
-}
-
-function ensureWorker(): ChildProcessWithoutNullStreams {
-  if (worker && !worker.killed) {
-    return worker
-  }
-
-  const scriptPath = getWorkerPath()
-  if (!existsSync(scriptPath)) {
-    throw new Error('The Python engine worker script was not found.')
-  }
-
-  const pythonExecutable = getPythonExecutable()
-  const logFile = getLogFilePath()
-
-  writeLog('python_worker_starting', {
-    pythonExecutable,
-    scriptPath,
-    userDataPath: app.getPath('userData')
-  })
-
-  const spawnedWorker = spawn(pythonExecutable, [scriptPath], {
-    detached: process.platform !== 'win32',
-    env: {
-      ...process.env,
-      ...appPythonEnv(pythonExecutable),
-      TOKENSMITH_LOG_FILE: logFile,
-      PYTHONIOENCODING: 'utf-8'
-    },
-    stdio: 'pipe'
-  })
-  worker = spawnedWorker
-
-  workerBuffer = ''
-
-  spawnedWorker.stdout.on('data', (chunk: Buffer) => {
-    workerBuffer += chunk.toString('utf8')
-    const lines = workerBuffer.split(/\r?\n/)
-    workerBuffer = lines.pop() ?? ''
-    for (const line of lines) {
-      handleWorkerLine(line)
-    }
-  })
-
-  spawnedWorker.stderr.on('data', (chunk: Buffer) => {
-    writeLog('python_worker_stderr', {
-      text: chunk.toString('utf8').slice(0, 4000)
+    const spawnedWorker = spawn(pythonExecutable, [scriptPath], {
+      detached: process.platform !== 'win32',
+      env: {
+        ...process.env,
+        ...appPythonEnv(pythonExecutable),
+        TOKENSMITH_LOG_FILE: logFile,
+        PYTHONIOENCODING: 'utf-8'
+      },
+      stdio: 'pipe'
     })
-  })
+    worker = spawnedWorker
 
-  spawnedWorker.once('error', (error) => {
-    writeLog('python_worker_error', { message: error.message })
-    if (worker === spawnedWorker) {
-      rejectPendingRequests(error)
-      worker = null
-    }
-  })
+    workerBuffer = ''
 
-  spawnedWorker.once('exit', (code, signal) => {
-    writeLog('python_worker_exit', { code, signal })
-    if (worker === spawnedWorker) {
-      rejectPendingRequests(new Error('The Python engine stopped.'))
-      worker = null
-    }
-  })
+    spawnedWorker.stdout.on('data', (chunk: Buffer) => {
+      if (worker !== spawnedWorker) return
+      workerBuffer += chunk.toString('utf8')
+      const lines = workerBuffer.split(/\r?\n/)
+      workerBuffer = lines.pop() ?? ''
+      for (const line of lines) {
+        handleWorkerLine(line)
+      }
+    })
 
-  app.once('before-quit', () => {
-    terminateWorker('app_before_quit')
-  })
+    spawnedWorker.stderr.on('data', (chunk: Buffer) => {
+      writeLog('python_worker_stderr', {
+        text: chunk.toString('utf8').slice(0, 4000)
+      })
+    })
 
-  return spawnedWorker
-}
+    spawnedWorker.once('error', (error) => {
+      writeLog('python_worker_error', { message: error.message })
+      if (worker === spawnedWorker) {
+        rejectPendingRequests(error)
+        worker = null
+      }
+    })
 
-async function requestPython<T>(
-  command: PythonRequest['command'],
-  payload: PythonRequest['payload'],
-  timeoutMs = 60_000,
-  onProgress?: (progress: MaterialIndexProgress) => void,
-  materialId?: string
-): Promise<T> {
-  if (command === 'index_material') return isolatedIndexRequest<T>(payload, timeoutMs, onProgress, materialId)
-  const activeWorker = ensureWorker()
-  const id = createId('py')
-  const request: PythonRequest = {
-    id,
-    command,
-    payload
+    spawnedWorker.once('exit', (code, signal) => {
+      writeLog('python_worker_exit', { code, signal })
+      if (worker === spawnedWorker) {
+        rejectPendingRequests(new Error('The Python engine stopped.'))
+        worker = null
+      }
+    })
+
+
+    return spawnedWorker
   }
 
-  return new Promise<T>((resolve, reject) => {
-    const timeout = createRequestTimeout(id, command, timeoutMs, reject)
-
-    pendingRequests.set(id, {
+  async function request<T>(
+    command: PythonRequest['command'],
+    payload: PythonRequest['payload'],
+    timeoutMs = 60_000,
+    onProgress?: (progress: MaterialIndexProgress) => void,
+    materialId?: string
+  ): Promise<T> {
+    const activeWorker = ensureWorker()
+    const id = createId('py')
+    const request: PythonRequest = {
+      id,
       command,
-      materialId,
-      resolve: resolve as (value: unknown) => void,
-      reject,
-      onProgress,
-      timeout,
-      timeoutMs
-    })
+      payload
+    }
 
-    writeLog('python_request_start', { id, command })
-    activeWorker.stdin.write(`${JSON.stringify(request)}\n`, 'utf8')
+    return new Promise<T>((resolve, reject) => {
+      const timeout = createRequestTimeout(id, command, timeoutMs, reject)
+
+      pendingRequests.set(id, {
+        command,
+        materialId,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        onProgress,
+        timeout,
+        timeoutMs
+      })
+
+      writeLog('python_request_start', { id, command })
+      activeWorker.stdin.write(`${JSON.stringify(request)}\n`, 'utf8')
+    })
+  }
+
+  return { request, close() { rejectPendingRequests(new Error('The library was closed.')); return terminateWorker('collection_unloaded') } }
+}
+
+const workers = new Map<string, ReturnType<typeof createPythonWorker>>()
+async function closeStore(path: string) { const worker = workers.get(path); workers.delete(path); await worker?.close() }
+app?.on('before-quit', () => { for (const worker of workers.values()) worker.close(); workers.clear() })
+async function requestPython<T>(command: PythonRequest['command'], payload: PythonRequest['payload'], timeoutMs = 60_000,
+  onProgress?: (progress: MaterialIndexProgress) => void, materialId?: string): Promise<T> {
+  if (command === 'index_material') return isolatedIndexRequest<T>(payload, timeoutMs, onProgress, materialId)
+  const path = String(payload.userDataPath ?? 'runtime')
+  let worker = workers.get(path)
+  if (!worker) { worker = createPythonWorker(); workers.set(path, worker) }
+  return worker.request<T>(command, payload, timeoutMs, onProgress, materialId)
+}
+
+let registry: CollectionRegistry | undefined
+export function collections(): CollectionRegistry {
+  return registry ??= new CollectionRegistry(join(app.getPath('userData'), 'collections.json'), {
+    validate: async path => { await requestPython('validate_collection', { userDataPath: path }) },
+    create: async path => { await requestPython('create_collection', { userDataPath: path }) },
+    close: closeStore
   })
 }
 
 // Indexing has its own worker so long preparation jobs do not block source search.
-const indexingJobs = new Map<string, () => void>()
+const indexingJobs = new Map<string, () => Promise<void>>()
 let indexingQueue: Promise<unknown> = Promise.resolve()
 app?.on('before-quit', () => { for (const stop of indexingJobs.values()) stop() })
 
@@ -581,17 +595,11 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
   let cancelled = false
   let child: ChildProcessWithoutNullStreams | undefined
   let rejectJob: ((error: Error) => void) | undefined
-  const stopWorker = () => {
-    if (!child?.pid) return
-    try {
-      if (process.platform === 'win32') child.kill('SIGTERM')
-      else process.kill(-child.pid, 'SIGTERM')
-    } catch { /* The job may already have exited. */ }
-  }
-  const stop = () => {
+  const stopWorker = () => child ? terminatePythonWorker(child) : Promise.resolve()
+  const stop = async () => {
     cancelled = true
-    stopWorker()
     rejectJob?.(new Error('Indexing was cancelled.'))
+    await stopWorker()
   }
   indexingJobs.set(materialId, stop)
   const run = async (): Promise<T> => {
@@ -611,9 +619,10 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
         if (settled) return
         settled = true
         clearTimeout(timer)
-        stopWorker()
-        if (error) reject(error)
-        else resolve(result as T)
+        void stopWorker().then(() => {
+          if (error) reject(error)
+          else resolve(result as T)
+        })
       }
       const timer = setTimeout(() => finish(new Error('Preparation stopped responding. Resume to continue from saved work.')), timeoutMs)
       rejectJob = error => finish(error)
@@ -624,6 +633,7 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
         for (const line of lines) {
           let message: PythonResponse<T>
           try { message = JSON.parse(line) as PythonResponse<T> } catch { continue }
+          if (settled) continue
           if (message.progress) { timer.refresh(); onProgress?.(message.progress); continue }
           if (message.id === materialId) finish(message.ok ? undefined : new Error(message.error || 'Preparation failed.'), message.result)
         }
@@ -653,13 +663,18 @@ export async function indexMaterialWithPython(
   materialPath: string,
   model?: LocalModel,
   materialId?: string,
-  options?: IndexMaterialOptions
+  options?: IndexMaterialOptions,
+  onProgress: (progress: MaterialIndexProgress) => void = sendIndexProgress
 ): Promise<CourseMaterial> {
+  if (!materialId) throw new Error('Open a library before adding documents.')
+  const { collection, localId } = collections().forMaterial(materialId)
+  await collections().revise(collection)
+  collections().current(collection)
   const result = await requestPython<IndexMaterialResult>(
     'index_material',
     {
       path: materialPath,
-      materialId,
+      materialId: localId,
       resume: options?.resume === true,
       title: options?.title,
       cleaningProfileId: options?.cleaningProfileId,
@@ -668,18 +683,25 @@ export async function indexMaterialWithPython(
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
-      userDataPath: app.getPath('userData')
+      userDataPath: collection.path
     },
     180_000,
-    sendIndexProgress,
+    progress => { if (collections().loaded().some(item => item.epoch === collection.epoch)) onProgress({ ...progress, materialId }) },
     materialId
   )
 
-  return result.material
+  collections().current(collection)
+  await collections().revise(collection)
+  return qualifyMaterial(collections(), collection, result.material)
 }
 
-export async function preparationReportWithPython(path: string, documentPath?: string): Promise<PreparationReport> {
-  return requestPython<PreparationReport>('preparation_report', { path, documentPath, userDataPath: app.getPath('userData') })
+export async function preparationReportWithPython(path: string, documentPath?: string, materialId?: string): Promise<PreparationReport> {
+  if (!materialId) throw new Error('Choose a document.')
+  const { collection, localId } = collections().forMaterial(materialId)
+  const report = await storeRequest<PreparationReport>(collection, 'preparation_report', {
+    path: collections().originalPath(collection, path, localId),
+    documentPath: documentPath ? collections().originalPath(collection, documentPath, localId) : undefined })
+  return { ...report, documents: report.documents.map(d => ({ ...d, path: collections().sourcePath(collection, d.path, localId) })) }
 }
 
 export async function previewCleaningWithPython(
@@ -701,173 +723,135 @@ export async function previewCleaningWithPython(
   )
 }
 
-export async function cancelMaterialIndexingWithPython(materialId: string): Promise<void> {
-  const stop = indexingJobs.get(materialId)
-  if (stop) { stop(); return }
-  const cancelledRequestIds: string[] = []
+export async function cancelMaterialIndexingWithPython(materialId: string): Promise<void> { await indexingJobs.get(materialId)?.() }
 
-  for (const [id, request] of pendingRequests) {
-    if (request.command !== 'index_material' || request.materialId !== materialId) {
-      continue
-    }
-
-    clearTimeout(request.timeout)
-    pendingRequests.delete(id)
-    request.reject(new Error('Indexing was cancelled.'))
-    cancelledRequestIds.push(id)
-  }
-
-  if (cancelledRequestIds.length === 0) {
-    writeLog('python_request_cancel_skipped', { materialId })
-    return
-  }
-
-  writeLog('python_request_cancelled', {
-    materialId,
-    requestIds: cancelledRequestIds
-  })
-  terminateWorker('index_material_cancelled')
+export async function cancelCollectionIndexing(collectionId: string): Promise<void> {
+  await Promise.all([...indexingJobs].filter(([id]) => id.startsWith(`${collectionId}/`)).map(([, stop]) => stop()))
 }
 
-export async function searchLibraryWithPython(
-  query: string,
-  materials: CourseMaterial[],
-  limit: number,
-  embeddingModels?: LocalModel[],
-  searchMode?: SearchMode,
-  options?: LibrarySearchOptions
-): Promise<LibrarySearchResult> {
+async function storeRequest<T>(collection: MountedCollection, command: PythonRequest['command'], payload: Record<string, unknown>, timeout = 30_000): Promise<T> {
+  collections().current(collection)
+  const revision = collection.indexRevision
+  const result = await requestPython<T>(command, { ...payload, userDataPath: collection.path }, timeout)
+  collections().current(collection)
+  if (collection.indexRevision !== revision) throw new Error('The library changed during this request. Please try again.')
+  return result
+}
+
+function requestGroups(materials: CourseMaterial[], documents?: StudyDocumentRef[]) {
+  const ids = [...new Set((documents ?? materials.filter(m => m.isActive !== false)).map(item =>
+    splitMaterialId('materialId' in item ? item.materialId : item.id).collectionId))]
+  return ids.map(id => ({ collection: collections().get(id),
+    materials: materials.filter(m => splitMaterialId(m.id).collectionId === id).map(m => ({ ...m, id: splitMaterialId(m.id).localId })),
+    ...(documents !== undefined ? { documents: localDocuments(collections().get(id), documents.filter(d => splitMaterialId(d.materialId).collectionId === id)) } : {}) }))
+}
+
+export async function searchLibraryWithPython(query: string, materials: CourseMaterial[], limit: number,
+  embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions): Promise<LibrarySearchResult> {
+  writeLog('library_search_request', { query, materials: materials.map(m => ({ id: m.id, title: m.title })), documents: options?.documents, searchMode })
+  const groups = requestGroups(materials, options?.documents)
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
-  if (searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
-  writeLog('library_search_request', {
-    query,
-    limit,
-    documents: options?.documents,
-    searchMode,
-    embeddingGpuEnabled,
-    materials: materials.map((material) => ({
-      id: material.id,
-      title: material.title,
-      path: material.path,
-      status: material.status,
-      isActive: material.isActive
-    })),
-    embeddingModels: resolvedEmbeddingModels.map((model) => ({
-      id: model.id,
-      name: model.name,
-      engine: model.engine,
-      source: model.source,
-      ollamaModelName: model.ollamaModelName,
-      remoteModelName: model.remoteModelName
-    }))
-  })
-  const result = await requestPython<SearchResult>(
-    'search',
-    {
-      query,
-      materials,
-      ...(options?.documents !== undefined ? { documents: options.documents } : {}),
-      limit,
-      embeddingModels: resolvedEmbeddingModels,
-      searchMode,
-      embeddingGpuEnabled,
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
+  if (groups.length && searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
+  const search = () => Promise.all(groups.map(async ({ collection, ...scope }) => {
+    const result = await storeRequest<SearchResult>(collection, 'search', { ...scope, query, limit,
+      embeddingModels: resolvedEmbeddingModels, searchMode, embeddingGpuEnabled })
+    return { ...result, sources: result.sources.map(source => qualifySource(collections(), collection, source)) }
+  }))
+  const selectedMaterials = materials.filter(material => options?.documents
+    ? options.documents.some(document => document.materialId === material.id) : material.isActive !== false)
+  const needed = searchMode === 'keyword' ? [] : resolvedEmbeddingModels.filter(model => model.engine === 'ollama' && model.ollamaModelName &&
+    selectedMaterials.some(material => material.embeddingModelId === model.id || material.embeddingModel === `ollama:${model.ollamaModelName}`))
+  const searchWithLoading = (index: number): ReturnType<typeof search> => index === needed.length ? search()
+    : observeModelLoading({ baseUrl: needed[index].ollamaBaseUrl || 'http://127.0.0.1:11434',
+        modelName: needed[index].ollamaModelName!, role: 'embedder' }, () => searchWithLoading(index + 1))
+  const results = await searchWithLoading(0)
+  groups.forEach(group => collections().current(group.collection))
+  const sources = mergeCollectionSources(results.map(result => result.sources), limit)
+  writeLog('library_search_result', { query, sourceCount: sources.length, sources: sources.map(logSource) })
+  return { sources, reason: results.map(result => result.reason).filter(Boolean).join(' ') || undefined,
+    retrievalChildren: results.flatMap(result => (result.latencySpans ?? []).map(pythonLatencySpan)
+      .filter((span): span is LatencySpan => Boolean(span))) }
+}
 
-  writeLog('library_search_result', {
-    query,
-    queryTerms: result.queryTerms,
-    keywordTerms: result.keywordTerms,
-    sourceCount: result.sources.length,
-    sources: result.sources.map(logSource)
-  })
-
-  return {
-    sources: result.sources,
-    ...(result.reason ? { reason: result.reason } : {}),
-    retrievalChildren: (result.latencySpans ?? [])
-      .map(pythonLatencySpan)
-      .filter((span): span is LatencySpan => Boolean(span))
-  }
+export async function topicSourcesWithPython(documents: StudyDocumentRef[]): Promise<ChatSource[]> {
+  const groups = requestGroups([], documents)
+  const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
+    const result = await storeRequest<SearchResult>(collection, 'topic_sources', scope)
+    collections().current(collection)
+    return result.sources.map(source => qualifySource(collections(), collection, source))
+  }))
+  return results.flat()
 }
 
 export async function starterSourcesWithPython(materials: CourseMaterial[], limit = 4, documents?: StudyDocumentRef[]): Promise<ChatSource[]> {
-  const result = await requestPython<SearchResult>(
-    'starter_sources',
-    {
-      materials,
-      ...(documents !== undefined ? { documents } : {}),
-      limit,
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
-
-  return result.sources
+  const groups = requestGroups(materials, documents)
+  const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
+    const result = await storeRequest<SearchResult>(collection, 'starter_sources', { ...scope, limit })
+    return result.sources.map(source => qualifySource(collections(), collection, source))
+  }))
+  groups.forEach(group => collections().current(group.collection))
+  return mergeCollectionSources(results, limit)
 }
 
 export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]> {
-  const result = await requestPython<ListMaterialsResult>(
-    'list_materials',
-    {
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
-
-  return result.materials
+  const results = await Promise.all(collections().loaded().map(async collection => {
+    const result = await storeRequest<ListMaterialsResult>(collection, 'list_materials', {})
+    const inventory = await collections().topicInventory(collection.id)
+    const topicsReady = inventory?.complete && inventory.indexRevision === collection.indexRevision
+    return result.materials.map(material => qualifyMaterial(collections(), collection, material.status === 'ready' && !topicsReady ? {
+      ...material, status: 'needsReview', detail: 'Chapter topics need preparation',
+      error: 'Finish or resume book preparation to generate chapter topics.'
+    } : material))
+  }))
+  return results.flat()
 }
 
 export async function studyDocumentsWithPython(): Promise<StudyDocument[]> {
-  const result = await requestPython<{ documents: StudyDocument[] }>('study_documents', {
-    userDataPath: app.getPath('userData')
-  }, 30_000)
-  return result.documents
+  const results = await Promise.all(collections().loaded().map(async collection => {
+    const result = await storeRequest<{ documents: StudyDocument[] }>(collection, 'study_documents', {})
+    return result.documents.map(document => qualifyDocument(collections(), collection, document))
+  }))
+  return results.flat()
 }
 
 export async function practiceSourcesWithPython(documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number): Promise<ChatSource[]> {
-  const result = await requestPython<SearchResult>('practice_sources', {
-    userDataPath: app.getPath('userData'), documents, usedSourceKeys, questionIndex
-  }, 30_000)
-  return result.sources
+  const groups = requestGroups([], documents)
+  if (!groups.length) return []
+  for (let offset = 0; offset < groups.length; offset++) {
+    const { collection, documents } = groups[(questionIndex + offset) % groups.length]
+    const used = usedSourceKeys.filter(key => key.startsWith(`${collection.id}/`)).map(key => key.slice(collection.id.length + 1))
+    const result = await storeRequest<SearchResult>(collection, 'practice_sources', { documents, usedSourceKeys: used, questionIndex })
+    if (result.sources.length) return result.sources.map(source => qualifySource(collections(), collection, source))
+  }
+  return []
 }
 
 export async function setMaterialEnabledWithPython(materialId: string, isActive: boolean): Promise<void> {
-  await requestPython<{ ok: boolean }>(
-    'set_material_enabled',
-    {
-      materialId,
-      isActive,
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
+  const { collection, localId } = collections().forMaterial(materialId)
+  await storeRequest(collection, 'set_material_enabled', { materialId: localId, isActive })
 }
 
 export async function removeMaterialWithPython(materialId: string, materialPath?: string): Promise<void> {
-  await requestPython<{ ok: boolean }>(
-    'remove_material',
-    {
-      materialId,
-      path: materialPath,
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
+  const { collection, localId } = collections().forMaterial(materialId)
+  await collections().revise(collection)
+  await storeRequest(collection, 'remove_material', { materialId: localId, path: materialPath })
 }
 
 export async function resolveSourceDocumentWithPython(source: ChatSource): Promise<ResolvedSourceDocument | null> {
-  const result = await requestPython<ResolveSourceDocumentResult>(
-    'resolve_source_document',
-    {
-      source,
-      userDataPath: app.getPath('userData')
-    },
-    30_000
-  )
+  const { collection, localId } = collections().forMaterial(source.materialId ?? '')
+  const result = await storeRequest<ResolveSourceDocumentResult>(collection, 'resolve_source_document', {
+    source: { ...source, materialId: localId }
+  })
+  if (!result.source) return null
+  return { ...result.source, path: collections().sourcePath(collection, result.source.path, localId),
+    thumbnailPath: result.source.thumbnailPath ? collections().sourcePath(collection, result.source.thumbnailPath) : undefined }
+}
 
-  return result.source
+export async function locateCollectionFolder(materialId: string, path: string): Promise<void> {
+  const { collection, localId } = collections().forMaterial(materialId)
+  const result = await storeRequest<ListMaterialsResult>(collection, 'list_materials', {})
+  const material = result.materials.find(m => m.id === localId)
+  if (!material?.path) throw new Error('This document is no longer in the library.')
+  await collections().locateFolder(materialId, resolve(collection.path, material.kind === 'folder' ? material.path : dirname(material.path)), path)
 }

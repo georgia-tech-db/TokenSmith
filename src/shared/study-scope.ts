@@ -3,12 +3,14 @@ import type { EmbeddingOptions } from './embedding-settings'
 
 export interface StudyDocumentRef { materialId: string; documentId: number }
 export interface StudyDocument extends StudyDocumentRef {
+  collectionId?: string
+  collectionTitle?: string
   title: string
   path: string
   collectionName: string
   chunkCount: number
 }
-export interface LibrarySearchOptions extends EmbeddingOptions { documents?: StudyDocumentRef[] }
+export interface LibrarySearchOptions extends EmbeddingOptions { documents?: StudyDocumentRef[]; requestId?: string }
 export const studyDocumentKey = (document: StudyDocumentRef) => `${document.materialId}:${document.documentId}`
 export const studyScopeKey = (documents: StudyDocumentRef[]) => [...new Set(documents.map(studyDocumentKey))].sort().join('|')
 export const scopeRefs = (documents: StudyDocumentRef[]): StudyDocumentRef[] =>

@@ -1,0 +1,251 @@
+{
+  "startedAt": "2026-10-14T08:37:12.977Z",
+  "finishedAt": "2026-10-14T08:40:16.402Z",
+  "model": "gemma4:e4b",
+  "embedder": "nomic-embed-text",
+  "bookSha256": "98460b2571e08cdec8103213c85b041457f7009536ea82b1d5f509d793ac60d9",
+  "requested": 12,
+  "accepted": 11,
+  "fullGenerationAttempts": 13,
+  "oneTokenContextProbes": 13,
+  "verifiedCitations": 22,
+  "runtimeContext": 8192,
+  "outputLimit": 1024,
+  "reasoning": false,
+  "practiceTemperature": 0.3,
+  "rows": [
+    {
+      "topic": "B+ trees",
+      "number": 1,
+      "seconds": 9.690259750000001,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "In a B+ Tree, internal nodes store data pointers alongside separator keys used for routing searches.",
+      "key": false,
+      "support": [
+        {
+          "section": "9.4.3 B-Trees vs. B+ Trees: A Common Point of Confusion",
+          "chunk": "ch09.099",
+          "lines": [
+            12947,
+            12955
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "B+ trees",
+      "number": 2,
+      "seconds": 14.180033125000001,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "A B+ Tree's structure allows it to perform range scans by following a linked list formed by the `next` pointer connecting adjacent leaf nodes.",
+      "key": true,
+      "support": [
+        {
+          "section": "9.4.3 B-Trees vs. B+ Trees: A Common Point of Confusion",
+          "chunk": "ch09.101",
+          "lines": [
+            12972,
+            12980
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Volcano iterator model",
+      "number": 1,
+      "seconds": 14.597505041,
+      "attempts": 1,
+      "review": "Qualify",
+      "statement": "In the traditional row-oriented transactional workload using an iterator model, data flows from the leaf operators up to the root operator after each tuple is processed at every stage.",
+      "key": true,
+      "support": [
+        {
+          "section": "14.4.1 The Interpreter: Flexible but Slow",
+          "chunk": "ch14.082",
+          "lines": [
+            21223,
+            21240
+          ]
+        },
+        {
+          "section": "15.4 From I/O to CPU: Vectorized Execution and SIMD",
+          "chunk": "ch15.074",
+          "lines": [
+            22544,
+            22552
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Volcano iterator model",
+      "number": 2,
+      "seconds": 29.453381458000003,
+      "attempts": 2,
+      "review": "Blocked",
+      "error": "The model did not return a valid question with verifiable supporting passages. Try preparing the question again."
+    },
+    {
+      "topic": "Heap files",
+      "number": 1,
+      "seconds": 10.422521125,
+      "attempts": 1,
+      "review": "Qualify",
+      "statement": "A full table scan's cost is dependent on the number of records being sought within the heap file.",
+      "key": false,
+      "support": [
+        {
+          "section": "7.1.1 The Baseline Access Path: Full Table Scans",
+          "chunk": "ch07.006",
+          "lines": [
+            9026,
+            9039
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Heap files",
+      "number": 2,
+      "seconds": 15.528641124999995,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "A full table scan in a heap file requires reading every page from the first to the last, regardless of whether only one record or many records are desired.",
+      "key": true,
+      "support": [
+        {
+          "section": "7.1.1 The Baseline Access Path: Full Table Scans",
+          "chunk": "ch07.006",
+          "lines": [
+            9026,
+            9039
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "LRU replacement",
+      "number": 1,
+      "seconds": 15.997420375,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "The LRU policy is optimal for all database workloads because it accurately predicts future page needs based solely on past access patterns.",
+      "key": false,
+      "support": [
+        {
+          "section": "6.4 Beyond LRU: The Two-Queue Policy",
+          "chunk": "ch06.055",
+          "lines": [
+            8176,
+            8184
+          ]
+        },
+        {
+          "section": "5.5.2 Impact on Table Scans",
+          "chunk": "ch05.119",
+          "lines": [
+            7328,
+            7332
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "LRU replacement",
+      "number": 2,
+      "seconds": 14.821218166000007,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "The Least Recently Used (LRU) policy assumes that any page accessed recently is important, and consequently, pages not accessed in a while are unimportant.",
+      "key": true,
+      "support": [
+        {
+          "section": "6.4 Beyond LRU: The Two-Queue Policy",
+          "chunk": "ch06.055",
+          "lines": [
+            8176,
+            8184
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Extendible hashing",
+      "number": 1,
+      "seconds": 11.209721334000001,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "The global depth determines the number of leading bits used to index into the directory for all keys in the hash structure.",
+      "key": true,
+      "support": [
+        {
+          "section": "8.4.2 Extendible Hashing: Growing with a Directory",
+          "chunk": "ch08.076",
+          "lines": [
+            11215,
+            11218
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Extendible hashing",
+      "number": 2,
+      "seconds": 11.008894042,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "The local depth of any bucket can exceed its corresponding global depth.",
+      "key": false,
+      "support": [
+        {
+          "section": "8.4.2 Extendible Hashing: Growing with a Directory",
+          "chunk": "ch08.076",
+          "lines": [
+            11215,
+            11218
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Vectorized execution",
+      "number": 1,
+      "seconds": 13.582210499999986,
+      "attempts": 1,
+      "review": "Sound",
+      "statement": "The primary benefit of using the SIMD principle in vectorized processing is that it allows an operator to process multiple data points simultaneously by utilizing specialized hardware instructions.",
+      "key": true,
+      "support": [
+        {
+          "section": "15.4.1 Beyond One Tuple at a Time: Vectorized Processing",
+          "chunk": "ch15.081",
+          "lines": [
+            22833,
+            22841
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "Vectorized execution",
+      "number": 2,
+      "seconds": 20.57383058399998,
+      "attempts": 1,
+      "review": "Qualify",
+      "statement": "The gather-process-scatter pattern requires transforming scattered tuple data on a page into a dense, contiguous array format before performing SIMD operations.",
+      "key": true,
+      "support": [
+        {
+          "section": "15.4.4 Vectorizing a Page Scan",
+          "chunk": "ch15.093",
+          "lines": [
+            23030,
+            23034
+          ]
+        }
+      ]
+    }
+  ]
+}

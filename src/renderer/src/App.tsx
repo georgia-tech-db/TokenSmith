@@ -1,3 +1,7 @@
+import { flushSync } from 'react-dom'
+import type { Collection } from '@shared/collections'
+import { materialCollectionId } from '@shared/collections'
+import { CollectionLibrary } from './CollectionLibrary'
 import { PracticeScreen } from './PracticeScreen'
 import { StudyHeader, type StudyPanels } from './StudyHeader'
 import { StudySidebar } from './StudySidebar'
@@ -15,7 +19,6 @@ import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-s
 import { GenerationStatus } from './GenerationStatus'
 import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
 import type { GenerationKind } from '@shared/generation-estimate'
-import { LibraryWorkspace } from './LibraryWorkspace'
 import { defaultPreparation, type IndexMaterialOptions } from '../../shared/preparation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
@@ -169,7 +172,7 @@ type ParsedLogEntry = {
 
 const navItems: NavItem[] = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'library', label: 'Library', icon: Library },
+  { id: 'library', label: 'Libraries', icon: Library },
   { id: 'models', label: 'Models', icon: Database },
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
@@ -208,6 +211,7 @@ const defaultApplicationSettings: ApplicationSettings = {
   explanationDepth: 'standard',
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
+  readWhileWaiting: true,
   embeddingGpuEnabled: true
 }
 
@@ -383,10 +387,10 @@ function normalizeCollectionPath(path: string) {
   return path.trim().replace(/^file:\/\//, '')
 }
 
-function materialIdentityKey(material: Pick<CourseMaterial, 'detail' | 'embeddingModel' | 'embeddingModelId' | 'path' | 'title'>) {
+function materialIdentityKey(material: Pick<CourseMaterial, 'detail' | 'embeddingModel' | 'embeddingModelId' | 'path' | 'title' | 'collectionId'>) {
   const locationKey = material.path ?? `${material.title}:${material.detail}`
   const embeddingKey = material.embeddingModelId ?? material.embeddingModel ?? ''
-  return `${locationKey}::${embeddingKey}`
+  return `${material.collectionId ?? ''}::${locationKey}::${embeddingKey}`
 }
 
 function normalizeIndexingProgress(material: CourseMaterial): MaterialIndexProgress | undefined {
@@ -401,6 +405,7 @@ function normalizeIndexingProgress(material: CourseMaterial): MaterialIndexProgr
     rawPhase === 'chunking' ||
     rawPhase === 'embedding' ||
     rawPhase === 'saving' ||
+    rawPhase === 'topics' ||
     rawPhase === 'complete' ||
     rawPhase === 'error'
       ? rawPhase
@@ -580,7 +585,7 @@ function createOllamaEmbedderModel(
       'Local embedding model served by Ollama',
       'Prepares PDFs for search',
       'Embeds questions before source retrieval',
-      'Folders record the embedder used during indexing'
+      'Documents record the search model used during preparation'
     ],
     download,
     addedAt: new Date().toISOString()
@@ -657,6 +662,7 @@ function normalizeMaterials(materials: CourseMaterial[] | undefined): CourseMate
   return materials.map((material, index) => {
     const normalizedMaterial: CourseMaterial = {
       id: material.id ?? createId('material'),
+      collectionId: material.collectionId, collectionTitle: material.collectionTitle, collectionRevision: material.collectionRevision,
       title: material.title,
       detail: material.status === 'indexing' ? 'Parsing' : material.detail,
       status: material.status,
@@ -809,6 +815,7 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): 
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
+    readWhileWaiting: settings?.readWhileWaiting ?? defaultApplicationSettings.readWhileWaiting,
     embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
   }
 }
@@ -1188,6 +1195,8 @@ function modelMatchesDownload(model: LocalModel, progress: ModelDownloadProgress
 export function App() {
   const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
+  const [collectionList, setCollectionList] = useState<Collection[]>([])
+  const collectionChangeSequence = useRef(0)
   const practiceState = appState.practice ?? emptyPracticeState()
   const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 800)
   const [materialsOpen, setMaterialsOpen] = useState(() => window.innerWidth > 1200)
@@ -1217,18 +1226,43 @@ export function App() {
     }
   }
   function openLog() { setIsLogCardOpen(true); void refreshLogFile() }
-  const practiceReader = useSourceReader(readSourceDocument)
-  const activePracticeSession = practiceState.sessions.find(item => item.id === practiceState.activeSessionId)
-  const activePracticeQuestionId = activePracticeSession?.questions[activePracticeSession.currentIndex]?.id
-  useEffect(() => { practiceReader.close() }, [practiceState.mode, practiceState.activeSessionId, activePracticeQuestionId, appState.activeScreen, practiceReader.close])
   function updatePractice(update: (current: PracticeState) => PracticeState) {
     updateAppState(current => ({ ...current, practice: update(current.practice ?? emptyPracticeState()) }))
   }
+  const latestState = useRef(appState)
+  latestState.current = appState
+  async function commitPractice(update: (current: PracticeState) => PracticeState) {
+    flushSync(() => updatePractice(update))
+    const snapshot = latestState.current
+    if (window.tokensmith) await window.tokensmith.saveAppState(snapshot)
+    else savePreviewState(snapshot)
+    return snapshot.practice ?? emptyPracticeState()
+  }
+  useEffect(() => {
+    const recordVisibleHelp = () => {
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+      if (appState.activeScreen !== 'chat' || practiceState.mode !== 'chat') return
+      const chat = appState.conversations.find(c => c.id === appState.activeConversationId)
+      const reference = chat?.practiceReference
+      if (!reference) return
+      const help = chat.messages.filter(m => m.role === 'assistant' && m.text.trim() && m.id !== `${chat.id}:feedback`)
+      const saved = practiceState.sessions.find(s => s.id === reference.sessionId)
+      if (!saved || !help.some(m => !saved.observations?.some(e => e.id === `help:${m.id}`))) return
+      updatePractice(current => ({ ...current, sessions: current.sessions.map(s => s.id !== reference.sessionId ? s : {
+        ...s, observations: [...(s.observations ?? []), ...help.filter(m => !s.observations?.some(e => e.id === `help:${m.id}`)).map(m => ({
+          id: `help:${m.id}`, questionId: reference.questionId, kind: 'help_shown' as const,
+          at: new Date().toISOString(), content: m.text, referenceId: m.id }))] }) }))
+    }
+    recordVisibleHelp()
+    window.addEventListener('focus', recordVisibleHelp)
+    document.addEventListener('visibilitychange', recordVisibleHelp)
+    return () => { window.removeEventListener('focus', recordVisibleHelp); document.removeEventListener('visibilitychange', recordVisibleHelp) }
+  }, [appState.conversations, appState.activeConversationId, appState.activeScreen, practiceState.mode])
   const [practiceChatDraft, setPracticeChatDraft] = useState<{ conversationId: string; draft: ChatDraft }>()
   function chatAboutPractice(session: PracticeSession, question: PracticeQuestion, passage?: ChatSelectedPassage) {
     const conversation = practiceChatConversation(`chat-${crypto.randomUUID()}`, session, question)
     setPracticeChatDraft({ conversationId: conversation.id,
-      draft: { text: question.helpDraft ?? '', selectedPassage: passage ?? question.helpPassage } })
+      draft: { text: '', selectedPassage: passage } })
     updateAppState(current => {
       const next = changeStudyScope(current, session.documents)
       const practice = next.practice ?? emptyPracticeState()
@@ -1236,8 +1270,7 @@ export function App() {
         conversations: [conversation, ...next.conversations],
         practice: { ...practice, mode: 'chat', activeSessionId: session.id,
           sessions: practice.sessions.map(item => item.id !== session.id ? item : { ...item,
-            currentIndex: item.questions.findIndex(value => value.id === question.id),
-            questions: item.questions.map(value => value.id === question.id ? { ...value, chatOpened: true } : value) }) } }
+            currentIndex: item.questions.findIndex(value => value.id === question.id) }) } }
     })
   }
   function practiceTopic(topic: PracticeTopic) {
@@ -1280,12 +1313,11 @@ export function App() {
     }
     return () => { cancelled = true }
   }, [hasLoadedState, metadataModelKey])
-  const studyCatalog = useStudyDocuments(appState.materials, hasLoadedState)
+  const studyCatalog = useStudyDocuments(appState.materials, hasLoadedState, collectionList.filter(c => c.loaded).map(c => `${c.id}:${c.indexRevision}`).join('|'))
   useEffect(() => {
     if (studyCatalog.status !== 'ready') return
     setAppState(current => initializeStudyScopes(current, studyCatalog.documents))
   }, [studyCatalog.status, studyCatalog.documents])
-  const [libraryCreateRequest, setLibraryCreateRequest] = useState(0)
   const [isChatSetupCardDismissed, setChatSetupCardDismissed] = useState(false)
   const [cloudSetup, setCloudSetup] = useState<{ model?: LocalModel; target: ModelSelectionTarget } | null>(null)
   const [cloudNotice, setCloudNotice] = useState('')
@@ -1351,14 +1383,16 @@ export function App() {
 
     let cancelled = false
 
-    Promise.all([bridge.getAppVersion(), bridge.loadAppState()])
-      .then(([version, savedState]) => {
+    Promise.all([bridge.getAppVersion(), bridge.loadAppState(), bridge.listCollections?.() ?? Promise.resolve([])])
+      .then(([version, savedState, collections]) => {
         if (cancelled) {
           return
         }
 
         const mergedState = mergeSavedState(savedState, version)
 
+        setCollectionList(collections)
+        if (typeof bridge.listCollections === 'function') mergedState.materials = mergedState.materials.filter(m => collections.some(c => c.loaded && c.id === m.collectionId))
         setAppVersion(version)
         setAppState(mergedState)
         setSaveStatus('saved')
@@ -1388,10 +1422,11 @@ export function App() {
             }
           })
 
+        const initialCollectionSequence = collectionChangeSequence.current
         void bridge
           .listMaterials()
           .then((materials) => {
-            if (!cancelled) {
+            if (!cancelled && initialCollectionSequence === collectionChangeSequence.current) {
               setAppState((current) => ({
                 ...current,
                 materials: mergeIndexedMaterialsWithPending(current.materials, materials)
@@ -1476,7 +1511,7 @@ export function App() {
               return {
                 ...material,
                 status: 'ready',
-                detail: 'Ready for chat',
+                detail: 'Ready for chat and practice',
                 indexing: undefined,
                 isActive: true
               }
@@ -1591,6 +1626,26 @@ export function App() {
     })
   }
 
+  async function refreshCollections(collections: Collection[]) {
+    const sequence = ++collectionChangeSequence.current
+    setCollectionList(collections)
+    const loaded = new Set(collections.filter(c => c.loaded).map(c => c.id))
+    updateAppState(current => ({ ...current, materials: current.materials.filter(m => loaded.has(m.collectionId ?? '')),
+      practice: current.practice ? { ...current.practice, topicSuggestions: undefined } : undefined }))
+    const materials = await window.tokensmith!.listMaterials()
+    if (sequence === collectionChangeSequence.current) updateAppState(current => ({ ...current,
+      materials: mergeIndexedMaterialsWithPending(current.materials, materials) }))
+  }
+  async function unloadCollection(id: string) {
+    generation.api.stopForCollection(id)
+    for (const material of appState.materials.filter(m => m.collectionId === id)) {
+      cancelledIndexRequestsRef.current.add(material.id)
+      indexRequestSequenceRef.current.set(material.id, (indexRequestSequenceRef.current.get(material.id) ?? 0) + 1)
+      activeIndexRequestsRef.current.delete(material.id)
+    }
+    const next = await window.tokensmith!.unloadCollection(id)
+    await refreshCollections(next)
+  }
   function addMaterials(materials: CourseMaterial[]) {
     if (materials.length === 0) {
       return
@@ -1694,6 +1749,7 @@ export function App() {
         if (pausedIndexRequestsRef.current.has(materialId)) {
           return
         }
+        if (window.tokensmith?.listCollections) void window.tokensmith.listCollections().then(refreshCollections).catch(() => {})
 
         updateAppState((current) => {
           let didReplace = false
@@ -2202,7 +2258,6 @@ export function App() {
             onInstallOllamaChatModel={installOllamaChatModel}
             onInstallOllamaEmbedderModel={installOllamaEmbedderModel}
             onOpenLibrary={() => {
-              setLibraryCreateRequest((request) => request + 1)
               updateAppState((current) => ({
                 ...current,
                 activeScreen: 'library'
@@ -2219,22 +2274,21 @@ export function App() {
         )}
         {hasLoadedState && <PracticeScreen isActive={activeScreen === 'chat' && practiceState.mode === 'practice'}
           {...studyPanels} onViewLog={openLog}
-          state={practiceState} onChange={updatePractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
+          state={practiceState} onChange={updatePractice} onCommit={commitPractice} onModeChange={setStudyMode} onChat={chatAboutPractice}
           materials={appState.materials} embeddingModels={embeddingModels}
           catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
           modelSettingsFor={id => modelSettingsFor(appState.settings, id)}
           onSelectModel={selectModel} onConnectCloud={openCloudSetup}
           onManageModels={() => updateAppState(current => ({ ...current, activeScreen: 'models' }))}
           onOpenLibrary={() => updateAppState(current => ({ ...current, activeScreen: 'library' }))}
-          onOpenSource={(source, sources) => void practiceReader.open(source, sources)}
-          sourceError={practiceReader.error} progress={generation.api} />}
-        {activeScreen === 'chat' && practiceState.mode === 'practice' && practiceReader.state &&
-          <SourceDocumentReader state={practiceReader.state} navigation={practiceReader.navigation} onClose={practiceReader.close} />}
+          readSource={readSourceDocument} SourceReader={SourceDocumentReader} progress={generation.api} />}
         {hasLoadedState && activeScreen === 'library' && (
           <LibraryScreen
+            documents={studyCatalog.documents} documentsLoading={studyCatalog.status === 'loading'} documentsError={studyCatalog.error} onReloadDocuments={studyCatalog.reload}
+            collections={collectionList} onCollectionsChange={refreshCollections} onUnloadCollection={unloadCollection}
             models={appState.models}
             selectedModelId={appState.settings.application.defaultModelId}
-            createRequest={libraryCreateRequest}
+            createRequest={0}
             materials={appState.materials}
             selectedEmbeddingModelId={appState.selectedEmbeddingModelId}
             onAddMaterials={addMaterials}
@@ -2392,7 +2446,7 @@ function ChatScreen({
     foregroundRequestRef.current = id
     reader.close()
     if (kind === 'answer' || kind === 'simplify') sourcePreview.begin(id)
-    if (selectedModel) progress.begin({ id, kind, label, conversationId: activeConversation.id, model: selectedModel,
+    if (selectedModel) progress.begin({ id, kind, label, conversationId: activeConversation.id, model: selectedModel, materialIds: documentScope.map(d => d.materialId),
       settings: runtimeSettings, inputChars, contextual: activeConversation.messages.length > 0,
       depth: settings.application.explanationDepth, count: settings.application.followUpSuggestionCount,
       onStop: handleStopResponse })
@@ -2408,6 +2462,9 @@ function ChatScreen({
   const reader = useSourceReader(readSourceDocument)
   const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
   const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  useEffect(() => {
+    if (!settings.application.showSources || !settings.application.readWhileWaiting) sourcePreview.dismiss()
+  }, [settings.application.showSources, settings.application.readWhileWaiting, sourcePreview])
   useLayoutEffect(() => {
     sourcePreview.dismiss()
     reader.close()
@@ -2494,7 +2551,7 @@ function ChatScreen({
     !pendingConversationId &&
     Boolean(selectedModel) &&
     selectedModel?.status === 'ready' &&
-    documentScope.length > 0 && catalog.status === 'ready' &&
+    documentScope.length > 0 && practiceScopeReady &&
     settings.application.suggestionMode !== 'off'
   const readyChatModel = models.find((model) => model.status === 'ready' && modelCanGenerate(model))
   const readyEmbeddingModel = models.find((model) => model.status === 'ready' && modelCanEmbed(model))
@@ -2523,11 +2580,11 @@ function ChatScreen({
     : setupRecommendation?.recommendedModelId ?? recommendedOllamaChatModel
   const setupChatModelLabel = recommendsCloudChat
     ? setupRecommendation?.recommendedModelName ?? 'a cloud model'
-    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 E4B'
+    : setupRecommendation?.recommendedModelName ?? 'Gemma 4 26B A4B'
   const composerPlaceholder = selectedModel
       ? 'Ask about your documents...'
       : needsDocumentSetup
-        ? 'Add documents to Library, then choose a chat model...'
+        ? 'Add documents to a library, then choose a chat model...'
         : 'Choose a recommended model to ask questions...'
 
   useEffect(() => {
@@ -2615,7 +2672,7 @@ function ChatScreen({
       if (stopStarterRef.current === stop) stopStarterRef.current = null
     }
     const startTimer = window.setTimeout(() => {
-      progress.begin({ id: requestId, kind: 'starter', label: 'Preparing questions', conversationId: activeConversation.id,
+      progress.begin({ id: requestId, kind: 'starter', label: 'Preparing questions', conversationId: activeConversation.id, materialIds: documentScope.map(d => d.materialId),
         model: selectedModel, settings: selectedModelSettings, count: settings.application.followUpSuggestionCount, onStop: stop })
       void tokensmith
         .suggestChatQuestions(requestId, {
@@ -3153,18 +3210,18 @@ function ChatScreen({
 
   function documentSetupLabel() {
     if (hasReadyMaterials) {
-      return 'PDFs are ready for chat.'
+      return 'Documents are ready for chat.'
     }
 
     if (hasIndexingMaterials) {
-      return 'Preparing your PDFs...'
+      return 'Preparing your documents...'
     }
 
     if (!readyEmbeddingModel) {
-      return 'Download models first so TokenSmith can prepare your PDFs.'
+      return 'Download models first so TokenSmith can prepare your documents.'
     }
 
-    return 'Choose the folder with your PDFs.'
+    return 'Create a library with your documents.'
   }
 
   function renderDocumentSetupAction() {
@@ -3196,7 +3253,7 @@ function ChatScreen({
 
     return (
       <button className="model-action-button" type="button" onClick={onOpenLibrary}>
-        <span>Choose Folder</span>
+        <span>Open libraries</span>
       </button>
     )
   }
@@ -3532,7 +3589,7 @@ function ChatScreen({
 
   function previewFirstSource(requestId: string, sources: ChatSource[]) {
     const source = sources[0]
-    if (!settings.application.showSources || !source || !canOpenSource(source)) return
+    if (!settings.application.showSources || !settings.application.readWhileWaiting || !source || !canOpenSource(source)) return
     void sourcePreview.open(requestId, async () => ({
       document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
     }))
@@ -3638,7 +3695,7 @@ function ChatScreen({
 
   async function submitPrompt(rawPrompt: string, editMessageId?: string, passage?: ChatSelectedPassage) {
     const prompt = rawPrompt.trim()
-    if (!prompt || catalog.status === 'loading' || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
+    if (!prompt || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
     }
 
@@ -3717,7 +3774,7 @@ function ChatScreen({
             if (requestSequenceRef.current !== requestSequence) throw new Error('Response stopped.')
             setPendingStatusText('searching Library ...')
             return tokensmith.searchLibrary(query, activeMaterials, retrievalSourceLimit,
-              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope })
+              searchEmbeddingModels, settings.application.searchMode, { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: documentScope, requestId: progressId })
           }
         })
         clientLatencySpans = prepared.latencySpans
@@ -3924,7 +3981,7 @@ function ChatScreen({
             {activeConversation.practiceReference && activeConversation.messages.filter(message => message.role === 'user').length === 1 &&
               <PracticeChatSuggestions key={activeConversation.id} conversation={activeConversation} model={selectedModel}
                 settings={settings} modelSettings={selectedModelSettings} isActive={isActive}
-                disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId)} progress={progress}
+                disabled={Boolean(pendingConversationId) || Boolean(editingQuestionId) || (documentScope.length > 0 && !practiceScopeReady)} progress={progress}
                 onUse={handleUseFollowUpSuggestion} onSave={questions => onChatStateChange(current => ({ ...current,
                   conversations: current.conversations.map(conversation => conversation.id === activeConversation.id
                     ? { ...conversation, practiceSuggestions: questions } : conversation) }))} />}
@@ -3945,7 +4002,7 @@ function ChatScreen({
             <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
               label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
               disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
-              submitDisabled={!draft.trim() || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
+              submitDisabled={!draft.trim() || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
                 onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
@@ -4071,7 +4128,7 @@ function LogEntryBody({ entry }: { entry: ParsedLogEntry }) {
       {systemPrompt && <LogTextPanel title="System Prompt" text={systemPrompt} tone="system" />}
       {modelMessages.length > 0 && <LogMessages messages={modelMessages} />}
       {sources.length > 0 && <LogSources sources={sources} />}
-      {materials.length > 0 && <LogObjectList title="Library folders" items={materials} />}
+      {materials.length > 0 && <LogObjectList title="Library documents" items={materials} />}
       {embeddingModels.length > 0 && <LogObjectList title="Embedding Models" items={embeddingModels} />}
 
       <details className="log-raw-details">
@@ -4793,10 +4850,11 @@ function createIndexingCollection(
   }
 }
 
-function LibraryScreen(props: Omit<React.ComponentProps<typeof LibraryWorkspace>, 'onOpenSource'>) {
+function LibraryScreen(props: Omit<React.ComponentProps<typeof CollectionLibrary>, 'onOpenSource'>) {
   const reader = useSourceReader(readSourceDocument)
+  useEffect(() => { reader.close() }, [props.collections.filter(c => c.loaded).map(c => c.id).join('|')])
   return <>
-    <LibraryWorkspace {...props} onOpenSource={(source, sources) => { void reader.open(source, sources) }} />
+    <CollectionLibrary {...props} onOpenSource={(source, sources) => { void reader.open(source, sources) }} />
     {reader.error && !reader.state && <p className="inline-error" role="alert">{reader.error}</p>}
     {reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
   </>
@@ -5960,6 +6018,10 @@ function SettingsScreen({
                   checked={settings.application.showSources}
                   onChange={(showSources) => updateApplicationSettings({ showSources })}
                 />
+              </SettingsRow>
+              <SettingsRow label="Read while waiting" description="Open a source while Chat prepares an answer or Practice prepares a question. Reading sources does not count as help or prevent mastery updates.">
+                <CheckboxField ariaLabel="Read while waiting" checked={settings.application.readWhileWaiting}
+                  onChange={readWhileWaiting => updateApplicationSettings({ readWhileWaiting })} />
               </SettingsRow>
             </SettingsGroup>
 

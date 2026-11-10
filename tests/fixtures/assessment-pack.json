@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "software-test-only",
+  "revision": "1",
+  "courseId": "fixture-databases",
+  "title": "Practice study software fixture",
+  "items": [
+    {"id": "hash-order", "revision": "1", "concept": {"id": "hash-index", "title": "Hash indexes"}, "format": "true_false", "question": "A hash index preserves the numerical order of its keys.", "correctAnswer": false, "criteria": ["Recognize that hashing does not preserve key order."], "explanation": "Hashing maps keys to buckets without preserving their ordering."},
+    {"id": "hash-range", "revision": "1", "concept": {"id": "hash-index", "title": "Hash indexes"}, "format": "short_answer", "question": "Why can a range query be expensive with a hash index?", "criteria": ["Explain the lack of key order.", "Explain why many buckets may need inspection."], "explanation": "Nearby key values need not occupy nearby buckets, so a range may require scanning the index."}
+  ]
+}

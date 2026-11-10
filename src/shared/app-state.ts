@@ -11,7 +11,7 @@ export type LocalModelRole = 'generator' | 'embedder' | 'both'
 
 export interface MaterialIndexProgress {
   materialId: string
-  phase: 'parsing' | 'chunking' | 'embedding' | 'saving' | 'complete' | 'error'
+  phase: 'parsing' | 'chunking' | 'embedding' | 'saving' | 'topics' | 'complete' | 'error'
   percent: number
   processedFiles?: number
   totalFiles?: number
@@ -34,6 +34,9 @@ export interface ModelDownloadProgress {
 }
 
 export interface CourseMaterial {
+  collectionRevision?: string
+  collectionId?: string
+  collectionTitle?: string
   id: string
   title: string
   detail: string
@@ -112,6 +115,7 @@ export interface ApplicationSettings {
   explanationDepth: ExplanationDepth
   followUpSuggestionCount: number
   showSources: boolean
+  readWhileWaiting: boolean
   embeddingGpuEnabled: boolean
 }
 
@@ -134,6 +138,7 @@ export interface ModelRuntimeSettings {
 export type MessageRole = 'user' | 'assistant'
 
 export interface ChatSource {
+  collectionRevision?: string
   title: string
   locator: string
   excerpt: string
@@ -241,6 +246,7 @@ export interface TokenSmithSettings {
 }
 
 export interface AppStateSnapshot {
+  collectionFormatVersion?: 1
   version: 1
   appVersion: string
   activeScreen: ScreenId

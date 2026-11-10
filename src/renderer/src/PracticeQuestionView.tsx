@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react'
 import { Database, PanelRightOpen } from 'lucide-react'
-import { practiceQuestionText, practiceTimeline, type PracticeTopic, type PracticeQuestion } from '@shared/practice'
+import { practiceQuestionText, type PracticeTopic, type PracticeQuestion } from '@shared/practice'
 import { MessageText } from './MessageText'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
-import { SelectedPassagePreview } from './SelectedPassagePreview'
 import { MessageAvatar } from './MessageAvatar'
 
 function PracticeMessage({ id, user = false, children }: { id: string; user?: boolean; children: ReactNode }) {
@@ -23,39 +22,18 @@ export function PracticeQuestionView({ question, index, active, busy, onShowSour
     <div className="practice-question-messages">
       <PracticeMessage id={question.id}>
         <MessageText text={practiceQuestionText(question)} />
-        {question.format !== 'true_false' && <p className="practice-muted">Saved short-answer exercise. Choose Next question for True/False practice.</p>}
       </PracticeMessage>
-      {practiceTimeline(question).map((activity, eventIndex) => {
-        if (activity.kind === 'attempt') {
-          const attempt = question.attempts.find(item => item.id === activity.id)
-          if (!attempt) return null
-          return <div key={eventIndex}>
-            <PracticeMessage id={attempt.id} user>
-              <section aria-label="Your submitted answer"><MessageText text={attempt.answer} /></section>
-            </PracticeMessage>
-            <PracticeMessage id={`${attempt.id}:feedback`}>
-              <section className="practice-feedback" aria-label="Practice feedback">
-                {attempt.assisted && <p className="practice-muted">With help or revision</p>}
-                <PracticeFeedbackView feedback={attempt.feedback} />
-              </section>
-            </PracticeMessage>
-          </div>
-        }
-        if (activity.kind === 'discussion') {
-          const discussion = question.discussions?.find(item => item.id === activity.id)
-          if (!discussion) return null
-          return <div key={eventIndex}>
-            <PracticeMessage id={discussion.id} user>
-              {discussion.selectedPassage && <SelectedPassagePreview passage={discussion.selectedPassage} label="From this practice" />}
-              <section aria-label="Help question"><MessageText text={discussion.question} /></section>
-            </PracticeMessage>
-            <PracticeMessage id={`${discussion.id}:reply`}>
-              <section aria-label="Help explanation"><MessageText text={discussion.answer} /></section>
-            </PracticeMessage>
-          </div>
-        }
-        return null
-      })}
+      {question.attempts.map(attempt => <div key={attempt.id}>
+        <PracticeMessage id={attempt.id} user>
+          <section aria-label="Your submitted answer"><MessageText text={attempt.answer} /></section>
+        </PracticeMessage>
+        <PracticeMessage id={`${attempt.id}:feedback`}>
+          <section className="practice-feedback" aria-label="Practice feedback">
+            {attempt.assisted && <p className="practice-muted" title="Chat help was shown before you answered. Reading source passages does not count as help.">Answered with help · mastery unchanged</p>}
+            <PracticeFeedbackView feedback={attempt.feedback} />
+          </section>
+        </PracticeMessage>
+      </div>)}
     </div>
     <div className="practice-question-footer">
       {actions && <div className="answer-simplify-action practice-study-actions" role="group" aria-label="Practice actions">

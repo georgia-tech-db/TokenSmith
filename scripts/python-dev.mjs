@@ -420,7 +420,7 @@ function requireRuntimePython() {
 
 function runIntegration() {
   requireRuntimePython()
-  const tests = ['tests/integration/buzzdb-context-routing.test.mjs', 'tests/integration/python-engine-pdf.test.mjs']
+  const tests = ['tests/integration/buzzdb-context-routing.test.mjs', 'tests/integration/python-engine-pdf.test.mjs', 'tests/integration/collections.test.mjs']
 
   for (const test of tests) {
     const status = runNode(test, [])

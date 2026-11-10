@@ -25,7 +25,10 @@ test('indexing and search hydrate cloud models at the worker boundary, without l
     const send = line => {
       const request = JSON.parse(line)
       requests.push(request)
-      const result = request.command === 'index_material' ? { material: { id: 'book', status: 'ready' } } : { sources: [] }
+      const result = request.command === 'index_material' ? { material: { id: 'book', status: 'ready' } } : {
+        sources: [{ materialId: 'book', documentId: 1, chunkId: 1, excerpt: 'A source.', score: 1 }],
+        latencySpans: [{ stage: 'Query encoding', startedAt: 1, durationMs: 2 }, { stage: 'untrusted', startedAt: 1, durationMs: 2 }]
+      }
       queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, ok: true, result }) + '\n'))
     }
     child.stdin = { write: send, end: send }
@@ -48,17 +51,25 @@ test('indexing and search hydrate cloud models at the worker boundary, without l
     providerId: 'custom', baseUrl: 'https://test.example/v1', remoteModelName: 'embed-test' }
   let key = 'test-key-only'
   setCloudCredentialResolver(model => model.connectionId === 'shared' ? key : undefined)
-  await exports.indexMaterialWithPython('/test-book', model, 'book', { preparationModel: { ...model, role: 'generator' } })
+  const [collection] = await exports.collections().createManaged('Test library')
+  requests.length = 0
+  const materialId = `${collection.id}/book`
+  const materials = [{ id: materialId, title: 'Book', isActive: true }]
+  await exports.indexMaterialWithPython('/test-book', model, materialId, { preparationModel: { ...model, role: 'generator' } })
   assert.equal(requests[0].payload.model.apiKey, key)
   assert.equal(requests[0].payload.preparationModel.apiKey, key)
-  await exports.searchLibraryWithPython('Why?', [], 4, [model], 'hybrid')
+  const result = await exports.searchLibraryWithPython('Why?', materials, 4, [model], 'hybrid')
   assert.equal(requests[1].payload.embeddingModels[0].apiKey, key)
+  assert.equal(requests[1].payload.materials[0].id, 'book')
+  assert.equal(result.sources[0].materialId, materialId)
+  assert.equal(result.retrievalChildren.length, 1)
+  assert.equal(result.retrievalChildren[0].durationMs, 2)
   assert.equal(model.apiKey, undefined)
   key = 'replacement-test-key'
-  await exports.searchLibraryWithPython('Again?', [], 4, [model], 'hybrid')
+  await exports.searchLibraryWithPython('Again?', materials, 4, [model], 'hybrid')
   assert.equal(requests[2].payload.embeddingModels[0].apiKey, key)
   key = undefined
-  await exports.searchLibraryWithPython('Forgotten?', [], 4, [model], 'hybrid')
+  await exports.searchLibraryWithPython('Forgotten?', materials, 4, [model], 'hybrid')
   assert.equal(requests[3].payload.embeddingModels[0].apiKey, undefined)
   const log = await readFile(join(folder, 'logs', 'tokensmith.log'), 'utf8')
   assert.equal(log.includes('test-key-only'), false)

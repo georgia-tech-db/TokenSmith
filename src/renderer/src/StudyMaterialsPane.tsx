@@ -6,29 +6,31 @@ import { StudyDocumentPicker, type StudyDocumentExpansion } from './StudyDocumen
 import './study-workspace.css'
 import './answer-explanation.css'
 
-export function StudyMaterialsPane({ catalog, scope, open, disabled, onChange, onClose, onManage, children, collectionExpansion, onCollectionExpansionChange }: {
+export function StudyMaterialsPane({ catalog, scope, open, disabled, onChange, onClose, onManage, children, footerActions, collectionExpansion, onCollectionExpansionChange }: {
   catalog: StudyCatalog; scope: StudyDocumentRef[]; open: boolean; disabled?: boolean
   onChange: (scope: StudyDocumentRef[]) => void; onClose: () => void; onManage: () => void
   children?: ReactNode
+  footerActions?: ReactNode
 } & StudyDocumentExpansion) {
   const available = new Set(catalog.documents.map(studyDocumentKey))
   const missing = scope.filter(item => !available.has(studyDocumentKey(item))).length
-  return <aside className="study-materials" aria-label="Library" hidden={!open}>
-    <header><div><h2>Library</h2><span>{scope.length} document{scope.length === 1 ? '' : 's'} selected</span></div>
-      <button type="button" className="icon-button subtle" aria-label="Close Library" title="Close Library" onClick={onClose}><X size={18} /></button></header>
+  return <aside className="study-materials" aria-label="Documents" hidden={!open}>
+    <header><div><h2>Documents</h2><span>{scope.length} document{scope.length === 1 ? '' : 's'} selected</span></div>
+      <button type="button" className="icon-button subtle" aria-label="Close Documents" title="Close Documents" onClick={onClose}><X size={18} /></button></header>
     <div className={`study-materials-body ${children ? 'has-sources' : ''}`}>
-      <div className="study-materials-scroll" role="region" aria-label="Folders and documents" tabIndex={0}>
+      <div className="study-materials-scroll" role="region" aria-label="Libraries and documents" tabIndex={0}>
         {catalog.status === 'loading' && <p role="status">Loading documents...</p>}
         {catalog.status === 'error' && <div role="alert"><p>{catalog.error}</p><button className="practice-link" type="button" onClick={catalog.reload}><RefreshCw size={15} />Retry</button></div>}
         {catalog.status === 'ready' && <>
           {missing > 0 && <div role="status" className="study-scope-note"><span>{missing} selected document{missing === 1 ? ' is' : 's are'} unavailable.</span>
+            <button className="practice-link" type="button" onClick={onManage}>Open library</button>
             <button className="practice-link" type="button" disabled={disabled} onClick={() => onChange(scope.filter(item => available.has(studyDocumentKey(item))))}>Remove unavailable selections</button></div>}
-          {!catalog.documents.length ? <p>No indexed documents yet.</p> : <StudyDocumentPicker documents={catalog.documents} scope={scope}
+          {!catalog.documents.length ? <p>No documents yet.</p> : <StudyDocumentPicker documents={catalog.documents} scope={scope}
             disabled={Boolean(disabled)} onChange={onChange} collectionExpansion={collectionExpansion} onCollectionExpansionChange={onCollectionExpansionChange} />}
         </>}
       </div>
       {children}
     </div>
-    <footer><button className="study-action-button" type="button" onClick={onManage}><FolderOpen size={17} aria-hidden="true" />Manage Library</button></footer>
+    <footer>{footerActions}<button className="study-action-button" type="button" onClick={onManage}><FolderOpen size={17} aria-hidden="true" />Manage libraries</button></footer>
   </aside>
 }
