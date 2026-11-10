@@ -1,3 +1,4 @@
+import { observeModelLoading } from './model-loading'
 import { app, BrowserWindow, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -871,32 +872,34 @@ async function requestOllamaChatCompletion(
   }
   // Keep cancellation and timeout active until the response body is consumed.
   const timeout = AbortSignal.timeout(overrides.timeoutMs ?? (overrides.thinking ? 300_000 : 180_000))
-  const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages,
-      options: {
-        ...ollamaOptions(settings),
-        ...(overrides.maxTokens ? { num_predict: overrides.maxTokens } : {}),
-        ...(overrides.temperature !== undefined ? { temperature: overrides.temperature } : {})
+  return observeModelLoading({ baseUrl, modelName, contextLength: settings?.contextLength, role: 'generator' }, async () => {
+    const response = await fetch(`${ollamaApiBaseUrl(baseUrl)}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
       },
-      ...(overrides.format ? { format: overrides.format } : {}),
-      stream: false,
-      think: overrides.thinking ?? false
-    }),
-    signal: overrides.signal ? AbortSignal.any([overrides.signal, timeout]) : timeout
+      body: JSON.stringify({
+        model: modelName,
+        messages,
+        options: {
+          ...ollamaOptions(settings),
+          ...(overrides.maxTokens ? { num_predict: overrides.maxTokens } : {}),
+          ...(overrides.temperature !== undefined ? { temperature: overrides.temperature } : {})
+        },
+        ...(overrides.format ? { format: overrides.format } : {}),
+        stream: false,
+        think: overrides.thinking ?? false
+      }),
+      signal: overrides.signal ? AbortSignal.any([overrides.signal, timeout]) : timeout
+    })
+
+    if (!response.ok) {
+      throw new Error(`Ollama chat failed with HTTP ${response.status}${await responseErrorDetail(response)}.`)
+    }
+
+    return (await response.json()) as OllamaChatResponse
   })
-
-  if (!response.ok) {
-    throw new Error(`Ollama chat failed with HTTP ${response.status}${await responseErrorDetail(response)}.`)
-  }
-
-  return (await response.json()) as OllamaChatResponse
 }
 
 async function runOllamaChatCompletion(

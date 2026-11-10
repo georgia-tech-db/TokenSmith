@@ -1,3 +1,4 @@
+import { withModelLoadingProgress } from './engine/model-loading'
 import { createBookPreparation } from './collections/book-preparation'
 import { runOllamaStudyEngine } from './engine/ollama-service'
 import { createStateWriter } from './atomic-state'
@@ -488,7 +489,9 @@ app.whenReady().then(async () => {
     const tracked = trackCollectionRequest(request, controller)
     if (request.requestId) chatRequests.set(key, controller)
     try {
-      const result = await sendChatMessage(request, {
+      const result = await withModelLoadingProgress(request.requestId, progress => {
+        if (!event.sender.isDestroyed()) event.sender.send('engine:model-loading', progress)
+      }, controller.signal, () => sendChatMessage(request, {
         signal: controller.signal,
         onAnswer: (answer, hasFollowUps) => {
           tracked.finish()
@@ -496,7 +499,7 @@ app.whenReady().then(async () => {
             event.sender.send('engine:answer-ready', request.requestId, answer, hasFollowUps)
           }
         }
-      })
+      }))
       tracked.finish()
       return result
     } finally {
@@ -508,18 +511,22 @@ app.whenReady().then(async () => {
     const key = `${event.sender.id}:${request.requestId}`
     const controller = new AbortController()
     if (request.requestId) chatRequests.set(key, controller)
-    try { return await resolveChatQuestion(request, controller.signal) }
+    try { return await withModelLoadingProgress(request.requestId, progress => {
+      if (!event.sender.isDestroyed()) event.sender.send('engine:model-loading', progress)
+    }, controller.signal, () => resolveChatQuestion(request, controller.signal)) }
     finally { if (chatRequests.get(key) === controller) chatRequests.delete(key) }
   })
   ipcMain.handle('engine:cancel-chat', (event, requestId: string) => {
     chatRequests.get(`${event.sender.id}:${requestId}`)?.abort()
   })
-  ipcMain.handle('engine:suggest-questions', async (_event, requestId: string, request: EngineQuestionSuggestionRequest) => {
+  ipcMain.handle('engine:suggest-questions', async (event, requestId: string, request: EngineQuestionSuggestionRequest) => {
     const controller = new AbortController()
     const tracked = trackCollectionRequest(request, controller)
     questionSuggestionRequests.set(requestId, controller)
     try {
-      const result = await suggestChatQuestions(request, controller.signal)
+      const result = await withModelLoadingProgress(requestId, progress => {
+        if (!event.sender.isDestroyed()) event.sender.send('engine:model-loading', progress)
+      }, controller.signal, () => suggestChatQuestions(request, controller.signal))
       tracked.finish()
       return result
     } catch (error) {
@@ -554,8 +561,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:practice-sources', (_event, documents: StudyDocumentRef[], usedSourceKeys: string[], questionIndex: number) =>
     practiceSourcesWithPython(documents, usedSourceKeys, questionIndex)
   )
-  ipcMain.handle('library:search', (_event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) =>
-    searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options)
+  ipcMain.handle('library:search', (event, query: string, materials: CourseMaterial[], limit: number, embeddingModels?: LocalModel[], searchMode?: SearchMode, options?: LibrarySearchOptions) =>
+    withModelLoadingProgress(options?.requestId, progress => {
+      if (!event.sender.isDestroyed()) event.sender.send('engine:model-loading', progress)
+    }, undefined, () => searchLibraryWithPython(query, materials, limit, embeddingModels, searchMode, options))
   )
   ipcMain.handle('library:get-pdf-for-source', (_event, source: ChatSource) => getPdfForSource(source))
   ipcMain.handle('library:get-pdf-thumbnail-for-source', (_event, source: ChatSource) =>

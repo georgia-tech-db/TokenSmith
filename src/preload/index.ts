@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { TokenSmithBridge } from '../shared/bridge'
 
 const tokenSmithBridge: TokenSmithBridge = {
+  onModelLoading: callback => {
+    const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => callback(progress)
+    ipcRenderer.on('engine:model-loading', listener)
+    return () => { ipcRenderer.off('engine:model-loading', listener) }
+  },
   getModelContextMetadata: (model) => ipcRenderer.invoke('models:context-metadata', model),
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,

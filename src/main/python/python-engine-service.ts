@@ -1,3 +1,4 @@
+import { observeModelLoading } from '../engine/model-loading'
 import { localDocuments, qualifyMaterial, qualifyDocument, qualifySource, mergeCollectionSources } from '../collections/collection-routing'
 import { CollectionRegistry, type MountedCollection } from '../collections/collection-registry'
 import { collectionMaterialId, splitMaterialId } from '../../shared/collections'
@@ -752,11 +753,19 @@ export async function searchLibraryWithPython(query: string, materials: CourseMa
   const resolvedEmbeddingModels = resolveEmbeddingModels(embeddingModels)
   const embeddingGpuEnabled = normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled)
   if (groups.length && searchMode !== 'keyword') await prepareEmbeddingDevice(resolvedEmbeddingModels, embeddingGpuEnabled)
-  const results = await Promise.all(groups.map(async ({ collection, ...scope }) => {
+  const search = () => Promise.all(groups.map(async ({ collection, ...scope }) => {
     const result = await storeRequest<SearchResult>(collection, 'search', { ...scope, query, limit,
       embeddingModels: resolvedEmbeddingModels, searchMode, embeddingGpuEnabled })
     return { ...result, sources: result.sources.map(source => qualifySource(collections(), collection, source)) }
   }))
+  const selectedMaterials = materials.filter(material => options?.documents
+    ? options.documents.some(document => document.materialId === material.id) : material.isActive !== false)
+  const needed = searchMode === 'keyword' ? [] : resolvedEmbeddingModels.filter(model => model.engine === 'ollama' && model.ollamaModelName &&
+    selectedMaterials.some(material => material.embeddingModelId === model.id || material.embeddingModel === `ollama:${model.ollamaModelName}`))
+  const searchWithLoading = (index: number): ReturnType<typeof search> => index === needed.length ? search()
+    : observeModelLoading({ baseUrl: needed[index].ollamaBaseUrl || 'http://127.0.0.1:11434',
+        modelName: needed[index].ollamaModelName!, role: 'embedder' }, () => searchWithLoading(index + 1))
+  const results = await searchWithLoading(0)
   groups.forEach(group => collections().current(group.collection))
   const sources = mergeCollectionSources(results.map(result => result.sources), limit)
   writeLog('library_search_result', { query, sourceCount: sources.length, sources: sources.map(logSource) })

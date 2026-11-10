@@ -10,7 +10,7 @@ export interface StudyDocument extends StudyDocumentRef {
   collectionName: string
   chunkCount: number
 }
-export interface LibrarySearchOptions extends EmbeddingOptions { documents?: StudyDocumentRef[] }
+export interface LibrarySearchOptions extends EmbeddingOptions { documents?: StudyDocumentRef[]; requestId?: string }
 export const studyDocumentKey = (document: StudyDocumentRef) => `${document.materialId}:${document.documentId}`
 export const studyScopeKey = (documents: StudyDocumentRef[]) => [...new Set(documents.map(studyDocumentKey))].sort().join('|')
 export const scopeRefs = (documents: StudyDocumentRef[]): StudyDocumentRef[] =>

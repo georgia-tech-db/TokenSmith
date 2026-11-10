@@ -39,6 +39,7 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  onModelLoading: (callback: (event: import('./model-loading').ModelLoadingEvent) => void) => () => void
   listCollections: () => Promise<import('./collections').Collection[]>
   createCollection: (path: string, name: string) => Promise<import('./collections').Collection[]>
   createLibrary: (name: string) => Promise<import('./collections').Collection[]>

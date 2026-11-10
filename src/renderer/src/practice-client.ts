@@ -21,7 +21,7 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
     })
   }
   return {
-    async prepareTopic(session: PracticeSession, signal: AbortSignal): Promise<PracticeSession> {
+    async prepareTopic(session: PracticeSession, signal: AbortSignal, requestId?: string): Promise<PracticeSession> {
       if (!session.topic) return session
       let sources = sourcesInScope(session.topic.sources ?? [], session.documents)
       if (!session.topic.prepared) {
@@ -33,7 +33,7 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
           const result = await bridge.searchLibrary(query,
             retrieval.materials.filter(material => ids.has(material.id)).map(material => ({ ...material, isActive: true })),
             8, retrieval.embeddingModels, settings.application.searchMode,
-            { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: session.documents })
+            { embeddingGpuEnabled: settings.application.embeddingGpuEnabled, documents: session.documents, requestId })
           sources = [...sourcesInScope(result.sources, session.documents), ...sources]
         } catch (reason) { if (!sources.length) throw reason }
       }

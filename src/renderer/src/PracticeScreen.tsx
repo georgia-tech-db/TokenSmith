@@ -213,7 +213,7 @@ export function PracticeScreen(props: Props) {
     }
     let prepared = target
     void perform(target, 'Preparing question', async (client, id, signal) => {
-      prepared = await client.prepareTopic(target, signal)
+      prepared = await client.prepareTopic(target, signal, id)
       return client.question(prepared, id, signal, (questionSourceCursor, attempt, total) => {
         if (operation.current?.id !== id || signal.aborted) return
         // Save the prepared pool and cursor even when all attempts fail, so Retry advances.
