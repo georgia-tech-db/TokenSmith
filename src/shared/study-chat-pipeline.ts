@@ -68,7 +68,7 @@ export async function prepareRewrittenStudyChat(
 
   // A selected passage is explicit context, even if the model labels its query standalone.
   const mode = request.selectedPassage ? 'contextual' : resolution.mode
-  const query = mode === 'standalone' ? request.prompt : resolution.query
+  const query = resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
   const searchTimer = startLatencySpan('Library search')
   const searchResult = await dependencies.search(query)

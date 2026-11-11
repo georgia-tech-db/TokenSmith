@@ -66,7 +66,7 @@ const stageCatalog: ReadonlyArray<StageCatalogEntry> = [
     id: 'Question understanding',
     label: 'Question understanding',
     description:
-      'Checks whether your question builds on earlier messages or a highlighted passage, turns follow-ups into a self-contained search query, and decides whether step-by-step reasoning is needed.',
+      'Checks whether your question builds on earlier messages or a highlighted passage, removes unrelated framing from the search query, resolves follow-up references, and decides whether step-by-step reasoning is needed.',
     aliases: ['Rewriting', 'Question rewrite', 'Question routing'],
     topLevelRank: 0
   },
