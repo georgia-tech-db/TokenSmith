@@ -22,6 +22,8 @@ from tests.benchmarks.test_buzzdb_grounding import (
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "tests/fixtures/buzzdb/buzzdb-book.tokensmith.md"
 MODEL = json.loads((ROOT / "tests/benchmarks/embedding-model.json").read_text())
+if os.environ.get("TOKENSMITH_BENCHMARK_OLLAMA_VERSION"):
+    MODEL["ollamaVersion"] = os.environ["TOKENSMITH_BENCHMARK_OLLAMA_VERSION"]
 BASE_URL = engine.normalize_ollama_base_url(os.environ.get("TOKENSMITH_BENCHMARK_OLLAMA_URL", ""))
 MODEL_SPEC = {"engine": "ollama", "role": "embedder", "ollamaModelName": MODEL["name"], "ollamaBaseUrl": BASE_URL}
 MODEL_KEY = engine.ollama_embedding_model_key(MODEL_SPEC)
@@ -201,6 +203,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         start = time.perf_counter()
         results = []
         for case in self.cases:
+            case_start = time.perf_counter()
             hits = []
             sources = []
             try:
@@ -214,6 +217,8 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
                 failures = [str(error)]
             results.append({
                 "id": case["id"], "question": case["question"],
+                "retrievalQuery": case.get("retrievalQuery"),
+                "retrievalMs": (time.perf_counter() - case_start) * 1000,
                 "referenceAnswer": case["referenceAnswer"],
                 "passed": not failures, "hits": hits, "failures": failures,
                 "evidenceLabel": "Retrieved evidence (rank order)",

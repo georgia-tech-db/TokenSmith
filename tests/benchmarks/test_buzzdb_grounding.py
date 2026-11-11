@@ -16,6 +16,7 @@ from python_engine import tokensmith_store as store
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "buzzdb" / "buzzdb-book.tokensmith.md"
 CASES_PATH = ROOT / "tests" / "benchmarks" / "buzzdb_grounding_cases.json"
 REASONING_CASES_PATH = ROOT / "tests" / "benchmarks" / "buzzdb_reasoning_cases.json"
+REGRESSION_CASES_PATH = ROOT / "tests" / "benchmarks" / "buzzdb_regression_cases.json"
 BUZZDB_COLLECTION_ID = "1"
 
 
@@ -24,6 +25,7 @@ def load_grounding_cases():
     for family in json.loads(REASONING_CASES_PATH.read_text(encoding="utf-8")):
         cases.append({**family["turns"][0], "id": family["id"], "topK": 8,
                       "evidenceGroups": family["evidenceGroups"]})
+    cases.extend(json.loads(REGRESSION_CASES_PATH.read_text(encoding="utf-8")))
     return cases
 
 

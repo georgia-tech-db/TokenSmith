@@ -81,13 +81,48 @@ Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally
 
 ### Harder BuzzDB Questions
 
-The regular benchmark has 16 live hybrid-retrieval questions (10 conceptual and
-6 application/reasoning questions), plus 16 mocked conversation-contract checks.
+The regular benchmark has 20 live hybrid-retrieval questions (10 conceptual,
+6 application/reasoning, and 4 regression questions), plus 18 mocked
+conversation-contract checks.
 The six harder families cover buffer safety/WAL, 2Q traces, aggregate initialization
 bugs, column-page reads, aggregation trade-offs, and batching speedups. Each has
 three turns and four evaluator-only criteria per turn in
 [buzzdb_reasoning_cases.json](../tests/benchmarks/buzzdb_reasoning_cases.json).
 Required evidence groups check each prerequisite, not just one matching passage.
+
+The four cases in
+[buzzdb_regression_cases.json](../tests/benchmarks/buzzdb_regression_cases.json)
+cover two questions with distracting background and two needing evidence from
+different sections (slot stability versus pinning, and pinning versus durability).
+They require all relevant evidence groups while accepting reviewed alternative
+passages. They do not enable query decomposition in the app. This adds four fresh
+query embeddings per CI run and reuses the existing book cache.
+
+For distractor cases, CI searches an authored **reference cleanup query**, labeled
+in the report. Two additional mocked contracts check that the parser and pipeline
+use that query for one search while preserving the student's original question
+for generation. These checks cannot detect a model producing a bad rewrite.
+To check actual cleanup and answers, run just these four live questions with the
+installed Gemma model and Auto reasoning, which enables first-turn cleanup:
+
+```sh
+TOKENSMITH_BENCHMARK_MODEL=gemma4:26b \
+TOKENSMITH_BENCHMARK_REASONING=auto \
+TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_regression_cases.json \
+TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz \
+npm run test:benchmark -- --live
+```
+
+This still runs all CI retrieval/contracts, then generates only four answers.
+The original questions go through the production rewriter; reference cleanup
+queries and grading criteria are never supplied to it. Inspect the saved queries,
+answers, evidence, and per-case rubrics. No automatic answer-quality score is
+claimed, and the default 18-turn live suite remains unchanged.
+
+For a local experiment on another Ollama version, explicitly set
+`TOKENSMITH_BENCHMARK_OLLAMA_VERSION` to that installed version and use a book cache
+created with the same version. Model digest and cache validation still apply.
+This does not change CI's pinned runtime or establish its results.
 
 To also generate the 18 new answers using the installed `gemma4:e4b` model:
 
@@ -125,7 +160,7 @@ not just routing labels or successful completion.
 
 `TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_reasoning_variants.json`
 selects six additional live turns covering slot relocation, leaf/internal splits,
-and SIMD masks. These alternate live cases do not replace or enlarge the 16 CI
+and SIMD masks. These alternate live cases do not replace or enlarge the 20 CI
 retrieval questions. They were authored before the MoE prompt experiment and
 include explicit changes to the preceding scenario. Like the original chains,
 they are fixed diagnostic questions, not adaptively generated student follow-ups.
@@ -175,8 +210,8 @@ or that the answer is wrong; follow-ups can also need only a subset of that
 family's evidence. Review the actual passages before attributing an answer error
 to retrieval. The initial CI questions require all their specified groups.
 
-Completed answers are explicitly **ungraded**, not accuracy passes. Review all
-four criteria (0 / 0.5 / 1 each) and record additional substantive errors
+Completed answers are explicitly **ungraded**, not accuracy passes. Review each
+case's criteria (0 / 0.5 / 1 each) and record additional substantive errors
 separately; a correct number or keyword alone is not a correct explanation.
 Label manual reviews with their reviewer and run identity. The live stage is
 not part of every-PR CI and does not change the retrieval badge's meaning.

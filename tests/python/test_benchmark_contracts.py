@@ -34,9 +34,13 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_reasoning_cases_extend_real_retrieval_without_replacing_basic_cases(self):
         cases = load_grounding_cases()
-        self.assertEqual(len(cases), 16)
-        self.assertEqual(len({case["id"] for case in cases}), 16)
-        self.assertEqual(sum(bool(case.get("evidenceGroups")) for case in cases), 6)
+        self.assertEqual(len(cases), 20)
+        self.assertEqual(len({case["id"] for case in cases}), 20)
+        self.assertEqual(sum(bool(case.get("evidenceGroups")) for case in cases), 10)
+        regressions = cases[-4:]
+        self.assertEqual([case["category"] for case in regressions],
+                         ["distractor", "distractor", "multiple_evidence", "multiple_evidence"])
+        self.assertEqual(sum(bool(case.get("retrievalQuery")) for case in cases), 2)
         chunks = {chunk["tokensmithChunkId"]: chunk for chunk in benchmark.all_chunks()}
         assert_all_case_chunks_exist(cases, chunks)
         for case in cases:

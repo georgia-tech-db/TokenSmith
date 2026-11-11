@@ -110,6 +110,7 @@ export function formatBenchmarkSummary(suites) {
         `**Prior answer (${origin}):** ${escapeCell(item.referenceExchange.answer)}`)
     }
     if (item.question) parts.push(`**Question:** ${escapeCell(item.question)}`)
+    if (item.retrievalQuery) parts.push(`**Reference search query (cleanup model not run):** ${escapeCell(item.retrievalQuery)}`)
     if (item.answer) parts.push(`**Actual model answer (ungraded):** ${escapeCell(item.answer.text)}`)
     if (item.referenceAnswer) parts.push(`**Reference answer (not generated):** ${escapeCell(item.referenceAnswer)}`)
     if (item.evidence) {
