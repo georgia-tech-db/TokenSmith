@@ -7,10 +7,10 @@ import { buzzdbChunk } from '../../helpers/buzzdb-fixture.mjs'
 
 const families = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_cases.json', 'utf8'))
 
-test('four regression cases reuse the live runner without reference cleanup or manufactured history', async () => {
+test('five regression cases reuse the live runner without reference cleanup or manufactured history', async () => {
   const definitions = JSON.parse(readFileSync('tests/benchmarks/buzzdb_regression_cases.json', 'utf8'))
   const cases = loadLiveCases('tests/benchmarks/buzzdb_regression_cases.json')
-  assert.equal(cases.length, 4)
+  assert.equal(cases.length, 5)
   const inputs = []
   const results = await runReasoningTurns(cases, async request => {
     inputs.push(request)

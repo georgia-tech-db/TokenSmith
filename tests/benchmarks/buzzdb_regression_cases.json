@@ -32,22 +32,6 @@
     ]
   },
   {
-    "id": "rid_compaction_and_pinning",
-    "category": "multiple_evidence",
-    "question": "My index identifies a record by its page number and slot number. If compaction moves the record's bytes within that page, why doesn't the index break? Does that same mechanism also keep the page in memory while a query is reading it?",
-    "referenceAnswer": "The slot directory maps a stable slot ID to the record's current byte offset. Compaction updates that offset while keeping the page-and-slot RID stable. Pinning separately prevents eviction while the page is in use; slot indirection does not guarantee buffer residency.",
-    "topK": 8,
-    "evidenceGroups": [
-      { "id": "stable-rid", "chunkIds": ["ch03.040", "ch04.046", "ch04.047", "ch04.048", "ch04.050"] },
-      { "id": "pinning", "chunkIds": ["ch05.084", "ch05.091", "ch05.102", "ch11.077"] }
-    ],
-    "criteria": [
-      "Preserve both the within-page compaction question and the active-reader residency question.",
-      "Explain updating the slot's byte offset while keeping the RID stable.",
-      "Distinguish stable addressing from pinning and explicitly reject slot indirection as an eviction safeguard. Pinning prevents eviction, not concurrent modification."
-    ]
-  },
-  {
     "id": "pinning_vs_durability",
     "category": "multiple_evidence",
     "question": "Does pinning a dirty page make its changes durable? Explain what pinning and write-ahead logging each guarantee before that page can be written to disk or its frame reused.",
@@ -62,6 +46,38 @@
       "Retain pinning, dirty state, durability, and write ordering as distinct requirements.",
       "Explain that keeping a page resident is not crash durability; write the relevant log before the changed page.",
       "Distinguish flushing from eviction: a dirty page must be written before normal frame reuse, but pinning forbids reuse while active."
+    ]
+  },
+  {
+    "id": "code_hash_missing_sentinel",
+    "category": "code",
+    "question": "In the book's v024 HashIndex backed by std::unordered_map, what does getValue return for an absent key? If a present key stores -1, can a caller distinguish these two cases using the returned integer alone? Use this implementation rather than a redesigned API.",
+    "referenceAnswer": "getValue returns the stored integer when the key exists, and -1 otherwise. A present key whose stored value is -1 and an absent key both return -1, so the returned integer alone cannot distinguish them.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "lookup-result", "chunkIds": ["ch07.017", "ch07.035", "ch07.055", "ch08.003", "ch08.009", "ch08.016"],
+        "requiredContext": ["return it != hash_index.end() ? it->second : -1;"] }
+    ],
+    "criteria": [
+      "Report -1 for an absent key and the stored value for a present key.",
+      "Explain that a stored -1 is indistinguishable from a missing key using the returned integer alone; do not invent an exception or presence flag."
+    ]
+  },
+  {
+    "id": "table_sales_product_region",
+    "category": "table",
+    "question": "In the small Sales example introducing GROUP BY region, restrict the input to product_id 101. What are its North and South subtotals, and which region has the larger subtotal? Show the contributing rows; do not use each region's total across all products.",
+    "referenceAnswer": "For product 101, North has amounts 150.00 and 100.00, totaling 250.00. South has 120.00, totaling 120.00. North is larger. Exclude product 102's North 200.00 and South 250.00, and product 103's West 300.00.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "north-rows", "chunkIds": ["ch13.011", "ch13.012"],
+        "requiredContext": ["| 101 | North | 150.00 |", "| 101 | North | 100.00 |"] },
+      { "id": "south-rows", "chunkIds": ["ch13.011", "ch13.013"],
+        "requiredContext": ["| 101 | South | 120.00 |"] }
+    ],
+    "criteria": [
+      "Use only product 101: North 150 + 100 = 250 and South 120.",
+      "Identify North as larger and show the contributing rows, rather than copying totals across all products."
     ]
   }
 ]

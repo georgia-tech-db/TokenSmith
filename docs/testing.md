@@ -81,8 +81,8 @@ Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally
 
 ### Harder BuzzDB Questions
 
-The regular benchmark has 20 live hybrid-retrieval questions (10 conceptual,
-6 application/reasoning, and 4 regression questions), plus 18 mocked
+The regular benchmark has 21 live hybrid-retrieval questions (10 conceptual,
+6 application/reasoning, and 5 regression questions), plus 18 mocked
 conversation-contract checks.
 The six harder families cover buffer safety/WAL, 2Q traces, aggregate initialization
 bugs, column-page reads, aggregation trade-offs, and batching speedups. Each has
@@ -90,19 +90,27 @@ three turns and four evaluator-only criteria per turn in
 [buzzdb_reasoning_cases.json](../tests/benchmarks/buzzdb_reasoning_cases.json).
 Required evidence groups check each prerequisite, not just one matching passage.
 
-The four cases in
+The five cases in
 [buzzdb_regression_cases.json](../tests/benchmarks/buzzdb_regression_cases.json)
-cover two questions with distracting background and two needing evidence from
-different sections (slot stability versus pinning, and pinning versus durability).
+cover two questions with distracting background, one needing evidence from
+different sections (pinning versus durability), and two code/table cases from
+PR #162: the hash-index missing-key sentinel and filtered Sales subtotals.
 They require all relevant evidence groups while accepting reviewed alternative
-passages. They do not enable query decomposition in the app. This adds four fresh
+passages. They do not enable query decomposition in the app. This adds five fresh
 query embeddings per CI run and reuses the existing book cache.
+
+The code/table cases use the existing `requiredContext` checks for the exact
+return expression and input rows. Tests remove each critical fragment while
+keeping the source IDs: ID-only checks pass, but the text checks fail. No new
+validator is needed. These checks establish evidence availability across the
+selected context, not which individual passage supplied each fragment or whether
+the model used it correctly.
 
 For distractor cases, CI searches an authored **reference cleanup query**, labeled
 in the report. Two additional mocked contracts check that the parser and pipeline
 use that query for one search while preserving the student's original question
 for generation. These checks cannot detect a model producing a bad rewrite.
-To check actual cleanup and answers, run just these four live questions with the
+To check actual cleanup and answers, run just these five live questions with the
 installed Gemma model and Auto reasoning, which enables first-turn cleanup:
 
 ```sh
@@ -113,7 +121,7 @@ TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz \
 npm run test:benchmark -- --live
 ```
 
-This still runs all CI retrieval/contracts, then generates only four answers.
+This still runs all CI retrieval/contracts, then generates only five answers.
 The original questions go through the production rewriter; reference cleanup
 queries and grading criteria are never supplied to it. Inspect the saved queries,
 answers, evidence, and per-case rubrics. No automatic answer-quality score is
@@ -160,7 +168,7 @@ not just routing labels or successful completion.
 
 `TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_reasoning_variants.json`
 selects six additional live turns covering slot relocation, leaf/internal splits,
-and SIMD masks. These alternate live cases do not replace or enlarge the 20 CI
+and SIMD masks. These alternate live cases do not replace or enlarge the 21 CI
 retrieval questions. They were authored before the MoE prompt experiment and
 include explicit changes to the preceding scenario. Like the original chains,
 they are fixed diagnostic questions, not adaptively generated student follow-ups.
