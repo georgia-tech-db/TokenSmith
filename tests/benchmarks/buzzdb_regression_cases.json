@@ -1,0 +1,83 @@
+[
+  {
+    "id": "distractor_hash_ranges",
+    "category": "distractor",
+    "question": "My notes also cover page pinning and dirty-page flushing. Why does a hash index struggle with range queries?",
+    "retrievalQuery": "Why does a hash index struggle with range queries?",
+    "referenceAnswer": "Hashing does not preserve key order, so neighboring keys can occupy unrelated buckets. A hash index cannot traverse a key interval in order as a B+ tree can. Pinning and dirty-page flushing do not explain this limitation.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "key-ordering", "chunkIds": ["ch09.002", "ch08.054", "ch08.057", "ch08.058", "ch09.008"] }
+    ],
+    "criteria": [
+      "The search query focuses on hash indexes and range queries, without the unrelated buffering topic.",
+      "Explain that hashing does not preserve key order and why this prevents an ordered range traversal.",
+      "Do not attribute the limitation to pinning, dirty bits, column storage, or one particular collision-resolution strategy."
+    ]
+  },
+  {
+    "id": "distractor_group_totals",
+    "category": "distractor",
+    "question": "I have just finished reviewing write-ahead logging and crash recovery for another part of the course. While reading sales rows one at a time, how can the engine maintain a separate running total for every region without sorting first?",
+    "retrievalQuery": "While reading sales rows one at a time, how can the engine maintain a separate running total for every region without sorting first?",
+    "referenceAnswer": "Maintain state keyed by region, for example in a hash table. Each incoming row creates or updates the running total for its own region. This requires no preliminary sort; describing GROUP BY syntax alone does not explain the mechanism.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "keyed-running-state", "chunkIds": ["ch07.032", "ch13.022", "ch13.031", "ch13.045", "ch13.052", "ch13.082"] }
+    ],
+    "criteria": [
+      "The search query retains per-region running totals and the no-sorting condition, excluding the unrelated logging background.",
+      "Explain a mapping from region to running aggregate state and the per-row update.",
+      "Answer how the engine works, rather than only restating GROUP BY SQL or discussing crash recovery."
+    ]
+  },
+  {
+    "id": "pinning_vs_durability",
+    "category": "multiple_evidence",
+    "question": "Does pinning a dirty page make its changes durable? Explain what pinning and write-ahead logging each guarantee before that page can be written to disk or its frame reused.",
+    "referenceAnswer": "Pinning prevents a frame from being evicted or reused while active users need it; it does not make volatile changes durable. WAL requires the relevant log records to be durable before the changed data page is written. Under the book's eviction protocol, a dirty page must be flushed before reusing its frame, and pinned frames remain ineligible for eviction.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "pinning", "chunkIds": ["ch05.084", "ch05.091", "ch05.102", "ch11.077"] },
+      { "id": "log-before-page", "chunkIds": ["ch05.016", "ch06.096"] },
+      { "id": "dirty-writeback", "chunkIds": ["ch05.088", "ch05.093", "ch05.097", "ch05.102", "ch05.116"] }
+    ],
+    "criteria": [
+      "Retain pinning, dirty state, durability, and write ordering as distinct requirements.",
+      "Explain that keeping a page resident is not crash durability; write the relevant log before the changed page.",
+      "Distinguish flushing from eviction: a dirty page must be written before normal frame reuse, but pinning forbids reuse while active."
+    ]
+  },
+  {
+    "id": "code_hash_missing_sentinel",
+    "category": "code",
+    "question": "In the book's v024 HashIndex backed by std::unordered_map, what does getValue return for an absent key? If a present key stores -1, can a caller distinguish these two cases using the returned integer alone? Use this implementation rather than a redesigned API.",
+    "referenceAnswer": "getValue returns the stored integer when the key exists, and -1 otherwise. A present key whose stored value is -1 and an absent key both return -1, so the returned integer alone cannot distinguish them.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "lookup-result", "chunkIds": ["ch07.017", "ch07.035", "ch07.055", "ch08.003", "ch08.009", "ch08.016"],
+        "requiredContext": ["return it != hash_index.end() ? it->second : -1;"] }
+    ],
+    "criteria": [
+      "Report -1 for an absent key and the stored value for a present key.",
+      "Explain that a stored -1 is indistinguishable from a missing key using the returned integer alone; do not invent an exception or presence flag."
+    ]
+  },
+  {
+    "id": "table_sales_product_region",
+    "category": "table",
+    "question": "In the small Sales example introducing GROUP BY region, restrict the input to product_id 101. What are its North and South subtotals, and which region has the larger subtotal? Show the contributing rows; do not use each region's total across all products.",
+    "referenceAnswer": "For product 101, North has amounts 150.00 and 100.00, totaling 250.00. South has 120.00, totaling 120.00. North is larger. Exclude product 102's North 200.00 and South 250.00, and product 103's West 300.00.",
+    "topK": 8,
+    "evidenceGroups": [
+      { "id": "north-rows", "chunkIds": ["ch13.011", "ch13.012"],
+        "requiredContext": ["| 101 | North | 150.00 |", "| 101 | North | 100.00 |"] },
+      { "id": "south-rows", "chunkIds": ["ch13.011", "ch13.013"],
+        "requiredContext": ["| 101 | South | 120.00 |"] }
+    ],
+    "criteria": [
+      "Use only product 101: North 150 + 100 = 250 and South 120.",
+      "Identify North as larger and show the contributing rows, rather than copying totals across all products."
+    ]
+  }
+]

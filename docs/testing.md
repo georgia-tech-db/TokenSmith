@@ -81,13 +81,56 @@ Set `TOKENSMITH_BENCHMARK_REPORT_PATH` to save the combined JSON results locally
 
 ### Harder BuzzDB Questions
 
-The regular benchmark has 16 live hybrid-retrieval questions (10 conceptual and
-6 application/reasoning questions), plus 16 mocked conversation-contract checks.
+The regular benchmark has 21 live hybrid-retrieval questions (10 conceptual,
+6 application/reasoning, and 5 regression questions), plus 18 mocked
+conversation-contract checks.
 The six harder families cover buffer safety/WAL, 2Q traces, aggregate initialization
 bugs, column-page reads, aggregation trade-offs, and batching speedups. Each has
 three turns and four evaluator-only criteria per turn in
 [buzzdb_reasoning_cases.json](../tests/benchmarks/buzzdb_reasoning_cases.json).
 Required evidence groups check each prerequisite, not just one matching passage.
+
+The five cases in
+[buzzdb_regression_cases.json](../tests/benchmarks/buzzdb_regression_cases.json)
+cover two questions with distracting background, one needing evidence from
+different sections (pinning versus durability), and two code/table cases from
+PR #162: the hash-index missing-key sentinel and filtered Sales subtotals.
+They require all relevant evidence groups while accepting reviewed alternative
+passages. They do not enable query decomposition in the app. This adds five fresh
+query embeddings per CI run and reuses the existing book cache.
+
+The code/table cases use the existing `requiredContext` checks for the exact
+return expression and input rows. Tests remove each critical fragment while
+keeping the source IDs: ID-only checks pass, but the text checks fail. No new
+validator is needed. These checks establish evidence availability across the
+selected context, not which individual passage supplied each fragment or whether
+the model used it correctly.
+
+For distractor cases, CI searches an authored **reference cleanup query**, labeled
+in the report. Two additional mocked contracts check that the parser and pipeline
+use that query for one search while preserving the student's original question
+for generation. These checks cannot detect a model producing a bad rewrite.
+To check actual cleanup and answers, run just these five live questions with the
+installed Gemma model (cleanup runs in every reasoning mode):
+
+```sh
+TOKENSMITH_BENCHMARK_MODEL=gemma4:26b \
+TOKENSMITH_BENCHMARK_REASONING=auto \
+TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_regression_cases.json \
+TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH=tmp/buzzdb-nomic-cache.npz \
+npm run test:benchmark -- --live
+```
+
+This still runs all CI retrieval/contracts, then generates only five answers.
+The original questions go through the production rewriter; reference cleanup
+queries and grading criteria are never supplied to it. Inspect the saved queries,
+answers, evidence, and per-case rubrics. No automatic answer-quality score is
+claimed, and the default 18-turn live suite remains unchanged.
+
+For a local experiment on another Ollama version, explicitly set
+`TOKENSMITH_BENCHMARK_OLLAMA_VERSION` to that installed version and use a book cache
+created with the same version. Model digest and cache validation still apply.
+This does not change CI's pinned runtime or establish its results.
 
 To also generate the 18 new answers using the installed `gemma4:e4b` model:
 
@@ -109,10 +152,10 @@ The model must already be installed; the runner never downloads it.
 
 Set `TOKENSMITH_BENCHMARK_REASONING=auto`, `on`, or `off` to compare reasoning
 policies. The benchmark defaults to `off` for continuity with earlier runs;
-new app settings default to `auto`. Auto adds a non-thinking structured planning
-call for first questions on supported Ollama models and shares the existing
-rewrite call for follow-ups. Its boolean decision is independent of contextual
-versus standalone mode. The requested task and previous exchange determine the
+new app settings default to `auto`. Every chat question uses the understanding
+call for cleanup and reference resolution, independently of reasoning mode and
+provider. For Ollama, Auto Reasoning also uses that call to select reasoning.
+Its boolean decision is independent of contextual versus standalone mode. The requested task and previous exchange determine the
 decision, without question-length rules or subject-specific keywords.
 
 Reasoning answers reserve at least 4,096 generated tokens (reasoning plus final
@@ -125,7 +168,7 @@ not just routing labels or successful completion.
 
 `TOKENSMITH_BENCHMARK_CASES_PATH=tests/benchmarks/buzzdb_reasoning_variants.json`
 selects six additional live turns covering slot relocation, leaf/internal splits,
-and SIMD masks. These alternate live cases do not replace or enlarge the 16 CI
+and SIMD masks. These alternate live cases do not replace or enlarge the 21 CI
 retrieval questions. They were authored before the MoE prompt experiment and
 include explicit changes to the preceding scenario. Like the original chains,
 they are fixed diagnostic questions, not adaptively generated student follow-ups.
@@ -175,8 +218,8 @@ or that the answer is wrong; follow-ups can also need only a subset of that
 family's evidence. Review the actual passages before attributing an answer error
 to retrieval. The initial CI questions require all their specified groups.
 
-Completed answers are explicitly **ungraded**, not accuracy passes. Review all
-four criteria (0 / 0.5 / 1 each) and record additional substantive errors
+Completed answers are explicitly **ungraded**, not accuracy passes. Review each
+case's criteria (0 / 0.5 / 1 each) and record additional substantive errors
 separately; a correct number or keyword alone is not a correct explanation.
 Label manual reviews with their reviewer and run identity. The live stage is
 not part of every-PR CI and does not change the retrieval badge's meaning.
@@ -202,3 +245,20 @@ To run coverage locally without modifying the packaged Python runtime:
 python3.12 -m pip install --target tmp/coverage-tools -r requirements-coverage.txt
 npm run coverage
 ```
+
+### AI passage embeddings
+
+AI-selected passages remain whole up to the shared 8,000-character embedding
+input cap. Only larger passages become linked parts; retrieval can expand those
+parts back to their parent passage. This does not change Basic preparation.
+Ollama embedding requests disable token truncation: an input that exceeds the
+model's token capacity fails explicitly rather than silently omitting evidence.
+The character cap is not a model-specific token count. Existing collections are
+unchanged until prepared again; cached AI boundaries are reused when applicable.
+
+A local Chapter 7 comparison (six questions, Gemma4:26b boundaries and Nomic
+embeddings) reduced 57 split vectors to 46 passage vectors. Both retained required
+evidence for all six questions in the top four sources. Paired local generation
+produced four identical answers and two equivalent core explanations. One vector
+rank worsened from 3 to 16, although hybrid retrieval kept the passage at rank 2.
+This limited experiment is not a broad answer-accuracy claim or a new CI score.

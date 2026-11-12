@@ -37,8 +37,8 @@ test('automatic first turns plan once, preserve the original task, and do not re
   let plans = 0
   let searches = 0
   const result = await prepareRewrittenStudyChat(base, {
-    resolve: async () => { plans++; return { mode: 'standalone', query: 'Unwanted paraphrase', clarification: '', reasoning: true } },
-    search: async query => { searches++; assert.equal(query, base.prompt); return { sources: base.retrievedSources } }
+    resolve: async () => { plans++; return { mode: 'standalone', query: 'Focused procedure question', clarification: '', reasoning: true } },
+    search: async query => { searches++; assert.equal(query, 'Focused procedure question'); return { sources: base.retrievedSources } }
   })
   assert.equal(plans, 1)
   assert.equal(searches, 1)
@@ -77,20 +77,22 @@ test('first-turn automatic planning uses non-thinking structured output on any s
     assert.equal(body.think, false)
     assert.equal(body.options.temperature, 0)
     assert.ok(body.format.required.includes('reasoning'))
-    return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'standalone', query: 'Wrong rewrite', clarification: '', reasoning: true }) } }
+    return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'standalone', query: 'Focused procedure question', clarification: '', reasoning: true }) } }
   }, () => resolveOllamaChatQuestion(base))
-  assert.equal(result.query, base.prompt)
+  assert.equal(result.query, 'Focused procedure question')
   assert.equal(result.reasoning, true)
   assert.equal(calls.filter(call => call.url.endsWith('/chat')).length, 1)
 })
 
-test('Auto skips unsupported first-turn planning; On reports unsupported reasoning rather than silently disabling it', async () => {
+test('Auto cleans first turns even without reasoning support; On still reports unsupported reasoning', async () => {
   for (const metadata of [{ capabilities: ['completion'] }, { capabilities: ['thinking'], thinking: { values: ['low', 'high'] } }]) {
     await withFetch(url => {
-      assert.ok(url.endsWith('/show'))
-      return metadata
+      if (url.endsWith('/show')) return metadata
+      return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'standalone', query: 'Clean query', clarification: '', reasoning: true }) } }
     }, async () => {
-      assert.equal((await resolveOllamaChatQuestion(base)).reasoning, false)
+      const resolution = await resolveOllamaChatQuestion(base)
+      assert.equal(resolution.reasoning, false)
+      assert.equal(resolution.query, 'Clean query')
       await assert.rejects(runOllamaStudyEngine({ ...base, modelSettings: { ...base.modelSettings, reasoningMode: 'on' } }), /does not advertise/)
     })
   }

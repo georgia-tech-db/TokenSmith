@@ -34,8 +34,8 @@ test('an incomplete exchange is not replaced with older history', () => {
   assert.equal(lastChatExchange([...history, { role: 'user', text: 'New subject' }]), undefined)
 })
 
-test('standalone resolution cannot replace the original question with model paraphrasing', () => {
-  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'different task', clarification: '', reasoning: false }), 'Original?').query, 'Original?')
+test('standalone resolution retains the focused search query', () => {
+  assert.equal(parseQuestionRewrite(JSON.stringify({ mode: 'standalone', query: 'How does grouping work?', clarification: '', reasoning: false }), 'I reviewed another topic. How does grouping work?').query, 'How does grouping work?')
 })
 
 test('invalid, contradictory, and truncated rewrite responses fail without a heuristic fallback', () => {
@@ -48,15 +48,15 @@ test('invalid, contradictory, and truncated rewrite responses fail without a heu
   }
 })
 
-test('first turns without Auto skip the rewriter and still retrieve normally', async () => {
+test('first turns without Auto understand the question before retrieval', async () => {
   let queries = []
   const result = await prepareRewrittenStudyChat({ ...base, messages: [] }, {
-    resolve: () => assert.fail('First turn should not call the model twice'),
+    resolve: async () => ({ mode: 'standalone', query: base.prompt, clarification: '', reasoning: false }),
     search: async (query) => { queries.push(query); return { sources: [source] } }
   })
   assert.deepEqual(queries, [base.prompt])
-  assert.equal(result.rewriteMs, 0)
-  assert.equal(result.latencySpans[0].status, 'skipped')
+  assert.ok(result.rewriteMs >= 0)
+  assert.equal(result.latencySpans[0].status, 'ok')
   assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Question understanding', 'Library search'])
   assert.equal(result.request.referenceExchange, undefined)
 })
@@ -81,12 +81,16 @@ test('contextual rewrites affect retrieval but never replace the student task', 
   assert.equal(result.latencySpans[1].children[0].stage, 'Semantic search')
 })
 
-test('a topic change excludes the previous answer and ignores a rewritten standalone query', async () => {
-  const result = await prepareRewrittenStudyChat({ ...base, prompt: 'What is isolation?' }, {
-    resolve: async () => ({ mode: 'standalone', query: 'wrong checkpoint question', clarification: '', reasoning: false }),
-    search: async (query) => { assert.equal(query, 'What is isolation?'); return { sources: [source] } }
+test('a cleaned topic change searches once and excludes the previous answer', async () => {
+  let searches = 0
+  const result = await prepareRewrittenStudyChat({ ...base, prompt: 'I was reading another chapter. What is isolation?' }, {
+    resolve: async () => ({ mode: 'standalone', query: 'What is isolation?', clarification: '', reasoning: false }),
+    search: async (query) => { searches++; assert.equal(query, 'What is isolation?'); return { sources: [source] } }
   })
+  assert.equal(searches, 1)
   assert.equal(result.request.referenceExchange, undefined)
+  assert.equal(result.request.answerPrompt, 'I was reading another chapter. What is isolation?')
+  assert.ok(studyChatMessages(result.request).at(-1).content.endsWith('Question: I was reading another chapter. What is isolation?'))
   assert.doesNotMatch(studyChatMessages(result.request).at(-1).content, /checkpoint|records A and B/)
 })
 
@@ -155,13 +159,13 @@ test('remote chat uses the same rewrite contract without a heuristic routing pat
       assert.equal(request.temperature, 0)
       assert.equal(request.messages[1].content, questionRewriteMessages(base)[1].content)
       return { ok: true, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-        mode: 'standalone', query: 'unwanted paraphrase', clarification: '', reasoning: false
+        mode: 'standalone', query: 'Focused search question', clarification: '', reasoning: false
       }) } }] }) }
     }
     const result = await resolveRemoteChatQuestion({ ...base, model: {
       engine: 'remote', remoteModelName: 'remote-test', apiKey: 'test-key', baseUrl: 'https://provider.example/v1'
     } })
-    assert.equal(result.query, base.prompt)
+    assert.equal(result.query, 'Focused search question')
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -254,5 +258,34 @@ test('Ollama and cloud rewriters honor selections without requiring a complete l
       engine: 'remote', remoteModelName: 'remote-test', apiKey: 'test-key', baseUrl: 'https://provider.example/v1', contextLength: 8192
     } })).mode, 'contextual')
     assert.equal(calls, 2)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('first-turn cleanup works across providers and reasoning preferences', async () => {
+  const originalFetch = globalThis.fetch
+  const prompt = 'Unrelated background. Explain the requested subject.'
+  const query = 'Explain the requested subject.'
+  try {
+    for (const engine of ['ollama', 'remote']) for (const reasoningMode of ['off', 'auto', 'on']) {
+      let completions = 0
+      globalThis.fetch = async (url, options) => {
+        if (String(url).endsWith('/show')) return { ok: true, json: async () => ({ capabilities: ['thinking'] }) }
+        const payload = JSON.parse(options.body)
+        if (engine === 'ollama') assert.equal(payload.think, false, 'Cleanup itself does not need reasoning')
+        assert.equal(JSON.parse(payload.messages[1].content).current_question, prompt)
+        completions++
+        const content = JSON.stringify({ mode: 'standalone', query, clarification: '', reasoning: false })
+        return { ok: true, json: async () => ({ done_reason: 'stop', message: { content }, choices: [{ finish_reason: 'stop', message: { content } }] }) }
+      }
+      const request = { ...base, prompt, messages: [], modelSettings: { ...base.modelSettings, reasoningMode },
+        model: engine === 'ollama' ? base.model : { engine, remoteModelName: 'test', apiKey: 'test', baseUrl: 'https://provider.example/v1', contextLength: 8192 } }
+      const result = await prepareRewrittenStudyChat(request, {
+        resolve: engine === 'ollama' ? resolveOllamaChatQuestion : resolveRemoteChatQuestion,
+        search: async actual => { assert.equal(actual, query); return { sources: [] } }
+      })
+      assert.equal(completions, 1, `${engine}/${reasoningMode}: one understanding call`)
+      assert.equal(result.request.answerPrompt, prompt)
+      assert.equal(result.request.modelSettings.reasoningMode, reasoningMode)
+    }
   } finally { globalThis.fetch = originalFetch }
 })

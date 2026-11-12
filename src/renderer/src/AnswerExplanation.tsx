@@ -41,7 +41,7 @@ export function AnswerExplanation({ message, pending, error, errorView, disabled
   return <div className="answer-explanation">
     {(message.simplerExplanation || message.reasoningAnswer || onReasoning) && <div className="answer-version-switch" role="group" aria-label="Answer version">
       <button type="button" disabled={pending} aria-pressed={!simple && !reasoning} onClick={() => onSelectView('original')}>
-        {message.reasoning?.used ? 'Reasoning' : 'Basic'}
+        {message.reasoning?.used ? 'Reasoning' : 'No Reasoning'}
       </button>
       {message.simplerExplanation && <button ref={simpleButton} type="button" disabled={pending} aria-pressed={simple} onClick={() => onSelectView('simple')}>Simpler explanation</button>}
       {(message.reasoningAnswer || onReasoning) && <button ref={reasoningButton} type="button"

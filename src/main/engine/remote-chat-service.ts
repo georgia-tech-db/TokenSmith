@@ -8,7 +8,6 @@ import type {
   EngineQuestionSuggestionResponse
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
-import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../shared/latency-trace'
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
@@ -175,7 +174,6 @@ async function runRemoteChatCompletion(
 
 export async function resolveRemoteChatQuestion(request: EngineQuestionRewriteRequest, signal?: AbortSignal): Promise<QuestionRewrite> {
   assertRemoteModel(request.model)
-  if (!request.selectedPassage && !lastChatExchange(request.messages)) return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
   if (request.modelSettings?.contextLengthMode === 'auto') request = { ...request, model: await withModelContextMetadata(request.model) }
   assertRemoteModel(request.model)
   const started = performance.now()

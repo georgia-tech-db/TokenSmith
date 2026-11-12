@@ -10,6 +10,7 @@ test('benchmark details show reference answers and ordered evidence without clai
   const summary = formatBenchmarkSummary([{
     label: 'retrieval', passed: 1, total: 1, cases: [{
       id: 'example', passed: true, question: 'Why A | B < C?', referenceAnswer: 'An authored answer.',
+      retrievalQuery: 'Why A < C?',
       evidenceLabel: 'Retrieved evidence (rank order)',
       evidence: [
         { chunkIds: ['ch01.001'], section: 'First', context: '<script>not HTML</script> ' + 'x'.repeat(400) },
@@ -19,6 +20,7 @@ test('benchmark details show reference answers and ordered evidence without clai
   }])
   assert.match(summary, /Question:\*\* Why A &#124; B &lt; C\?/)
   assert.match(summary, /Reference answer \(not generated\):\*\* An authored answer/)
+  assert.match(summary, /Reference search query \(cleanup model not run\):\*\* Why A &lt; C\?/)
   assert.ok(summary.indexOf('ch01.001') < summary.indexOf('ch01.002'))
   assert.match(summary, /&lt;script&gt;/)
   assert.doesNotMatch(summary, /<script>|x{321}/)

@@ -34,9 +34,13 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_reasoning_cases_extend_real_retrieval_without_replacing_basic_cases(self):
         cases = load_grounding_cases()
-        self.assertEqual(len(cases), 16)
-        self.assertEqual(len({case["id"] for case in cases}), 16)
-        self.assertEqual(sum(bool(case.get("evidenceGroups")) for case in cases), 6)
+        self.assertEqual(len(cases), 21)
+        self.assertEqual(len({case["id"] for case in cases}), 21)
+        self.assertEqual(sum(bool(case.get("evidenceGroups")) for case in cases), 11)
+        regressions = cases[-5:]
+        self.assertEqual([case["category"] for case in regressions],
+                         ["distractor", "distractor", "multiple_evidence", "code", "table"])
+        self.assertEqual(sum(bool(case.get("retrievalQuery")) for case in cases), 2)
         chunks = {chunk["tokensmithChunkId"]: chunk for chunk in benchmark.all_chunks()}
         assert_all_case_chunks_exist(cases, chunks)
         for case in cases:
@@ -47,6 +51,28 @@ class BenchmarkContractTests(unittest.TestCase):
             ids = list(dict.fromkeys(chunk_id for group in case["evidenceGroups"] for chunk_id in group["chunkIds"]))
             context = normalize_text("\n".join(chunks[chunk_id]["text"] for chunk_id in ids))
             self.assertEqual(validate_grounding_case(case, [], ids, context), [], case["id"])
+
+    def test_code_and_table_evidence_cannot_pass_on_ids_with_missing_text(self):
+        chunks = {chunk["tokensmithChunkId"]: chunk["text"] for chunk in benchmark.all_chunks()}
+        for case in load_grounding_cases():
+            if case.get("category") not in ("code", "table"):
+                continue
+            groups = case["evidenceGroups"]
+            ids = list(dict.fromkeys(cid for group in groups for cid in group["chunkIds"]))
+            context = normalize_text("\n".join(chunks[cid] for cid in ids))
+            self.assertEqual(validate_grounding_case(case, [], ids, context), [])
+            ids_only = {**case, "evidenceGroups": [{"id": g["id"], "chunkIds": g["chunkIds"]} for g in groups]}
+            for group in groups:
+                for required in group["requiredContext"]:
+                    with self.subTest(case=case["id"], removed=required):
+                        # Remove every copy: another intact supporting passage should legitimately pass.
+                        damaged = context.replace(normalize_text(required), "")
+                        self.assertEqual(validate_grounding_case(ids_only, [], ids, damaged), [])
+                        self.assertTrue(validate_grounding_case(case, [], ids, damaged))
+            for group in groups:
+                for cid in group["chunkIds"]:
+                    for required in group["requiredContext"]:
+                        self.assertIn(normalize_text(required), normalize_text(chunks[cid]), cid)
 
     def test_evidence_groups_require_each_prerequisite_and_preserved_text(self):
         case = {"evidenceGroups": [

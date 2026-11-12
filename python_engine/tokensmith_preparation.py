@@ -9,8 +9,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    from tokensmith_embedding_limits import EMBEDDING_TEXT_LIMIT
+except ImportError:
+    from python_engine.tokensmith_embedding_limits import EMBEDDING_TEXT_LIMIT
+
 VERSION = 15
-MAX_CHUNK_CHARS = 2400
+# Preserve complete AI passages unless they exceed the embedding input budget.
+MAX_CHUNK_CHARS = EMBEDDING_TEXT_LIMIT
 SYSTEM = """Divide the document excerpt into complete, self-contained reading passages.
 An outer document or chapter title can contain many independently titled works,
 examples, or sections. Keep each of those separate, not just the outer title.

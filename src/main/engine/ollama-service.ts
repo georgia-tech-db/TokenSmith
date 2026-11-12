@@ -12,7 +12,6 @@ import type {
   EngineQuestionSuggestionResponse
 } from '../../shared/engine'
 import type { EngineQuestionRewriteRequest, QuestionRewrite } from '../../shared/engine'
-import { lastChatExchange } from '../../shared/study-chat-pipeline'
 import { answerReasoningSettings, reasoningMode } from '../../shared/reasoning'
 import { effectiveContextLength, localContextForTokens, usesAutomaticContext } from '../../shared/model-context'
 import { withModelContextMetadata } from './model-context-metadata'
@@ -1016,9 +1015,6 @@ export async function resolveOllamaChatQuestion(request: EngineQuestionRewriteRe
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const automatic = reasoningMode(request.modelSettings) === 'auto'
   const canReason = automatic && await supportsSwitchableThinking(baseUrl, request.model.ollamaModelName, signal)
-  if (!request.selectedPassage && !lastChatExchange(request.messages) && !canReason) {
-    return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
-  }
   const runtime = await requestWithOllamaRuntimeContext(
     request, baseUrl, request.model.ollamaModelName
   )
@@ -1121,7 +1117,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     writeTokenSmithLog('ollama_reasoning_support_unavailable', { modelName, error: errorMessage(error, 'Unavailable') })
   }
   if (modelSettings?.thinking && !reasoningSupported) {
-    throw new Error('This model does not advertise switchable reasoning. Choose Auto or Off, or select a model that supports it.')
+    throw new Error('This model does not advertise switchable reasoning. Choose Auto Reasoning or No Reasoning, or select a model that supports it.')
   }
   runtimeRequest = { ...runtimeRequest, modelSettings }
   writeTokenSmithLog('chat_reasoning_selection', {

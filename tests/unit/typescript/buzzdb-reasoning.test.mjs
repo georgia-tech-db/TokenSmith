@@ -1,11 +1,32 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { formatReasoningAnswers, liveBenchmarkOptions, packedEvidenceFromCalls, runReasoningTurns, seededBenchmarkFetch } from '../../benchmarks/buzzdb_reasoning.mjs'
+import { formatReasoningAnswers, liveBenchmarkOptions, loadLiveCases, packedEvidenceFromCalls, runReasoningTurns, seededBenchmarkFetch } from '../../benchmarks/buzzdb_reasoning.mjs'
 import { formatBenchmarkSummary } from '../../benchmarks/test_buzzdb_retrieval.mjs'
 import { buzzdbChunk } from '../../helpers/buzzdb-fixture.mjs'
 
 const families = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_cases.json', 'utf8'))
+
+test('five regression cases reuse the live runner without reference cleanup or manufactured history', async () => {
+  const definitions = JSON.parse(readFileSync('tests/benchmarks/buzzdb_regression_cases.json', 'utf8'))
+  const cases = loadLiveCases('tests/benchmarks/buzzdb_regression_cases.json')
+  assert.equal(cases.length, 5)
+  const inputs = []
+  const results = await runReasoningTurns(cases, async request => {
+    inputs.push(request)
+    assert.deepEqual(Object.keys(request).sort(), ['messages', 'prompt'])
+    assert.deepEqual(request.messages, [])
+    return { answer: { text: 'Actual test response' } }
+  })
+  assert.deepEqual(inputs.map(input => input.prompt), definitions.map(item => item.question))
+  assert.ok(results.every(row => row.reviewStatus === 'ungraded'))
+  assert.deepEqual(loadLiveCases('tests/benchmarks/buzzdb_reasoning_cases.json'), families)
+  for (const family of cases) {
+    assert.equal(family.turns.length, 1)
+    assert.ok(family.turns[0].criteria.length)
+    for (const group of family.evidenceGroups) for (const id of group.chunkIds) buzzdbChunk(id)
+  }
+})
 
 test('live model and seed are explicit without changing the default or accepting invalid seeds', () => {
   assert.equal(liveBenchmarkOptions({}).modelName, 'gemma4:e4b')

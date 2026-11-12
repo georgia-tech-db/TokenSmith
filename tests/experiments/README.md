@@ -2,9 +2,12 @@
 
 ## Current App Evaluation
 
-The app now uses the selected chat model to resolve conversational questions,
-then performs one library search and generates an answer to the original student
-question. The old heuristic router has been removed. `question-rewrite.ts` owns
+The app uses the selected chat model to resolve conversational questions and
+remove clearly unrelated framing from the search query. It performs one library
+search and generates an answer to the original student question. Cleanup uses
+the existing question-understanding call; first-turn paths that skip that call
+remain unchanged. There is no decomposition or additional evidence-search pass.
+The old heuristic router has been removed. `question-rewrite.ts` owns
 the prompt/schema; `study-chat-pipeline.ts` owns the orchestration. No model name,
 course vocabulary, or follow-up wording is hard-coded into routing.
 

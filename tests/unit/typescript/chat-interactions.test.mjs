@@ -231,7 +231,10 @@ test('resending an edited follow-up passes only the earlier exchange through the
 test('resending the first question cannot reuse answers from the discarded branch', async () => {
   const edited = replaceQuestion(history, 'q1', 'How do hash indexes work?')
   const result = await prepareRewrittenStudyChat({ prompt: edited[0].text, messages: [] }, {
-    resolve: async () => assert.fail('The first question should not be rewritten using old history'),
+    resolve: async request => {
+      assert.deepEqual(request.messages, [])
+      return { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+    },
     search: async () => ({ sources: [] })
   })
   assert.equal(result.resolution.mode, 'standalone')

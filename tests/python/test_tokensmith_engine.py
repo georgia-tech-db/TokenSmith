@@ -1568,7 +1568,7 @@ class TokenSmithEngineUnitTests(unittest.TestCase):
             payload = json.loads(request.data.decode("utf-8"))
             self.assertEqual(payload["model"], "nomic-embed-text")
             self.assertEqual(payload["input"], "Atomicity keeps a transaction all-or-nothing.")
-            self.assertTrue(payload["truncate"])
+            self.assertFalse(payload["truncate"])
 
             resolved_embed_text, resolved_reason = engine.resolve_embedding_provider_for_key(
                 "ollama:nomic-embed-text",

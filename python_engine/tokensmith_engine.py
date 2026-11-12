@@ -116,8 +116,13 @@ TOKENSMITH_CHUNK_ATTR_RE = re.compile(
 PDF_THUMBNAIL_CACHE_DIR = "tokensmith-pdf-thumbnails"
 PDF_THUMBNAIL_SCALE = 0.2
 PDF_THUMBNAIL_MAX_SIZE = (180, 240)
-REMOTE_EMBEDDING_TEXT_LIMIT = 8000
-OLLAMA_EMBEDDING_TEXT_LIMIT = 8000
+try:
+    from tokensmith_embedding_limits import EMBEDDING_TEXT_LIMIT
+except ImportError:
+    from python_engine.tokensmith_embedding_limits import EMBEDDING_TEXT_LIMIT
+
+REMOTE_EMBEDDING_TEXT_LIMIT = EMBEDDING_TEXT_LIMIT
+OLLAMA_EMBEDDING_TEXT_LIMIT = EMBEDDING_TEXT_LIMIT
 STOP_WORDS = {
     "a",
     "always",
@@ -1386,7 +1391,7 @@ def ollama_embedding(text: str, model: Dict[str, Any], gpu_enabled: bool = True)
         {
             "model": model_name,
             "input": normalize_text(text)[:OLLAMA_EMBEDDING_TEXT_LIMIT],
-            "truncate": True,
+            "truncate": False,
             "options": {"num_gpu": -1 if gpu_enabled else 0},
         }
     ).encode("utf-8")

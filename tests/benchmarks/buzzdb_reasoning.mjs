@@ -7,6 +7,16 @@ import { requireTranspiledTs } from '../unit/typescript/ts-module-loader.mjs'
 
 const casesPath = 'tests/benchmarks/buzzdb_reasoning_cases.json'
 
+// Flat regression cases reuse the live runner without manufacturing follow-ups.
+export function loadLiveCases(path) {
+  return JSON.parse(readFileSync(path, 'utf8')).map(definition => definition.turns ? definition : {
+    id: definition.id,
+    evidenceGroups: definition.evidenceGroups,
+    turns: [{ phase: 'initial', question: definition.question,
+      referenceAnswer: definition.referenceAnswer, criteria: definition.criteria }]
+  })
+}
+
 export function liveBenchmarkOptions(env = process.env) {
   const modelName = (env.TOKENSMITH_BENCHMARK_MODEL ?? 'gemma4:e4b').trim()
   if (!modelName) throw new Error('TOKENSMITH_BENCHMARK_MODEL must name an installed Ollama model.')
@@ -162,7 +172,7 @@ export function formatReasoningAnswers(suite) {
 
 export async function runBuzzdbReasoningBenchmark() {
   const { modelName, seed, reasoningMode, casesFile, sourceRoot } = liveBenchmarkOptions()
-  const families = JSON.parse(readFileSync(casesFile, 'utf8'))
+  const families = loadLiveCases(casesFile)
   const baseUrl = (process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
   const tags = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(15_000) }).then(response => {
     if (!response.ok) throw new Error(`Ollama model listing: HTTP ${response.status}`)
