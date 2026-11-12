@@ -167,6 +167,16 @@ class PreparationTests(unittest.TestCase):
         self.assertGreater(len(calls), 1)
         self.assertEqual([c['text'] for c in chunks], [b['text'] for b in blocks])
 
+    def test_complete_passages_within_embedding_budget_stay_whole(self):
+        for size in (2575, 6697, prep.MAX_CHUNK_CHARS):
+            with self.subTest(size=size):
+                text = ('A complete sentence.\n' * size)[:size]
+                blocks = prep.source_blocks([{'page': 1, 'text': text}])
+                chunks = prep.materialize(blocks, group(blocks[-1]['id']))
+                self.assertEqual(len(chunks), 1)
+                self.assertEqual(chunks[0]['text'], text)
+                self.assertEqual(chunks[0]['parts'], 1)
+
     def test_long_units_have_bounded_linked_parts(self):
         text = 'long equation ' * 700
         blocks = prep.source_blocks([{'text': text}])

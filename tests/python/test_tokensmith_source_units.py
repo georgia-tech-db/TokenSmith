@@ -35,7 +35,7 @@ class SourceUnitTests(unittest.TestCase):
         }
         for genre, (header, body, end) in units.items():
             with self.subTest(genre=genre), tempfile.TemporaryDirectory() as root:
-                text = header + body * 170 + end
+                text = header + body * ((prep.MAX_CHUNK_CHARS + 100) // len(body) + 1) + end
                 material = self.index(root, genre, text)
                 rows = self.rows(root)
                 self.assertGreater(len(rows), 1)

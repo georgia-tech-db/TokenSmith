@@ -111,7 +111,7 @@ in the report. Two additional mocked contracts check that the parser and pipelin
 use that query for one search while preserving the student's original question
 for generation. These checks cannot detect a model producing a bad rewrite.
 To check actual cleanup and answers, run just these five live questions with the
-installed Gemma model and Auto reasoning, which enables first-turn cleanup:
+installed Gemma model (cleanup runs in every reasoning mode):
 
 ```sh
 TOKENSMITH_BENCHMARK_MODEL=gemma4:26b \
@@ -152,10 +152,10 @@ The model must already be installed; the runner never downloads it.
 
 Set `TOKENSMITH_BENCHMARK_REASONING=auto`, `on`, or `off` to compare reasoning
 policies. The benchmark defaults to `off` for continuity with earlier runs;
-new app settings default to `auto`. Auto adds a non-thinking structured planning
-call for first questions on supported Ollama models and shares the existing
-rewrite call for follow-ups. Its boolean decision is independent of contextual
-versus standalone mode. The requested task and previous exchange determine the
+new app settings default to `auto`. Every chat question uses the understanding
+call for cleanup and reference resolution, independently of reasoning mode and
+provider. For Ollama, Auto Reasoning also uses that call to select reasoning.
+Its boolean decision is independent of contextual versus standalone mode. The requested task and previous exchange determine the
 decision, without question-length rules or subject-specific keywords.
 
 Reasoning answers reserve at least 4,096 generated tokens (reasoning plus final
@@ -245,3 +245,20 @@ To run coverage locally without modifying the packaged Python runtime:
 python3.12 -m pip install --target tmp/coverage-tools -r requirements-coverage.txt
 npm run coverage
 ```
+
+### AI passage embeddings
+
+AI-selected passages remain whole up to the shared 8,000-character embedding
+input cap. Only larger passages become linked parts; retrieval can expand those
+parts back to their parent passage. This does not change Basic preparation.
+Ollama embedding requests disable token truncation: an input that exceeds the
+model's token capacity fails explicitly rather than silently omitting evidence.
+The character cap is not a model-specific token count. Existing collections are
+unchanged until prepared again; cached AI boundaries are reused when applicable.
+
+A local Chapter 7 comparison (six questions, Gemma4:26b boundaries and Nomic
+embeddings) reduced 57 split vectors to 46 passage vectors. Both retained required
+evidence for all six questions in the top four sources. Paired local generation
+produced four identical answers and two equivalent core explanations. One vector
+rank worsened from 3 to 16, although hybrid retrieval kept the passage at rank 2.
+This limited experiment is not a broad answer-accuracy claim or a new CI score.
