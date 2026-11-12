@@ -6147,14 +6147,14 @@ function SettingsScreen({
                 <SettingsGroup title="Generation">
                   {selectedModel.engine === 'ollama' && (
                     <div className="settings-row">
-                      <span><strong>Reasoning</strong><small>Auto saves reasoning for calculations and problems that need several steps.</small></span>
+                      <span><strong>Reasoning</strong><small>Auto Reasoning saves reasoning for calculations and problems that need several steps.</small></span>
                       <fieldset className="reasoning-mode" aria-label="Reasoning">
                         {(['auto', 'off', 'on'] as const).map(mode => (
                           <label key={mode}>
                             <input type="radio" name="reasoning-mode" value={mode}
                               checked={activeModelSettings.reasoningMode === mode}
                               onChange={() => updateModelSettings({ reasoningMode: mode, thinking: mode === 'on' })} />
-                            <span>{mode === 'auto' ? 'Auto' : mode === 'off' ? 'Off' : 'On'}</span>
+                            <span>{mode === 'auto' ? 'Auto Reasoning' : mode === 'off' ? 'No Reasoning' : 'Reasoning'}</span>
                           </label>
                         ))}
                       </fieldset>

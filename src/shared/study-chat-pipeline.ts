@@ -1,6 +1,5 @@
 import type { ChatMessage } from './app-state'
 import { questionWithSelection } from './chat-selection'
-import { reasoningMode } from './reasoning'
 import type {
   ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, LibrarySearchResult, QuestionRewrite
 } from './engine'
@@ -46,14 +45,10 @@ export async function prepareRewrittenStudyChat(
   latencySpans: LatencySpan[]
 }> {
   const previous = lastChatExchange(request.messages)
-  const needsRewrite = Boolean(previous || request.selectedPassage ||
-    (request.model?.engine === 'ollama' && reasoningMode(request.modelSettings) === 'auto'))
   const rewriteTimer = startLatencySpan('Question understanding')
-  const resolution: QuestionRewrite = needsRewrite
-    ? await dependencies.resolve(request)
-    : { mode: 'standalone', query: request.prompt, clarification: '', reasoning: false }
+  const resolution = await dependencies.resolve(request)
   const rewriteSpan = rewriteTimer.finish({
-    status: needsRewrite ? 'ok' : 'skipped',
+    status: 'ok',
     inCount: previous ? 1 : 0,
     details: {
       history_turns: previous ? 1 : 0,
@@ -61,7 +56,7 @@ export async function prepareRewrittenStudyChat(
       mode: resolution.mode
     }
   })
-  const rewriteMs = needsRewrite ? rewriteSpan.durationMs : 0
+  const rewriteMs = rewriteSpan.durationMs
   if (resolution.mode === 'clarify') {
     return { resolution, rewriteMs, searchMs: 0, latencySpans: [rewriteSpan] }
   }

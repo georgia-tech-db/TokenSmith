@@ -84,13 +84,15 @@ test('first-turn automatic planning uses non-thinking structured output on any s
   assert.equal(calls.filter(call => call.url.endsWith('/chat')).length, 1)
 })
 
-test('Auto skips unsupported first-turn planning; On reports unsupported reasoning rather than silently disabling it', async () => {
+test('Auto cleans first turns even without reasoning support; On still reports unsupported reasoning', async () => {
   for (const metadata of [{ capabilities: ['completion'] }, { capabilities: ['thinking'], thinking: { values: ['low', 'high'] } }]) {
     await withFetch(url => {
-      assert.ok(url.endsWith('/show'))
-      return metadata
+      if (url.endsWith('/show')) return metadata
+      return { done_reason: 'stop', message: { content: JSON.stringify({ mode: 'standalone', query: 'Clean query', clarification: '', reasoning: true }) } }
     }, async () => {
-      assert.equal((await resolveOllamaChatQuestion(base)).reasoning, false)
+      const resolution = await resolveOllamaChatQuestion(base)
+      assert.equal(resolution.reasoning, false)
+      assert.equal(resolution.query, 'Clean query')
       await assert.rejects(runOllamaStudyEngine({ ...base, modelSettings: { ...base.modelSettings, reasoningMode: 'on' } }), /does not advertise/)
     })
   }

@@ -48,15 +48,15 @@ test('invalid, contradictory, and truncated rewrite responses fail without a heu
   }
 })
 
-test('first turns without Auto skip the rewriter and still retrieve normally', async () => {
+test('first turns without Auto understand the question before retrieval', async () => {
   let queries = []
   const result = await prepareRewrittenStudyChat({ ...base, messages: [] }, {
-    resolve: () => assert.fail('First turn should not call the model twice'),
+    resolve: async () => ({ mode: 'standalone', query: base.prompt, clarification: '', reasoning: false }),
     search: async (query) => { queries.push(query); return { sources: [source] } }
   })
   assert.deepEqual(queries, [base.prompt])
-  assert.equal(result.rewriteMs, 0)
-  assert.equal(result.latencySpans[0].status, 'skipped')
+  assert.ok(result.rewriteMs >= 0)
+  assert.equal(result.latencySpans[0].status, 'ok')
   assert.deepEqual(result.latencySpans.map(({ stage }) => stage), ['Question understanding', 'Library search'])
   assert.equal(result.request.referenceExchange, undefined)
 })
@@ -258,5 +258,34 @@ test('Ollama and cloud rewriters honor selections without requiring a complete l
       engine: 'remote', remoteModelName: 'remote-test', apiKey: 'test-key', baseUrl: 'https://provider.example/v1', contextLength: 8192
     } })).mode, 'contextual')
     assert.equal(calls, 2)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('first-turn cleanup works across providers and reasoning preferences', async () => {
+  const originalFetch = globalThis.fetch
+  const prompt = 'Unrelated background. Explain the requested subject.'
+  const query = 'Explain the requested subject.'
+  try {
+    for (const engine of ['ollama', 'remote']) for (const reasoningMode of ['off', 'auto', 'on']) {
+      let completions = 0
+      globalThis.fetch = async (url, options) => {
+        if (String(url).endsWith('/show')) return { ok: true, json: async () => ({ capabilities: ['thinking'] }) }
+        const payload = JSON.parse(options.body)
+        if (engine === 'ollama') assert.equal(payload.think, false, 'Cleanup itself does not need reasoning')
+        assert.equal(JSON.parse(payload.messages[1].content).current_question, prompt)
+        completions++
+        const content = JSON.stringify({ mode: 'standalone', query, clarification: '', reasoning: false })
+        return { ok: true, json: async () => ({ done_reason: 'stop', message: { content }, choices: [{ finish_reason: 'stop', message: { content } }] }) }
+      }
+      const request = { ...base, prompt, messages: [], modelSettings: { ...base.modelSettings, reasoningMode },
+        model: engine === 'ollama' ? base.model : { engine, remoteModelName: 'test', apiKey: 'test', baseUrl: 'https://provider.example/v1', contextLength: 8192 } }
+      const result = await prepareRewrittenStudyChat(request, {
+        resolve: engine === 'ollama' ? resolveOllamaChatQuestion : resolveRemoteChatQuestion,
+        search: async actual => { assert.equal(actual, query); return { sources: [] } }
+      })
+      assert.equal(completions, 1, `${engine}/${reasoningMode}: one understanding call`)
+      assert.equal(result.request.answerPrompt, prompt)
+      assert.equal(result.request.modelSettings.reasoningMode, reasoningMode)
+    }
   } finally { globalThis.fetch = originalFetch }
 })
