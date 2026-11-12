@@ -2,8 +2,8 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 7108/19727 | 36.0% |
-| Backend (Python) | 2245/2485 | 90.3% |
+| Frontend / Electron (TypeScript / TSX) | 7098/19717 | 36.0% |
+| Backend (Python) | 2254/2494 | 90.4% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
 TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.
@@ -16,9 +16,10 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | --- | ---: | ---: |
 | `python_engine/tokensmith_cleaning.py` | 145/159 | 91.2% |
 | `python_engine/tokensmith_collections.py` | 33/37 | 89.2% |
-| `python_engine/tokensmith_engine.py` | 931/1031 | 90.3% |
+| `python_engine/tokensmith_embedding_limits.py` | 1/1 | 100.0% |
+| `python_engine/tokensmith_engine.py` | 935/1035 | 90.3% |
 | `python_engine/tokensmith_preparation_job.py` | 98/112 | 87.5% |
-| `python_engine/tokensmith_preparation.py` | 146/162 | 90.1% |
+| `python_engine/tokensmith_preparation.py` | 150/166 | 90.4% |
 | `python_engine/tokensmith_store.py` | 892/984 | 90.7% |
 | `src/main/atomic-state.ts` | 17/17 | 100.0% |
 | `src/main/collections/book-preparation.ts` | 56/56 | 100.0% |
@@ -30,10 +31,10 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/model-context-metadata.ts` | 90/90 | 100.0% |
 | `src/main/engine/model-loading.ts` | 70/70 | 100.0% |
 | `src/main/engine/ollama-library-search.ts` | 211/223 | 94.6% |
-| `src/main/engine/ollama-service.ts` | 637/1254 | 50.8% |
-| `src/main/engine/question-rewrite.ts` | 74/74 | 100.0% |
+| `src/main/engine/ollama-service.ts` | 633/1250 | 50.6% |
+| `src/main/engine/question-rewrite.ts` | 75/75 | 100.0% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
-| `src/main/engine/remote-chat-service.ts` | 319/371 | 86.0% |
+| `src/main/engine/remote-chat-service.ts` | 317/369 | 85.9% |
 | `src/main/engine/remote-generator-network.ts` | 6/7 | 85.7% |
 | `src/main/engine/remote-model-secrets.ts` | 62/67 | 92.5% |
 | `src/main/engine/study-chat-format.ts` | 882/906 | 97.4% |
@@ -130,7 +131,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
 | `src/shared/saved-topics.ts` | 18/18 | 100.0% |
-| `src/shared/study-chat-pipeline.ts` | 100/100 | 100.0% |
+| `src/shared/study-chat-pipeline.ts` | 95/95 | 100.0% |
 | `src/shared/study-scope.ts` | 49/49 | 100.0% |
 | `src/shared/topic-inventory-generation.ts` | 78/78 | 100.0% |
 | `src/shared/topic-inventory.ts` | 108/108 | 100.0% |
@@ -139,6 +140,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 92f728ffd11d1963dc5229df523cce8eb005b89e
+Measured commit: c54d3cc8237f7e5fe9f2340116e819baab8d759b
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/42903311041)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43262502677)
