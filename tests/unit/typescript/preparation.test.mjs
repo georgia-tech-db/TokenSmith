@@ -10,6 +10,13 @@ test('new collections default to Basic without a preparation model', () => {
   })
 })
 
+test('plain-language search terms are off until a collection turns them on', () => {
+  assert.equal(defaultPreparation().plainLanguageTerms, undefined)
+  const settings = { ...defaultPreparation(), plainLanguageTerms: true }
+  assert.equal(settings.plainLanguageTerms, true)
+  assert.equal(defaultPreparation().plainLanguageTerms, undefined)
+})
+
 test('changing one collection does not change defaults for the next', () => {
   const settings = defaultPreparation()
   settings.mode = 'ai'

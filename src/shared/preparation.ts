@@ -7,6 +7,8 @@ export interface PreparationSettings {
   modelName?: string
   instructions: string
   documentInstructions: Record<string, string>
+  /** Attach one plain-language sentence to each passage for search. Needs a preparation model. */
+  plainLanguageTerms?: boolean
 }
 
 export interface IndexMaterialOptions extends EmbeddingOptions {
@@ -27,6 +29,7 @@ export interface PreparedChunk {
   lineFrom?: number
   lineTo?: number
   reason?: string
+  keywords?: string
   parentId?: string
   part?: number
   parts?: number
