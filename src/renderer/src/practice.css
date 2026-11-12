@@ -53,9 +53,11 @@
 .practice-source-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
 .practice-source-actions .source-chip { margin: 0; }
 .practice-composer { flex-shrink: 0; max-height: 52%; overflow-y: auto; }
-.practice-choices { display: flex; flex: 1; flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
-.practice-choices button { min-width: 74px; min-height: 38px; padding: 7px 16px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: transparent; cursor: pointer; }
-.practice-choices button:not(:disabled):hover { background: var(--surface-muted); }
+.practice-choices { display: flex; flex: 1; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 14px; }
+.practice-choices button { min-width: 112px; min-height: 38px; padding: 7px 16px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: transparent; cursor: pointer; }
+/* --surface-muted is only defined by the sarah-and-duck theme, so this needs the same
+   fallback every other use of it carries, or the default theme gets no hover at all. */
+.practice-choices button:not(:disabled):hover { background: var(--surface-muted, var(--panel-soft)); border-color: var(--line-strong); }
 .practice-choices button[aria-pressed="true"] { border-color: var(--green); background: var(--green-soft); font-weight: 600; }
 .practice-choices button:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
 .practice-study-actions { margin: 0; }
@@ -66,7 +68,11 @@
 .practice-feedback-details { display: grid; gap: .75em; font-size: var(--reading-font-size); line-height: 1.6; }
 .practice-feedback-details > section { margin: 0; min-width: 0; }
 .practice-feedback-details h3 { margin: 0 0 .2em; font-size: .9em; font-weight: 600; line-height: 1.4; }
-.practice-feedback-details .practice-verdict { margin: 0; font-weight: 600; }
+.practice-feedback-details .practice-verdict { display: flex; align-items: center; gap: 7px; margin: 0; font-weight: 600; }
+.practice-feedback-details .practice-verdict svg { flex-shrink: 0; }
+/* There is no success colour in the palette, so a correct verdict stays in the
+   reading colour and is distinguished by its icon. */
+.practice-feedback-details .practice-verdict.is-incorrect { color: var(--danger); }
 .practice-feedback-details .message-text { line-height: inherit; }
 .practice-feedback-details .message-text > :last-child { margin-bottom: 0; }
 .practice-feedback-details > section > ul { margin: 0; padding-left: 1.4em; }
