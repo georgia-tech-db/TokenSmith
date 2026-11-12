@@ -5,10 +5,10 @@ import { MessageText } from './MessageText'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
 import { MessageAvatar } from './MessageAvatar'
 
-function PracticeMessage({ id, user = false, children }: { id: string; user?: boolean; children: ReactNode }) {
+function PracticeMessage({ id, user = false, label, children }: { id: string; user?: boolean; label?: string; children: ReactNode }) {
   return <div className="message-row practice-message">
     <MessageAvatar role={user ? 'user' : 'assistant'} />
-    <div><h3>{user ? 'You' : 'TokenSmith'}</h3><div data-chat-selectable data-chat-message-id={id}>{children}</div></div>
+    <div><h3>{label ?? (user ? 'You' : 'TokenSmith')}</h3><div data-chat-selectable data-chat-message-id={id}>{children}</div></div>
   </div>
 }
 
@@ -20,7 +20,7 @@ export function PracticeQuestionView({ question, index, active, busy, onShowSour
 }) {
   return <section className={`practice-thread-question ${active ? 'is-active' : ''}`} data-question-id={question.id} tabIndex={-1} aria-label={`Practice question ${index + 1}`}>
     <div className="practice-question-messages">
-      <PracticeMessage id={question.id}>
+      <PracticeMessage id={question.id} label={`Question ${index + 1}`}>
         <MessageText text={practiceQuestionText(question)} />
       </PracticeMessage>
       {question.attempts.map(attempt => <div key={attempt.id}>
