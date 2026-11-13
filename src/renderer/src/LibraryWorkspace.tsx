@@ -118,7 +118,8 @@ export function LibraryWorkspace(props: Props) {
             {!generator && <option value={modelId}>Choose an available model</option>}
             {generators.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select></label>
-          <p className="library-hint">{generator?.engine === 'remote' ? 'Document text will be processed by the selected cloud provider.' : 'Document text is processed by your local model.'}</p>
+          <p className="library-hint">PDFs are read as page images and need a model that accepts images. Markdown and text files keep their original wording; AI only groups the passages.</p>
+          <p className="library-hint">{generator?.engine === 'remote' ? 'PDF page images or document text will be processed by the selected cloud provider.' : 'Processing uses your local model.'}</p>
           <label>Additional instructions <span className="library-hint">Optional</span><textarea rows={4} value={preparation.instructions}
             placeholder="Describe what should stay together, where to split, or what context to retain…"
             onChange={e => setPreparation({ ...preparation, instructions: e.target.value })} /></label>

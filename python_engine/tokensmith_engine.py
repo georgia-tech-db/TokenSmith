@@ -639,8 +639,11 @@ def supported_files(path: Path) -> List[Path]:
     if path.is_file():
         return [path] if path.suffix.lower() in SUPPORTED_EXTENSIONS else []
     found: List[Path] = []
-    for root, _dirs, files in os.walk(path):
-        for name in files:
+    for root, dirs, files in os.walk(path):
+        dirs[:] = sorted((name for name in dirs if not name.startswith('.')), key=str.casefold)
+        for name in sorted(files, key=str.casefold):
+            if name.startswith('.'):
+                continue
             if len(found) >= MAX_FOLDER_FILES:
                 return found
             candidate = Path(root) / name

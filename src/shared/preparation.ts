@@ -47,5 +47,5 @@ export interface PreparationReport {
 }
 
 export const defaultPreparation = (): PreparationSettings => ({
-  mode: 'basic', instructions: '', documentInstructions: {}
+  mode: 'ai', instructions: '', documentInstructions: {}
 })
