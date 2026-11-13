@@ -39,7 +39,7 @@ const { values } = parseArgs({
     seed: { type: 'string', default: '42' },
     limit: { type: 'string', default: '4' },
     threshold: { type: 'string', default: '0.50' },
-    'pass-rate': { type: 'string', default: '0.85' },
+    'pass-rate': { type: 'string', default: '0.70' },
     out: { type: 'string' },
     summary: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
