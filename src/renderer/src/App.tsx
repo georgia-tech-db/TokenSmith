@@ -13,9 +13,11 @@ import { changeStudyScope, initializeStudyScopes, studyScopeKey, sourcesInScope,
 import { PracticeChatSuggestions } from './PracticeChatSuggestions'
 import { emptyPracticeState, normalizePracticeState, practiceDiscussionPassage, practiceChatConversation, type PracticeTopic, type PracticeSession, type PracticeQuestion, type PracticeState, type StudyMode } from '@shared/practice'
 import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
-import { sourceEntryKey, sourceNavigationList } from './source-navigation'
+import { sourceEntryKey } from './source-navigation'
 import { useSourceReader, type SourceReaderState } from './hooks/useSourceReader'
-import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-source-preview'
+import { questionForSourceAnswer, type AnswerSourceDocument } from './answer-source-preview'
+import { useSourcePane } from './hooks/useSourcePane'
+import { SourcePane } from './SourcePane'
 import { GenerationStatus } from './GenerationStatus'
 import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
 import type { GenerationKind } from '@shared/generation-estimate'
@@ -1113,10 +1115,6 @@ function materialEmbedderLabel(material: CourseMaterial) {
   return `${collectionName}-${embedderName}`
 }
 
-function sourceDisplayText(source: ChatSource) {
-  return isMarkdownSource(source) ? source.context || source.excerpt : source.excerpt
-}
-
 function compactChunkSizeLabel(chunkSize?: number) {
   if (!chunkSize) {
     return undefined
@@ -1150,10 +1148,9 @@ function SourceDocumentReader({ state, navigation, onClose }: {
   state: SourceReaderState; navigation?: SourceNavigationProps; onClose: () => void
 }) {
   const key = sourceEntryKey(state.sources[state.index])
-  const viewer = state.document.kind === 'pdf'
-    ? <PdfSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
-    : <MarkdownSourceViewer key={key} viewer={state.document.document} automatic={state.inline} navigation={navigation} onClose={onClose} />
-  return state.inline ? <div className="automatic-source-preview">{viewer}</div> : viewer
+  return state.document.kind === 'pdf'
+    ? <PdfSourceViewer key={key} viewer={state.document.document} navigation={navigation} onClose={onClose} />
+    : <MarkdownSourceViewer key={key} viewer={state.document.document} navigation={navigation} onClose={onClose} />
 }
 
 function modelStatusFromDownload(progress: ModelDownloadProgress): LocalModel['status'] {
@@ -2457,13 +2454,12 @@ function ChatScreen({
   const explanationInFlightRef = useRef(false)
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
-  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
   const reader = useSourceReader(readSourceDocument)
-  const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
-  const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  const { state: passage, controller: sourcePreview } = useSourcePane()
   useEffect(() => {
-    if (!settings.application.showSources || !settings.application.readWhileWaiting) sourcePreview.dismiss()
+    if (!settings.application.showSources) { sourcePreview.dismiss(); reader.close() }
+    else if (!settings.application.readWhileWaiting) sourcePreview.dismissAutomatic()
   }, [settings.application.showSources, settings.application.readWhileWaiting, sourcePreview])
   useLayoutEffect(() => {
     sourcePreview.dismiss()
@@ -2525,7 +2521,7 @@ function ChatScreen({
     (message) => message.role === 'assistant' && (message.sources?.length ?? 0) > 0
   )
   const selectedSourceMessage =
-    sourceMessages.find((message) => message.id === (focusedAnswerId ?? expandedMessageId)) ?? sourceMessages[sourceMessages.length - 1]
+    sourceMessages.find((message) => message.id === focusedAnswerId) ?? sourceMessages[sourceMessages.length - 1]
   const selectedSources = useMemo(() => {
     if (!settings.application.showSources) {
       return []
@@ -2737,7 +2733,6 @@ function ChatScreen({
     setPendingStatusText(null)
     setPendingSources([])
     setChatError(null)
-    setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
@@ -2811,7 +2806,6 @@ function ChatScreen({
       setPendingStatusText(null)
       setPendingSources([])
     }
-    setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
@@ -2838,7 +2832,6 @@ function ChatScreen({
     explanationInFlightRef.current = false
     setPendingStatusText(null)
     setPendingSources([])
-    setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
@@ -3587,29 +3580,22 @@ function ChatScreen({
     )
   }
 
-  function previewFirstSource(requestId: string, sources: ChatSource[]) {
-    const source = sources[0]
-    if (!settings.application.showSources || !settings.application.readWhileWaiting || !source || !canOpenSource(source)) return
-    void sourcePreview.open(requestId, async () => ({
-      document: await readSourceDocument(source), ...sourceNavigationList(source, sources), inline: true
-    }))
+  function previewFirstSource(requestId: string, sources: ChatSource[], question: string) {
+    if (!settings.application.showSources || !settings.application.readWhileWaiting) return
+    if (sourcePreview.open(requestId, sources, question)) setMaterialsOpen(true)
   }
 
   function handleOpenSource(source: ChatSource) {
-    sourcePreview.dismiss()
+    reader.close()
     setSourceTrayError(null)
     const sources = isPending ? pendingSources : selectedSourceMessage ? answerForDisplay(selectedSourceMessage).sources ?? [] : []
-    void reader.open(source, sources)
-  }
-
-  function moveAutomaticSource(direction: number) {
-    if (!automaticSource) return
-    const source = automaticSource.sources[automaticSource.index + direction]
-    if (!source) return
-    // Choosing another source makes this a manual reading session. Keep the
-    // existing page visible while loading, and leave it open when the answer arrives.
-    sourcePreview.dismiss()
-    void reader.open(source, automaticSource.sources, { inline: true, initial: automaticSource })
+    const answer = isPending && pendingExplanationId
+      ? activeConversation.messages.find(message => message.id === pendingExplanationId) : selectedSourceMessage
+    const question = isPending && !pendingExplanationId
+      ? activeConversation.messages.slice().reverse().find(message => message.role === 'user')?.text
+      : questionForSourceAnswer(activeConversation.messages, answer)
+    sourcePreview.select(source, sources, question)
+    setMaterialsOpen(true)
   }
 
   function selectExplanationView(answerId: string, view: AnswerView) {
@@ -3642,7 +3628,7 @@ function ChatScreen({
     setFocusedAnswerId(answerId)
     setExplanationError(null)
     setChatError(null)
-    previewFirstSource(progressId, request.retrievedSources ?? [])
+    previewFirstSource(progressId, request.retrievedSources ?? [], request.prompt)
     try {
       let responseDurationMs: number | undefined
       const publish = (reply: EngineChatResponse) => {
@@ -3731,7 +3717,6 @@ function ChatScreen({
     }))
     if (!editMessageId) clearDraft()
     setEditingQuestionId(null)
-    setExpandedMessageId(null)
     setFocusedAnswerId(null)
     reader.close()
     setSourceTrayError(null)
@@ -3793,7 +3778,7 @@ function ChatScreen({
         }
 
         setPendingSources(settings.application.showSources ? retrievedSources : [])
-        previewFirstSource(progressId, retrievedSources ?? [])
+        previewFirstSource(progressId, retrievedSources ?? [], prompt)
         progress.stage(progressId, 'Preparing answer', { inputChars: prompt.length + (retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), contextual: conversationContextMode === 'contextual' })
         const searchDisplayMs = performance.now() - searchStartedAt
         if (searchDisplayMs < 450) {
@@ -3951,7 +3936,7 @@ function ChatScreen({
                   />
                 ) : (
                   <AssistantMessage
-                    expanded={expandedMessageId === message.id}
+                    expanded={materialsOpen && selectedSourceMessage?.id === message.id}
                     key={message.id}
                     message={message}
                     showSources={settings.application.showSources}
@@ -3972,7 +3957,9 @@ function ChatScreen({
                     onSelectFollowUp={handleUseFollowUpSuggestion}
                     onToggleSources={() => {
                       setFocusedAnswerId(message.id)
-                      setExpandedMessageId((current) => (current === message.id ? null : message.id))
+                      sourcePreview.dismiss()
+                      reader.close()
+                      setMaterialsOpen(true)
                     }}
                   />
                 )
@@ -4001,7 +3988,7 @@ function ChatScreen({
             )}
             <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
               label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
-              disabled={Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel}
+              disabled={Boolean(editingQuestionId) || !selectedModel}
               submitDisabled={!draft.trim() || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
@@ -4011,15 +3998,15 @@ function ChatScreen({
         </div>
       </section>
 
-      <StudyMaterialsPane catalog={catalog} scope={documentScope} open={materialsOpen}
+      {passage ? <SourcePane state={passage} open={materialsOpen} error={reader.error}
+        loading={reader.loading} onMove={direction => { reader.close(); sourcePreview.move(direction) }} onClose={() => { sourcePreview.dismiss(); reader.close(); setMaterialsOpen(false) }}
+        onDocuments={() => { sourcePreview.dismiss(); reader.close() }}
+        onOpenDocument={source => { void reader.open(source, passage.sources) }} /> : <StudyMaterialsPane catalog={catalog} scope={documentScope} open={materialsOpen}
         collectionExpansion={collectionExpansion} onCollectionExpansionChange={onCollectionExpansionChange}
         disabled={Boolean(editingQuestionId)} onChange={changeDocumentScope}
         onClose={() => setMaterialsOpen(false)} onManage={onOpenLibrary}>
         {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error || sourceTrayError} onOpenSource={handleOpenSource} />}
-      </StudyMaterialsPane>
-      {isActive && automaticSource && <SourceDocumentReader state={automaticSource} onClose={sourcePreview.dismiss}
-        navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
-          onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
+      </StudyMaterialsPane>}
       {isActive && reader.state && <SourceDocumentReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
     </div>
   )
@@ -4386,21 +4373,7 @@ function AssistantMessage({
               </span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
-            {expanded && (
-              <div className="source-list">
-                {sources.map((source) => (
-                  <div className="source-card" key={`${source.title}-${source.locator}`}>
-                    <strong>{source.title}</strong>
-                    <span>{source.locator}</span>
-                    {isMarkdownSource(source) ? (
-                      <pre>{sourceDisplayText(source)}</pre>
-                    ) : (
-                      <p>{source.excerpt}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+
           </>
         )}
       </div>
@@ -4409,7 +4382,7 @@ function AssistantMessage({
 }
 
 
-function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: PdfViewerState; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
+function PdfSourceViewer({ viewer, onClose, navigation }: { viewer: PdfViewerState; onClose: () => void; navigation?: SourceNavigationProps }) {
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [currentPage, setCurrentPage] = useState(viewer.page ?? 1)
   const [renderedPage, setRenderedPage] = useState<PdfRenderedPage | null>(null)
@@ -4568,7 +4541,7 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
   }, [pdfDocument])
 
   return (
-    <div className="pdf-viewer-backdrop" role="dialog" aria-modal={!automatic} aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
+    <div className="pdf-viewer-backdrop" role="dialog" aria-modal="true" aria-label="Source PDF viewer" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}>
       <section className="pdf-viewer-panel">
         <header className="pdf-viewer-header">
           <div>
@@ -4576,7 +4549,7 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
             <span>Page {currentPage}{pdfDocument ? ` of ${pdfDocument.numPages}` : ''}</span>
           </div>
           <SourceNavigation navigation={navigation} />
-          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" autoFocus={automatic} onClick={onClose}>
+          <button className="icon-button subtle" type="button" aria-label="Close PDF viewer" autoFocus onClick={onClose}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
@@ -4611,7 +4584,7 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
             disabled={isSearching || searchMatches.length === 0}
             onClick={() => goToSearchMatch(-1)}
           >
-            Previous
+            Previous match
           </button>
           <button
             className="pdf-viewer-search-button"
@@ -4619,8 +4592,10 @@ function PdfSourceViewer({ viewer, onClose, automatic = false, navigation }: { v
             disabled={isSearching || searchMatches.length === 0}
             onClick={() => goToSearchMatch(1)}
           >
-            Next
+            Next match
           </button>
+          <button className="pdf-viewer-search-button" type="button" disabled={!pdfDocument}
+            onClick={() => pdfDocument && setCurrentPage(clampPage(viewer.page ?? 1, pdfDocument.numPages))}>Back to cited page</button>
           <button className="pdf-viewer-search-button" type="button" disabled={!pdfDocument || currentPage <= 1} onClick={() => goToPage(-1)}>
             Prev page
           </button>
@@ -6019,7 +5994,7 @@ function SettingsScreen({
                   onChange={(showSources) => updateApplicationSettings({ showSources })}
                 />
               </SettingsRow>
-              <SettingsRow label="Read while waiting" description="Open a source while Chat prepares an answer or Practice prepares a question. Reading sources does not count as help or prevent mastery updates.">
+              <SettingsRow label="Read while waiting" description="Show a source passage beside Chat or Practice while a response is being prepared. Reading sources does not count as help or prevent mastery updates.">
                 <CheckboxField ariaLabel="Read while waiting" checked={settings.application.readWhileWaiting}
                   onChange={readWhileWaiting => updateApplicationSettings({ readWhileWaiting })} />
               </SettingsRow>

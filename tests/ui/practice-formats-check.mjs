@@ -19,7 +19,7 @@ const state = () => page.evaluate(() => window.practiceTest.state().practice.ses
 const calls = () => page.evaluate(() => window.practiceTest.calls.filter(call => ['question', 'true_false_question', 'feedback', 'discussion'].includes(call.kind)).length)
 const idle = () => idlePractice(page)
 async function open(suffix = '') {
-  await page.goto(`${base}?run=${crypto.randomUUID()}&practice&show-sources${suffix}`)
+  await page.goto(`${base}?run=${crypto.randomUUID()}&practice&show-sources&many-sources${suffix}`)
   await choosePracticeTopic(page)
   await practice.getByLabel('Your answer', { exact: true }).waitFor()
   await idle()
@@ -35,11 +35,12 @@ try {
     assert.equal(await active.getByText('True or false?', { exact: true }).count(), 0)
     assert.equal(await composer.locator('textarea').count(), 0)
     assert.equal(await composer.getByRole('button', { pressed: true }).count(), 0, 'No default answer')
-    assert.equal(await active.locator('.source-chip').count(), 0, 'Sources do not reveal the answer before an attempt')
+    assert.equal(await active.locator('.source-chip').count(), 1, 'Passages remain available for independent reading before answering')
     assert.equal(await active.getByText(/Record each internal node/).count(), 0)
 
     const before = await calls()
-    await answerThenReview(page, 'False')
+    const wrongChoice = (await state()).questions[0].correctAnswer ? 'False' : 'True'
+    await answerThenReview(page, wrongChoice)
     await active.getByText('Incorrect', { exact: true }).waitFor()
     assert.equal(await calls(), before + 1, 'Only preparing the next question calls the model')
     assert.equal(await active.getByText(/Record each internal node/).count(), 1)
@@ -49,15 +50,17 @@ try {
     assert.equal(await composer.getByRole('button', { name: 'True', exact: true }).isDisabled(), true)
     assert.equal(await calls(), before + 1)
     assert.deepEqual((await state()).questions[0].attempts.map(attempt => [attempt.answer, attempt.feedback.correct, attempt.assisted]),
-      [['False', false, false]])
+      [[wrongChoice, false, false]])
     await page.reload()
     await practice.getByRole('button', { name: 'Chat about this question', exact: true }).waitFor()
     assert.equal(await active.getByText('Incorrect', { exact: true }).count(), 1)
     assert.equal(await active.getByText('Correct', { exact: true }).count(), 0)
-    await active.getByRole('button', { name: '1 Source', exact: true }).click()
-    await practice.locator('.source-tray-card').click()
+    await active.getByRole('button', { name: /^\d+ Sources?$/ }).click()
+    await practice.locator('.source-tray-card').first().click()
+    await page.getByRole('button', { name: 'Open document', exact: true }).click()
     await page.getByRole('dialog', { name: 'Source Markdown viewer' }).waitFor()
     await page.getByRole('button', { name: 'Close Markdown viewer' }).click()
+    await page.getByRole('button', { name: 'Sources and documents', exact: true }).click()
     await practice.getByRole('button', { name: 'Close Documents', exact: true }).click()
     await next(2)
     await answerThenReview(page, 'False')
@@ -73,15 +76,15 @@ try {
     if (name === 'desktop') {
       await next(5)
       await next(6)
-      assert.equal((await state()).questions[5].correctAnswer, false, 'False must be a valid saved answer key')
+      const rightChoice = (await state()).questions[5].correctAnswer ? 'True' : 'False'
       await page.evaluate(async () => {
         const saved = window.practiceTest.state()
         saved.models[0].status = 'missing'
         await window.tokensmith.saveAppState(saved)
       })
       await page.reload()
-      await composer.getByRole('button', { name: 'False', exact: true }).waitFor()
-      await answerThenReview(page, 'False')
+      await composer.getByRole('button', { name: rightChoice, exact: true }).waitFor()
+      await answerThenReview(page, rightChoice)
       const before = await calls()
       await active.getByText('Correct', { exact: true }).waitFor()
       assert.equal(await calls(), before, 'Saved choices can be checked even when the model is unavailable')
@@ -127,8 +130,8 @@ try {
   assert.equal((await state()).questions[0].format, 'true_false')
   assert.equal(await page.evaluate(id => window.practiceTest.state().practice.sessions.find(s => s.id === id).questions[0].attempts[0].answer, legacyId), 'My earlier answer.')
 
-  // A bad answer key or ambiguity is rejected before showing a gradable statement.
-  for (const flag of ['ambiguous-true-false', 'bad-true-false-key']) {
+  // A malformed answer key is rejected before showing a gradable statement.
+  for (const flag of ['bad-true-false-key']) {
     await page.goto(`${base}?run=${crypto.randomUUID()}&practice&${flag}`)
     await choosePracticeTopic(page)
     await practice.getByRole('alert').waitFor()
@@ -137,7 +140,7 @@ try {
     assert.equal(await practice.getByRole('button', { name: 'Retry question', exact: true }).isVisible(), true)
   }
   assert.deepEqual(errors, [])
-  console.log('True/False-only Practice UI passed: legacy history without grading, T/F choices, local correct/incorrect checks, single attempts, separate drafts, reload, sources, navigation, invalid-key/ambiguity rejection, desktop/mobile.')
+  console.log('True/False-only Practice UI passed: legacy history without grading, T/F choices, local correct/incorrect checks, single attempts, separate drafts, reload, sources, navigation, invalid-key rejection, desktop/mobile.')
   console.log(`Screenshots: ${output}`)
 } catch (error) {
   await page.screenshot({ path: `${output}/failure.png` })

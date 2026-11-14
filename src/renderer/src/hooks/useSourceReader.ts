@@ -8,7 +8,6 @@ export interface SourceReaderState {
   document: AnswerSourceDocument
   sources: ChatSource[]
   index: number
-  inline: boolean
 }
 export interface SourceReaderProps {
   state: SourceReaderState
@@ -27,17 +26,16 @@ export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSour
     setLoading(false)
     setError('')
   }, [])
-  const open = useCallback(async (source: ChatSource, candidates: ChatSource[], options: { inline?: boolean; initial?: SourceReaderState } = {}) => {
+  const open = useCallback(async (source: ChatSource, candidates: ChatSource[]) => {
     const navigation = sourceNavigationList(source, candidates)
     if (navigation.index < 0) return
     const current = ++sequence.current
-    if (options.initial) setState(options.initial)
     setLoading(true)
     setError('')
     try {
       const document = await load(source)
       if (sequence.current !== current) return
-      setState({ document, ...navigation, inline: options.inline ?? false })
+      setState({ document, ...navigation })
     } catch (reason) {
       if (sequence.current === current) setError(reason instanceof Error ? reason.message : 'Could not open this source.')
     } finally {
@@ -47,11 +45,11 @@ export function useSourceReader(load: (source: ChatSource) => Promise<AnswerSour
   const move = (direction: number) => {
     if (!state || loading) return
     const source = state.sources[state.index + direction]
-    if (source) void open(source, state.sources, { inline: state.inline })
+    if (source) void open(source, state.sources)
   }
   const navigation: SourceNavigationProps | undefined = state ? {
     index: state.index, count: state.sources.length, loading, error,
     onPrevious: () => move(-1), onNext: () => move(1)
   } : undefined
-  return { state, open, close, navigation, error }
+  return { state, open, close, navigation, error, loading }
 }

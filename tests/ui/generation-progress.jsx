@@ -8,6 +8,7 @@ const mixedSources = ['notes.md', 'slides.pdf', 'exercises.md', 'appendix.pdf'].
   path:'/fixture/'+name, title:name, documentTitle:name, materialId:'book', excerpt:`Passage ${index+1}: transactions commit all changes together.`,
   locator:name.endsWith('.pdf')?'Page 1':'Line 3', ...(name.endsWith('.pdf')?{pageStart:1,pageEnd:1}:{lineFrom:3,lineTo:3})
 }))
+if (params.has('long-source')) mixedSources.forEach(source => { source.context = `${source.excerpt}\n\n${('Read all related changes as one transaction.\n\n').repeat(35)}` })
 const retrievedSources = params.has('mixed') ? mixedSources : [source,{...source,title:'Second source',excerpt:'Durability preserves committed changes.'}]
 function markdownDocument(source) {
   const text=params.has('mixed') ? `# ${source.title}\n\n## Overview\n\n${source.excerpt || 'Transactions are atomic.'}\n\n${('A transaction groups related changes into a single unit.\n\n').repeat(15)}## Details\n\nUse a log to recover committed work.\n\n### Example\n\nConsider a bank transfer.\n\n${('The two account updates must succeed together.\n\n').repeat(15)}## Details\n\nA second section with the same heading.\n\n\`\`\`md\n# Not a heading\n\`\`\`\n\nSummary\n-------\n\nReview the transaction guarantees.`
@@ -54,6 +55,7 @@ window.tokensmith={
   getAppVersion:async()=> 'UI test',loadAppState:async()=>state,
   saveAppState:async next=>{state=next;sessionStorage.setItem(storageKey,JSON.stringify(next));return next},
   listEngines:async()=>[],listMaterials:async()=>state.materials,
+  studyDocuments:async()=> (params.has('mixed') ? mixedSources : [source]).filter(s=>s.path).map((s,index)=>({materialId:'book',documentId:index+1,path:s.path,title:s.title,collectionName:'Course book',chunkCount:1})),
   onMaterialIndexProgress:()=>()=>{},onOllamaPullProgress:()=>()=>{},
   preparationReport:async()=>({documents:mixedSources.map(source=>({path:source.path,title:source.title,status:'ready',chunkCount:1,chunks:[{text:source.excerpt,pageStart:source.pageStart,pageEnd:source.pageEnd,lineFrom:source.lineFrom,lineTo:source.lineTo}]}))}),
   getOllamaStatus:async()=>({running:true,models:[]}),
