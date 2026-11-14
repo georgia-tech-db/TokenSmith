@@ -6,7 +6,7 @@ import { usePracticeClock } from './hooks/usePracticeClock'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { ArrowLeft, ArrowRight, ChartColumn, Plus, RefreshCw, Upload } from 'lucide-react'
 import type { ChatSelectedPassage, ChatSource, CourseMaterial, LocalModel, ModelRuntimeSettings, TokenSmithSettings } from '@shared/app-state'
-import { practiceMessages, practiceQuestionText, practiceReviewLabel, practiceSourceKey,
+import { practiceMessages, practiceQuestionText, practiceReviewLabel,
   type PracticeTopic, type PracticeQuestion, type PracticeSession, type PracticeState, type StudyMode } from '@shared/practice'
 import { gradeTrueFalse } from '@shared/quiz'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -24,9 +24,11 @@ import { ConversationViewport } from './ConversationViewport'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
 import { createPracticeClient } from './practice-client'
 import type { GenerationProgressApi } from './hooks/useGenerationProgress'
-import { useSourceReader, type SourceReaderState, type SourceReaderProps } from './hooks/useSourceReader'
-import { createAnswerSourcePreview, type AnswerSourceDocument } from './answer-source-preview'
-import { navigableSource, sourceNavigationList } from './source-navigation'
+import { useSourceReader, type SourceReaderProps } from './hooks/useSourceReader'
+import type { AnswerSourceDocument } from './answer-source-preview'
+import { useSourcePane } from './hooks/useSourcePane'
+import { SourcePane } from './SourcePane'
+import { navigableSource } from './source-navigation'
 import './practice.css'
 
 interface Props extends StudyPanels {
@@ -68,8 +70,7 @@ export function PracticeScreen(props: Props) {
   const [pending, setPending] = useState<{ id: string } | null>(null)
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const reader = useSourceReader(props.readSource)
-  const [automaticSource, setAutomaticSource] = useState<SourceReaderState | null>(null)
-  const sourcePreview = useMemo(() => createAnswerSourcePreview<SourceReaderState>(setAutomaticSource), [])
+  const { state: passage, controller: sourcePreview } = useSourcePane()
   const [reviewOpen, setReviewOpen] = useState(false)
   const operation = useRef<{ id: string; controller: AbortController; sessionId: string; scopeKey: string } | null>(null)
   const session = state.sessions.find(item => item.id === state.activeSessionId)
@@ -122,26 +123,24 @@ export function PracticeScreen(props: Props) {
   useEffect(() => { setError(''); setReviewOpen(false) }, [scopeKey, session?.id])
   useLayoutEffect(() => {
     reader.close()
-    if (!isActive) sourcePreview.dismiss()
+    // Starting a session begins generation before React commits its new ID.
+    // Keep that request's preview; switching away invalidates it.
+    if (!isActive || operation.current?.sessionId !== session?.id || operation.current?.scopeKey !== scopeKey) sourcePreview.dismiss()
   }, [isActive, scopeKey, session?.id, reader.close, sourcePreview])
   useEffect(() => {
-    if (!settings.application.showSources || !settings.application.readWhileWaiting) sourcePreview.dismiss()
+    if (!settings.application.showSources) { sourcePreview.dismiss(); reader.close() }
+    else if (!settings.application.readWhileWaiting) sourcePreview.dismissAutomatic()
   }, [settings.application.showSources, settings.application.readWhileWaiting, sourcePreview])
   useEffect(() => {
     if (isActive && question && !locked && settings.application.showSources && window.innerWidth > 1200) setMaterialsOpen(true)
   }, [isActive, question?.id, locked, settings.application.showSources, setMaterialsOpen])
 
   function openSource(source: ChatSource) {
-    sourcePreview.dismiss()
-    void reader.open(source, sources ?? [])
+    reader.close()
+    sourcePreview.select(source, sources ?? [], question ? practiceQuestionText(question) : undefined)
+    setMaterialsOpen(true)
   }
-  function moveAutomaticSource(direction: number) {
-    if (!automaticSource) return
-    const source = automaticSource.sources[automaticSource.index + direction]
-    if (!source) return
-    sourcePreview.dismiss()
-    void reader.open(source, automaticSource.sources, { inline: true, initial: automaticSource })
-  }
+  useEffect(() => { if (locked) { sourcePreview.dismiss(); reader.close() } }, [locked, sourcePreview, reader.close])
 
   function updateSession(id: string, update: (value: PracticeSession) => PracticeSession) {
     onChange(current => ({ ...current, sessions: current.sessions.map(item => item.id === id ? update(item) : item) }))
@@ -257,6 +256,7 @@ export function PracticeScreen(props: Props) {
       setError('Open the library to continue this practice.'); return
     }
     let prepared = target
+    sourcePreview.dismiss()
     void perform(target, 'Preparing question', async (client, id, signal) => {
       prepared = await client.prepareTopic(target, signal, id)
       return client.question(prepared, id, signal, (questionSourceCursor, candidates, questionTargetAnswer) => {
@@ -264,12 +264,10 @@ export function PracticeScreen(props: Props) {
         // Retry advances the passage but retains the same randomly chosen key.
         updateSession(target.id, current => ({ ...current, topic: prepared.topic, questionSourceCursor, questionTargetAnswer }))
         progress.stage(id, 'Preparing question')
-        const previewSources = [...new Map([...candidates, ...(prepared.topic?.sources ?? [])].map(s => [practiceSourceKey(s), s])).values()]
-        setPendingSources(previewSources)
+        setPendingSources(candidates)
         const source = candidates[0]
         if (activeSession.current.active && settings.application.showSources && settings.application.readWhileWaiting && source && navigableSource(source)) {
-          void sourcePreview.open(id, async () => ({ document: await props.readSource(source),
-            ...sourceNavigationList(source, previewSources), inline: true }))
+          if (sourcePreview.open(id, candidates)) setMaterialsOpen(true)
         }
       })
     }, (generated, generationMs) => {
@@ -336,6 +334,7 @@ export function PracticeScreen(props: Props) {
   function continueQuestion(index: number) {
     if (!session || pending || saving || unsaved || index < 0 || index >= session.questions.length) return
     reader.close()
+    if (index !== session.currentIndex) sourcePreview.dismiss()
     setReviewOpen(false)
     setError('')
     updateSession(session.id, current => ({ ...current, currentIndex: index }))
@@ -389,7 +388,7 @@ export function PracticeScreen(props: Props) {
           {session.topic?.question && session.topic.answer && <PracticeTopicView topic={session.topic} />}
           {session.questions.map((item, index) => <PracticeQuestionView key={item.id} question={locked ? assessmentDisplayQuestion(item) : item} index={index} active={index === session.currentIndex}
             busy={Boolean(pending)} sourcesOpen={index === session.currentIndex && materialsOpen}
-            onShowSources={canShowSources(item) ? () => { continueQuestion(index); setMaterialsOpen(true) } : undefined}
+            onShowSources={canShowSources(item) ? () => { continueQuestion(index); sourcePreview.dismiss(); setMaterialsOpen(true) } : undefined}
             actions={!locked && index === session.currentIndex && <PracticeActions onChat={() => chatAbout(item)} />} />)}
           {(!question || error || (question.attempts.length > 0 && question === session.questions.at(-1))) && !pending && !session.sourcesExhausted && !topicComplete &&
             <div className="practice-retry"><button type="button" className="study-action-button" disabled={!available || !scopeReady || saving || Boolean(unsaved)} onClick={() => generate(session)}><RefreshCw size={16} aria-hidden="true" />Retry question</button></div>}
@@ -409,7 +408,10 @@ export function PracticeScreen(props: Props) {
       </div>
       {session && question && (question.format === 'true_false' || session.assessment) && !reviewOpen && <PracticeComposer question={locked ? assessmentDisplayQuestion(question) : question} assessment={Boolean(session.assessment)} busy={Boolean(pending) || saving || Boolean(unsaved)} isActive={isActive} onDraft={draft => updateSession(session.id, s => ({ ...s, questions: s.questions.map(q => q.id === question.id ? { ...q, draft } : q) }))} onCheck={checkAnswer} />}
     </section>
-    <StudyMaterialsPane catalog={catalog} scope={scope} open={materialsOpen}
+    {passage ? <SourcePane state={passage} open={materialsOpen} error={reader.error}
+      loading={reader.loading} onMove={direction => { reader.close(); sourcePreview.move(direction) }} onClose={() => { sourcePreview.dismiss(); reader.close(); setMaterialsOpen(false) }}
+      onDocuments={() => { sourcePreview.dismiss(); reader.close() }}
+      onOpenDocument={source => { void reader.open(source, passage.sources) }} /> : <StudyMaterialsPane catalog={catalog} scope={scope} open={materialsOpen}
       collectionExpansion={props.collectionExpansion} onCollectionExpansionChange={props.onCollectionExpansionChange}
       onChange={setScope} onClose={() => setMaterialsOpen(false)} onManage={props.onOpenLibrary}
       footerActions={!session && <>
@@ -417,10 +419,7 @@ export function PracticeScreen(props: Props) {
         <input ref={quizFileInput} type="file" hidden accept=".json,application/json" aria-label="Import Quiz" disabled={saving || Boolean(unsaved)} onChange={e => { void importPack(e.target.files?.[0]); e.target.value = '' }} />
       </>}>
       {selectedSources.length > 0 && <SourceTray sources={selectedSources} error={reader.error} onOpenSource={openSource} />}
-    </StudyMaterialsPane>
-    {isActive && automaticSource && <props.SourceReader state={automaticSource} onClose={sourcePreview.dismiss}
-      navigation={{ index: automaticSource.index, count: automaticSource.sources.length,
-        onPrevious: () => moveAutomaticSource(-1), onNext: () => moveAutomaticSource(1) }} />}
+    </StudyMaterialsPane>}
     {isActive && reader.state && <props.SourceReader state={reader.state} navigation={reader.navigation} onClose={reader.close} />}
   </div>
 }

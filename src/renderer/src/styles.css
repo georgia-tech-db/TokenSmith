@@ -1228,48 +1228,6 @@ select:not([multiple]):not([size]) {
   transform: rotate(180deg);
 }
 
-.source-list {
-  display: grid;
-  gap: 9px;
-  width: min(680px, 100%);
-  margin-top: 10px;
-}
-
-.source-card {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle, #e5e7e5);
-  border-radius: 8px;
-  background: var(--surface-elevated, #ffffff);
-}
-
-.source-card strong {
-  color: var(--green-strong);
-  font-size: 0.88rem;
-}
-
-.source-card span {
-  color: var(--clay);
-  font-size: 0.8rem;
-  font-weight: 650;
-}
-
-.source-card p {
-  margin: 0;
-  color: var(--content-muted, #4f5359);
-  font-size: 0.86rem;
-}
-
-.source-card pre {
-  max-height: 420px;
-  margin: 0;
-  overflow: auto;
-  color: var(--content-ink, #30343a);
-  font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  white-space: pre-wrap;
-}
-
 .thinking-bubble {
   display: inline-flex;
   align-items: center;
@@ -3960,13 +3918,6 @@ select:not([multiple]):not([size]) {
     white-space: normal;
   }
 }
-
-/* Automatic reading stays inside Chat so navigation and generation controls remain usable. */
-.automatic-source-preview { position: absolute; inset: 0; z-index: 25; background: var(--panel); }
-.automatic-source-preview .pdf-viewer-backdrop { position: absolute; padding: 12px; background: var(--panel); }
-.automatic-source-preview .pdf-viewer-panel { width: 100%; height: 100%; min-height: 0; }
-.automatic-source-preview .markdown-source-dialog { position: absolute; inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); max-width: none; max-height: none; margin: 0; }
-.automatic-source-preview .markdown-viewer-panel { width: 100%; height: 100%; }
 
 .pdf-viewer-header > div:first-child { min-width: 0; flex: 1; }
 .pdf-viewer-header .source-navigation {
