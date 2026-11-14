@@ -2,8 +2,8 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 7121/19740 | 36.1% |
-| Backend (Python) | 2254/2494 | 90.4% |
+| Frontend / Electron (TypeScript / TSX) | 7121/19741 | 36.1% |
+| Backend (Python) | 2364/2602 | 90.9% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
 TypeScript coverage includes the UI, Electron main/preload, and shared modules, not only the renderer.
@@ -17,9 +17,10 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `python_engine/tokensmith_cleaning.py` | 145/159 | 91.2% |
 | `python_engine/tokensmith_collections.py` | 33/37 | 89.2% |
 | `python_engine/tokensmith_embedding_limits.py` | 1/1 | 100.0% |
-| `python_engine/tokensmith_engine.py` | 935/1035 | 90.3% |
-| `python_engine/tokensmith_preparation_job.py` | 98/112 | 87.5% |
-| `python_engine/tokensmith_preparation.py` | 150/166 | 90.4% |
+| `python_engine/tokensmith_engine.py` | 938/1038 | 90.4% |
+| `python_engine/tokensmith_pdf_preparation.py` | 86/86 | 100.0% |
+| `python_engine/tokensmith_preparation_job.py` | 107/118 | 90.7% |
+| `python_engine/tokensmith_preparation.py` | 162/179 | 90.5% |
 | `python_engine/tokensmith_store.py` | 892/984 | 90.7% |
 | `src/main/atomic-state.ts` | 17/17 | 100.0% |
 | `src/main/collections/book-preparation.ts` | 56/56 | 100.0% |
@@ -69,7 +70,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/hooks/useStudyDocuments.ts` | 0/36 | 0.0% |
 | `src/renderer/src/latency-plan.ts` | 243/247 | 98.4% |
 | `src/renderer/src/library-documents.ts` | 0/38 | 0.0% |
-| `src/renderer/src/LibraryWorkspace.tsx` | 0/220 | 0.0% |
+| `src/renderer/src/LibraryWorkspace.tsx` | 0/221 | 0.0% |
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 107/107 | 100.0% |
 | `src/renderer/src/MarkdownSourceViewer.tsx` | 95/150 | 63.3% |
@@ -140,6 +141,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 81e206f226519656a0b40c854912e0346e98b554
+Measured commit: bba150df4d5dcec0765a59060b84ff881bb54faf
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43534607347)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43544983073)
