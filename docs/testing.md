@@ -228,6 +228,25 @@ Configure branch protection to require `Build and tests` and
 `BuzzDB hybrid retrieval and conversation contracts` before merging. The README
 badges track `main`, while each PR has its own check results.
 
+## Opt-In Experiments (not in CI)
+
+Some evaluations are deliberately **not** part of CI because they need a local
+Ollama, paid cloud calls, or both; the CI accuracy gate stays cloud-key-free. See
+[tests/experiments/README.md](../tests/experiments/README.md) for all of them.
+
+The **decoupled retrieval + answer-quality flow** is one such opt-in evaluation. It
+runs in two steps so retrieval is produced once with the app's local Ollama embedder
+and reused for answer generation and grading, skipping the Gemini embedding/index/cache
+path. Step 1 (`tests/experiments/retrieve-sources.mjs`) reuses the engine's
+`search_library` core to index the dataset PDF, applies a weak retrieval gate
+(sources non-empty, `reason == null`, vector hit ≥ 1), and writes the retrieved
+sources to a shared file; it exits non-zero on gate failure. Step 2
+(`run-eval-pipeline.mjs --sources-from <file>`) consumes that file, bypasses the
+worker/index/Gemini/rewrite path (no `GEMINI_API_KEY`), generates answers via
+OpenRouter, and grades them with Jev. The committed BuzzDB retrieval benchmark and
+its CI gate are unchanged. The full design is in
+[docs/decoupled-retrieval-answer-eval-plan.md](decoupled-retrieval-answer-eval-plan.md).
+
 ## Coverage
 
 The two coverage badges report **unit-test line coverage** separately for
