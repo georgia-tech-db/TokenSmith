@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 7121/19741 | 36.1% |
+| Frontend / Electron (TypeScript / TSX) | 7135/19769 | 36.1% |
 | Backend (Python) | 2364/2602 | 90.9% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -52,9 +52,9 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/system/detectors/portable-detector.ts` | 19/50 | 38.0% |
 | `src/main/system/detectors/windows-gpu-detector.ts` | 17/37 | 45.9% |
 | `src/preload/index.ts` | 0/165 | 0.0% |
-| `src/renderer/src/answer-source-preview.ts` | 38/38 | 100.0% |
+| `src/renderer/src/answer-source-preview.ts` | 53/53 | 100.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/73 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6440 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6415 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
@@ -66,14 +66,15 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/hooks/useDeviceCapabilities.ts` | 0/51 | 0.0% |
 | `src/renderer/src/hooks/useGenerationProgress.ts` | 0/28 | 0.0% |
 | `src/renderer/src/hooks/usePracticeClock.ts` | 0/39 | 0.0% |
-| `src/renderer/src/hooks/useSourceReader.ts` | 0/57 | 0.0% |
+| `src/renderer/src/hooks/useSourcePane.ts` | 0/8 | 0.0% |
+| `src/renderer/src/hooks/useSourceReader.ts` | 0/55 | 0.0% |
 | `src/renderer/src/hooks/useStudyDocuments.ts` | 0/36 | 0.0% |
 | `src/renderer/src/latency-plan.ts` | 243/247 | 98.4% |
 | `src/renderer/src/library-documents.ts` | 0/38 | 0.0% |
 | `src/renderer/src/LibraryWorkspace.tsx` | 0/221 | 0.0% |
 | `src/renderer/src/main.tsx` | 0/12 | 0.0% |
 | `src/renderer/src/markdown-source.ts` | 107/107 | 100.0% |
-| `src/renderer/src/MarkdownSourceViewer.tsx` | 95/150 | 63.3% |
+| `src/renderer/src/MarkdownSourceViewer.tsx` | 94/148 | 63.5% |
 | `src/renderer/src/MasteryMeter.tsx` | 0/25 | 0.0% |
 | `src/renderer/src/MessageAvatar.tsx` | 0/8 | 0.0% |
 | `src/renderer/src/MessageComposer.tsx` | 0/37 | 0.0% |
@@ -83,7 +84,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/PracticeComposer.tsx` | 0/39 | 0.0% |
 | `src/renderer/src/PracticeFeedbackView.tsx` | 0/26 | 0.0% |
 | `src/renderer/src/PracticeQuestionView.tsx` | 0/57 | 0.0% |
-| `src/renderer/src/PracticeScreen.tsx` | 0/426 | 0.0% |
+| `src/renderer/src/PracticeScreen.tsx` | 0/425 | 0.0% |
 | `src/renderer/src/PracticeTopicPicker.tsx` | 0/135 | 0.0% |
 | `src/renderer/src/QueryPlanPanel.tsx` | 0/245 | 0.0% |
 | `src/renderer/src/QuestionEditor.tsx` | 0/63 | 0.0% |
@@ -92,6 +93,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/source-display.ts` | 0/18 | 0.0% |
 | `src/renderer/src/source-navigation.ts` | 30/30 | 100.0% |
 | `src/renderer/src/SourceNavigation.tsx` | 22/23 | 95.7% |
+| `src/renderer/src/SourcePane.tsx` | 0/35 | 0.0% |
 | `src/renderer/src/SourceTray.tsx` | 0/80 | 0.0% |
 | `src/renderer/src/StudyDocumentPicker.tsx` | 0/44 | 0.0% |
 | `src/renderer/src/StudyHeader.tsx` | 0/35 | 0.0% |
@@ -141,6 +143,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: bba150df4d5dcec0765a59060b84ff881bb54faf
+Measured commit: 390995d9c39797417d1f12ac8c6040804d3781a3
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43544983073)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43546444009)
