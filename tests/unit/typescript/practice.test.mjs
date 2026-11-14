@@ -7,7 +7,7 @@ const { emptyPracticeState, normalizePracticeState, practiceSourceKey, practiceR
   practiceDiscussionPassage, practiceChatConversation, practiceReviewLabel, practiceMessages, practiceFeedbackText } = requireTranspiledTs('src/shared/practice.ts')
 const { parsePracticeQuestion, gradeTrueFalse } = requireTranspiledTs('src/shared/quiz.ts')
 const { createPracticeClient } = requireTranspiledTs('src/renderer/src/practice-client.ts')
-const { practiceQuestionPlan } = requireTranspiledTs('src/shared/practice-question-plan.ts')
+const { practiceEvidence, practiceQuestionPlan } = requireTranspiledTs('src/shared/practice-question-plan.ts')
 const { prepareStudyChatMessages } = requireTranspiledTs('src/main/engine/study-chat-format.ts')
 
 const source = { materialId: 'c1', documentId: 8, chunkId: 'ch.1', sourceUnitId: 'unit.1', excerpt: 'Ancestor paths let insertion propagate splits to parents.' }
@@ -370,6 +370,62 @@ test('question limits ignore duplicate, empty and out-of-scope mapped passages',
     { ...source, sourceUnitId: 'empty', excerpt: '' }]
   assert.equal(practiceQuestionPlan({ ...session, topic: { ...session.topic, sources: mapped } }).totalQuestions, 2)
   assert.equal(practiceQuestionPlan({ ...session, topic: { ...session.topic, sources: [] } }).totalQuestions, 0)
+})
+
+test('evidence bundles stay in scope, deduplicate and prefer explanatory metadata without topic keywords', () => {
+  const exercise = { ...source, chunkId: 'exercise', sourceUnitId: 'exercise', chunkKind: 'exercise' }
+  const context = [1, 2, 3, 4].map(i => ({ ...source, chunkId: `context${i}`, sourceUnitId: `context${i}` }))
+  const current = { ...session, topic: { ...session.topic, sources: [exercise, ...context, source, source,
+    { ...source, materialId: 'other' }, { ...source, sourceUnitId: 'blank', excerpt: '' }] } }
+  assert.deepEqual(practiceEvidence(current, source), [source, ...context.slice(0, 3)])
+  assert.deepEqual(practiceEvidence(current, exercise), [exercise, ...context.slice(0, 3)])
+  assert.equal(practiceQuestionPlan(current).source.chunkId, 'context1')
+})
+
+test('uncited supporting evidence does not consume another passage’s allowance or same-passage history', async () => {
+  const second = { ...source, chunkId: 'second', sourceUnitId: 'second' }
+  const requests = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    requests.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings)
+  let current = { ...session, topic: { ...session.topic, sources: [source, second] } }
+  const first = await client.question(current, 'first', new AbortController().signal,
+    cursor => { current.questionSourceCursor = cursor })
+  assert.equal(first.focusSourceKey, practiceSourceKey(source))
+  assert.deepEqual(first.sources, [source, second])
+  current = { ...current, questions: [first] }
+  const next = await client.question(current, 'next', new AbortController().signal)
+  assert.equal(next.focusSourceKey, practiceSourceKey(second))
+  assert.deepEqual(JSON.parse(requests[1].prompt).previousQuestionsFromPassage, [])
+  assert.equal(JSON.parse(requests[1].prompt).focusSourceKey, practiceSourceKey(second))
+  assert.equal(practiceQuestionPlan({ ...current, questions: [first, { ...first, id: 'another' }] }).source.chunkId, 'second')
+  assert.equal(requests.length, 2)
+})
+
+test('a question citing a supporting passage is included when that passage becomes the focus', async () => {
+  const second = { ...source, chunkId: 'second', sourceUnitId: 'second' }
+  const earlier = { ...question, focusSourceKey: practiceSourceKey(source), sources: [source, second],
+    rubric: { ...question.rubric, criteria: [{ id: 'c1', description: 'Already tested supporting idea',
+      evidence: [{ sourceKey: practiceSourceKey(second), quote: second.excerpt }] }] } }
+  const requests = []
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    requests.push(request); return { text: JSON.stringify(trueFalseData), sources: request.retrievedSources }
+  } }, model, settings)
+  await client.question({ ...session, questionSourceCursor: 1, questions: [earlier],
+    topic: { ...session.topic, sources: [source, second] } }, 'next', new AbortController().signal)
+  const prompt = JSON.parse(requests[0].prompt)
+  assert.equal(prompt.previousQuestionsFromPassage.length, 1)
+  assert.deepEqual(prompt.previousQuestionsFromPassage[0].testedIdeas, ['Already tested supporting idea'])
+})
+
+test('question sources reflect what the generator actually received after context packing', async () => {
+  const second = { ...source, chunkId: 'second', sourceUnitId: 'second' }
+  const client = createPracticeClient({ sendChatMessage: async request => {
+    assert.equal(request.retrievedSources.length, 2)
+    return { text: JSON.stringify(trueFalseData), sources: [source] }
+  } }, model, settings)
+  const result = await client.question({ ...session, topic: { ...session.topic, sources: [source, second] } }, 'packed', new AbortController().signal)
+  assert.deepEqual(result.sources, [source])
 })
 
 test('rotation skips passages with two saved questions and failed attempts do not consume slots', async () => {

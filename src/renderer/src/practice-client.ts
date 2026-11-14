@@ -6,7 +6,7 @@ import { parsePracticeQuestion, quizQuestionPrompt } from '../../shared/quiz'
 import { sourcesInScope } from '../../shared/study-scope'
 import { practiceConceptKey } from '../../shared/practice-study'
 import { loadSavedTopics } from '../../shared/saved-topics'
-import { practiceQuestionPlan } from '../../shared/practice-question-plan'
+import { practiceEvidence, practiceQuestionPlan } from '../../shared/practice-question-plan'
 
 export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel, settings: TokenSmithSettings,
   retrieval?: { materials: CourseMaterial[]; embeddingModels: LocalModel[] }, history: PracticeSession[] = [], random: () => number = Math.random) {
@@ -62,7 +62,7 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
         Number.isSafeInteger(s.questionSourceCursor) && s.questionSourceCursor! >= 0 ? s.questionSourceCursor! : s.questions.length))
       const plan = practiceQuestionPlan(session, cursor)
       if (!plan.source) return null
-      const sources = [plan.source]
+      const sources = practiceEvidence(session, plan.source)
       const targetAnswer = session.questionTargetAnswer ?? random() < 0.5
       onSelection?.(plan.nextCursor, sources, targetAnswer)
       signal.throwIfAborted()
@@ -70,18 +70,20 @@ export function createPracticeClient(bridge: TokenSmithBridge, model: LocalModel
       const sourceKey = practiceSourceKey(plan.source)
       const passageQuestions = [...history.filter(s => s.id !== session.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).flatMap(s => s.questions), ...session.questions]
-        .filter(q => q.sources.some(source => practiceSourceKey(source) === sourceKey)).slice(-12)
+        .filter(q => (q.focusSourceKey || (q.sources[0] && practiceSourceKey(q.sources[0]))) === sourceKey ||
+          (q.sources.some(s => practiceSourceKey(s) === sourceKey) &&
+            q.rubric?.criteria.some(c => c.evidence.some(e => e.sourceKey === sourceKey)))).slice(-12)
         .map(q => ({ question: practiceQuestionText(q), correctAnswer: q.correctAnswer,
           testedIdeas: q.rubric?.criteria.map(c => c.description) ?? [],
           supportingQuotes: [...new Set(q.rubric?.criteria.flatMap(c => c.evidence.map(e => e.quote)) ?? [])] }))
       const reply = await send(session, requestId, quizQuestionPrompt({ questionNumber: session.questions.length + 1,
         previousQuestions: previous.slice(-12).map(practiceQuestionText), previousQuestionsFromPassage: passageQuestions,
-        topic: session.topic, targetAnswer }), sources)
+        topic: session.topic, targetAnswer, focusSourceKey: sourceKey }), sources)
       signal.throwIfAborted()
       // Single generation call: parsing is structural only. Do not reject or repair
       // claims based on wording, citations, novelty, topic judgment or target parity.
-      const prepared = parsePracticeQuestion(reply.text, sources)
-      return { id: crypto.randomUUID(), ...prepared, requestedAnswer: targetAnswer,
+      const prepared = parsePracticeQuestion(reply.text, reply.sources)
+      return { id: crypto.randomUUID(), ...prepared, focusSourceKey: sourceKey, requestedAnswer: targetAnswer,
         ...(concept && conceptKey ? { concept, masteryCheck: { version: 1 as const, conceptKey, verification: 'none' as const } } : {}),
         draft: '', attempts: [] }
     }
