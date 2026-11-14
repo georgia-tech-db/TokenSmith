@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 7098/19717 | 36.0% |
+| Frontend / Electron (TypeScript / TSX) | 7121/19740 | 36.1% |
 | Backend (Python) | 2254/2494 | 90.4% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -31,7 +31,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/main/engine/model-context-metadata.ts` | 90/90 | 100.0% |
 | `src/main/engine/model-loading.ts` | 70/70 | 100.0% |
 | `src/main/engine/ollama-library-search.ts` | 211/223 | 94.6% |
-| `src/main/engine/ollama-service.ts` | 633/1250 | 50.6% |
+| `src/main/engine/ollama-service.ts` | 640/1257 | 50.9% |
 | `src/main/engine/question-rewrite.ts` | 75/75 | 100.0% |
 | `src/main/engine/remote-chat-parameters.ts` | 9/9 | 100.0% |
 | `src/main/engine/remote-chat-service.ts` | 317/369 | 85.9% |
@@ -77,7 +77,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/MessageAvatar.tsx` | 0/8 | 0.0% |
 | `src/renderer/src/MessageComposer.tsx` | 0/37 | 0.0% |
 | `src/renderer/src/MessageText.tsx` | 47/50 | 94.0% |
-| `src/renderer/src/practice-client.ts` | 89/89 | 100.0% |
+| `src/renderer/src/practice-client.ts` | 91/91 | 100.0% |
 | `src/renderer/src/PracticeChatSuggestions.tsx` | 0/57 | 0.0% |
 | `src/renderer/src/PracticeComposer.tsx` | 0/39 | 0.0% |
 | `src/renderer/src/PracticeFeedbackView.tsx` | 0/26 | 0.0% |
@@ -122,11 +122,11 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/ollama.ts` | 66/66 | 100.0% |
 | `src/shared/practice-evidence.ts` | 29/29 | 100.0% |
 | `src/shared/practice-mastery.ts` | 94/94 | 100.0% |
-| `src/shared/practice-question-plan.ts` | 25/26 | 96.2% |
+| `src/shared/practice-question-plan.ts` | 41/42 | 97.6% |
 | `src/shared/practice-study.ts` | 117/117 | 100.0% |
-| `src/shared/practice.ts` | 223/227 | 98.2% |
+| `src/shared/practice.ts` | 224/228 | 98.2% |
 | `src/shared/preparation.ts` | 51/51 | 100.0% |
-| `src/shared/quiz.ts` | 117/117 | 100.0% |
+| `src/shared/quiz.ts` | 114/114 | 100.0% |
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
 | `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
@@ -140,6 +140,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: c54d3cc8237f7e5fe9f2340116e819baab8d759b
+Measured commit: 81e206f226519656a0b40c854912e0346e98b554
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43262502677)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43534607347)
