@@ -47,24 +47,24 @@ test('Ollama practice uses structured output and preserves JSON, with no follow-
     assert.ok(body.format.required.includes('correctAnswer'))
     return { done_reason: 'stop', message: { content: raw } }
   }, () => runOllamaStudyEngine(base))
-  assert.equal(calls.length, 2) // Token preflight, then the question completion.
+  assert.equal(calls.length, 1) // No token probe or verification completion.
   assert.equal(result.text, raw)
   assert.deepEqual(result.sources, [source])
 })
 
-test('Auto practice keeps the enlarged measured context for the actual completion', async () => {
+test('Auto practice budgets locally and sends one completion without a token probe', async () => {
   const contexts = []
   const result = await mocked((url, body) => {
     if (url.endsWith('/show')) return { model_info: { 'test.context_length': 262144 } }
     contexts.push(body.options.num_ctx)
     assert.equal(body.think, false)
-    if (body.options.num_predict === 1) return { prompt_eval_count: 7200 }
+    assert.notEqual(body.options.num_predict, 1)
     assert.equal(body.options.num_predict, 1024)
     assert.ok(body.format.required.includes('correctAnswer'))
     return { done_reason: 'stop', message: { content: raw } }
   }, () => runOllamaStudyEngine({ ...base, model: { ...base.model, ollamaModelName: 'practice-auto-grow' },
     modelSettings: { ...base.modelSettings, contextLengthMode: 'auto', contextLength: 2048 } }))
-  assert.deepEqual(contexts, [8192, 16384, 16384])
+  assert.deepEqual(contexts, [8192])
   assert.equal(result.text, raw)
   assert.deepEqual(result.sources, [source])
 })

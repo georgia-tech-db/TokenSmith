@@ -58,6 +58,7 @@ export interface PracticeQuestion {
   correctAnswer?: boolean
   requestedAnswer?: boolean
   sources: ChatSource[]
+  focusSourceKey?: string
   draft: string
   attempts: PracticeAttempt[]
   rubric?: PracticeRubric
