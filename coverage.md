@@ -2,7 +2,7 @@
 
 | Scope | Covered / total lines | Coverage |
 | --- | ---: | ---: |
-| Frontend / Electron (TypeScript / TSX) | 7135/19769 | 36.1% |
+| Frontend / Electron (TypeScript / TSX) | 7188/19890 | 36.1% |
 | Backend (Python) | 2364/2602 | 90.9% |
 
 Includes untested files in `src/` and `python_engine/`; excludes TypeScript declaration files.
@@ -54,14 +54,14 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/preload/index.ts` | 0/165 | 0.0% |
 | `src/renderer/src/answer-source-preview.ts` | 53/53 | 100.0% |
 | `src/renderer/src/AnswerExplanation.tsx` | 0/73 | 0.0% |
-| `src/renderer/src/App.tsx` | 0/6415 | 0.0% |
+| `src/renderer/src/App.tsx` | 0/6421 | 0.0% |
 | `src/renderer/src/chat-interactions.ts` | 93/93 | 100.0% |
 | `src/renderer/src/ChatDepthPicker.tsx` | 0/53 | 0.0% |
 | `src/renderer/src/ChatModelPicker.tsx` | 0/67 | 0.0% |
 | `src/renderer/src/CloudGeneratorDialog.tsx` | 0/251 | 0.0% |
 | `src/renderer/src/CollectionLibrary.tsx` | 0/87 | 0.0% |
 | `src/renderer/src/components/DeviceRecommendationPanel.tsx` | 0/97 | 0.0% |
-| `src/renderer/src/ConversationViewport.tsx` | 0/252 | 0.0% |
+| `src/renderer/src/ConversationViewport.tsx` | 0/254 | 0.0% |
 | `src/renderer/src/GenerationStatus.tsx` | 0/28 | 0.0% |
 | `src/renderer/src/hooks/useDeviceCapabilities.ts` | 0/51 | 0.0% |
 | `src/renderer/src/hooks/useGenerationProgress.ts` | 0/28 | 0.0% |
@@ -79,13 +79,13 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/MessageAvatar.tsx` | 0/8 | 0.0% |
 | `src/renderer/src/MessageComposer.tsx` | 0/37 | 0.0% |
 | `src/renderer/src/MessageText.tsx` | 47/50 | 94.0% |
-| `src/renderer/src/practice-client.ts` | 91/91 | 100.0% |
+| `src/renderer/src/practice-client.ts` | 112/112 | 100.0% |
 | `src/renderer/src/PracticeChatSuggestions.tsx` | 0/57 | 0.0% |
 | `src/renderer/src/PracticeComposer.tsx` | 0/39 | 0.0% |
-| `src/renderer/src/PracticeFeedbackView.tsx` | 0/26 | 0.0% |
-| `src/renderer/src/PracticeQuestionView.tsx` | 0/57 | 0.0% |
-| `src/renderer/src/PracticeScreen.tsx` | 0/425 | 0.0% |
-| `src/renderer/src/PracticeTopicPicker.tsx` | 0/135 | 0.0% |
+| `src/renderer/src/PracticeFeedbackView.tsx` | 0/29 | 0.0% |
+| `src/renderer/src/PracticeQuestionView.tsx` | 0/45 | 0.0% |
+| `src/renderer/src/PracticeScreen.tsx` | 0/468 | 0.0% |
+| `src/renderer/src/PracticeTopicPicker.tsx` | 0/160 | 0.0% |
 | `src/renderer/src/QueryPlanPanel.tsx` | 0/245 | 0.0% |
 | `src/renderer/src/QuestionEditor.tsx` | 0/63 | 0.0% |
 | `src/renderer/src/remark-model-math.ts` | 128/128 | 100.0% |
@@ -101,7 +101,7 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/renderer/src/StudyModeTabs.tsx` | 0/10 | 0.0% |
 | `src/renderer/src/StudySidebar.tsx` | 0/59 | 0.0% |
 | `src/renderer/src/ThemePicker.tsx` | 0/50 | 0.0% |
-| `src/shared/app-state.ts` | 0/262 | 0.0% |
+| `src/shared/app-state.ts` | 0/263 | 0.0% |
 | `src/shared/bridge.ts` | 0/107 | 0.0% |
 | `src/shared/chat-model-selection.ts` | 38/38 | 100.0% |
 | `src/shared/chat-selection.ts` | 21/21 | 100.0% |
@@ -125,11 +125,11 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 | `src/shared/ollama.ts` | 66/66 | 100.0% |
 | `src/shared/practice-evidence.ts` | 29/29 | 100.0% |
 | `src/shared/practice-mastery.ts` | 94/94 | 100.0% |
-| `src/shared/practice-question-plan.ts` | 41/42 | 97.6% |
+| `src/shared/practice-question-plan.ts` | 70/71 | 98.6% |
 | `src/shared/practice-study.ts` | 117/117 | 100.0% |
-| `src/shared/practice.ts` | 224/228 | 98.2% |
+| `src/shared/practice.ts` | 226/230 | 98.3% |
 | `src/shared/preparation.ts` | 51/51 | 100.0% |
-| `src/shared/quiz.ts` | 114/114 | 100.0% |
+| `src/shared/quiz.ts` | 115/115 | 100.0% |
 | `src/shared/reasoning.ts` | 20/20 | 100.0% |
 | `src/shared/retired-model-state.ts` | 31/31 | 100.0% |
 | `src/shared/retrieval-budget.ts` | 23/23 | 100.0% |
@@ -143,6 +143,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 390995d9c39797417d1f12ac8c6040804d3781a3
+Measured commit: 9408ff0d892d8cc24483aa6f9ffc98f48ac7ba77
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43546444009)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/43724953333)
