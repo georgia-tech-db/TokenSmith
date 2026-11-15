@@ -1,0 +1,18 @@
+{
+  "originalFilename": "Meta Large Language Model Compiler-Foundation Models of Compiler Optimization.pdf",
+  "originalSha256": "1ba375d7b8eadb699d957ab3bd2f1e2152a1d3cf03e25d95d33e0ae3cda08b14",
+  "physicalPages": [
+    7,
+    8
+  ],
+  "excerptSha256": "34765f7a74d3ddc38b3d49fb7223d136af72f12a625f7523a73e1cb32fcc558a",
+  "preparationModel": {
+    "engine": "ollama",
+    "ollamaModelName": "gemma4:26b",
+    "contextLength": 16384
+  },
+  "promptSha256": "e23a3126236e7c5411f0cf60c44b0fee197533a57c949819dc93b9488425a559",
+  "seconds": 38.81944520800607,
+  "modelDigest": "08ae7ec1744bd7f451c4a530afb39d2673ad9d07a8369b8a33a3613b41212a68",
+  "ollamaVersion": "0.40.15"
+}

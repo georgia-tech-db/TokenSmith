@@ -1,0 +1,154 @@
+[
+  {
+    "id": "algorithms_reduction_direction",
+    "collectionId": "2",
+    "question": "When reducing problem X to problem Y, must I transform arbitrary instances of Y back into X? What must work in both directions instead?",
+    "referenceAnswer": "The instance transformation runs from arbitrary X instances to special Y instances in polynomial time. Correctness must establish both yes-instance implications; in the certificate-based presentation, certificates can be transformed in both directions for those corresponding instances. There is no requirement to invert arbitrary Y instances.",
+    "evidenceGroups": [
+      {
+        "id": "reversible-certificates",
+        "chunkIds": [
+          "algorithms-reductions.003"
+        ],
+        "requiredContext": [
+          "needs to be reversible, not the",
+          "instance"
+        ]
+      }
+    ],
+    "criteria": [
+      "Distinguish the one-way instance transformation from two-way correctness/certificate arguments.",
+      "Do not claim every arbitrary Y instance must map back to X."
+    ],
+    "topK": 7
+  },
+  {
+    "id": "algorithms_pseudopolynomial",
+    "collectionId": "2",
+    "question": "SubsetSum has an O(nT) dynamic-programming algorithm. Why does that not establish P = NP when T is written in binary, and what changes if the numbers are written in unary?",
+    "referenceAnswer": "Polynomial time is measured against the number of input bits, not the numeric value of T. T can be exponentially larger than its binary representation, so O(nT) is pseudo-polynomial. With unary encoding the input length grows with the numeric values, making this algorithm polynomial in that longer input; this distinguishes weak from strong NP-hardness.",
+    "evidenceGroups": [
+      {
+        "id": "input-length",
+        "chunkIds": [
+          "algorithms-subset-sum.004"
+        ],
+        "requiredContext": [
+          "number of",
+          "bits",
+          "unary",
+          "binary",
+          "pseudo-polynomial"
+        ]
+      }
+    ],
+    "criteria": [
+      "Explain why numeric magnitude differs from representation length.",
+      "Explain unary encoding without asserting that P = NP."
+    ],
+    "topK": 7
+  },
+  {
+    "id": "compiler_pass_minimization",
+    "collectionId": "3",
+    "question": "Why does the LLM Compiler paper minimize its optimization pass lists after searching for them? Explain what each of its three minimization steps does and when the process stops.",
+    "referenceAnswer": "The search can produce redundant passes and arbitrary orderings that create training noise. The pipeline removes passes that do not improve binary size, gives pass subsequences a uniform ordering using bubble sort, and searches for useful insertions of passes. It repeats to a fixed point rather than stopping after one removal or one round.",
+    "evidenceGroups": [
+      {
+        "id": "minimization",
+        "chunkIds": [
+          "compiler.002"
+        ],
+        "requiredContext": [
+          "redundant pass elimination",
+          "bubble sort",
+          "fixed point"
+        ]
+      }
+    ],
+    "criteria": [
+      "Explain the purpose and all three operations.",
+      "State fixed-point termination; do not confuse shrinking the pass list with minimizing program size."
+    ],
+    "topK": 7
+  },
+  {
+    "id": "compiler_roundtrip_limit",
+    "collectionId": "3",
+    "question": "How does the LLM Compiler paper use round-tripping to check disassembled LLVM IR? Does failing to reproduce identical assembly necessarily prove that the IR is wrong?",
+    "referenceAnswer": "It compiles the lifted IR back to assembly and compares that assembly with the original. Identical output gives a sufficient correctness check under that compilation process. This is a lower bound: correct but differently expressed IR can compile to different assembly, so a mismatch alone does not prove incorrectness. Compilation success or a similarity score alone is not the same as equivalence.",
+    "evidenceGroups": [
+      {
+        "id": "sufficient-not-necessary",
+        "chunkIds": [
+          "compiler.004"
+        ],
+        "requiredContext": [
+          "lower bound",
+          "round-tripping"
+        ]
+      }
+    ],
+    "criteria": [
+      "Explain the assembly-to-IR-to-assembly comparison.",
+      "Distinguish a sufficient check from a necessary one; do not equate mismatch with proof of failure."
+    ],
+    "topK": 7
+  },
+  {
+    "id": "nist_cyber_recovery",
+    "collectionId": "4",
+    "question": "Why might ordinary disaster-recovery copies be inadequate after a production administrator is compromised? According to NIST, how should cyberattack recovery copies differ in storage, administration, and restoration?",
+    "referenceAnswer": "Copies accessible through production systems or credentials can be damaged along with production. Cyberattack recovery needs separated storage and management systems, separate privileged identities/credentials. Copies should be restored into an isolated staging environment rather than mounted or restored directly onto production hosts.",
+    "evidenceGroups": [
+      {
+        "id": "separate-administration",
+        "chunkIds": [
+          "nist-recovery.003"
+        ],
+        "requiredContext": [
+          "management"
+        ]
+      },
+      {
+        "id": "isolated-restoration",
+        "chunkIds": [
+          "nist-recovery.006"
+        ],
+        "requiredContext": [
+          "staging"
+        ]
+      }
+    ],
+    "criteria": [
+      "Connect isolation to surviving compromise of production and its administrators.",
+      "Cover separated storage/management and isolated restoration, not simply another backup copy."
+    ],
+    "topK": 7
+  },
+  {
+    "id": "nist_encryption_limits",
+    "collectionId": "4",
+    "question": "If a storage array encrypts data at rest, does that protect it from an attacker controlling an authorized host? How does application-level end-to-end encryption change the protection and its operational costs?",
+    "referenceAnswer": "Built-in storage encryption protects against device loss or theft, but an authorized compromised host can receive decrypted data and elevated storage privileges can undermine the protection. Encrypting at the source presents ciphertext to storage and its administrators, but makes compression/deduplication less effective and management more complex. It does not make a compromised application endpoint safe.",
+    "evidenceGroups": [
+      {
+        "id": "encryption-threat-model",
+        "chunkIds": [
+          "nist-encryption.005"
+        ],
+        "requiredContext": [
+          "In-band",
+          "ciphertext",
+          "deduplication",
+          "Management is more complex"
+        ]
+      }
+    ],
+    "criteria": [
+      "Distinguish physical-media protection from in-band access through an authorized host.",
+      "Explain ciphertext at the storage layer and the data-reduction/management costs; avoid claiming all endpoint attacks are solved."
+    ],
+    "topK": 7
+  }
+]

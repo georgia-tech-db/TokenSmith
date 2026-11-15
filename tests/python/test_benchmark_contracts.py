@@ -15,6 +15,25 @@ from tests.benchmarks.test_buzzdb_grounding import (
 
 
 class BenchmarkContractTests(unittest.TestCase):
+    def test_cross_domain_cases_have_collection_scoped_real_evidence(self):
+        from tests.benchmarks import cross_domain
+        cases = cross_domain.load_cases()
+        self.assertEqual(len(cases), 6)
+        self.assertEqual(len({c["id"] for c in cases}), 6)
+        chunks = {c["tokensmithChunkId"]: c for c in cross_domain.load_chunks()}
+        assert_all_case_chunks_exist(cases, chunks)
+        for case in cases:
+            self.assertTrue(case["referenceAnswer"])
+            self.assertTrue(case["evidenceGroups"])
+            ids = list(dict.fromkeys(cid for g in case["evidenceGroups"] for cid in g["chunkIds"]))
+            self.assertTrue(all(chunks[cid]["_collectionId"] == case["collectionId"] for cid in ids))
+            context = normalize_text("\n".join(chunks[cid]["text"] for cid in ids))
+            self.assertEqual(validate_grounding_case(case, [], ids, context), [], case["id"])
+            self.assertTrue(validate_grounding_case(case, [], [], context), case["id"])
+            for group in case["evidenceGroups"]:
+                for phrase in group.get("requiredContext", []):
+                    self.assertTrue(validate_grounding_case(case, [], ids, context.replace(normalize_text(phrase), "")))
+
     def test_live_worker_keeps_setup_progress_out_of_its_json_protocol(self):
         output = io.StringIO()
         errors = io.StringIO()
@@ -94,7 +113,7 @@ class BenchmarkContractTests(unittest.TestCase):
                 "metadata": {
                     "model": benchmark.MODEL["name"], "modelDigest": benchmark.MODEL["digest"],
                     "ollamaVersion": benchmark.MODEL["ollamaVersion"],
-                    "fixtureSha256": benchmark.sha256_bytes(benchmark.FIXTURE_PATH.read_bytes()),
+                    "fixtureSha256": benchmark.cache_metadata(chunks)["fixtureSha256"],
                     "chunksSha256": benchmark.chunks_sha256(chunks),
                     "inputSha256": benchmark.embedding_input_sha256(),
                 },
@@ -164,20 +183,24 @@ class BenchmarkContractTests(unittest.TestCase):
 
         def search(payload):
             self.assertEqual(payload["searchMode"], "hybrid")
+            self.assertEqual(payload["materials"][0]["id"], "2")
+            self.assertEqual(payload["documents"], [{"materialId": "2", "id": "selected"}])
             embed, reason = benchmark.engine.resolve_embedding_provider_for_key(benchmark.MODEL_KEY, payload["embeddingModels"])
             self.assertIsNone(reason)
             self.assertEqual(embed(payload["query"]), [1, 2, 3])
             benchmark.engine.vector_search("args unused by mock")
             return {"sources": [], "reason": None}
 
-        with patch.object(benchmark.engine, "search_library", side_effect=search), \
+        with patch.object(benchmark.store, "study_documents", return_value=[
+                {"materialId": "1", "id": "other"}, {"materialId": "2", "id": "selected"}]), \
+                patch.object(benchmark.engine, "search_library", side_effect=search), \
                 patch.object(benchmark.engine, "ollama_embedding", return_value=[1, 2, 3]) as embed_query, \
                 patch.object(benchmark.store, "vector_search", return_value=[(1, 0.9)]) as vector_search:
-            instance.retrieve_sources("A fresh question?", 8)
+            instance.retrieve_sources("A fresh question?", 8, "2")
             embed_query.assert_called_once_with("A fresh question?", benchmark.MODEL_SPEC, True)
             vector_search.return_value = []
             with self.assertRaisesRegex(AssertionError, "keyword-only"):
-                instance.retrieve_sources("Another fresh question?", 8)
+                instance.retrieve_sources("Another fresh question?", 8, "2")
 
     def test_retrieval_reports_embedding_failure_even_if_search_falls_back(self):
         instance = benchmark.BuzzDBEmbeddingBenchmarkTests()
@@ -191,7 +214,8 @@ class BenchmarkContractTests(unittest.TestCase):
                 pass
             return {"sources": [], "reason": None}
 
-        with patch.object(benchmark.engine, "search_library", side_effect=search), \
+        with patch.object(benchmark.store, "study_documents", return_value=[]), \
+                patch.object(benchmark.engine, "search_library", side_effect=search), \
                 patch.object(benchmark.engine, "ollama_embedding", side_effect=RuntimeError("runner missing")):
             with self.assertRaisesRegex(AssertionError, "Query embedding failed: runner missing"):
                 instance.retrieve_sources("A question?", 8)

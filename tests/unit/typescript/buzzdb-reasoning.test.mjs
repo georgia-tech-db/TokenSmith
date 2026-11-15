@@ -7,6 +7,19 @@ import { buzzdbChunk } from '../../helpers/buzzdb-fixture.mjs'
 
 const families = JSON.parse(readFileSync('tests/benchmarks/buzzdb_reasoning_cases.json', 'utf8'))
 
+test('cross-domain live questions retain collection scope without leaking reference answers', async () => {
+  const cases = loadLiveCases('tests/benchmarks/cross_domain_cases.json')
+  const inputs = []
+  await runReasoningTurns(cases, async request => {
+    inputs.push(request)
+    assert.deepEqual(Object.keys(request).sort(), ['collectionId', 'messages', 'prompt'])
+    assert.deepEqual(request.messages, [])
+    return { answer: { text: 'Generated response' } }
+  })
+  assert.deepEqual(inputs.map(input => input.collectionId), ['2', '2', '3', '3', '4', '4'])
+  assert.deepEqual(inputs.map(input => input.prompt), cases.map(item => item.turns[0].question))
+})
+
 test('five regression cases reuse the live runner without reference cleanup or manufactured history', async () => {
   const definitions = JSON.parse(readFileSync('tests/benchmarks/buzzdb_regression_cases.json', 'utf8'))
   const cases = loadLiveCases('tests/benchmarks/buzzdb_regression_cases.json')

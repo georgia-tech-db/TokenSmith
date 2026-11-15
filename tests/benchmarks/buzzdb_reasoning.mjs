@@ -11,6 +11,7 @@ const casesPath = 'tests/benchmarks/buzzdb_reasoning_cases.json'
 export function loadLiveCases(path) {
   return JSON.parse(readFileSync(path, 'utf8')).map(definition => definition.turns ? definition : {
     id: definition.id,
+    collectionId: definition.collectionId,
     evidenceGroups: definition.evidenceGroups,
     turns: [{ phase: 'initial', question: definition.question,
       referenceAnswer: definition.referenceAnswer, criteria: definition.criteria }]
@@ -56,7 +57,8 @@ export async function runReasoningTurns(families, run, onResult = async () => {}
         row.status = 'blocked'
       } else {
         try {
-          Object.assign(row, await run({ prompt: turn.question, messages: structuredClone(history) }))
+          Object.assign(row, await run({ prompt: turn.question, messages: structuredClone(history),
+            ...(family.collectionId ? { collectionId: family.collectionId } : {}) }))
           if (row.error || !row.answer?.text?.trim()) throw new Error(row.error || 'No complete answer was returned.')
           row.status = 'completed'
           history.push({ role: 'user', text: turn.question }, { role: 'assistant', text: row.answer.text })
@@ -244,11 +246,12 @@ export async function runBuzzdbReasoningBenchmark() {
       const detail = {}
       try {
         stage = 'rewrite'
-        const prepared = await prepareRewrittenStudyChat({ ...base, ...input }, {
+        const prepared = await prepareRewrittenStudyChat({ ...base, ...input,
+          materials: [{ id: input.collectionId ?? '1', status: 'ready', isActive: true }] }, {
           resolve: resolveOllamaChatQuestion,
           search: async query => {
             stage = 'retrieval'
-            const result = await worker.call({ command: 'search', query, limit })
+            const result = await worker.call({ command: 'search', query, limit, collectionId: input.collectionId ?? '1' })
             detail.retrieval = result
             return { sources: result.sources, retrievalChildren: result.latencySpans }
           }

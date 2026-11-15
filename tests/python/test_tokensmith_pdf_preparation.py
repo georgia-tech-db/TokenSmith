@@ -23,6 +23,52 @@ def passage(text, continues=None):
 
 
 class PdfPreparationTests(unittest.TestCase):
+    def test_rendered_page_has_bounded_resolution_and_visible_content(self):
+        from PIL import Image, ImageChops
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'page.pdf'
+            write_pdf(path, ['Visible OCR content'])
+            with pdf_prep.pdfium.PdfDocument(str(path)) as document:
+                page = document[0]
+                try:
+                    png = pdf_prep.render_page(page)
+                finally:
+                    page.close()
+            with Image.open(io.BytesIO(png)) as image:
+                # Letter paper at 144 DPI: prevent accidental huge image payloads.
+                self.assertEqual(image.size, (1224, 1584))
+                self.assertEqual(image.format, 'PNG')
+                rgb = image.convert('RGB')
+                self.assertIsNotNone(ImageChops.difference(rgb, Image.new('RGB', rgb.size, 'white')).getbbox())
+
+    def test_render_failure_releases_bitmap(self):
+        page = Mock()
+        page.render.return_value.to_pil.side_effect = RuntimeError('Conversion failed')
+        with self.assertRaisesRegex(RuntimeError, 'Conversion failed'):
+            pdf_prep.render_page(page)
+        page.render.return_value.close.assert_called_once()
+
+    def test_long_math_code_and_table_are_preserved_without_extra_model_calls(self):
+        text = ('## Recurrence\n\n$$F_{n+1} = F_n + F_{n-1}$$\n\n'
+                '```python\nfor i in range(n):\n    if x[i] <= 0:\n        total += x[i]\n```\n\n'
+                '| Input | Result |\n| --- | --- |\n| 4 | 16 |\n\n'
+                + 'Detailed explanation with exact source notation. ' * 80)
+        with tempfile.TemporaryDirectory() as root:
+            path, cache = Path(root) / 'math.pdf', Path(root) / 'cache'
+            write_pdf(path, ['Formula and code', 'Continuation'])
+            complete = Mock(side_effect=[{'passages': [passage(text)]},
+                                        {'passages': [passage('Final condition: n >= 1.', 'p1-u1')]}])
+            chunks, pages = pdf_prep.prepare_pdf(path, complete, cache)
+            self.assertEqual(pages, 2)
+            self.assertEqual(complete.call_count, 2)
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0]['text'], text + '\n\nFinal condition: n >= 1.\n\n')
+            context = json.loads(complete.call_args_list[1].args[0][1]['content'])
+            # Carry only a bounded tail, not an ever-growing transcription history.
+            self.assertEqual(context['previous_page_passages'], [{'id': 'p1-u1', 'tail': text[-800:]}])
+            resumed = pdf_prep.prepare_pdf(path, Mock(side_effect=AssertionError('Unnecessary model call')), cache)
+            self.assertEqual(resumed, (chunks, pages))
+
     def test_ocr_entry_point_rejects_non_pdfs_before_reading_or_calling_model(self):
         for suffix in ('.md', '.MD', '.markdown', '.txt', '.png'):
             with self.subTest(suffix=suffix), patch.object(pdf_prep.pdfium, 'PdfDocument') as reader:

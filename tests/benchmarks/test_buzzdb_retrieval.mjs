@@ -83,7 +83,7 @@ function printFailures(suites) {
 }
 
 function printSummary(suites) {
-  console.log('BuzzDB benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
+  console.log('Study benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
   for (const suite of suites) {
     console.log(`- ${suite.label}: ${suite.passed}/${suite.total} ${suite.unit}`)
   }

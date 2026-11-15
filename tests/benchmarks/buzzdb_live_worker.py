@@ -19,7 +19,7 @@ def main():
             request = json.loads(line)
             try:
                 if request["command"] == "search":
-                    result = instance.retrieve_sources(request["query"], request["limit"])
+                    result = instance.retrieve_sources(request["query"], request["limit"], request.get("collectionId", "1"))
                 elif request["command"] == "validate":
                     result = validate_grounding_case(request["case"], [], request["chunkIds"],
                                                      normalize_text(request["context"]))

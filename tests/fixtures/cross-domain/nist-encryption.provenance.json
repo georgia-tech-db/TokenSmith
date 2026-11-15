@@ -1,0 +1,18 @@
+{
+  "originalFilename": "Security Guidelines for Storage Infrastructure.pdf",
+  "originalSha256": "d94e95a18e6a12395d7e3ed8707266028ad188ce0a6e985137278d3e4416706d",
+  "physicalPages": [
+    62,
+    63
+  ],
+  "excerptSha256": "7de36bff0cf3957ae9108ba5c2189d0cb72199a3899ed794e2a9dbd017f55821",
+  "preparationModel": {
+    "engine": "ollama",
+    "ollamaModelName": "gemma4:26b",
+    "contextLength": 16384
+  },
+  "promptSha256": "e23a3126236e7c5411f0cf60c44b0fee197533a57c949819dc93b9488425a559",
+  "seconds": 31.436307625030167,
+  "modelDigest": "08ae7ec1744bd7f451c4a530afb39d2673ad9d07a8369b8a33a3613b41212a68",
+  "ollamaVersion": "0.40.15"
+}
