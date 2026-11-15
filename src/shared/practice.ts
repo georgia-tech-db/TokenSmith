@@ -93,8 +93,10 @@ export interface PracticeSession {
   currentIndex: number
   sourcesExhausted?: boolean
   questionSourceCursor?: number
+  topicSourceCursors?: Record<string, number>
   questionTargetAnswer?: boolean
   topic?: PracticeTopic
+  topics?: PracticeTopic[]
   observations?: PracticeObservation[]
   assessment?: { packId: string; version: string; completedAt?: string }
 }

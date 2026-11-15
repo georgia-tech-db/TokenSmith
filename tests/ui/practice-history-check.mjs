@@ -22,8 +22,8 @@ try {
     await practice.locator('.practice-live-mastery').getByText('31%', { exact: true }).waitFor()
     const actions = practice.getByRole('group', { name: 'Practice session actions' })
     assert.equal(await practice.locator('.practice-topic-bar').count(), 1, 'Normal practice has no second Export row')
-    assert.deepEqual(await actions.getByRole('button').allTextContents(), ['Practice another topic', 'Export practice record', 'View mastery'])
-    const topicButton = button('Practice another topic'), exportButton = button('Export practice record')
+    assert.deepEqual(await actions.getByRole('button').allTextContents(), ['Choose topics', 'Export practice record', 'View mastery'])
+    const topicButton = button('Choose topics'), exportButton = button('Export practice record')
     const style = locator => locator.evaluate(el => {
       const s = getComputedStyle(el); return [s.backgroundColor, s.borderStyle, s.borderRadius, s.fontSize, s.padding]
     })
@@ -34,8 +34,9 @@ try {
     await page.screenshot({ path: `${output}/${name}.png` })
     await button('View mastery').click()
     await practice.getByRole('heading', { name: 'Your practice progress', exact: true }).waitFor()
-    await practice.locator('.practice-review-mastery').getByRole('meter').waitFor()
-    await button('Return to practice').click()
+    await practice.locator('.practice-review-topics').getByRole('meter').waitFor()
+    await button('Close mastery').click()
+    await button('View mastery').waitFor()
     const downloadPromise = page.waitForEvent('download')
     page.once('dialog', dialog => dialog.accept(''))
     await exportButton.click()

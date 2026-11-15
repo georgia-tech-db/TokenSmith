@@ -1,109 +1,72 @@
+// Regression: optional delayed advance, cancellation, and manual quiz navigation.
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
-import { choosePracticeTopic, idlePractice, reviewPracticeQuestion } from './practice-topic-helpers.mjs'
+import { choosePracticeTopic, idlePractice } from './practice-topic-helpers.mjs'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH })
 const page = await browser.newPage()
 const base = process.env.PRACTICE_UI_URL || 'http://127.0.0.1:5197/tests/ui/practice.html'
-const output = '/private/tmp/tokensmith-practice-auto-next-ui'
-await mkdir(output, { recursive: true })
-const errors = []
-page.on('pageerror', error => errors.push(error.message))
 const practice = page.locator('.practice-frame')
-const footer = page.locator('.generation-status')
 const button = name => practice.getByRole('button', { name, exact: true })
 const session = () => page.evaluate(() => window.practiceTest.state().practice.sessions[0])
-const calls = () => page.evaluate(() => window.practiceTest.calls.filter(call => call.kind === 'true_false_question').length)
-const style = locator => locator.evaluate(el => {
-  const s = getComputedStyle(el)
-  return [s.borderRadius, s.padding, s.fontSize, s.fontWeight, s.borderWidth, s.color]
-})
+const calls = () => page.evaluate(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').length)
 try {
-  for (const [name, viewport] of Object.entries({ desktop: { width: 1440, height: 1000 }, mobile: { width: 390, height: 844 } })) {
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport)
-    await page.goto(`${base}?run=${crypto.randomUUID()}&practice&slow-model&many-sources`)
-    await choosePracticeTopic(page)
-    await practice.getByLabel('Your answer', { exact: true }).waitFor()
-    await idlePractice(page)
-    assert.equal(await practice.locator('.send-button').count(), 0)
-    assert.equal(await button('Next question').count(), 0)
-    const actionStyle = await style(button('Chat about this question'))
-    assert.deepEqual(await style(button('Practice another topic')), actionStyle)
-    assert.equal(await button('Chat about this question').locator('svg').innerHTML(), await button('Chat').locator('svg').innerHTML())
-    if (name === 'mobile') await button('Toggle Documents').click()
-    assert.deepEqual(await style(button('Manage libraries')), actionStyle)
-    if (name === 'mobile') await button('Close Documents').click()
-    const firstAnswer = (await session()).questions[0].correctAnswer ? 'False' : 'True'
-    await button(firstAnswer).evaluate(el => { el.click(); el.click() })
-    await practice.getByRole('region', { name: 'Practice feedback' }).getByText('Incorrect', { exact: true }).waitFor()
-    await footer.getByRole('button', { name: 'Preparing question', exact: true }).waitFor()
-    assert.equal(await button('Chat about this question').isEnabled(), true)
-    assert.deepEqual(await style(footer.getByRole('button', { name: 'Stop', exact: true })), actionStyle)
-    const footerHeight = (await footer.boundingBox()).height
-    assert.equal(await practice.locator('.practice-pending').count(), 0)
-    assert.equal(await practice.getByText('Preparing question...', { exact: true }).count(), 0)
+    await page.goto(`${base}?run=${crypto.randomUUID()}&practice`)
+    await choosePracticeTopic(page); await idlePractice(page)
+    assert.equal(await button('Next question').isDisabled(), true)
+    const first = (await session()).questions[0]
+    await button(first.correctAnswer ? 'False' : 'True').click(); await idlePractice(page)
+    assert.equal(await calls(), 1)
+    assert.equal((await session()).currentIndex, 0)
+    await practice.getByText('Incorrect', { exact: true }).waitFor()
     assert.equal(await button('True').isDisabled(), true)
-    assert.equal((await session()).questions[0].attempts.length, 1)
-    await page.waitForFunction(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').length === 2)
-    assert.equal(await calls(), 2, 'Repeated clicks must not duplicate attempts or requests')
-    await page.screenshot({ path: `${output}/${name}-loading.png` })
-    await footer.getByRole('button', { name: 'Stop', exact: true }).click()
-    await idlePractice(page)
-    assert.equal((await footer.boundingBox()).height, footerHeight, 'Stop must not change the footer height')
-    await button('Retry question').waitFor()
-    assert.deepEqual(await style(button('Retry question')), actionStyle)
-    await page.waitForTimeout(2200)
-    assert.equal((await session()).questions.length, 1, 'Cancelled response must not advance')
-    await page.screenshot({ path: `${output}/${name}-retry.png` })
-    await button('Retry question').click()
-    await page.waitForFunction(() => window.practiceTest.state().practice.sessions[0].questions.length === 2)
-    await idlePractice(page)
+    assert.equal(await practice.locator('.practice-thread-question').count(), 1)
+    assert.equal(await practice.locator('.message-avatar').count(), 0)
+    await button('Next question').click(); await idlePractice(page)
+    assert.equal(await calls(), 2)
     assert.equal((await session()).currentIndex, 1)
-    assert.equal((await session()).questions[0].attempts[0].answer, firstAnswer)
-    assert.equal(await button('True').isEnabled(), true)
-    assert.equal(await calls(), 3)
-    await page.waitForTimeout(250)
-    assert.equal(await calls(), 3, 'Do not generate again until the learner chooses an answer')
-    await reviewPracticeQuestion(page, 1)
-    assert.equal(await button('False').isDisabled(), true)
-    assert.equal(await calls(), 3, 'Reviewing feedback must not generate a question')
-
-    // Opening Chat during automatic preparation cancels only that next question.
-    await reviewPracticeQuestion(page, 2)
-    const secondAnswer = (await session()).questions[1].correctAnswer ? 'False' : 'True'
-    await button(secondAnswer).click()
-    await page.waitForFunction(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').length === 4)
-    const requestId = await page.evaluate(() => window.practiceTest.calls.filter(c => c.kind === 'true_false_question').at(-1).request.requestId)
-    assert.equal(await button('Chat about this question').isEnabled(), true)
-    await button('Chat about this question').click()
-    const chat = page.locator('.chat-frame')
-    await chat.waitFor({ state: 'visible' })
-    assert.ok(await page.evaluate(id => window.practiceTest.calls.some(c => c.kind === 'cancel' && c.id === id), requestId))
-    assert.equal(await practice.getAttribute('aria-busy'), 'false')
-    await chat.getByRole('button', { name: 'Practice this topic', exact: true }).waitFor()
-    assert.deepEqual(await chat.locator('.answer-simplify-action button').allTextContents(), ['Practice this topic', 'Explain more simply'])
-    assert.equal(await chat.getByRole('button', { name: 'Practice', exact: true }).locator('svg').innerHTML(),
-      await chat.getByRole('button', { name: 'Practice this topic', exact: true }).locator('svg').innerHTML())
-    const copied = await page.evaluate(() => {
-      const state = window.practiceTest.state()
-      return state.conversations.find(c => c.id === state.activeConversationId)
-    })
-    assert.equal(copied.practiceReference.questionId, (await session()).questions[1].id)
-    assert.ok(copied.messages[0].text.includes(`My answer: ${secondAnswer}`))
-    assert.match(copied.messages[1].text, /^Incorrect/)
-    await page.waitForTimeout(2200)
-    assert.equal((await session()).questions.length, 2, 'The cancelled next question must not arrive in Chat or Practice')
-    assert.deepEqual((await session()).questions.map(q => q.attempts.length), [1, 1])
-    await page.screenshot({ path: `${output}/${name}-chat-cancelled.png` })
-    await chat.getByRole('button', { name: 'Practice', exact: true }).click()
-    await button('Retry question').waitFor()
-    assert.equal((await session()).questions[1].attempts[0].answer, secondAnswer)
+    const second = (await session()).questions[1]
+    await button(second.correctAnswer ? 'True' : 'False').click(); await idlePractice(page)
+    await button('View results').waitFor()
+    assert.equal(await calls(), 2)
+    await button('Previous').click()
+    await practice.getByText('Incorrect', { exact: true }).waitFor()
+    await button('Next question').click()
+    assert.equal(await calls(), 2)
+    await page.reload(); await idlePractice(page)
+    await button('View results').click()
+    await practice.getByRole('heading', { name: 'Your practice progress' }).waitFor()
+    assert.equal(await calls(), 0, 'Reload and review do not generate questions')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   }
-  assert.deepEqual(errors, [])
-  console.log('Automatic next question passed: one attempt/request, Chat cancels pending generation and preserves feedback, matching icons, Practice-first action order, button styles, stable footer, retry/stop, desktop/mobile.')
-} catch (error) {
-  await page.screenshot({ path: `${output}/failure.png` })
-  console.error(await page.locator('body').innerText())
-  throw error
+  for (const mode of ['advance', 'stay', 'settings', 'manual']) {
+    await page.goto(`${base}?run=${crypto.randomUUID()}&practice&auto-advance`)
+    await choosePracticeTopic(page); await idlePractice(page)
+    await button('True').click(); await idlePractice(page)
+    await button('Stay here').waitFor()
+    assert.equal((await session()).currentIndex, 0, 'Feedback remains visible during delay')
+    if (mode === 'stay') await button('Stay here').click()
+    if (mode === 'settings') {
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByLabel('Automatically advance in Practice', { exact: true }).uncheck()
+      await page.getByRole('button', { name: 'Chat', exact: true }).click()
+    }
+    if (mode === 'manual') await button('Next question').click()
+    // Deliberately exceed the delay to catch a canceled timer firing later.
+    await page.waitForTimeout(5500)
+    await idlePractice(page)
+    const advanced = mode === 'advance' || mode === 'manual'
+    assert.equal(await calls(), advanced ? 2 : 1)
+    assert.equal((await session()).currentIndex, advanced ? 1 : 0)
+    if (!advanced) {
+      await button('Next question').click(); await idlePractice(page)
+    }
+    await button('False').click(); await idlePractice(page)
+    await button('View results').waitFor()
+    assert.equal(await button('Stay here').count(), 0, 'Final answer does not start a timer')
+    await page.waitForTimeout(5500)
+    assert.equal(await calls(), 2, 'No generation beyond the final question')
+  }
+  console.log('Quiz navigation: delayed advance, Stay here, settings opt-out, manual Next, completion, reload, desktop/mobile.')
 } finally { await browser.close() }

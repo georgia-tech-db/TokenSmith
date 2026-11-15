@@ -78,7 +78,7 @@ try {
     await score(topicRow('Tree insertion'), '10%')
     await page.evaluate(() => window.topicProgressTest.deleteSession('mistake'))
     await score(topicRow('Tree insertion'), '10%')
-    await button('Practice next: Range queries').click()
+    await button('Range queries').click()
     assert.equal(await page.evaluate(() => window.topicProgressTest.selected.concept.id), 'ranges')
 
     // Same name and local topic ID in another collection must have no progress.

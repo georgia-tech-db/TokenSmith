@@ -1,3 +1,4 @@
+@import './study-buttons.css';
 :root {
   --bg: #f6f7f6;
   --panel: #ffffff;
@@ -14,6 +15,7 @@
   --teal: #4f8df7;
   --clay: #69707a;
   --gold: #b7791f;
+  --success: #18713c;
   --danger: #b3261e;
   --danger-soft: #fde7e5;
   --surface: var(--panel);
@@ -3924,13 +3926,6 @@ select:not([multiple]):not([size]) {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
   gap: 8px; flex: 0 1 auto; min-width: 0; font-size: .85rem;
 }
-.source-navigation button {
-  display: inline-flex; align-items: center; gap: 3px; min-height: 34px; padding: 4px 9px;
-  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel);
-  color: var(--green-strong); cursor: pointer;
-}
-.source-navigation button:disabled { opacity: .45; cursor: default; }
-.source-navigation button:hover:not(:disabled) { background: var(--green-soft); }
 .pdf-viewer-header .source-navigation-position { font-size: .85rem; font-variant-numeric: tabular-nums; }
 .pdf-viewer-header .source-navigation .source-navigation-error { flex-basis: 100%; max-width: 340px; color: var(--danger, #a33); white-space: normal; font-size: .8rem; }
 .markdown-source-body { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }

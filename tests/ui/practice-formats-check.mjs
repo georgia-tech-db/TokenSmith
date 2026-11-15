@@ -123,7 +123,7 @@ try {
 
   // Archived written answers remain readable; another topic starts current T/F practice.
   const legacyId = (await state()).id
-  await practice.getByRole('button', { name: 'Practice another topic', exact: true }).click()
+  await practice.getByRole('button', { name: 'Choose topics', exact: true }).click()
   await choosePracticeTopic(page)
   await practice.getByLabel('Your answer', { exact: true }).waitFor()
   await idle()

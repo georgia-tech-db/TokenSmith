@@ -1,10 +1,13 @@
+import { Check, X } from 'lucide-react'
 import { isTrueFalseFeedback, type PracticeAnswerFeedback } from '@shared/practice'
 import { MessageText } from './MessageText'
 
 export function PracticeFeedbackView({ feedback }: { feedback: PracticeAnswerFeedback }) {
   if (typeof feedback === 'string') return <MessageText text={feedback} />
   if (isTrueFalseFeedback(feedback)) return <div className="practice-feedback-details">
-    <p className="practice-verdict">{feedback.correct ? 'Correct' : 'Incorrect'}</p>
+    <p className={`practice-verdict ${feedback.correct ? 'is-correct' : 'is-incorrect'}`}>
+      {feedback.correct ? <Check size={18} aria-hidden="true" /> : <X size={18} aria-hidden="true" />}
+      {feedback.correct ? 'Correct' : 'Incorrect'}</p>
     <MessageText text={feedback.explanation} />
   </div>
   const groups = [

@@ -44,18 +44,19 @@ export function practiceSystemPrompt(task: PracticeTask, allowedIds?: string[]):
     'Prefer a small, concrete situation where the student predicts what happens or applies the idea. Supply the inputs needed to reason about it. A direct conceptual statement is appropriate when an example would be artificial. Test understanding, not memorization of a formula, author names, wording trivia, or unsupported general knowledge. In efficiency comparisons, specify the cost being counted and the input-size regime; avoid unqualified faster/slower claims.',
     'Put all assumptions needed for a fair answer in the question itself. If the verdict depends on a convention, an exact boundary, initialization, or a particular variant, explicitly state that condition before the claim. A reasonable interpretation of the visible question must not become wrong because of an unstated book-specific convention. Preserve typical and worst-case qualifications. The assumptions field may only repeat conditions already visible in question; it must not hide conditions or reveal the conclusion.',
     'Write one claim to judge, in plain language, ending with a period. A short setup may precede the claim. Avoid vague variants, compound claims, double negatives, and trick wording. For targetAnswer false, use a plausible conceptual mistake, not a missing qualification or a negated copy of an earlier question. For targetAnswer true, test a supported consequence. Absence of evidence is not evidence of falsity.',
-    'previousQuestionsFromPassage and previousQuestions identify ideas already tested. Reversing the truth value, rephrasing, or changing example numbers does not make an idea new. Earlier generated questions and keys are not authoritative evidence.',
+    'previousTestedIdeas, previousQuestionsFromPassage and previousQuestions identify ideas already tested across the topic, including in other passages. Choose a different supported idea before writing the statement. Describe that underlying idea in objective independently of the statement’s truth value. Reversing the truth value, rephrasing, or changing example numbers does not make an idea new. Earlier generated questions and keys are not authoritative evidence.',
     'Explain the answer in two to four sentences: state what happens, connect it to the mechanism supported by the quotes, and correct the misconception if false. For a small example, show the decisive step. Keep the answer out of the question. Set correctAnswer to a JSON boolean matching targetAnswer. Return only the JSON package; keep source IDs and page references out of the visible question and explanation.'
   ]
   return [...instructions, 'JSON schema: ' + JSON.stringify(practiceResponseSchema(task))].join('\n')
 }
 
-export function quizQuestionPrompt({ questionNumber, previousQuestions = [], previousQuestionsFromPassage = [], topic, targetAnswer, focusSourceKey }: {
+export function quizQuestionPrompt({ questionNumber, previousQuestions = [], previousQuestionsFromPassage = [], previousTestedIdeas = [], topic, targetAnswer, focusSourceKey }: {
+  previousTestedIdeas?: string[]
   questionNumber: number; previousQuestions?: string[]; topic?: PracticeTopic; targetAnswer?: boolean
   focusSourceKey?: string
   previousQuestionsFromPassage?: { question: string; correctAnswer?: boolean; testedIdeas: string[]; supportingQuotes: string[] }[]
 }): string {
-  return JSON.stringify({ task: 'Prepare one useful, evidence-grounded True/False learning check.', questionNumber, previousQuestions, previousQuestionsFromPassage,
+  return JSON.stringify({ task: 'Prepare one useful, evidence-grounded True/False learning check.', questionNumber, previousQuestions, previousQuestionsFromPassage, previousTestedIdeas,
     ...(focusSourceKey ? { focusSourceKey } : {}),
     ...(targetAnswer !== undefined ? { targetAnswer } : {}),
     ...(topic ? { topic: topic.title, ...(topic.objectives?.length ? { learningObjectives: topic.objectives } : {}), ...(topic.question && topic.answer ? {

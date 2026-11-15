@@ -35,6 +35,13 @@ if (params.has('collections')) {
     }
   }
 }
+if (params.has('topic-scope')) {
+  for (const material of materials) {
+    const previous = material.id
+    material.id = `${previous}/1`; material.collectionRevision = 'r1'
+    for (const document of documents.filter(d => d.materialId === previous)) document.materialId = material.id
+  }
+}
 let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   appVersion: 'UI test', activeScreen: 'chat', activeConversationId: 'chat-test',
   conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }, ...(params.has('model-selection') ? [
@@ -47,7 +54,7 @@ let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
   models: params.has('model-selection') ? [model, cloud, { ...cloud, id: 'disconnected', remoteModelName: 'cloud-disconnected', cloudCredentialStatus: 'reconnect', status: 'needsRuntime' },
     { id: 'search', name: 'Search only', role: 'embedder', engine: 'ollama', ollamaModelName: 'search-only', status: 'ready' }] : [model],
   selectedModelId: model.id, selectedEmbeddingModelId: model.id, materials,
-  settings: { application: { defaultModelId: model.id, suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources'), readWhileWaiting: params.has('preview-sources') },
+  settings: { application: { practiceAutoAdvance: params.has('auto-advance'), defaultModelId: model.id, suggestionMode: params.has('suggestions') ? 'on' : 'off', showSources: params.has('show-sources'), readWhileWaiting: params.has('preview-sources') },
     modelSettingsById: { test: { reasoningMode: 'off', contextLength: 8192, maxLength: 1536 }, cloud: { contextLength: 16384, maxLength: 2048 } } }
 }
 const calls = []
@@ -63,6 +70,11 @@ window.practiceTest = { calls, state: () => state,
   removeLocalModel: () => progressListeners.forEach(listener => listener({ model: 'ui-test', status: 'removed', percent: 0 })),
   disconnectCloud: () => { state.models = state.models.map(model => model.id === 'cloud' ? { ...model, status: 'needsRuntime', cloudCredentialStatus: 'reconnect' } : model); sessionStorage.setItem(storageKey, JSON.stringify(state)) } }
 window.tokensmith = {
+  loadTopicInventory: async id => !params.has('topic-scope') ? null : ({ version: 3, complete: true, indexRevision: 'r1', topics:
+    ['Tree insertion', 'Hash indexes', 'Slotted pages'].map((title, i) => ({
+      id: `${id}-${i}`, title, area: i < 2 ? 'Chapter 1 — Indexes' : 'Chapter 2 — Storage', aliases: [], objectives: [`Explain ${title}.`],
+      concept: { courseId: id, id: `${id}-${i}`, title }, sources: documents.filter(d => d.materialId === `${id}/1` && d.documentId === (i < 2 ? 1 : 2)).map(d => sourceFor(d, i))
+    })) }),
   getAppVersion: async () => params.has('new-version') ? 'UI test next' : 'UI test',
   loadAppState: async () => state,
   saveAppState: async next => { state = next; sessionStorage.setItem(storageKey, JSON.stringify(next)); return next },

@@ -10,8 +10,10 @@ export async function reviewPracticeQuestion(page, number) {
   await idlePractice(page)
   const current = await page.evaluate(() => { const { practice } = window.practiceTest.state(); return practice.sessions.find(s => s.id === practice.activeSessionId)?.currentIndex })
   if (current === number - 1) return
-  const navigation = page.locator('.practice-frame').getByRole('navigation', { name: 'Questions in this practice' })
-  await navigation.getByRole('button', { name: new RegExp(`^Question ${number}:`) }).click()
+  for (let index = current; index !== number - 1; index += index < number - 1 ? 1 : -1) {
+    await page.locator('.practice-frame').getByRole('button', { name: index < number - 1 ? 'Next question' : 'Previous', exact: true }).click()
+    await idlePractice(page)
+  }
 }
 
 export async function answerThenReview(page, answer) {
@@ -32,6 +34,8 @@ export async function advancePractice(page, count) {
   if (total < count) {
     await reviewPracticeQuestion(page, total)
     await page.locator('.practice-composer').getByRole('button', { name: 'True', exact: true }).click()
+    await idlePractice(page)
+    await page.locator('.practice-frame').getByRole('button', { name: 'Next question', exact: true }).click()
     await page.waitForFunction(count => {
       const { practice } = window.practiceTest.state()
       return practice.sessions.find(session => session.id === practice.activeSessionId).questions.length === count

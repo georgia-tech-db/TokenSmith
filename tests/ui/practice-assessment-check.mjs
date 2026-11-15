@@ -19,6 +19,7 @@ try {
  assert.equal(await page.getByRole('button',{name:'Chat about this question',exact:true}).count(),0);
  await page.waitForTimeout(200);
  await page.getByRole('button',{name:'False',exact:true}).click();
+ await page.getByRole('button',{name:'Next question',exact:true}).click();
  await page.getByLabel('Your explanation',{exact:true}).waitFor();
  const first=await page.evaluate(()=>window.practiceTest.state().practice.sessions[0]);
  assert.equal(first.questions[0].attempts.length,1);assert.equal(first.questions[0].attempts[0].observationVersion,1);
@@ -40,7 +41,7 @@ try {
  await (await download).saveAs(process.env.PRACTICE_EXPORT_PATH || '/tmp/tokensmith-assessment-export.json');
  await page.screenshot({path:process.env.PRACTICE_SCREENSHOT_PATH || '/tmp/tokensmith-assessment.png',fullPage:true});
  // A failed durable save cannot advance; retry must not duplicate the answer.
- await page.getByRole('button',{name:'Practice another topic',exact:true}).click();
+ await page.getByRole('button',{name:'Choose topics',exact:true}).click();
  await page.getByLabel('Import Quiz').setInputFiles(resolve('tests/fixtures/assessment-pack.json'));
  await page.getByRole('button',{name:'False',exact:true}).waitFor();
  await page.evaluate(()=>{ window.savedWriter=window.tokensmith.saveAppState; window.tokensmith.saveAppState=async()=>{throw new Error('Disk unavailable')} });
@@ -49,6 +50,7 @@ try {
  assert.equal(await page.getByLabel('Your explanation',{exact:true}).count(),0);
  await page.evaluate(()=>{ window.tokensmith.saveAppState=window.savedWriter });
  await page.getByRole('button',{name:'Retry saving',exact:true}).click();
+ await page.getByRole('button',{name:'Next question',exact:true}).click();
  await page.getByLabel('Your explanation',{exact:true}).waitFor();
  const retried=await page.evaluate(()=>window.practiceTest.state().practice.sessions[0]);
  assert.equal(retried.questions[0].attempts.length,1);
@@ -64,13 +66,13 @@ try {
  await page.getByRole('heading',{name:'Your practice progress',exact:true}).waitFor();
  assert.deepEqual(await page.evaluate(()=>window.practiceTest.state().practice.sessions[0].questions.map(q=>q.attempts.length)),[1,1]);
  // Retrying after leaving a failed submission must not navigate or generate in another session.
- await page.getByRole('button',{name:'Practice another topic',exact:true}).click();
+ await page.getByRole('button',{name:'Choose topics',exact:true}).click();
  await page.getByLabel('Import Quiz').setInputFiles(resolve('tests/fixtures/assessment-pack.json'));
  await page.getByRole('button',{name:'False',exact:true}).waitFor();
  await page.evaluate(()=>{ window.tokensmith.saveAppState=async()=>{throw new Error('Disk unavailable')} });
  await page.getByRole('button',{name:'False',exact:true}).click();
  await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor();
- await page.getByRole('button',{name:'Practice another topic',exact:true}).click();
+ await page.getByRole('button',{name:'Choose topics',exact:true}).click();
  await page.evaluate(()=>{ window.tokensmith.saveAppState=window.savedWriter });
  await page.getByRole('button',{name:'Retry saving',exact:true}).click();
  await page.getByRole('button',{name:'Retry saving',exact:true}).waitFor({state:'hidden'});

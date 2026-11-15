@@ -33,7 +33,8 @@ function readChatSelection(viewport: HTMLElement | null): SelectedText | null {
   }
 }
 
-export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true, navigationQuestions, focusQuestionId, onNavigate }: {
+export function ConversationViewport({ messages, pending, children, onQuote, canQuote, isActive = true, navigationQuestions, focusQuestionId, onNavigate, singleQuestion = false }: {
+  singleQuestion?: boolean
   messages: ChatMessage[]
   pending: boolean
   children: ReactNode
@@ -85,6 +86,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
     questionElements.current = new Map(Array.from(viewport.querySelectorAll<HTMLElement>('[data-question-id]'))
       .map((element) => [element.dataset.questionId!, element]))
     const last = messages.at(-1)
+    if (singleQuestion) return
     const newQuestion = last?.role === 'user' && last.id !== previousLastId.current
     // Expanding inline content should leave its control in view, not jump to the end.
     if ((atBottomRef.current && !disclosureFocused()) || newQuestion) viewport.scrollTop = viewport.scrollHeight
@@ -224,7 +226,7 @@ export function ConversationViewport({ messages, pending, children, onQuote, can
           <strong>{navigationQuestions ? 'Practice question' : `Question ${preview.index + 1}`}</strong><span>{questions[preview.index].text}</span>
         </div>, document.body
       )}
-      {!atBottom && questions.length > 0 && (
+      {!singleQuestion && !atBottom && questions.length > 0 && (
         <button className="chat-jump-latest" type="button" aria-label="Go to latest message" title="Go to latest message"
           onClick={() => viewportRef.current?.scrollTo({
             top: viewportRef.current.scrollHeight,

@@ -214,6 +214,7 @@ const defaultApplicationSettings: ApplicationSettings = {
   followUpSuggestionCount: defaultFollowUpSuggestionCount,
   showSources: true,
   readWhileWaiting: true,
+  practiceAutoAdvance: true,
   embeddingGpuEnabled: true
 }
 
@@ -817,6 +818,7 @@ function normalizeApplicationSettings(settings?: Partial<ApplicationSettings>): 
     explanationDepth: normalizeChoice(settings?.explanationDepth, ['simple', 'standard', 'detailed'] as const, defaultApplicationSettings.explanationDepth),
     followUpSuggestionCount: normalizeFollowUpSuggestionCount(settings?.followUpSuggestionCount, suggestionMode),
     showSources: settings?.showSources ?? defaultApplicationSettings.showSources,
+    practiceAutoAdvance: settings?.practiceAutoAdvance ?? defaultApplicationSettings.practiceAutoAdvance,
     readWhileWaiting: settings?.readWhileWaiting ?? defaultApplicationSettings.readWhileWaiting,
     embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(settings?.embeddingGpuEnabled)
   }
@@ -5993,6 +5995,10 @@ function SettingsScreen({
                   checked={settings.application.showSources}
                   onChange={(showSources) => updateApplicationSettings({ showSources })}
                 />
+              </SettingsRow>
+              <SettingsRow label="Automatically advance in Practice" description="Prepare the next question 5 seconds after you answer. Turn this off to move on at your own pace.">
+                <CheckboxField ariaLabel="Automatically advance in Practice" checked={settings.application.practiceAutoAdvance}
+                  onChange={practiceAutoAdvance => updateApplicationSettings({ practiceAutoAdvance })} />
               </SettingsRow>
               <SettingsRow label="Read while waiting" description="Show a source passage beside Chat or Practice while a response is being prepared. Reading sources does not count as help or prevent mastery updates.">
                 <CheckboxField ariaLabel="Read while waiting" checked={settings.application.readWhileWaiting}
