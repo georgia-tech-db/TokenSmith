@@ -28,7 +28,9 @@
     "build": "npm run typecheck && electron-vite build",
     "package:mac": "node scripts/package-mac.mjs",
     "package:win": "node scripts/package-win.mjs",
-    "package:linux": "node scripts/package-linux.mjs"
+    "package:linux": "node scripts/package-linux.mjs",
+    "test:eval:fast": "node --test tests/experiments/local-eval-policy.test.mjs tests/experiments/local-eval-judge.test.mjs tests/experiments/local-eval-runner.test.mjs tests/experiments/buzzdb-regression.test.mjs tests/unit/typescript/buzzdb-reasoning.test.mjs",
+    "test:eval:buzzdb": "node scripts/python-dev.mjs benchmark --live --graded"
   },
   "dependencies": {
     "katex": "^0.16.47",

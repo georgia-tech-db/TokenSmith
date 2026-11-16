@@ -142,3 +142,68 @@ test('reports distinguish completion and retrieved evidence from answer correctn
   assert.match(summary, /COMPLETED \(ungraded\)/)
   assert.doesNotMatch(summary, /\| PASS \|/)
 })
+
+test('grading a live turn does not replace its answer or leak the rubric into follow-ups', async () => {
+  const { reviewLiveAnswer } = await import('../../benchmarks/buzzdb-answer-grading.mjs')
+  const seen = [], judged = []
+  const fixture = [{ id: 'synthetic', turns: [
+    { phase: 'first', question: 'How many cells?', referenceAnswer: 'Two cells.', requiredFacts: [{ requirement: 'Count', referenceQuote: 'Two cells.' }], keyEvidenceQuote: 'Two cells.', criteria: ['Count'] },
+    { phase: 'next', question: 'Why?', referenceAnswer: 'Required voltage.', criteria: ['Voltage'] }
+  ] }]
+  const rows = await runReasoningTurns(fixture, async input => {
+    seen.push(input)
+    assert.deepEqual(Object.keys(input).sort(), ['messages', 'prompt'])
+    return { answer: { text: 'Actual generated reply' } }
+  }, async row => reviewLiveAnswer(row, async input => {
+    judged.push(input)
+    return { judgment: { rationale: 'Synthetic rejection' }, decision: { verdict: 'incorrect', passed: false, score: 0 } }
+  }))
+  assert.equal(seen[1].messages[1].text, 'Actual generated reply')
+  assert.equal(judged[0].idealAnswer, 'Two cells.')
+  assert.deepEqual(judged[1].priorUserQuestions, ['How many cells?'])
+  assert.ok(rows.every(r => r.status === 'completed' && !r.passed && r.reviewStatus === 'graded'))
+})
+
+test('unresolved grading cannot count a completed answer as correct', async () => {
+  const { reviewLiveAnswer } = await import('../../benchmarks/buzzdb-answer-grading.mjs')
+  const row = { status: 'completed', answer: { text: 'Actual answer' }, passed: true }
+  await reviewLiveAnswer(row, async () => { throw new Error('Judge unavailable') })
+  assert.equal(row.passed, false)
+  assert.equal(row.decision.verdict, 'manual_review')
+  assert.match(row.failures[0], /Judge unavailable/)
+})
+
+test('the benchmark exit gate includes calibration and allows documented baseline failures', async () => {
+  const { benchmarkPassed } = await import('../../benchmarks/test_buzzdb_retrieval.mjs')
+  assert.equal(benchmarkPassed([{ passed: 6, total: 6, gate: { passed: false } }]), false)
+  assert.equal(benchmarkPassed([{ passed: 2, total: 6, gate: { passed: true } }]), true)
+  assert.equal(benchmarkPassed([{ passed: 2, total: 2 }, { passed: 0, total: 1 }]), false)
+})
+
+test('graded reports show verdicts and calibration rather than execution-only success', async () => {
+  const suite = { name: 'reasoning_answers', label: 'graded answers', model: 'local', passed: 0, total: 1,
+    reviewStatus: 'graded', gate: { passed: false, failures: ['Calibration failure'], knownFailures: [] },
+    controls: [{ expected: 'incorrect', decision: { verdict: 'correct' } }],
+    cases: [{ id: 'sample', question: 'Q', status: 'completed', reviewStatus: 'graded', passed: false,
+      answer: { text: 'A' }, referenceAnswer: 'B', criteria: [], failures: ['Wrong'],
+      decision: { verdict: 'incorrect' }, judgment: { rationale: 'Wrong' } }] }
+  assert.match(formatReasoningAnswers(suite), /Regression gate: FAIL/)
+  assert.match(formatReasoningAnswers(suite), /Calibration controls: 0\/1/)
+  const summary = formatBenchmarkSummary([suite])
+  assert.match(summary, /Actual model answer \(graded\)/)
+  assert.match(summary, /INCORRECT/)
+  assert.doesNotMatch(summary, /COMPLETED \(ungraded\)/)
+})
+
+test('the graded profile pins the runtime as well as models and resets fault history', async () => {
+  const { loadGradedProfile } = await import('../../benchmarks/buzzdb-answer-grading.mjs')
+  const profile = JSON.parse(readFileSync('tests/fixtures/buzzdb/regression/suite.json'))
+  assert.throws(() => loadGradedProfile(Object.values(profile.models), 'wrong-version'), /requires Ollama/)
+  const grading = loadGradedProfile(Object.values(profile.models), profile.ollamaVersion)
+  const inputs = []
+  await runReasoningTurns(grading.families, async input => { inputs.push(input); return { answer: { text: 'Synthetic answer' } } })
+  assert.equal(inputs.length, 6)
+  assert.deepEqual(inputs[0].messages, [])
+  assert.deepEqual(inputs[3].messages, [])
+  assert.equal(inputs[4].messages[1].text, 'Synthetic answer')
+})
