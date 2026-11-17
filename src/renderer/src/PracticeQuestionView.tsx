@@ -5,35 +5,23 @@ import { MessageText } from './MessageText'
 import { PracticeFeedbackView } from './PracticeFeedbackView'
 import { MessageAvatar } from './MessageAvatar'
 
-function PracticeMessage({ id, user = false, children }: { id: string; user?: boolean; children: ReactNode }) {
-  return <div className="message-row practice-message">
-    <MessageAvatar role={user ? 'user' : 'assistant'} />
-    <div><h3>{user ? 'You' : 'TokenSmith'}</h3><div data-chat-selectable data-chat-message-id={id}>{children}</div></div>
-  </div>
-}
-
-export function PracticeQuestionView({ question, index, active, busy, onShowSources, sourcesOpen, actions }: {
+export function PracticeQuestionView({ question, index, active, busy, onShowSources, sourcesOpen, actions, choices }: {
   question: PracticeQuestion; index: number; active: boolean; busy: boolean
   onShowSources?: () => void
   sourcesOpen: boolean
   actions?: ReactNode
+  choices?: ReactNode
 }) {
   return <section className={`practice-thread-question ${active ? 'is-active' : ''}`} data-question-id={question.id} tabIndex={-1} aria-label={`Practice question ${index + 1}`}>
     <div className="practice-question-messages">
-      <PracticeMessage id={question.id}>
-        <MessageText text={practiceQuestionText(question)} />
-      </PracticeMessage>
-      {question.attempts.map(attempt => <div key={attempt.id}>
-        <PracticeMessage id={attempt.id} user>
-          <section aria-label="Your submitted answer"><MessageText text={attempt.answer} /></section>
-        </PracticeMessage>
-        <PracticeMessage id={`${attempt.id}:feedback`}>
-          <section className="practice-feedback" aria-label="Practice feedback">
-            {attempt.assisted && <p className="practice-muted" title="Chat help was shown before you answered. Reading source passages does not count as help.">Answered with help · mastery unchanged</p>}
-            <PracticeFeedbackView feedback={attempt.feedback} />
-          </section>
-        </PracticeMessage>
-      </div>)}
+      <div className="practice-question-heading"><span>Question {index + 1}</span>{question.concept && <small>{question.concept.title}</small>}</div>
+      <div data-chat-selectable data-chat-message-id={question.id}><MessageText text={practiceQuestionText(question)} /></div>
+      {choices}
+      {question.attempts.map(attempt => <section key={attempt.id} className="practice-feedback practice-feedback-card" aria-label="Practice feedback">
+        <p className="practice-submitted-answer">Your answer: <strong>{attempt.answer}</strong></p>
+        {attempt.assisted && <p className="practice-muted">Answered with help · mastery unchanged</p>}
+        <PracticeFeedbackView feedback={attempt.feedback} />
+      </section>)}
     </div>
     <div className="practice-question-footer">
       {actions && <div className="answer-simplify-action practice-study-actions" role="group" aria-label="Practice actions">

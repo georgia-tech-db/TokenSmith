@@ -948,6 +948,13 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
     const preparationStarted = performance.now()
     const prepared = prepareStudyChatMessages(candidate)
     preparationDurationMs += performance.now() - preparationStarted
+    // Practice questions use the bounded, estimated source budget: one completion,
+    // without a token-generation probe, rewrite, or verification model call.
+    if (candidate.practiceTask === 'true_false_question') {
+      return { ...prepared, request: { ...candidate, retrievedSources: prepared.sources },
+        promptPreparationSpan: promptPreparationSpan(preparationStartedAt, preparationDurationMs,
+          request.retrievedSources?.length ?? 0, prepared.budget), preflightSpans }
+    }
     // Ollama has no public tokenizer endpoint. A one-token probe measures the
     // actual rendered prompt, including chat-template and thinking markers.
     // Its generated token is discarded; it is never reused as answer/history.

@@ -1,6 +1,7 @@
 """LLM boundary selection over immutable source spans; no generated source text."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -214,12 +215,22 @@ def completion_client(model: dict) -> Callable:
     if engine == 'remote' and not model.get('apiKey'):
         raise ValueError('Reconnect the preparation model in Models before preparing this collection.')
 
-    def complete(messages: list[dict], schema: dict) -> str:
+    def complete(messages: list[dict], schema: dict, *, image: bytes | None = None) -> str:
+        # Only the PDF preparer supplies an image. Keep text-only requests unchanged.
+        if image is not None:
+            encoded = base64.b64encode(image).decode('ascii')
+            last = messages[-1]
+            attachment = ({'images': [encoded]} if engine == 'ollama' else {'content': [
+                {'type': 'text', 'text': last['content']},
+                {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + encoded}}]})
+            messages = [*messages[:-1], {**last, **attachment}]
         if engine == 'ollama':
             base = str(model.get('ollamaBaseUrl') or 'http://127.0.0.1:11434').rstrip('/')
+            context = max(4096, min(int(model.get('contextLength') or (16384 if image is not None else 8192)), 16384))
             body = {'model': model.get('ollamaModelName') or model.get('name'), 'messages': messages,
                     'stream': False, 'format': schema, 'think': False,
-                    'options': {'temperature': 0, 'num_ctx': max(4096, min(int(model.get('contextLength') or 8192), 16384)), 'num_predict': 4096}}
+                    'options': {'temperature': 0, 'num_ctx': context,
+                                'num_predict': min(8192, context // 2) if image is not None else 4096}}
             url = base + '/api/chat'
         else:
             base = str(model.get('baseUrl') or '').rstrip('/')
@@ -229,15 +240,21 @@ def completion_client(model: dict) -> Callable:
             'Content-Type': 'application/json',
             **({'Authorization': 'Bearer ' + model['apiKey']} if engine == 'remote' else {})})
         try:
-            with urllib.request.urlopen(request, timeout=150) as response:
+            with urllib.request.urlopen(request, timeout=900 if image is not None else 150) as response:
                 result = json.load(response)
         except urllib.error.HTTPError as exc:
-            raise ValueError(f'Preparation model returned HTTP {exc.code}. Check its connection and model settings.') from None
+            detail = ' PDF AI preparation requires a model that accepts images.' if image is not None else ''
+            raise ValueError(f'Preparation model returned HTTP {exc.code}. Check its connection and model settings.' + detail) from None
         except TimeoutError:
             raise ValueError('The preparation model took too long to respond. Pause other model jobs or choose a faster model, then resume.') from None
         except urllib.error.URLError as exc:
             raise ValueError('The preparation model could not be reached. Start or reconnect it, then resume.') from None
         if engine == 'ollama':
+            if result.get('done_reason') == 'length':
+                raise ValueError('The preparation response was cut short. Choose a model with a larger context window.')
             return result.get('message', {}).get('content', '')
-        return (result.get('choices') or [{}])[0].get('message', {}).get('content', '')
+        choice = (result.get('choices') or [{}])[0]
+        if choice.get('finish_reason') == 'length':
+            raise ValueError('The preparation response was cut short. Choose a model with a larger output limit.')
+        return choice.get('message', {}).get('content', '')
     return complete

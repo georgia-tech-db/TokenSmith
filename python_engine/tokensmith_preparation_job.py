@@ -7,8 +7,10 @@ from typing import Any
 
 try:
     from tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
+    from tokensmith_pdf_preparation import prepare_pdf
 except ImportError:
     from python_engine.tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
+    from python_engine.tokensmith_pdf_preparation import prepare_pdf
 
 
 def job_directory(user_data_path: str, path: str) -> Path:
@@ -28,6 +30,42 @@ def report(payload: dict) -> dict:
     return result
 
 
+def prepare_document(file_path: Path, material_id: str, payload: dict, engine: Any,
+                     complete: Any, cache: Path, progress: Any) -> tuple[dict, list[dict]]:
+    """Dispatch each file independently; a mixed folder has no shared input format."""
+    settings = payload['preparation']
+    suffix = file_path.suffix.lower()
+    if suffix not in engine.SUPPORTED_EXTENSIONS:
+        raise ValueError('Only PDF, Markdown, and text documents are supported.')
+    if settings['mode'] == 'basic':
+        document, chunks = engine.prepare_index_file(material_id, file_path, None,
+            payload.get('cleaningProfileId') or engine.DEFAULT_CLEANING_PROFILE_ID, payload.get('cleaningRuleIds'))
+    elif settings['mode'] == 'ai':
+        instructions = settings.get('documentInstructions', {}).get(str(file_path), settings.get('instructions') or '')
+        if suffix == '.pdf':
+            chunks, page_count = prepare_pdf(file_path, complete, cache / 'pdf-pages', instructions, progress)
+        else:
+            # Read the original Unicode and line endings; the model only selects boundaries.
+            with file_path.open(encoding='utf-8', newline='') as source:
+                text = source.read()
+            if not text.strip():
+                raise ValueError('No readable text was found.')
+            model = payload.get('preparationModel') or {}
+            chunks = prepare_blocks(source_blocks([{'text': text}]), complete, cache / 'text-boundaries',
+                instructions, progress,
+                window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)))
+            page_count = None
+        document = {'id': engine.create_id('document'), 'materialId': material_id, 'title': file_path.stem,
+                    'path': str(file_path), 'kind': engine.material_kind(file_path), 'pageCount': page_count,
+                    'wordCount': sum(c['wordCount'] for c in chunks), 'chunkCount': len(chunks), 'status': 'ready'}
+    else:
+        raise ValueError('Choose Basic or AI preparation.')
+    if not chunks:
+        raise ValueError(document.get('error') or 'No readable text was found.')
+    document['thumbnails'] = []
+    return document, chunks
+
+
 def index(payload: dict, engine: Any) -> dict:
     try:
         from tokensmith_store import upsert_material
@@ -38,12 +76,14 @@ def index(payload: dict, engine: Any) -> dict:
         raise ValueError('The selected collection no longer exists.')
     user_data = payload['userDataPath']
     settings = payload['preparation']
+    if settings.get('mode') not in ('basic', 'ai'):
+        raise ValueError('Choose Basic or AI preparation.')
     model = payload.get('preparationModel') or {}
     files = engine.supported_files(path)
     if not files:
         raise ValueError('No PDF, Markdown, or text documents were found.')
     directory = job_directory(user_data, str(path))
-    material_id = str(payload.get('materialId') or engine.find_material_id_by_import_path(user_data, str(path)) or '')
+    material_id = str(payload.get('materialId') or engine.find_material_id_by_import_path(user_data, str(path)) or engine.create_id('material'))
     previous = next((m for m in engine.list_materials(user_data) if m['id'] == material_id or m.get('path') == str(path)), None)
     title = payload.get('title') or (previous or {}).get('title') or path.name
     if previous:
@@ -56,44 +96,16 @@ def index(payload: dict, engine: Any) -> dict:
     progress('parsing', 1, 'Reading documents')
     complete = completion_client(model) if settings['mode'] == 'ai' else None
     # Cache keys contain model identity and policy, never credentials.
-    identity = {key: model.get(key) for key in ('engine', 'id', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
-    model_cache = directory / 'boundaries' / digest(identity)
+    identity = {key: model.get(key) for key in ('engine', 'id', 'name', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
+    model_cache = directory / 'models' / digest(identity)
     documents, prepared, report_documents = [], [], []
     for file_index, file_path in enumerate(files):
         entry = {'title': file_path.stem, 'path': str(file_path), 'status': 'preparing', 'chunkCount': 0}
         progress('parsing', 1 + round(file_index / len(files) * 49), f'Reading {file_path.name}', processedFiles=file_index)
         try:
-            if settings['mode'] == 'basic':
-                document, chunks = engine.prepare_index_file(material_id, file_path, None,
-                    payload.get('cleaningProfileId') or engine.DEFAULT_CLEANING_PROFILE_ID, payload.get('cleaningRuleIds'))
-                if not chunks:
-                    raise ValueError(document.get('error') or 'No readable text was found.')
-            else:
-                if file_path.suffix.lower() == '.pdf':
-                    pages, page_count = engine.extract_pdf_raw_pages_pdfium(file_path, include_layout_hints=True)
-                else:
-                    pages, page_count = [{'text': file_path.read_text(encoding='utf-8')}], None
-                if not any(p['text'].strip() for p in pages):
-                    raise ValueError('No readable text was found. This document needs text recognition.')
-                instructions = settings.get('documentInstructions', {}).get(str(file_path), settings.get('instructions') or '')
-                blocks = source_blocks(pages)
-                chunks = prepare_blocks(blocks, complete, model_cache, instructions,
-                    lambda done, total, message: progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
-                        f'{message}: {file_path.name}', processedFiles=file_index),
-                    window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)))
-                document = {'id': engine.create_id('document'), 'materialId': material_id, 'title': file_path.stem,
-                            'path': str(file_path), 'kind': engine.material_kind(file_path), 'pageCount': page_count,
-                            'wordCount': sum(c['wordCount'] for c in chunks), 'chunkCount': len(chunks), 'status': 'ready'}
-                unreadable = sum(not p['text'].strip() for p in pages)
-                image_pages = sum(bool(p.get('imageCount')) for p in pages)
-                warnings = []
-                if unreadable:
-                    warnings.append(f'{unreadable} pages have no extractable text.')
-                if image_pages:
-                    warnings.append(f'{image_pages} pages contain images. Text inside images is not searchable yet; open the original for those details.')
-                if warnings:
-                    entry['warning'] = ' '.join(warnings)
-            document['thumbnails'] = []
+            document, chunks = prepare_document(file_path, material_id, payload, engine, complete, model_cache,
+                lambda done, total, message: progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
+                    f'{message}: {file_path.name}', processedFiles=file_index))
             entry.update(status='ready', pageCount=document.get('pageCount'), chunkCount=len(chunks),
                          chunksFile='documents/' + digest(str(file_path)) + '.json')
             write_json(directory / entry['chunksFile'], chunks)

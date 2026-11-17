@@ -63,7 +63,7 @@ function Preview() {
       <button type="button" onClick={() => setScope(documents)}>Both books</button>
     </div>
     {selected && <div className="practice-topic-bar" aria-label="Active topic"><span>{selected.title}</span><div className="practice-live-mastery" aria-live="polite"><MasteryMeter score={live?.score ?? null} /></div></div>}
-    <div className="practice-scroll"><PracticeTopicPicker isActive ready disabled={false} scope={scope} materials={materials} sessions={state.sessions} masteryRecords={state.masteryRecords} onChoose={setSelected} /></div>
+    <div className="practice-scroll"><PracticeTopicPicker isActive ready disabled={false} scope={scope} materials={materials} sessions={state.sessions} masteryRecords={state.masteryRecords} onChoose={setSelected} onChooseTopics={(title, topics) => setSelected({ title, topics })} /></div>
   </main>
 }
 createRoot(document.getElementById('root')).render(<Preview />)

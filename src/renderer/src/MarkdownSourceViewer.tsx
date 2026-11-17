@@ -8,7 +8,7 @@ import type { MarkdownSourceDocument } from '@shared/engine'
 import { SourceNavigation, type SourceNavigationProps } from './SourceNavigation'
 import { rehypeSourceHeadings, rehypeSourceLines, resolveSourceLineRange, sourceAnchorIndex } from './markdown-source'
 
-export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navigation }: { viewer: MarkdownSourceDocument; onClose: () => void; automatic?: boolean; navigation?: SourceNavigationProps }) {
+export function MarkdownSourceViewer({ viewer, onClose, navigation }: { viewer: MarkdownSourceDocument; onClose: () => void; navigation?: SourceNavigationProps }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const tocId = useId()
@@ -73,10 +73,9 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current
-    if (automatic) dialog?.show()
-    else dialog?.showModal()
+    dialog?.showModal()
     return () => dialog?.close()
-  }, [automatic])
+  }, [])
 
   useLayoutEffect(() => {
     userNavigated.current = false
@@ -109,8 +108,7 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
   }, [jumpToChunk, viewer.text])
 
   return (
-    <dialog ref={dialogRef} className="markdown-source-dialog" aria-label="Source Markdown viewer" aria-modal={!automatic}
-      onKeyDown={event => { if (automatic && event.key === 'Escape') { event.preventDefault(); onClose() } }}
+    <dialog ref={dialogRef} className="markdown-source-dialog" aria-label="Source Markdown viewer" aria-modal="true"
       onCancel={(event) => { event.preventDefault(); onClose() }}>
       <section className="markdown-viewer-panel">
         <header className="pdf-viewer-header">
@@ -127,9 +125,9 @@ export function MarkdownSourceViewer({ viewer, onClose, automatic = false, navig
           <button type="button" className="markdown-source-jump" aria-expanded={tocOpen} aria-controls={tocId} onClick={toggleToc} disabled={headings.length === 0}>
             {tocOpen ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />} Contents
           </button>
-          <span>{range ? `Highlighted passage · ${lineLabel}` : 'Full document · Chunk position unavailable'}</span>
+          <span>{range ? `Highlighted passage · ${lineLabel}` : 'Full document · No highlight is available for this source'}</span>
           <button type="button" className="markdown-source-jump" onClick={() => { userNavigated.current = true; jumpToChunk() }} disabled={!range}>
-            <LocateFixed size={16} aria-hidden="true" /> Back to chunk
+            <LocateFixed size={16} aria-hidden="true" /> Back to passage
           </button>
         </div>
         <div className={`markdown-source-body${tocOpen && headings.length ? ' has-toc' : ''}`}>

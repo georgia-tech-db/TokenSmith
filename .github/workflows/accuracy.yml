@@ -72,6 +72,9 @@ jobs:
           key: ollama-model-${{ steps.model.outputs.digest }}
       - name: Start Ollama
         run: |
+          # Ollama 0.31.1 counts CPU AMX buffers as GPU memory. Exclude the
+          # AMX backend in CPU-only CI; keep the GPU-residency assertions.
+          rm -f tmp/ollama/lib/ollama/libggml-cpu-sapphirerapids.so
           test -x tmp/ollama/lib/ollama/llama-server
           tmp/ollama/bin/ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/ollama.pid"

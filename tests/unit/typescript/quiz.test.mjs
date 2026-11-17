@@ -32,6 +32,18 @@ test('question preparation keeps grading criteria hidden and includes assumption
   assert.doesNotMatch(practiceSystemPrompt('true_false_question'), /heap|LRU|B\+|pinning/)
 })
 
+test('learning checks select supporting evidence before wording the claim and keep conditions visible', () => {
+  const schema = practiceResponseSchema('true_false_question')
+  assert.ok(schema.required.indexOf('criteria') < schema.required.indexOf('question'))
+  assert.match(schema.properties.assumptions.description, /never introduce hidden conditions/)
+  const prompt = JSON.parse(quizQuestionPrompt({ questionNumber: 1, focusSourceKey: 'c:1:1' }))
+  assert.equal(prompt.focusSourceKey, 'c:1:1')
+  const instructions = practiceSystemPrompt('true_false_question')
+  assert.match(instructions, /exercise.*not an established result/)
+  assert.match(instructions, /student predicts what happens or applies the idea/)
+  assert.doesNotMatch(instructions, /Bellman|Fibonacci|Huffman/)
+})
+
 test('question prompts identify same-passage history as ideas to avoid, not factual authority', () => {
   const history = [{ question: 'Earlier statement.', correctAnswer: false,
     testedIdeas: ['Earlier idea.'], supportingQuotes: ['Earlier quote.'] }]
@@ -85,7 +97,7 @@ test('True/False parsing requires usable field types without checking semantics'
   }
   assert.equal(practiceResponseSchema('true_false_question').properties.correctAnswer.type, 'boolean')
   assert.equal(practiceResponseSchema('true_false_question').properties.criteria.maxItems, 1)
-  assert.match(practiceSystemPrompt('true_false_question'), /absence of evidence is not evidence of falsity/)
+  assert.match(practiceSystemPrompt('true_false_question'), /absence of evidence is not evidence of falsity/i)
   assert.match(practiceSystemPrompt('true_false_question'), /targetAnswer/)
   assert.doesNotMatch(practiceSystemPrompt('true_false_question'), /heap|LRU|B\+|pinning/)
   assert.equal(question.format, 'true_false')

@@ -125,7 +125,7 @@ try {
   assert.equal((await calls()).filter(c => c.kind === 'search').length, 1, 'Reuse retrieved topic passages')
   assert.equal((await calls()).filter(c => c.kind === 'sources').length, 0, 'Never sample unrelated whole-document passages')
   assert.ok((await calls()).filter(c => c.kind === 'true_false_question').every(c => JSON.parse(c.request.prompt).topic === 'B+ trees'))
-  await button(practice, 'Practice another topic').click()
+  await button(practice, 'Choose topics').click()
   await button(practice, 'B+ trees').waitFor()
   assert.equal((await calls()).filter(c => c.kind === 'topics').length, 1)
   await page.reload()

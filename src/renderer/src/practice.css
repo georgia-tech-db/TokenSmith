@@ -35,13 +35,8 @@
 .practice-between { justify-content: space-between; }
 .practice-muted, .practice-topic { color: var(--content-muted, var(--muted)); font-size: .9rem; }
 .practice-topic { margin: 0 0 17px; }
-.practice-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 8px 13px; border: 1px solid var(--border-control, var(--line-strong)); border-radius: 6px; background: var(--surface-elevated, var(--panel)); color: var(--content-primary, var(--ink)); cursor: pointer; }
-.practice-button:hover { background: var(--surface-hover, var(--green-soft)); }
 .practice-button.is-primary { background: var(--green); border-color: var(--green); color: #fff; }
 .practice-button.is-primary:hover { background: var(--green-strong); }
-.practice-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; padding: 5px 0; min-height: 32px; background: transparent; color: var(--accent-link, #376aa8); cursor: pointer; }
-.practice-link:hover { text-decoration: underline; }
-.practice-frame button:disabled { opacity: .5; cursor: not-allowed; }
 .practice-frame button svg { flex-shrink: 0; }
 .practice-main > .conversation-viewport { flex: 1; }
 .practice-thread-question { scroll-margin-top: 16px; }
@@ -106,7 +101,6 @@
 .practice-topic-picker .practice-link { margin-left: 8px; }
 .practice-topic-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
 .practice-topic-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.practice-topic-bar button { font-size: .84rem; }
 .practice-session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
 .practice-topic-reference { margin: 0 0 28px; }
 .practice-topic-reference > summary { cursor: pointer; color: var(--muted); margin-bottom: 20px; }
@@ -146,7 +140,6 @@
 .practice-chapter-progress > div { flex: 1; min-width: 160px; max-width: 300px; }
 .practice-chapter-progress .mastery-meter { width: 100%; margin-bottom: 4px; }
 .practice-chapter-progress small { font-size: .78rem; }
-.practice-chapter-progress .practice-button { padding: 7px 10px; font-size: .85rem; }
 .practice-chapter-overview { flex: 1; min-width: 0; }
 .practice-live-mastery { flex: 0 1 190px; min-width: 150px; }
 .practice-review-mastery { margin-top: 24px; }
@@ -168,3 +161,55 @@
 .practice-chapter-button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .practice-chapter-button strong { display: block; font-weight: 600; }
 .practice-chapter-button small { display: block; margin-top: 5px; color: var(--muted); }
+
+/* Scope selection shares the compact chapter/topic list. */
+.practice-chapter-row { display: flex; align-items: center; gap: 10px; }
+.practice-chapter-row .practice-chapter-button { flex: 1; min-width: 0; }
+.practice-topic-picker input[type="checkbox"] { flex: 0 0 auto; width: 17px; height: 17px; margin: 0; accent-color: var(--green); }
+.practice-select-chapter { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; }
+.practice-selection-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 0; background: var(--panel); border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.practice-selection-bar > span { flex: 1; min-width: 120px; font-size: .85rem; }
+.practice-question-topic { display: block; color: var(--muted); font-size: .78rem; margin: 0 0 6px; }
+.practice-review-topics { margin: 16px 0; }
+.practice-review-topics > details { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.practice-review-topics > details > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+@media (max-width: 640px) {
+  .practice-topic-heading .practice-topic-start { flex-basis: calc(100% - 75px); }
+}
+
+/* One learning check at a time; feedback remains until Next is selected. */
+.practice-question-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: .85rem; margin-bottom: 18px; }
+.practice-question-heading > span { font-weight: 600; }
+.practice-question-heading small { font-size: inherit; }
+.practice-thread-question { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.practice-question-messages > [data-chat-selectable] { font-size: var(--reading-font-size); }
+.practice-thread-question .practice-composer { padding: 16px 0; max-height: none; overflow: visible; }
+.practice-thread-question .practice-composer .composer { border: 0; box-shadow: none; background: transparent; min-height: 0; }
+.practice-choices { justify-content: center; }
+.practice-choices button { min-width: 112px; font-weight: 600; }
+.practice-choices button:not(:disabled):hover { background: var(--surface-muted, var(--panel-soft)); border-color: var(--line-strong); }
+.practice-feedback-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 16px; margin-top: 8px; }
+.practice-submitted-answer { margin: 0 0 12px; font-size: .85rem; color: var(--muted); }
+.practice-verdict { display: flex; align-items: center; gap: 7px; }
+.practice-verdict.is-correct { color: var(--success); }
+.practice-verdict.is-incorrect { color: var(--danger); }
+.practice-feedback-card:has(.practice-verdict.is-correct) {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 7%, var(--panel));
+}
+.practice-feedback-card:has(.practice-verdict.is-incorrect) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+}
+.practice-verdict svg { flex-shrink: 0; }
+.practice-quiz-navigation { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin: 16px 0; }
+.practice-thread-question .practice-question-footer { margin-top: 16px; }
+@media (max-width: 640px) { .practice-thread-question { padding: 16px; } }
+
+.practice-quiz-next-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
+
+.practice-complete-message { padding: 16px 20px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel-soft); color: var(--ink); font-size: 1rem; line-height: 1.5; }
+.practice-complete-message h2 { margin: 0 0 8px; font-size: 1.2rem; font-weight: 650; line-height: 1.3; }
+.practice-complete-message p { margin: 6px 0 0; }
+
+.practice-auto-next { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: .85rem; }

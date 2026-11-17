@@ -33,7 +33,7 @@ export function PracticeComposer({ question, busy, isActive, onCheck, assessment
 }
 
 export function PracticeActions({ onChat }: { onChat: () => void }) {
-  return <button type="button" onClick={onChat}>
+  return <button type="button" className="study-action-button" onClick={onChat}>
     <MessageSquare size={16} aria-hidden="true" />Chat about this question
   </button>
 }

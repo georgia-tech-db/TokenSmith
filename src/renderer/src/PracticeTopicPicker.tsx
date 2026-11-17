@@ -7,14 +7,17 @@ import { chapterMastery, practiceMastery } from '@shared/practice-mastery'
 import { MasteryMeter, TopicMasteryDetails } from './MasteryMeter'
 import { studyScopeKey, type StudyDocumentRef } from '@shared/study-scope'
 import { loadSavedTopics } from '../../shared/saved-topics'
+import { practiceTopicKey } from '@shared/practice-question-plan'
 import type { InventoryTopic } from '../../shared/topic-inventory'
 
-export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose }: {
+export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose, onChooseTopics }: {
   isActive: boolean; ready: boolean; disabled: boolean; scope: StudyDocumentRef[]; materials: CourseMaterial[]
   sessions: PracticeSession[]
   masteryRecords?: PracticeMasteryRecord[]
   onChoose: (topic: PracticeTopic) => void
+  onChooseTopics: (title: string, topics: PracticeTopic[]) => void
 }) {
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [text, setText] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [chapterId, setChapterId] = useState<string | null>(null)
@@ -49,7 +52,18 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
   const visibleChapters = chapters.filter(c => `${c.title} ${c.collection}`.toLowerCase().includes(query) && c.topics.some(matchesProgress))
   const visibleTopics = chapter?.topics.filter(t => matchesProgress(t) && [t.title, ...t.aliases].join(' ').toLowerCase().includes(query)) ?? []
   const chapterProgress = chapter && chapterMastery(chapter.topics, progress)
-  const nextTopic = chapter && [...chapter.topics].sort((a, b) => (topicProgress(a)?.score ?? 0) - (topicProgress(b)?.score ?? 0))[0]
+  const selectedTopics = topics.filter(t => selectedKeys.includes(practiceTopicKey(t)))
+  const selectedChapter = chapters.find(c => c.topics.length === selectedTopics.length && c.topics.every(t => selectedKeys.includes(practiceTopicKey(t))))
+  function selectTopics(items: InventoryTopic[], checked: boolean) {
+    const keys = items.map(practiceTopicKey)
+    setSelectedKeys(current => checked ? [...new Set([...current, ...keys])] : current.filter(k => !keys.includes(k)))
+  }
+  function chapterCheckbox(items: InventoryTopic[], label: string) {
+    const count = items.filter(t => selectedKeys.includes(practiceTopicKey(t))).length
+    return <input type="checkbox" aria-label={label} checked={count === items.length && count > 0}
+      ref={element => { if (element) element.indeterminate = count > 0 && count < items.length }} disabled={disabled}
+      onChange={event => selectTopics(items, event.target.checked)} />
+  }
   function navigate(id: string | null) {
     focusHeading.current = true
     setChapterId(id); setSearch(''); setExpandedTopic(null)
@@ -58,7 +72,7 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
     if (focusHeading.current) { heading.current?.focus(); focusHeading.current = false }
   }, [chapterId])
   useEffect(() => {
-    setTopics([]); setChapterId(null); setSearch(''); setFilter('all'); setExpandedTopic(null)
+    setTopics([]); setSelectedKeys([]); setChapterId(null); setSearch(''); setFilter('all'); setExpandedTopic(null)
     if (!ready || !isActive || !window.tokensmith) return
     let active = true
     setError(''); setStatus('loading')
@@ -70,11 +84,18 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
   return <div className="practice-topic-picker">
     {chapter && <button className="practice-link practice-chapter-back" type="button" onClick={() => navigate(null)}><ArrowLeft size={16} aria-hidden="true" />All chapters</button>}
     <h1 ref={heading} tabIndex={-1}>{chapter?.title ?? 'What would you like to practice?'}</h1>
-    {!chapter && <p className="practice-muted">Choose a chapter to explore its topics.</p>}
+    {!chapter && <p className="practice-muted">Select a chapter to practice all its topics, or open it to choose individual topics.</p>}
     {chapterProgress && <div className="practice-chapter-progress">
       <div><MasteryMeter score={chapterProgress.score} label="Chapter progress" />
         <small className="practice-muted" title="Unassessed topics contribute zero to chapter progress.">{chapterProgress.assessed} of {chapterProgress.total} topics assessed</small></div>
-      {nextTopic && <button type="button" className="practice-button" disabled={disabled} onClick={() => onChoose(nextTopic)}>Practice next: {nextTopic.title}</button>}
+      <label className="practice-select-chapter">{chapterCheckbox(chapter!.topics, `Select all topics in ${chapter!.title}`)}Whole chapter</label>
+    </div>}
+    {selectedTopics.length > 0 && <div className="practice-selection-bar" role="region" aria-label="Selected practice topics">
+      <span>{selectedTopics.length} {selectedTopics.length === 1 ? 'topic' : 'topics'} selected{selectedChapter ? ` · ${selectedChapter.title}` : ''}</span>
+      <button className="practice-link" type="button" onClick={() => setSelectedKeys([])}>Clear selection</button>
+      <button className="practice-button" type="button" disabled={disabled} onClick={() => onChooseTopics(selectedChapter?.title ?? (selectedTopics.length === 1 ? selectedTopics[0].title : `${selectedTopics.length} topics`), selectedTopics)}>
+        {selectedChapter ? 'Practice chapter' : `Practice ${selectedTopics.length === 1 ? 'topic' : `${selectedTopics.length} topics`}`}
+      </button>
     </div>}
     {ready && status === 'loading' && <p className="practice-muted" role="status">Loading saved topics…</p>}
     {topics.length > 0 && <div className="practice-topic-inventory">
@@ -95,6 +116,8 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
           const detailsId = `topic-details-${encodeURIComponent(topicKey)}`
           return <div className="practice-topic-entry" key={topicKey}>
             <div className="practice-topic-heading">
+              <input type="checkbox" aria-label={`Select ${topic.title}`} checked={selectedKeys.includes(practiceTopicKey(topic))} disabled={disabled}
+                onChange={event => selectTopics([topic], event.target.checked)} />
               <button type="button" className="practice-topic-start" disabled={disabled} onClick={() => onChoose(topic)}>{topic.title}<ChevronRight size={16} aria-hidden="true" /></button>
               <MasteryMeter compact score={result?.score ?? null} label="Estimated mastery" empty={result?.withHelp ? 'Try without help' : 'Not practiced'} />
               <button type="button" className="practice-topic-expand" aria-label={`Details for ${topic.title}`} aria-expanded={expanded} aria-controls={detailsId}
@@ -114,10 +137,12 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
         <div className="practice-chapter-list" aria-label="Chapters">
           {visibleChapters.map(item => {
             const result = chapterMastery(item.topics, progress)
-            return <button key={item.id} type="button" className="practice-chapter-button" onClick={() => navigate(item.id)}>
+            return <div key={item.id} className="practice-chapter-row">
+              {chapterCheckbox(item.topics, `Select chapter ${item.title}`)}
+              <button type="button" className="practice-chapter-button" onClick={() => navigate(item.id)}>
               <span className="practice-chapter-overview"><strong>{item.title}</strong><small>{item.collection && `${item.collection} · `}{result.assessed} of {result.total} topics assessed</small></span>
               <MasteryMeter compact score={result.score} label="Chapter progress" /><ChevronRight size={18} aria-hidden="true" />
-            </button>
+            </button></div>
           })}
         </div>
       </>}

@@ -1,0 +1,18 @@
+{
+  "originalFilename": "Algorithms-JeffE-ch12-np-hardness.pdf",
+  "originalSha256": "4bf306be002535f08fa93322758fe44f6e7fde2bd6d1b6fe5e61e9d0276b5c50",
+  "physicalPages": [
+    25,
+    26
+  ],
+  "excerptSha256": "af3923490f936131e358b2873f82c30e6cc7426caa9ac0b0b5c79f0fe2dd8139",
+  "preparationModel": {
+    "engine": "ollama",
+    "ollamaModelName": "gemma4:26b",
+    "contextLength": 16384
+  },
+  "promptSha256": "e23a3126236e7c5411f0cf60c44b0fee197533a57c949819dc93b9488425a559",
+  "seconds": 35.15779304201715,
+  "modelDigest": "08ae7ec1744bd7f451c4a530afb39d2673ad9d07a8369b8a33a3613b41212a68",
+  "ollamaVersion": "0.40.15"
+}

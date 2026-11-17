@@ -1,65 +1,78 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
-const { createAnswerSourcePreview } = requireTranspiledTs('src/renderer/src/answer-source-preview.ts')
-function deferred() { let resolve; const promise = new Promise(r => {resolve=r}); return {promise,resolve} }
-
-test('opens the first source once and closes when the answer arrives', async () => {
-  const changes=[]; const preview=createAnswerSourcePreview(value=>changes.push(value))
-  preview.begin('answer')
-  let loads=0
-  await preview.open('answer',async()=>{loads++;return 'first source'})
-  await preview.open('answer',async()=>{loads++;return 'second source'})
-  assert.equal(changes.at(-1),'first source')
-  assert.equal(loads,1)
-  preview.finish('answer')
-  assert.equal(changes.at(-1),null)
-  await preview.open('answer',async()=>{loads++;return 'too late'})
-  assert.equal(loads,1)
+const { createSourcePane, questionForSourceAnswer } = requireTranspiledTs('src/renderer/src/answer-source-preview.ts')
+const sources = [
+  { path: '/book.md', title: 'First', excerpt: 'Atomic transactions', lineFrom: 3 },
+  { path: '/slides.pdf', title: 'Second', excerpt: 'Durability', pageStart: 2 }
+]
+function setup() {
+  const changes = []
+  return { changes, pane: createSourcePane(value => changes.push(value)) }
+}
+test('completion leaves the passage mounted and rejects late previews', () => {
+  const { pane, changes } = setup()
+  pane.begin('answer')
+  assert.equal(pane.open('answer', sources, 'What is atomicity?'), true)
+  const displayed = changes.at(-1), count = changes.length
+  pane.finish('answer')
+  assert.equal(pane.open('answer', sources), false)
+  assert.equal(changes.length, count, 'No publish on completion: preserve DOM and scroll position')
+  assert.equal(changes.at(-1), displayed)
+  assert.equal(displayed.question, 'What is atomicity?')
 })
-test('a source that finishes loading after the answer cannot reopen the preview', async () => {
-  const changes=[]; const preview=createAnswerSourcePreview(value=>changes.push(value)),load=deferred()
-  preview.begin('answer')
-  const pending=preview.open('answer',()=>load.promise)
-  preview.finish('answer')
-  load.resolve('late PDF')
-  await pending
-  assert.ok(changes.every(value=>value===null))
+test('closing prevents pending results from reopening the pane', () => {
+  const { pane, changes } = setup()
+  pane.begin('answer'); pane.dismiss()
+  assert.equal(pane.open('answer', sources), false)
+  assert.equal(changes.at(-1), null)
 })
-test('dismissal, navigation and Stop invalidate a pending preview without reopening it', async () => {
-  const changes=[]; const preview=createAnswerSourcePreview(value=>changes.push(value)),load=deferred()
-  preview.begin('answer')
-  const pending=preview.open('answer',()=>load.promise)
-  preview.dismiss()
-  load.resolve('late Markdown')
-  await pending
-  await preview.open('answer',async()=> 'reopened')
-  assert.ok(changes.every(value=>value===null))
+test('old completion cannot interfere with a newer question', () => {
+  const { pane, changes } = setup()
+  pane.begin('old'); pane.open('old', sources)
+  pane.begin('new'); pane.finish('old')
+  assert.equal(pane.open('old', sources), false)
+  assert.equal(pane.open('new', [sources[1]], 'New question'), true)
+  assert.equal(changes.at(-1).question, 'New question')
 })
-test('old answer completion and out-of-order source loads cannot close a newer preview', async () => {
-  const changes=[];const preview=createAnswerSourcePreview(value=>changes.push(value)),old=deferred()
-  preview.begin('old')
-  const pending=preview.open('old',()=>old.promise)
-  preview.begin('new')
-  await preview.open('new',async()=> 'new source')
-  preview.finish('old')
-  old.resolve('old source')
-  await pending
-  assert.equal(changes.at(-1),'new source')
+test('manual selection and navigation survive completion and new automatic requests', () => {
+  const { pane, changes } = setup()
+  pane.begin('answer'); pane.open('answer', sources)
+  pane.move(1)
+  assert.equal(changes.at(-1).index, 1)
+  pane.finish('answer'); pane.begin('next')
+  assert.equal(pane.open('next', sources), false)
+  pane.dismissAutomatic()
+  assert.equal(changes.at(-1).index, 1)
+  pane.move(1)
+  assert.equal(changes.at(-1).index, 1, 'No out of range navigation')
+  pane.select(sources[0], sources, 'Historical question')
+  assert.equal(changes.at(-1).question, 'Historical question')
+  pane.dismiss(); pane.begin('third')
+  assert.equal(pane.open('third', sources), true)
 })
-test('answer completion leaves a manually chosen source alone', async () => {
-  let displayed;const preview=createAnswerSourcePreview(value=>{displayed=value})
-  preview.begin('answer')
-  await preview.open('answer',async()=> 'automatic')
-  preview.dismiss()
-  displayed='manual source'
-  preview.finish('answer')
-  assert.equal(displayed,'manual source')
+test('disabling automatic reading dismisses only automatic selection', () => {
+  const { pane, changes } = setup()
+  pane.begin('answer'); pane.open('answer', sources)
+  pane.dismissAutomatic()
+  assert.equal(changes.at(-1), null)
+  assert.equal(pane.open('answer', sources), false)
+  pane.select(sources[1], sources)
+  pane.dismissAutomatic()
+  assert.equal(changes.at(-1).index, 1)
 })
-test('source load failure is optional and does not interrupt generation', async () => {
-  const changes=[];const preview=createAnswerSourcePreview(value=>changes.push(value))
-  preview.begin('answer')
-  await preview.open('answer',async()=>{throw new Error('Missing source')})
-  assert.equal(changes.at(-1),null)
-  preview.finish('answer')
+test('empty or unsupported sources never produce an invalid pane', () => {
+  const { pane, changes } = setup()
+  pane.begin('answer')
+  assert.equal(pane.open('answer', []), false)
+  assert.equal(pane.open('answer', [{ path: '/video.mp4', excerpt: '' }]), false)
+  assert.equal(changes.at(-1), null)
+})
+test('sources retain the question that produced their answer, including historical turns', () => {
+  const messages = [{ id: 'u1', role: 'user', text: 'Old question' }, { id: 'a1', role: 'assistant', text: 'Old answer' },
+    { id: 'u2', role: 'user', text: 'New question' }, { id: 'a2', role: 'assistant', text: 'New answer', answerContext: { prompt: 'Exact submitted prompt' } }]
+  assert.equal(questionForSourceAnswer(messages, messages[1]), 'Old question')
+  assert.equal(questionForSourceAnswer(messages, messages[3]), 'Exact submitted prompt')
+  assert.equal(questionForSourceAnswer(messages), undefined)
+  assert.equal(questionForSourceAnswer(messages, { id: 'missing' }), undefined)
 })

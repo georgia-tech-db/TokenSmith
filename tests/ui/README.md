@@ -94,16 +94,28 @@ Open `/tests/ui/generation-progress.html`. This uses the real App with manually 
 
 These checks verify behavior, not prediction accuracy. Predictions improve through actual completed runs; no additional model calls are made to obtain estimates.
 
-## Read the first source while waiting
+## Shared source pane in Chat and Practice
 
-Use `/tests/ui/generation-progress.html?preview=markdown` (or `?preview=pdf`) with the same preview server. These variants supply tiny fixture documents through the fake bridge; no user files are opened.
+Run `node tests/ui/shared-source-pane-check.mjs` with `SOURCE_PANE_UI_URL` set to
+ the preview server origin (default `http://127.0.0.1:5198`). Set
+`PLAYWRIGHT_MODULE` and `CHROME_PATH` for an external browser installation.
+The fixtures use the real App with deterministic replies, without model calls
+or desktop data. Screenshots go to `/tmp/tokensmith-shared-source-pane`.
 
-- Send a question. The first source opens automatically at its passage/page inside Chat, with navigation and the bottom progress strip still accessible.
-- **Deliver answer** closes the automatic reader immediately while the strip continues Preparing follow-ups. **Finish suggestions** updates the same answer.
-- Close the reader yourself during generation; it must remain closed. Stop or fail the request; the automatic reader must close. Visit Settings; it must not remain above Settings or reopen when the answer arrives.
-- Add `&slow-source`, send, deliver the answer, then click **Finish source load**. The late load must not open a reader. Repeat with Stop and a conversation switch.
-- Add `&answer-delay`, send, and dismiss the automatic reader. Click **Deliver answer**, then immediately open Second source manually. After the two-second answer delay, that manually opened source must remain visible. Close it and verify the answer is already present.
-- Turn Show Sources off: no automatic reader should open. With no retrieved source or an unavailable document, answer generation must continue normally.
+- Read while waiting shows a passage beside the conversation. Completion keeps
+  its reading position and does not steal typing focus. No Keep open control is needed.
+- Source navigation and closing are explicit. Dismissed previews stay dismissed;
+  switching mode, conversation or Practice question clears stale evidence.
+- Open document launches the full Markdown/PDF reader. Back to passage / Back to
+  cited page returns to the citation. Closing the reader leaves the passage pane.
+- Tests cover document-load errors/retry, late responses, desktop/narrow layout,
+  historical question association, source preferences and independent mastery.
+  Reading a source does not count as help; receiving a Chat explanation does.
+
+For manual testing use `/tests/ui/generation-progress.html?preview=markdown&mixed&long-source`.
+Send a question, scroll the passage, then Deliver answer and Finish suggestions.
+With `&slow-source`, Open document waits for Finish source load: moving to another
+passage or closing the pane must invalidate that pending document load.
 
 ## Shared cloud connections
 
@@ -113,21 +125,11 @@ This drives the production UI with fake credentials: two chat models and one emb
 
 Service tests separately cover encrypted restart persistence, endpoint isolation, invalid embedding responses, concurrent connection changes, and main-process credential injection into indexing/search requests. No real cloud account is contacted.
 
-Practice uses the same reader through **Read while waiting** in Settings. This can
-be turned off while keeping **Show Sources** enabled. Run `node tests/ui/practice-source-preview-check.mjs` with
-`PRACTICE_UI_URL` pointing to the preview's `/tests/ui/practice.html` (default port
-5198). It checks matching evidence, completion, dismissal, cancellation, late/failed
-loads, navigation, saved preferences, manual reading, and desktop/mobile layout.
-The fixture uses simulated model replies and documents. Source cards appear before
-answering without clicking Source. Manual and automatic source reading do not count
-as help or suppress mastery; actual Chat help still does. Screenshots are saved
-under `/tmp/tokensmith-practice-source-preview`.
-
 ## Contents and mixed source navigation
 
 Use `/tests/ui/generation-progress.html?preview=markdown&mixed`. This supplies two Markdown files and two PDFs, both as retrieved sources and as a Library collection.
 
-- Expand Contents, click the second Details entry, and verify that it jumps to the second matching section. Summary uses Setext syntax and must appear; `# Not a heading` inside the code fence must not. Back to chunk returns to the highlighted passage. Collapse Contents, reopen another Markdown source, and confirm the preference is remembered.
+- Click Open document, expand Contents, click the second Details entry, and verify that it jumps to the second matching section. Summary uses Setext syntax and must appear; `# Not a heading` inside the code fence must not. Back to passage returns to the highlighted passage. Collapse Contents, reopen another Markdown source, and confirm the preference is remembered.
 - Next source visits PDF, Markdown, then PDF, showing Source 1–4 of 4. Previous visits the reverse order. Boundary buttons are disabled. PDF page navigation remains independent.
 - Navigate to a different source while generation is pending, then Deliver answer. The chosen reader must stay open.
 - In Library, open Course book, select slides.pdf, and open Page 1. It starts at Source 2 of 4; Next opens exercises.md and then appendix.pdf, regardless of which document's chunks are selected behind the reader.

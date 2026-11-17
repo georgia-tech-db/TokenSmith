@@ -14,6 +14,7 @@ import numpy as np
 
 from python_engine import tokensmith_engine as engine
 from python_engine import tokensmith_store as store
+from tests.benchmarks import cross_domain
 from tests.benchmarks.test_buzzdb_grounding import (
     assert_all_case_chunks_exist, load_grounding_cases, normalize_text, validate_grounding_case,
 )
@@ -62,7 +63,7 @@ def all_chunks():
     chunks = engine.chunk_tokensmith_markdown(FIXTURE_PATH.read_text(encoding="utf-8"))
     if not chunks or any(not chunk.get("tokensmithChunkId") for chunk in chunks):
         raise AssertionError("BuzzDB fixture must contain nonempty, identified chunks.")
-    return chunks
+    return chunks + cross_domain.load_chunks()
 
 
 def compute_embedding_bundle():
@@ -102,8 +103,10 @@ def load_embedding_bundle():
 
 
 def cache_metadata(chunks):
+    fixtures = [FIXTURE_PATH, *cross_domain.fixture_paths()]
     return {"model": MODEL["name"], "modelDigest": MODEL["digest"], "ollamaVersion": MODEL["ollamaVersion"],
-                "fixtureSha256": sha256_bytes(FIXTURE_PATH.read_bytes()), "chunksSha256": chunks_sha256(chunks),
+                "fixtureSha256": sha256_bytes(b"\n".join(path.read_bytes() for path in fixtures)),
+                "chunksSha256": chunks_sha256(chunks),
                 "inputSha256": embedding_input_sha256()}
 
 
@@ -129,7 +132,7 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temp_dir.cleanup)
         cls.user_data_path = cls.temp_dir.name
-        cls.cases = load_grounding_cases()
+        cls.cases = load_grounding_cases() + cross_domain.load_cases()
         cls.chunks = all_chunks()
         assert_all_case_chunks_exist(cls.cases, {chunk["tokensmithChunkId"]: chunk for chunk in cls.chunks})
         cls.bundle = load_embedding_bundle()
@@ -142,25 +145,34 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
         start = time.perf_counter()
         store.init_db(cls.user_data_path)
         with store.connect(cls.user_data_path) as conn:
-            conn.execute("INSERT INTO collections(id, name, embedding_model) VALUES (?, ?, ?)", (1, "BuzzDBBook", MODEL_KEY))
-            conn.execute("INSERT INTO folders(id, path) VALUES (?, ?)", (1, str(FIXTURE_PATH.parent)))
-            conn.execute("INSERT INTO collection_items VALUES (?, ?)", (1, 1))
-            conn.execute(
-                "INSERT INTO tokensmith_collection_state"
-                "(collection_id, status, is_active, added_at, file_count, chunk_count, embedding_model_id, embedding_model_name) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (1, "ready", 1, store.now_iso(), 1, len(cls.chunks), MODEL_KEY, MODEL["name"]),
-            )
-            document_id = store.insert_document(conn, 1, str(FIXTURE_PATH))
+            collections = {"1": "BuzzDBBook", **{cid: title for cid, title, _ in cross_domain.DOCUMENTS}}
+            for cid, title in collections.items():
+                conn.execute("INSERT INTO collections(id, name, embedding_model) VALUES (?, ?, ?)", (int(cid), title, MODEL_KEY))
+                conn.execute("INSERT INTO folders(id, path) VALUES (?, ?)", (int(cid), str(Path(cls.user_data_path) / cid)))
+                conn.execute("INSERT INTO collection_items VALUES (?, ?)", (int(cid), int(cid)))
+                count = sum(c.get("_collectionId", "1") == cid for c in cls.chunks)
+                file_count = 1 if cid == "1" else sum(c == cid for c, _, _ in cross_domain.DOCUMENTS)
+                conn.execute(
+                    "INSERT INTO tokensmith_collection_state"
+                    "(collection_id, status, is_active, added_at, file_count, chunk_count, embedding_model_id, embedding_model_name) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (int(cid), "ready", 1, store.now_iso(), file_count, count, MODEL_KEY, MODEL["name"]),
+                )
+            documents = {}
             for chunk, embedding in zip(cls.chunks, cls.bundle["passage_embeddings"]):
-                rowid = store.insert_chunk(conn, document_id, {**chunk, "path": str(FIXTURE_PATH), "documentTitle": "BuzzDB Book"})
+                cid = chunk.get("_collectionId", "1")
+                path = cross_domain.FIXTURES / chunk["_fixture"] if "_fixture" in chunk else FIXTURE_PATH
+                if path not in documents:
+                    documents[path] = store.insert_document(conn, int(cid), str(path))
+                rowid = store.insert_chunk(conn, documents[path], {**chunk, "path": str(path),
+                                          "documentTitle": chunk.get("_documentTitle", "BuzzDB Book")})
                 blob, _dim = store.vector_to_blob(embedding)
                 conn.execute("INSERT INTO embeddings(model, folder_id, chunk_id, embedding) VALUES (?, ?, ?, ?)",
-                             (MODEL_KEY, 1, rowid, blob))
+                             (MODEL_KEY, int(cid), rowid, blob))
         store.rebuild_faiss(cls.user_data_path, MODEL_KEY)
         cls.measurements["index_rebuild_seconds"] = time.perf_counter() - start
 
-    def retrieve_sources(self, question, top_k):
+    def retrieve_sources(self, question, top_k, collection_id=COLLECTION_ID):
         vector_hit_count = 0
         query_count = 0
         embedding_errors = []
@@ -189,8 +201,8 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
                 patch.object(engine, "vector_search", side_effect=vector_search):
             result = engine.search_library({
                 "userDataPath": self.user_data_path, "query": question, "searchMode": "hybrid", "limit": top_k,
-                "materials": [{"id": COLLECTION_ID, "status": "ready", "isActive": True}],
-                "documents": store.study_documents(self.user_data_path),
+                "materials": [{"id": collection_id, "status": "ready", "isActive": True}],
+                "documents": [d for d in store.study_documents(self.user_data_path) if str(d["materialId"]) == collection_id],
                 "embeddingModels": [MODEL_SPEC],
             })
         self.assertFalse(embedding_errors, "Query embedding failed: " + "; ".join(embedding_errors))
@@ -207,7 +219,10 @@ class BuzzDBEmbeddingBenchmarkTests(unittest.TestCase):
             hits = []
             sources = []
             try:
-                response = self.retrieve_sources(case.get("retrievalQuery") or case["question"], int(case.get("topK", 8)))
+                response = self.retrieve_sources(
+                    case.get("retrievalQuery") or case["question"], int(case.get("topK", 8)),
+                    case.get("collectionId", COLLECTION_ID),
+                )
                 sources = response["sources"]
                 hits = list(dict.fromkeys(chunk_id for source in sources
                                          for chunk_id in (source.get("sourceChunkIds") or [source["tokensmithChunkId"]])))

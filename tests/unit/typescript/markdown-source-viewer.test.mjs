@@ -74,7 +74,7 @@ test('handles CRLF, missing offsets, invalid ranges, and unmatched chunks honest
   assert.deepEqual(resolveSourceLineRange(text, -1, 100, 'Second line.'), { from: 4, to: 4 })
   assert.equal(resolveSourceLineRange(text, 500, 600, 'Unknown chunk'), undefined)
   const html = render(text, undefined, undefined, 'Unknown chunk')
-  assert.match(html, /Chunk position unavailable/)
+  assert.match(html, /No highlight is available for this source/)
   assert.doesNotMatch(html, /data-source-selected/)
 })
 

@@ -1,0 +1,39 @@
+/* Shared action styling for Chat, Practice and their source/document panes. */
+.study-action-button,
+.practice-button,
+.practice-link,
+.answer-simplify-action button,
+.source-navigation button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: .84rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+}
+:is(.study-action-button, .practice-button, .practice-link, .answer-simplify-action button, .source-navigation button):hover:not(:disabled) {
+  background: var(--surface-muted, var(--panel-soft));
+}
+:is(.study-action-button, .practice-button, .practice-link, .answer-simplify-action button, .source-navigation button):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+:is(.study-action-button, .practice-button, .practice-link, .answer-simplify-action button, .source-navigation button):disabled {
+  opacity: .5;
+  cursor: default;
+}
+:is(.study-action-button, .practice-button, .practice-link, .answer-simplify-action button, .source-navigation button) svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}

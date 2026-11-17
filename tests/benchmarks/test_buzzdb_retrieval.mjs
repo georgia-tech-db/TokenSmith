@@ -104,8 +104,8 @@ export function benchmarkPassed(suites) {
 
 function printSummary(suites) {
   console.log(suites.some(s => s.reviewStatus === 'graded')
-    ? 'BuzzDB benchmark (retrieval, conversation contracts, and graded live answers):'
-    : 'BuzzDB benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
+    ? 'Study benchmark (retrieval, conversation contracts, and graded live answers):'
+    : 'Study benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
   for (const suite of suites) {
     console.log(`- ${suite.label}: ${suite.passed}/${suite.total} ${suite.unit}`)
     if (suite.gate) console.log(`  Regression gate: ${suite.gate.passed ? 'PASS' : 'FAIL'}; known baseline failures: ${suite.gate.knownFailures.join(', ') || 'none'}`)
