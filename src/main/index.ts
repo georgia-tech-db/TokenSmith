@@ -9,14 +9,13 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, she
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   collections,
   cancelCollectionIndexing,
   locateCollectionFolder,
   cancelMaterialIndexingWithPython,
-  extractChatAttachmentWithPython,
   indexMaterialWithPython,
   listIndexedMaterialsWithPython,
   previewCleaningWithPython,
@@ -54,7 +53,6 @@ import {
 import type { AppStateSnapshot, ChatSource, CourseMaterial, LocalModel, LocalModelRole, SearchMode } from '../shared/app-state'
 import type { StudyDocumentRef, LibrarySearchOptions } from '../shared/study-scope'
 import { removeRetiredModelState } from '../shared/retired-model-state'
-import { attachmentExtensions, attachmentLimits } from '../shared/chat-attachment'
 import type { CleaningProfileId, CleaningRuleId } from '../shared/cleaning'
 import type {
   EngineChatRequest,
@@ -485,36 +483,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloud:forget', (_event, connectionId: string) => cloudResult(() => cloudGenerators.forget(connectionId)))
   ipcMain.handle('cloud:cancel', (_event, requestId: string) => cloudGenerators.cancel(requestId))
   ipcMain.handle('engine:list', () => listEngines())
-  let readingAttachment: { senderId: number; controller: AbortController } | undefined
-  ipcMain.handle('chat:pick-attachment', async (event, requestId: string) => {
-    if (readingAttachment) throw new Error('An attachment is already being read.')
-    const operation = { senderId: event.sender.id, controller: new AbortController() }
-    readingAttachment = operation
-    try {
-      const selection = await dialog.showOpenDialog({
-        title: 'Attach context to this chat', buttonLabel: 'Attach', properties: ['openFile'],
-        filters: [{ name: 'PDF, text, Markdown or screenshot', extensions: attachmentExtensions },
-          { name: 'All files', extensions: ['*'] }]
-      })
-      operation.controller.signal.throwIfAborted()
-      if (selection.canceled || !selection.filePaths.length) return null
-      const path = selection.filePaths[0]
-      if (typeof requestId === 'string' && !event.sender.isDestroyed()) {
-        event.sender.send('chat:attachment-selected', requestId, basename(path))
-      }
-      if (!attachmentExtensions.includes(extname(path).slice(1).toLowerCase())) {
-        throw new Error('Unsupported file type. Attach a PDF, TXT, Markdown, PNG or JPEG file.')
-      }
-      const info = await stat(path)
-      if (!info.isFile() || !info.size || info.size > attachmentLimits.bytes) {
-        throw new Error('Choose one non-empty file up to 10 MiB.')
-      }
-      return await extractChatAttachmentWithPython(path, operation.controller.signal)
-    } finally { if (readingAttachment === operation) readingAttachment = undefined }
-  })
-  ipcMain.handle('chat:cancel-attachment', (event) => {
-    if (readingAttachment?.senderId === event.sender.id) readingAttachment.controller.abort()
-  })
   ipcMain.handle('engine:chat', async (event, request: EngineChatRequest) => {
     const key = `${event.sender.id}:${request.requestId}`
     const controller = new AbortController()

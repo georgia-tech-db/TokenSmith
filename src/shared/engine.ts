@@ -11,7 +11,6 @@ import type {
 } from './app-state'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { LatencySpan, LatencyTrace } from './latency-trace'
-import type { AttachmentRun, ChatAttachment } from './chat-attachment'
 
 export type ConversationContextMode = 'standalone' | 'contextual'
 
@@ -45,10 +44,6 @@ export interface EngineChatRequest {
   practiceAllowedIds?: string[]
   requestId?: string
   prompt: string
-  attachment?: ChatAttachment
-  attachmentRun?: AttachmentRun
-  // Retained locally for budget-aware reselection; never included in the prompt.
-  attachmentSource?: ChatAttachment
   selectedPassage?: ChatSelectedPassage
   answerPrompt?: string
   retrievalQuery?: string
@@ -75,8 +70,6 @@ export interface EngineChatResponse {
   engineId: EngineInfo['id']
   modelName: string
   text: string
-  attachmentEvidence?: ChatAttachment
-  attachmentRun?: AttachmentRun
   sources: ChatSource[]
   reasoning?: AnswerReasoning
   latencyTrace?: LatencyTrace

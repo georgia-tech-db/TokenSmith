@@ -4,7 +4,6 @@ import type {
   ChatReferenceExchange, EngineChatRequest, EngineQuestionRewriteRequest, LibrarySearchResult, QuestionRewrite
 } from './engine'
 import { startLatencySpan, type LatencySpan } from './latency-trace'
-import { attachmentSearchQuestion, packAttachmentEvidence, rankAttachmentPassages } from './attachment-search'
 
 export function answerForDisplay(message: ChatMessage) {
   if (message.explanationView === 'reasoning' && message.reasoningAnswer) return message.reasoningAnswer
@@ -45,7 +44,6 @@ export async function prepareRewrittenStudyChat(
   searchMs: number
   latencySpans: LatencySpan[]
 }> {
-  if (request.attachment) return prepareAttachmentChat(request, request.attachment, dependencies)
   const previous = lastChatExchange(request.messages)
   const rewriteTimer = startLatencySpan('Question understanding')
   const resolution = await dependencies.resolve(request)
@@ -63,7 +61,7 @@ export async function prepareRewrittenStudyChat(
     return { resolution, rewriteMs, searchMs: 0, latencySpans: [rewriteSpan] }
   }
 
-  // A selected passage is explicit context, even if labeled standalone.
+  // A selected passage is explicit context, even if the model labels its query standalone.
   const mode = request.selectedPassage ? 'contextual' : resolution.mode
   const query = resolution.query
   if (!query.trim()) throw new Error('The question rewriter returned an empty search query.')
@@ -92,43 +90,6 @@ export async function prepareRewrittenStudyChat(
       reasoning: resolution.reasoning,
       referenceExchange: mode === 'contextual' && !request.selectedPassage ? previous : undefined,
       retrievedSources
-    }
-  }
-}
-
-async function prepareAttachmentChat(
-  request: EngineChatRequest,
-  source: NonNullable<EngineChatRequest['attachment']>,
-  dependencies: RewritePipelineDependencies
-) {
-  const previous = lastChatExchange(request.messages)
-  const searchQuestion = attachmentSearchQuestion(request.prompt, request.selectedPassage?.text, previous?.question)
-  const mode: 'contextual' | 'standalone' = searchQuestion !== request.prompt ? 'contextual' : 'standalone'
-  const evidenceTimer = startLatencySpan('Attachment search')
-  const ranking = rankAttachmentPassages(source, searchQuestion)
-  const evidence = packAttachmentEvidence(source, ranking)
-  const evidenceSpan = evidenceTimer.finish({
-    outCount: evidence.run.blockCount,
-    details: { source_characters: evidence.run.sourceCharacters,
-      selected_characters: evidence.run.selectedCharacters, model_requests: 0 }
-  })
-  const query = ranking.problemText ? `${searchQuestion}\n${ranking.problemText.slice(0, 600)}` : searchQuestion
-  const searchTimer = startLatencySpan('Library search')
-  const searchResult = await dependencies.search(query)
-  if (!evidence.attachment && !searchResult.sources.length) {
-    throw new Error('No attachment passages matched. Try asking about a specific heading or term from the file.')
-  }
-  const searchSpan = searchTimer.finish({ outCount: searchResult.sources.length,
-    details: { mode: request.applicationSettings?.searchMode ?? 'hybrid', reason: searchResult.reason ?? null },
-    children: searchResult.retrievalChildren })
-  const resolution: QuestionRewrite = { mode, query, clarification: '', reasoning: false }
-  return {
-    resolution, rewriteMs: 0, searchMs: searchSpan.durationMs, latencySpans: [evidenceSpan, searchSpan],
-    request: {
-      ...request, attachment: evidence.attachment, attachmentRun: evidence.run, attachmentSource: source,
-      answerPrompt: request.prompt, retrievalQuery: query, conversationContextMode: mode,
-      referenceExchange: mode === 'contextual' && !request.selectedPassage ? previous : undefined,
-      reasoning: false, retrievedSources: searchResult.sources
     }
   }
 }

@@ -401,7 +401,7 @@ async function setup() {
 
   status = runPython(appRuntimePython, [
     '-c',
-    'import faiss, importlib.util, numpy, pypdfium2, PIL, sys; from python_engine.tokensmith_attachment import get_ocr_engine; get_ocr_engine(); assert importlib.util.find_spec("llama_cpp") is None; print("TokenSmith app_runtime ready:", sys.executable)'
+    'import faiss, importlib.util, numpy, pypdfium2, PIL, sys; assert importlib.util.find_spec("llama_cpp") is None; print("TokenSmith app_runtime ready:", sys.executable)'
   ])
   if (status !== 0) {
     process.exit(status)

@@ -10,14 +10,12 @@ function bridgeFixture() {
   const ipcRenderer = {
     on: (name, fn) => { const set=listeners.get(name)||new Set();set.add(fn);listeners.set(name,set) },
     off: (name, fn) => listeners.get(name)?.delete(fn),
-    invoke: (channel, request) => channel === 'engine:chat' || channel === 'chat:pick-attachment'
-      ? new Promise((resolve,reject)=>pending.set(typeof request === 'string' ? request : request.requestId,{resolve,reject})) : Promise.resolve()
+    invoke: (channel, request) => channel === 'engine:chat'
+      ? new Promise((resolve,reject)=>pending.set(request.requestId,{resolve,reject})) : Promise.resolve()
   }
   const code=ts.transpileModule(readFileSync('src/preload/index.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
   vm.runInNewContext(code,{exports:{},process:{platform:'test'},require:()=>({ipcRenderer,contextBridge:{exposeInMainWorld:(_name,value)=>{bridge=value}}})})
-  return {bridge,pending,listeners,
-    emitSelected:(id,name)=>{for(const listener of listeners.get('chat:attachment-selected')||[])listener({},id,name)},
-    emit:(id,answer)=>{for(const listener of listeners.get('engine:answer-ready')||[])listener({},id,answer,true)}}
+  return {bridge,pending,listeners,emit:(id,answer)=>{for(const listener of listeners.get('engine:answer-ready')||[])listener({},id,answer,true)}}
 }
 
 test('early-answer IPC is scoped to its request and listeners are removed on success or failure', async () => {
@@ -43,26 +41,4 @@ test('legacy callers without early-answer callbacks still use the final result',
   assert.equal(fixture.listeners.has('engine:answer-ready'),false)
   fixture.pending.get('legacy').resolve({text:'Done'})
   assert.equal((await pending).text,'Done')
-})
-
-test('attachment filename arrives before extraction, stays scoped to its request, and listeners are cleaned up', async () => {
-  const fixture=bridgeFixture(),seen=[]
-  const reading=fixture.bridge.pickChatAttachment(name=>seen.push(name))
-  const id=[...fixture.pending.keys()][0]
-  fixture.emitSelected('another-request','wrong.pdf')
-  fixture.emitSelected(id,'homework.pdf')
-  assert.deepEqual(seen,['homework.pdf'])
-  assert.equal(fixture.listeners.get('chat:attachment-selected').size,1)
-  fixture.pending.get(id).resolve({name:'homework.pdf'})
-  assert.equal((await reading).name,'homework.pdf')
-  assert.equal(fixture.listeners.get('chat:attachment-selected').size,0)
-  fixture.emitSelected(id,'late.pdf')
-  assert.deepEqual(seen,['homework.pdf'])
-
-  const failed=fixture.bridge.pickChatAttachment(()=>{})
-  const nextId=[...fixture.pending.keys()].at(-1)
-  const rejected=assert.rejects(failed,/unsupported/)
-  fixture.pending.get(nextId).reject(new Error('unsupported'))
-  await rejected
-  assert.equal(fixture.listeners.get('chat:attachment-selected').size,0)
 })

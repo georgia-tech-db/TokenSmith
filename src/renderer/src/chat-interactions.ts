@@ -74,15 +74,13 @@ export function simplerExplanationRequest(
   const saved = answer.answerContext ?? {
     prompt: question.text,
     conversationContextMode: previous ? 'contextual' as const : 'standalone' as const,
-    referenceExchange: previous,
-    attachment: question.attachment,
-    modelSettings: context.modelSettings
+    referenceExchange: previous
   }
   return {
     ...context, selectedPassage: question.selectedPassage, ...saved, messages: messages.slice(0, answerIndex),
     answerToSimplify: answer.text,
     retrievedSources: answer.sources,
-    modelSettings: saved.attachment ? saved.modelSettings ?? context.modelSettings : context.modelSettings,
+    modelSettings: context.modelSettings,
     applicationSettings: simplerExplanationSettings(context.settings.application)
   }
 }
@@ -91,7 +89,5 @@ export function simplerExplanationRequest(
 export function replaceQuestion(messages: ChatMessage[], messageId: string, text: string, selectedPassage?: ChatSelectedPassage): ChatMessage[] | undefined {
   const index = messages.findIndex((message) => message.id === messageId && message.role === 'user')
   if (index < 0 || !text.trim()) return undefined
-  return [...messages.slice(0, index), { id: messageId, role: 'user', text: text.trim(),
-    ...(messages[index].attachment ? { attachment: messages[index].attachment } : {}),
-    ...(selectedPassage ? { selectedPassage } : {}) }]
+  return [...messages.slice(0, index), { id: messageId, role: 'user', text: text.trim(), ...(selectedPassage ? { selectedPassage } : {}) }]
 }

@@ -39,26 +39,6 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 
 GPU acceleration for document indexing and search is on by default. Ollama uses a compatible GPU when available and otherwise runs on the CPU. Turn off **GPU Acceleration for Document Search** in Settings to use only the CPU for these tasks. This setting does not change chat models.
 
-## Chat attachments
-
-Use **Attach file** in Chat to add a PDF, UTF-8 text or Markdown file, or PNG/JPEG
-screenshot. The file is read in the background and its extracted text is saved
-with the conversation. Remove the attachment before choosing another file.
-Editing an earlier question keeps the file originally used with that question.
-
-TokenSmith ranks matching attachment passages locally and combines them with
-relevant passages from the selected Library documents. Expand **Attachment
-evidence** under an answer to see which text and PDF pages were supplied to the
-model. Attachment text stays outside the Library index. With a cloud chat model
-selected, the selected passages are sent to that provider.
-
-Attachments are limited to one file, 10 MiB, 20 PDF pages, and 120,000 extracted
-characters. Images and rendered PDF pages are limited to 25 megapixels.
-PDFium reads native text first. Screenshots and PDF pages with missing or
-substantially corrupted text use RapidOCR locally on the CPU. OCR can misread
-symbols and figures. Run `npm run setup:python-runtime` to add the OCR dependencies
-and bundled models to an existing development runtime.
-
 ## Project Health
 
 [![CI](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/georgia-tech-db/TokenSmith/actions/workflows/ci.yml)

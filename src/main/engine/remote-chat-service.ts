@@ -12,7 +12,6 @@ import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../sh
 import { remoteChatParameters } from './remote-chat-parameters'
 import { remoteGeneratorFetch } from './remote-generator-network'
 import { withModelContextMetadata } from './model-context-metadata'
-import { fitAttachmentContext } from './attachment-context'
 import { parseQuestionRewrite, questionRewriteMessages } from './question-rewrite'
 import {
   answerWithOrderedSources,
@@ -238,15 +237,14 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
   assertRemoteModel(request.model)
 
   const settings = modelAwareRuntimeSettings(request) ?? request.modelSettings
-  const attachmentFit = fitAttachmentContext(settings ? { ...request, modelSettings: settings } : request)
-  const runtimeRequest = attachmentFit.request
+  const runtimeRequest = settings ? { ...request, modelSettings: settings } : request
   const endpoint = `${normalizeBaseUrl(request.model.baseUrl)}/chat/completions`
   const modelName = normalizeListedModelId(request.model.remoteModelName, request.model.baseUrl)
   const config = {
     endpoint,
     modelName,
     apiKey: request.model.apiKey,
-    settings: runtimeRequest.modelSettings,
+    settings,
     maxOutputTokens: request.model.maxOutputTokens
   }
   if (request.practiceTask) {
@@ -274,15 +272,14 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
   const generationSpan = generationTimer.finish({
     details: remoteCompletionDetails(generationPayload)
   })
-  const answerTrace = createLatencyTrace([...(attachmentFit.span ? [attachmentFit.span] : []), preparationSpan, generationSpan], request.requestId)
-  const answer = answerWithOrderedSources(text, prepared.sources)
+  const answerTrace = createLatencyTrace([preparationSpan, generationSpan], request.requestId)
+  const answer = answerWithOrderedSources(text, request.retrievedSources ?? [])
   options.signal?.throwIfAborted()
   const hasFollowUps = shouldGenerateFollowUps(runtimeRequest) && followUpSuggestionCount(runtimeRequest) > 0
   options.onAnswer?.({
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
-    ...(runtimeRequest.attachment ? { attachmentEvidence: runtimeRequest.attachment, attachmentRun: runtimeRequest.attachmentRun } : {}),
     sources: answer.sources,
     latencyTrace: answerTrace
   }, hasFollowUps)
@@ -319,10 +316,9 @@ export async function runRemoteStudyEngine(request: EngineChatRequest, options: 
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
-    ...(runtimeRequest.attachment ? { attachmentEvidence: runtimeRequest.attachment, attachmentRun: runtimeRequest.attachmentRun } : {}),
     sources: answer.sources,
     latencyTrace: createLatencyTrace(
-      [...(attachmentFit.span ? [attachmentFit.span] : []), preparationSpan, generationSpan, suggestionSpan],
+      [preparationSpan, generationSpan, suggestionSpan],
       request.requestId
     ),
     followUpSuggestions,

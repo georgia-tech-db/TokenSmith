@@ -71,26 +71,12 @@ const stageCatalog: ReadonlyArray<StageCatalogEntry> = [
     topLevelRank: 0
   },
   {
-    id: 'Attachment search',
-    label: 'Attachment search',
-    description: 'Ranks and selects relevant passages from the attached file locally.',
-    aliases: [],
-    topLevelRank: 0.5
-  },
-  {
     id: 'Library search',
     label: 'Library search',
     description:
       'Searches your selected course materials in the Library to find the passages most relevant to your question.',
     aliases: ['Retrieval', 'Source retrieval'],
     topLevelRank: 1
-  },
-  {
-    id: 'Attachment context fit',
-    label: 'Attachment context fit',
-    description: 'Budgets room for the answer and Library passages, then fits complete attachment blocks into the remaining context.',
-    aliases: [],
-    topLevelRank: 1.5
   },
   {
     id: 'Context packing',

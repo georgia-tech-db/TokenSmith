@@ -17,7 +17,6 @@ import { effectiveContextLength, localContextForTokens, usesAutomaticContext } f
 import { withModelContextMetadata } from './model-context-metadata'
 import { practiceResponseSchema } from '../../shared/quiz'
 import { createLatencyTrace, startLatencySpan, type LatencySpan } from '../../shared/latency-trace'
-import { fitAttachmentContext } from './attachment-context'
 import { parseQuestionRewrite, questionRewriteMessages, questionRewriteSchema } from './question-rewrite'
 import {
   defaultOllamaBaseUrl,
@@ -975,7 +974,7 @@ async function verifiedOllamaChat(request: EngineChatRequest, baseUrl: string, m
     preflightSpans.push(preflightTimer.finish({
       inCount: candidate.retrievedSources?.length ?? 0,
       outCount: prepared.sources.length,
-      details: { fits, prompt_tokens: Number(promptTokens), model_requests: 1, generated_tokens: measured.eval_count ?? 1 }
+      details: { fits, prompt_tokens: Number(promptTokens) }
     }))
     if (fits) {
       return {
@@ -1097,8 +1096,6 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   const baseUrl = request.model.ollamaBaseUrl || defaultOllamaBaseUrl
   const modelName = request.model.ollamaModelName
   let runtimeRequest = await requestWithOllamaRuntimeContext(request, baseUrl, modelName)
-  const attachmentFit = fitAttachmentContext(runtimeRequest)
-  runtimeRequest = attachmentFit.request
   if (request.practiceTask) {
     const verified = await verifiedOllamaChat(runtimeRequest, baseUrl, modelName, options.signal)
     const text = await runOllamaChatCompletion(baseUrl, modelName, verified.messages, verified.request.modelSettings, {
@@ -1110,7 +1107,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
   }
   const mode = reasoningMode(runtimeRequest.modelSettings)
   let selected = request.reasoning === true
-  if (mode === 'auto' && request.reasoning === undefined && !request.attachment) {
+  if (mode === 'auto' && request.reasoning === undefined) {
     const resolution = await resolveOllamaChatQuestion(runtimeRequest, options.signal)
     if (resolution.mode === 'clarify') {
       return { engineId: 'tokensmith', modelName: request.model.name, text: resolution.clarification, sources: [], followUpSuggestions: [] }
@@ -1159,7 +1156,7 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     children: [...verified.preflightSpans, ...(answerCompletionSpan.children ?? [])]
   }
   const answerTrace = createLatencyTrace(
-    [...(attachmentFit.span ? [attachmentFit.span] : []), verified.promptPreparationSpan, generationSpan],
+    [verified.promptPreparationSpan, generationSpan],
     request.requestId
   )
   const answer = answerWithOrderedSources(text, runtimeRequest.retrievedSources ?? [])
@@ -1170,7 +1167,6 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
-    ...(runtimeRequest.attachment ? { attachmentEvidence: runtimeRequest.attachment, attachmentRun: runtimeRequest.attachmentRun } : {}),
     sources: answer.sources,
     reasoning,
     latencyTrace: answerTrace
@@ -1209,11 +1205,10 @@ export async function runOllamaStudyEngine(request: EngineChatRequest, options: 
     engineId: 'tokensmith',
     modelName: request.model.name,
     text: answer.text,
-    ...(runtimeRequest.attachment ? { attachmentEvidence: runtimeRequest.attachment, attachmentRun: runtimeRequest.attachmentRun } : {}),
     sources: answer.sources,
     reasoning,
     latencyTrace: createLatencyTrace(
-      [...(attachmentFit.span ? [attachmentFit.span] : []), verified.promptPreparationSpan, generationSpan, suggestionSpan],
+      [verified.promptPreparationSpan, generationSpan, suggestionSpan],
       request.requestId
     ),
     followUpSuggestions,
