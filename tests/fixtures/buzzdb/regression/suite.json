@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "bookSha256": "98460b2571e08cdec8103213c85b041457f7009536ea82b1d5f509d793ac60d9",
+  "models": {
+    "generator": {
+      "name": "llama3:latest",
+      "digest": "365c0bd3c000a25d28ddbf732fe1c6add414de7275464c4e4d1c3b5fcb5d8ad1"
+    },
+    "judge": {
+      "name": "gemma4:26b",
+      "digest": "08ae7ec1744bd7f451c4a530afb39d2673ad9d07a8369b8a33a3613b41212a68"
+    },
+    "embedder": {
+      "name": "nomic-embed-text:latest",
+      "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f"
+    }
+  },
+  "settings": {
+    "contextLength": 8192,
+    "answerTokens": 700,
+    "judgeTokens": 2048,
+    "seed": 42,
+    "searchLimit": 4
+  },
+  "knownFailures": {
+    "list-ends": "Llama 3 can invent a scan when eviction reads the last list entry directly. A correct answer is an improvement, not a failure."
+  },
+  "cases": [
+    {
+      "id": "list-ends",
+      "question": "In BuzzDB v015's LRU buffer manager, which end of lruList holds the most recently used page, and which end supplies the eviction victim?",
+      "idealAnswer": "The front holds the most recently used page. The back holds the least recently used page and supplies the eviction victim.",
+      "evidenceChunks": [
+        "ch06.006",
+        "ch06.042"
+      ],
+      "requiredFacts": [
+        {
+          "requirement": "The most recently used page is at the front.",
+          "referenceQuote": "The front holds the most recently used page."
+        },
+        {
+          "requirement": "The least recently used page at the back is the eviction victim.",
+          "referenceQuote": "The back holds the least recently used page and supplies the eviction victim."
+        }
+      ]
+    },
+    {
+      "id": "followup-hit",
+      "question": "What happens to an already cached page when I access it again?",
+      "idealAnswer": "The accessed page moves to the front, becoming the most recently used page. A cache hit does not require loading that page from disk.",
+      "evidenceChunks": [
+        "ch05.049",
+        "ch06.007"
+      ],
+      "requiredFacts": [
+        {
+          "requirement": "Accessing a cached page moves it to the front and makes it most recently used.",
+          "referenceQuote": "The accessed page moves to the front, becoming the most recently used page."
+        }
+      ]
+    },
+    {
+      "id": "followup-benefit",
+      "question": "Why does that help keep frequently used pages in memory?",
+      "idealAnswer": "Each repeated access renews the page at the most recently used end. Untouched pages become older and are evicted first. This favors temporal locality, although scans can undermine LRU.",
+      "evidenceChunks": [
+        "ch06.006",
+        "ch06.045"
+      ],
+      "requiredFacts": [
+        {
+          "requirement": "Repeated access refreshes recency, so untouched older pages are evicted first.",
+          "referenceQuote": "Each repeated access renews the page at the most recently used end. Untouched pages become older and are evicted first."
+        }
+      ]
+    }
+  ],
+  "ollamaVersion": "0.40.15"
+}

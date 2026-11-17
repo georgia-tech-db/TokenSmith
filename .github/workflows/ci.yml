@@ -31,6 +31,8 @@ jobs:
           cache: npm
       - name: Install Node dependencies
         run: npm ci
+      - name: Fast evaluator checks
+        run: npm run test:eval:fast
       - name: Set up bundled Python
         run: npm run setup:python-runtime
       - uses: actions/setup-python@v5

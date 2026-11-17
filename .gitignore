@@ -1,5 +1,5 @@
 refs/
-node_modules/
+node_modules
 .npm-cache/
 .electron-cache/
 .venv/
@@ -16,5 +16,5 @@ __pycache__/
 .coverage-reports/
 htmlcov/
 tests/benchmarks/*.npz
-app_runtime/python/
+app_runtime/python
 bundled_models/**/*.gguf

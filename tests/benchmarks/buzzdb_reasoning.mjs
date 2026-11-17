@@ -5,6 +5,9 @@ import { dirname, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { requireTranspiledTs } from '../unit/typescript/ts-module-loader.mjs'
 
+import { loadGradedProfile, judgeAnswer, reviewLiveAnswer, liveRegressionGate } from './buzzdb-answer-grading.mjs'
+import { corruptRecency } from '../experiments/buzzdb-regression-policy.mjs'
+
 const casesPath = 'tests/benchmarks/buzzdb_reasoning_cases.json'
 
 // Flat regression cases reuse the live runner without manufacturing follow-ups.
@@ -49,7 +52,9 @@ export async function runReasoningTurns(families, run, onResult = async () => {}
       const row = {
         id: `${family.id}.${turn.phase}`, question: turn.question,
         referenceAnswer: turn.referenceAnswer, criteria: turn.criteria,
-        evidenceGroups: family.evidenceGroups,
+        evidenceGroups: family.evidenceGroups, condition: family.condition, phase: turn.phase,
+        requiredFacts: turn.requiredFacts, keyEvidenceQuote: turn.keyEvidenceQuote,
+        priorUserQuestions: history.filter(m => m.role === 'user').map(m => m.text),
         referenceExchange: history.length ? { question: history.at(-2).text, answer: history.at(-1).text } : undefined
       }
       if (blockedBy) {
@@ -58,7 +63,7 @@ export async function runReasoningTurns(families, run, onResult = async () => {}
       } else {
         try {
           Object.assign(row, await run({ prompt: turn.question, messages: structuredClone(history),
-            ...(family.collectionId ? { collectionId: family.collectionId } : {}) }))
+            ...(family.collectionId ? { collectionId: family.collectionId } : {}) }, { condition: family.condition }))
           if (row.error || !row.answer?.text?.trim()) throw new Error(row.error || 'No complete answer was returned.')
           row.status = 'completed'
           history.push({ role: 'user', text: turn.question }, { role: 'assistant', text: row.answer.text })
@@ -153,7 +158,9 @@ export function packedEvidenceFromCalls(calls, sources) {
 export function formatReasoningAnswers(suite) {
   const lines = [
     '# BuzzDB Live Reasoning Answers', '',
-    `Model: ${suite.model}. Seed: ${suite.seed ?? 'runtime default'}. ${suite.passed}/${suite.total} completed answers. **Not an answer-accuracy score.**`,
+    suite.reviewStatus === 'graded'
+      ? `Model: ${suite.model}. ${suite.passed}/${suite.total} answers accepted by the local judge. Regression gate: ${suite.gate ? (suite.gate.passed ? 'PASS' : 'FAIL') : 'pending'}. Calibration controls: ${suite.controls?.filter(c => c.decision.verdict === c.expected).length ?? 0}/${suite.controls?.length ?? 0}.`
+      : `Model: ${suite.model}. Seed: ${suite.seed ?? 'runtime default'}. ${suite.passed}/${suite.total} completed answers. **Not an answer-accuracy score.**`,
     'Real Nomic hybrid retrieval, production rewriting/packing/generation, and each chain\'s own new answers.',
     'Fixed diagnostic follow-ups, not adaptive student questions. Reference answers and criteria were withheld from the model.',
     'Suggestions disabled to measure the answer path. Timings include preflight; no retries replace failed answers.', '',
@@ -162,7 +169,8 @@ export function formatReasoningAnswers(suite) {
       `**Status:** ${item.status}. **Time:** ${((item.totalMs ?? 0) / 1000).toFixed(1)}s. **Review:** ${item.reviewStatus}.`, '',
       '**Actual answer:**', '', item.answer?.text || item.error || '(no answer)', '',
       '**Reference answer (not generated):**', '', item.referenceAnswer, '',
-      '**Review criteria:**', ...item.criteria.map(criterion => `- ${criterion}`), '',
+      ...(item.decision ? [`**Judge:** ${item.decision.verdict}. ${item.judgment?.rationale ?? item.failures.join(' ')}`, ''] : []),
+      '**Review criteria:**', ...(item.criteria ?? []).map(criterion => `- ${criterion}`), '',
       `**Retrieved evidence:** ${item.retrievalEvidenceFailures?.length ? item.retrievalEvidenceFailures.join('; ') : item.retrievalEvidenceFailures ? 'All required groups found.' : 'Not evaluated.'}`, '',
       `**Packed evidence:** ${item.packedEvidenceFailures?.length ? item.packedEvidenceFailures.join('; ') : item.packedEvidenceFailures ? 'All required groups preserved.' : 'Not evaluated.'}`, '',
       '**Complete source units identified in the final model request:**',
@@ -172,14 +180,24 @@ export function formatReasoningAnswers(suite) {
   return lines.join('\n')
 }
 
-export async function runBuzzdbReasoningBenchmark() {
-  const { modelName, seed, reasoningMode, casesFile, sourceRoot } = liveBenchmarkOptions()
-  const families = loadLiveCases(casesFile)
+export async function runBuzzdbReasoningBenchmark({ graded = false } = {}) {
+  let { modelName, seed, reasoningMode, casesFile, sourceRoot } = liveBenchmarkOptions(graded ? {} : process.env)
+  let grading
+  let families
   const baseUrl = (process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(baseUrl).hostname)) throw new Error('Live answer evaluation requires local Ollama.')
+  if (graded && baseUrl !== 'http://127.0.0.1:11434') throw new Error('The pinned graded profile uses http://127.0.0.1:11434.')
   const tags = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(15_000) }).then(response => {
     if (!response.ok) throw new Error(`Ollama model listing: HTTP ${response.status}`)
     return response.json()
   })
+  if (graded) {
+    const version = await fetch(`${baseUrl}/api/version`, { signal: AbortSignal.timeout(15_000), redirect: 'error' }).then(r => { if (!r.ok) throw new Error('Cannot read local runtime version.'); return r.json() })
+    grading = loadGradedProfile(tags.models, version.version)
+    families = grading.families
+    modelName = grading.profile.models.generator.name
+    casesFile = 'tests/fixtures/buzzdb/regression/suite.json'
+  } else families = loadLiveCases(casesFile)
   const installed = tags.models.find(model => model.name === modelName)
   if (!installed) throw new Error(`Install ${modelName} before running --live. No downloads are performed by this benchmark.`)
   const directory = resolve(process.env.TOKENSMITH_BENCHMARK_LIVE_DIR ?? `tmp/buzzdb-reasoning-${new Date().toISOString().replaceAll(':', '-')}`)
@@ -194,19 +212,22 @@ export async function runBuzzdbReasoningBenchmark() {
     engine: 'ollama', source: 'ollama', role: 'generator', status: 'ready', ollamaBaseUrl: baseUrl, contextLength: 8192 }
   const modelSettings = { contextLength: 8192, maxLength: 1536, temperature: 0.7, topP: 0.4,
     topK: 40, minP: 0, repeatPenalty: 1.18, reasoningMode, systemMessage: '' }
+  if (graded) Object.assign(modelSettings, { contextLength: grading.profile.settings.contextLength, maxLength: grading.profile.settings.answerTokens, temperature: 0, topP: 1, topK: undefined, minP: undefined, repeatPenalty: undefined, thinking: false })
   const applicationSettings = { suggestionMode: 'off', searchMode: 'hybrid', explanationDepthEnabled: false, embeddingGpuEnabled: true }
   const base = { model, modelSettings, applicationSettings, materials: [{ id: '1', status: 'ready', isActive: true }],
     settings: { maxSources: 4, application: applicationSettings, modelDefaults: modelSettings, modelSettingsById: {} } }
-  const limit = modelAwareRetrievalLimit(base.settings.maxSources, model, modelSettings)
+  const limit = graded ? grading.profile.settings.searchLimit : modelAwareRetrievalLimit(base.settings.maxSources, model, modelSettings)
   const files = [casesFile, 'tests/fixtures/buzzdb/buzzdb-book.tokensmith.md',
     'tests/benchmarks/buzzdb_reasoning.mjs', 'tests/benchmarks/buzzdb_live_worker.py',
+    'tests/benchmarks/buzzdb-answer-grading.mjs', 'tests/experiments/local-eval-judge.mjs',
+    'tests/experiments/buzzdb-regression-policy.mjs', 'tests/fixtures/buzzdb/regression/judge-controls.json',
     'src/main/engine/ollama-service.ts', 'src/main/engine/study-chat-format.ts',
     'src/main/engine/question-rewrite.ts', 'src/shared/reasoning.ts',
     'src/shared/study-chat-pipeline.ts', 'src/shared/retrieval-budget.ts',
     'python_engine/tokensmith_engine.py', 'python_engine/tokensmith_store.py']
-  const suite = { name: 'reasoning_answers', label: 'live reasoning answers (execution only; ungraded)',
-    unit: 'completed answers', model: modelName, modelDigest: installed.digest, modelMetadata: installed,
-    settings: modelSettings, seed, retrievalLimit: limit, reviewStatus: 'ungraded', sourceSnapshot: snapshot,
+  const suite = { name: 'reasoning_answers', label: graded ? 'live graded answers and calibration' : 'live reasoning answers (execution only; ungraded)',
+    unit: graded ? 'accepted answers' : 'completed answers', model: modelName, modelDigest: installed.digest, modelMetadata: installed,
+    settings: modelSettings, seed, retrievalLimit: limit, reviewStatus: graded ? 'graded' : 'ungraded', controls: [], completed: false, judgeProfile: grading?.profile, sourceSnapshot: snapshot,
     sourceHashes: Object.fromEntries(files.map(path => [path, createHash('sha256')
       .update(readFileSync(path.startsWith('src/') ? resolve(snapshot, path) : path)).digest('hex')])),
     createdAt: new Date().toISOString(), outputDirectory: directory, passed: 0,
@@ -214,8 +235,29 @@ export async function runBuzzdbReasoningBenchmark() {
   const save = () => {
     writeFileSync(`${directory}/results.json`, `${JSON.stringify(suite, null, 2)}\n`)
     writeFileSync(`${directory}/answers.md`, formatReasoningAnswers(suite))
+    if (graded) writeFileSync(`${directory}/summary.txt`, [
+      suite.gate ? (suite.gate.passed ? 'PASS: no new regression' : 'FAIL: regression or calibration problem') : 'RUNNING',
+      ...(suite.gate?.failures ?? []),
+      `Known baseline failures: ${suite.gate?.knownFailures.join(', ') || 'none'}`,
+      `Improvements: ${suite.gate?.improvements.join(', ') || 'none'}`,
+      ...suite.controls.map(c => `Control ${c.id}: ${c.decision.verdict} (expected ${c.expected})`),
+      ...suite.cases.map(c => `${c.id}: ${c.decision?.verdict ?? c.status} — ${c.judgment?.rationale ?? c.failures.join(' ')}`),
+      'The regression gate allows documented baseline failures. It is not an all-answers-correct score.',
+      'Full answers, grading traces, model/settings/source identities: results.json'
+    ].join('\n') + '\n')
   }
   save()
+  try {
+    if (graded) for (const control of grading.controls) {
+      console.log(`Calibration: ${control.id}`)
+      suite.controls.push({ ...control, ...await judgeAnswer(control, grading.profile) }); save()
+    }
+  } catch (error) {
+    suite.error = error.message
+    suite.gate = liveRegressionGate(grading, suite)
+    save()
+    throw error
+  }
   const worker = startRetrievalWorker()
   const originalFetch = globalThis.fetch
   let calls = []
@@ -240,7 +282,7 @@ export async function runBuzzdbReasoningBenchmark() {
   }))
   try {
     suite.embeddingCache = (await worker.ready).cache
-    await runReasoningTurns(families, async input => {
+    await runReasoningTurns(families, async (input, metadata) => {
       calls = []
       const started = performance.now()
       const detail = {}
@@ -252,6 +294,15 @@ export async function runBuzzdbReasoningBenchmark() {
           search: async query => {
             stage = 'retrieval'
             const result = await worker.call({ command: 'search', query, limit, collectionId: input.collectionId ?? '1' })
+            detail.changedSources = 0
+            if (metadata.condition === 'retrieval-front-back-swapped') {
+              detail.originalRetrieval = structuredClone(result)
+              result.sources = result.sources.map(source => {
+                const modified = { ...source, context: corruptRecency(source.context), excerpt: corruptRecency(source.excerpt) }
+                if (modified.context !== source.context || modified.excerpt !== source.excerpt) detail.changedSources++
+                return modified
+              })
+            }
             detail.retrieval = result
             return { sources: result.sources, retrievalChildren: result.latencySpans }
           }
@@ -269,18 +320,25 @@ export async function runBuzzdbReasoningBenchmark() {
       row.evidenceLabel = 'Retrieved evidence (real hybrid search)'
       row.evidence = evidence(sources)
       row.packedEvidence = evidence(packedEvidenceFromCalls(row.calls ?? [], sources))
-      if (row.retrieval) {
+      if (row.retrieval && row.evidenceGroups?.length) {
         const check = items => worker.call({ command: 'validate', case: { evidenceGroups: row.evidenceGroups },
           chunkIds: items.flatMap(source => source.chunkIds), context: items.map(source => source.context).join('\n') })
         row.retrievalEvidenceFailures = await check(row.evidence)
         row.packedEvidenceFailures = await check(row.packedEvidence)
       }
+      if (graded) await reviewLiveAnswer(row, input => judgeAnswer(input, grading.profile, originalFetch))
       suite.cases = results
       suite.passed = results.filter(item => item.passed).length
       save()
-      console.log(`${row.id}: ${row.status}, ${((row.totalMs ?? 0) / 1000).toFixed(1)}s; answer ungraded`)
+      console.log(`${row.id}: ${row.status}, ${((row.totalMs ?? 0) / 1000).toFixed(1)}s; ${row.decision?.verdict ?? 'answer ungraded'}`)
     })
+    suite.completed = true
+    if (graded) suite.gate = liveRegressionGate(grading, suite)
     return suite
+  } catch (error) {
+    suite.error = error.message
+    if (graded) suite.gate = liveRegressionGate(grading, suite)
+    throw error
   } finally {
     globalThis.fetch = originalFetch
     await worker.close()

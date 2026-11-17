@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runBuzzdbMultiturnBenchmark } from './test_buzzdb_multiturn.mjs'
@@ -27,6 +27,21 @@ function parseJsonOutput(output) {
     throw new Error('Benchmark produced no JSON output.')
   }
   return JSON.parse(lines.at(-1))
+}
+
+function prepareGradedEmbeddingCache() {
+  if (process.env.TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH) return
+  const python = process.env.TOKENSMITH_BENCHMARK_PYTHON ?? 'python3'
+  const builder = 'tests/benchmarks/build_buzzdb_embedding_cache.py'
+  const key = spawnSync(python, [builder, '--cache-key'], { cwd: root, encoding: 'utf8' })
+  if (key.status !== 0 || !/^[a-f0-9]{64}$/.test(key.stdout.trim())) throw new Error(key.stderr || 'Cannot calculate public embedding cache identity.')
+  const path = resolve(root, `tmp/buzzdb-${key.stdout.trim()}.npz`)
+  if (!existsSync(path)) {
+    const build = spawnSync(python, [builder, path], { cwd: root, stdio: 'inherit' })
+    if (build.status !== 0) throw new Error('Public embedding cache build failed.')
+  }
+  // Existing Python validation checks every identity and all vectors on reuse.
+  process.env.TOKENSMITH_BENCHMARK_EMBEDDINGS_PATH = path
 }
 
 function runBuzzdbHybridBenchmark() {
@@ -65,7 +80,8 @@ function runBuzzdbHybridBenchmark() {
 }
 
 function printFailures(suites) {
-  const failedCases = suites.flatMap((suite) =>
+  for (const suite of suites.filter(s => s.gate)) for (const failure of suite.gate.failures) console.error(`- ${suite.label}: ${failure}`)
+  const failedCases = suites.filter(s => !s.gate).flatMap((suite) =>
     (suite.cases ?? [])
       .filter((testCase) => !testCase.passed)
       .map((testCase) => ({ suite, testCase }))
@@ -82,12 +98,19 @@ function printFailures(suites) {
   }
 }
 
+export function benchmarkPassed(suites) {
+  return suites.every(suite => suite.gate ? suite.gate.passed : suite.total > 0 && suite.passed === suite.total)
+}
+
 function printSummary(suites) {
-  console.log('Study benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
+  console.log(suites.some(s => s.reviewStatus === 'graded')
+    ? 'Study benchmark (retrieval, conversation contracts, and graded live answers):'
+    : 'Study benchmark (evidence coverage and conversation contracts; not generated-answer accuracy):')
   for (const suite of suites) {
     console.log(`- ${suite.label}: ${suite.passed}/${suite.total} ${suite.unit}`)
+    if (suite.gate) console.log(`  Regression gate: ${suite.gate.passed ? 'PASS' : 'FAIL'}; known baseline failures: ${suite.gate.knownFailures.join(', ') || 'none'}`)
   }
-  return suites.every((suite) => suite.total > 0 && suite.passed === suite.total)
+  return benchmarkPassed(suites)
 }
 
 function writeReport(suites, passed) {
@@ -111,7 +134,7 @@ export function formatBenchmarkSummary(suites) {
     }
     if (item.question) parts.push(`**Question:** ${escapeCell(item.question)}`)
     if (item.retrievalQuery) parts.push(`**Reference search query (cleanup model not run):** ${escapeCell(item.retrievalQuery)}`)
-    if (item.answer) parts.push(`**Actual model answer (ungraded):** ${escapeCell(item.answer.text)}`)
+    if (item.answer) parts.push(`**Actual model answer (${item.reviewStatus === 'graded' ? 'graded' : 'ungraded'}):** ${escapeCell(item.answer.text)}`)
     if (item.referenceAnswer) parts.push(`**Reference answer (not generated):** ${escapeCell(item.referenceAnswer)}`)
     if (item.evidence) {
       parts.push(`**${escapeCell(item.evidenceLabel)}:**`)
@@ -126,8 +149,11 @@ export function formatBenchmarkSummary(suites) {
     return parts.join('<br>')
   }
   const lines = [
+    ...suites.filter(s => s.gate).map(s => `Graded answer regression gate: ${s.gate.passed ? 'PASS' : 'FAIL'}. ${s.gate.failures.join(' ')} Known failures: ${s.gate.knownFailures.join(', ') || 'none'}.`),
     '## BuzzDB Benchmark', '',
-    '**Scope:** app-matched Ollama Nomic embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
+    suites.some(s => s.reviewStatus === 'graded')
+      ? '**Scope:** real hybrid retrieval, mocked conversation contracts, and opt-in live answers graded against source-backed rubrics. Calibration and regression gates are reported separately from acceptance counts.'
+      : '**Scope:** app-matched Ollama Nomic embeddings + production hybrid retrieval. Conversation contracts use a mocked resolver/search. No generated-answer accuracy is claimed.', '',
     'Reference answers are authored expectations, not model output or automatically graded answers. Evidence excerpts are shortened for display; the JSON report retains full selected context.', '',
     '| Suite | Passed / Completed | Rate |', '| --- | --- | --- |',
     ...suites.map((suite) => `| ${escapeCell(suite.label)} | ${suite.passed}/${suite.total} | ${suite.total ? (100 * suite.passed / suite.total).toFixed(1) : '0.0'}% |`),
@@ -136,7 +162,7 @@ export function formatBenchmarkSummary(suites) {
     ),
     '', '| Case | Result | Details |', '| --- | --- | --- |',
     ...suites.flatMap((suite) => (suite.cases ?? []).map((item) =>
-      `| ${escapeCell(item.id)} | ${suite.name === 'reasoning_answers' ? (item.passed ? 'COMPLETED (ungraded)' : 'ERROR / BLOCKED') : item.passed ? 'PASS' : 'FAIL'} | ${details(item)} |`
+      `| ${escapeCell(item.id)} | ${suite.name === 'reasoning_answers' ? (item.reviewStatus === 'graded' ? item.decision?.verdict?.toUpperCase() ?? 'ERROR' : item.passed ? 'COMPLETED (ungraded)' : 'ERROR / BLOCKED') : item.passed ? 'PASS' : 'FAIL'} | ${details(item)} |`
     )), ''
   ]
   return lines.join('\n')
@@ -144,6 +170,15 @@ export function formatBenchmarkSummary(suites) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const suites = []
+  if (process.argv.includes('--graded')) {
+    const profile = JSON.parse(readFileSync('tests/fixtures/buzzdb/regression/suite.json'))
+    if (process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL && process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL !== 'http://127.0.0.1:11434') throw new Error('The graded profile requires local Ollama at http://127.0.0.1:11434.')
+    // Use the calibrated local profile's runtime for both retrieval and grading.
+    // The ordinary retrieval CI command keeps its existing separate runtime pin.
+    process.env.TOKENSMITH_BENCHMARK_OLLAMA_VERSION = profile.ollamaVersion
+    process.env.TOKENSMITH_BENCHMARK_OLLAMA_URL = 'http://127.0.0.1:11434'
+    prepareGradedEmbeddingCache()
+  }
 
   try {
     suites.push(runBuzzdbHybridBenchmark())
@@ -157,10 +192,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     suites.push(failureSuite('multi_turn', 'multi-turn', error))
   }
 
-  if (process.argv.includes('--live')) {
+  if (process.argv.includes('--live') || process.argv.includes('--graded')) {
     try {
       const { runBuzzdbReasoningBenchmark } = await import('./buzzdb_reasoning.mjs')
-      suites.push(await runBuzzdbReasoningBenchmark())
+      suites.push(await runBuzzdbReasoningBenchmark({ graded: process.argv.includes('--graded') }))
     } catch (error) {
       suites.push(failureSuite('reasoning_answers', 'live reasoning execution', error))
     }

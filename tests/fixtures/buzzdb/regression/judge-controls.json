@@ -1,0 +1,72 @@
+[
+  {
+    "id": "concise-correct",
+    "question": "At what temperature does the fictional valve open?",
+    "idealAnswer": "The valve opens at 60 degrees Celsius. Its housing is yellow.",
+    "keyEvidenceQuote": "The valve opens at 60 degrees Celsius. Its housing is yellow.",
+    "generatedAnswer": "At 60\u00b0C.",
+    "expected": "correct",
+    "requiredFacts": [
+      {
+        "requirement": "The valve opens at 60 degrees Celsius",
+        "referenceQuote": "The valve opens at 60 degrees Celsius"
+      }
+    ]
+  },
+  {
+    "id": "wrong-number",
+    "question": "At what temperature does the fictional valve open?",
+    "idealAnswer": "The valve opens at 60 degrees Celsius.",
+    "keyEvidenceQuote": "The valve opens at 60 degrees Celsius.",
+    "generatedAnswer": "At 90\u00b0C.",
+    "expected": "incorrect",
+    "requiredFacts": [
+      {
+        "requirement": "The valve opens at 60 degrees Celsius.",
+        "referenceQuote": "The valve opens at 60 degrees Celsius."
+      }
+    ]
+  },
+  {
+    "id": "missing-condition",
+    "question": "When is it safe to remove the fictional cartridge?",
+    "idealAnswer": "Only after switching off power and waiting five minutes for pressure to dissipate.",
+    "keyEvidenceQuote": "Before removing the cartridge, switch off power and wait five minutes. Power off alone is insufficient.",
+    "generatedAnswer": "As soon as you switch off the power, it is safe to remove it.",
+    "expected": "incorrect",
+    "requiredFacts": [
+      {
+        "requirement": "Only after switching off power and waiting five minutes for pressure to dissipate.",
+        "referenceQuote": "Only after switching off power and waiting five minutes for pressure to dissipate."
+      }
+    ]
+  },
+  {
+    "id": "appropriate-abstention",
+    "question": "How heavy is the fictional valve?",
+    "idealAnswer": "The supplied information does not specify its weight.",
+    "keyEvidenceQuote": "The valve has a yellow housing and opens at 60 degrees Celsius.",
+    "generatedAnswer": "I cannot determine its weight from this information.",
+    "expected": "correct",
+    "requiredFacts": [
+      {
+        "requirement": "The supplied information does not specify its weight.",
+        "referenceQuote": "The supplied information does not specify its weight."
+      }
+    ]
+  },
+  {
+    "id": "correct-core-wrong-extra",
+    "question": "At what temperature does the fictional valve open?",
+    "idealAnswer": "The valve opens at 60 degrees Celsius.",
+    "keyEvidenceQuote": "The valve opens at 60 degrees Celsius. Its housing is yellow.",
+    "generatedAnswer": "At 60\u00b0C. It has a blue housing.",
+    "expected": "incorrect",
+    "requiredFacts": [
+      {
+        "requirement": "The valve opens at 60 degrees Celsius.",
+        "referenceQuote": "The valve opens at 60 degrees Celsius."
+      }
+    ]
+  }
+]
