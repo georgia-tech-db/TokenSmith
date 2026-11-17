@@ -1,3 +1,7 @@
 coverage>=6.5
 pypdfium2>=4.30
 Pillow>=10
+rapidocr==3.10.0
+# 1.23.2 publishes a CPython 3.12 wheel for Intel Macs.
+onnxruntime==1.23.2; sys_platform == "darwin" and platform_machine == "x86_64"
+onnxruntime==1.31.1; sys_platform != "darwin" or platform_machine != "x86_64"
