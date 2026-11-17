@@ -143,6 +143,6 @@ This measures unit-test execution, not answer accuracy or full end-to-end covera
 
 </details>
 
-Measured commit: 34b636d8f4843f7cbbb8d7695408d39d96754ce0
+Measured commit: 39115b5f17628e545d0e2d16e39939d0a7d8e514
 
-[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/44107242730)
+[CI run](https://github.com/georgia-tech-db/TokenSmith/actions/runs/44161362952)
