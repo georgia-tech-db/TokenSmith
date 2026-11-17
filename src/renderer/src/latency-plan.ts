@@ -90,6 +90,13 @@ function buildSummaryBadges(span: LatencySpan): string[] {
     if (typeof details.generated_tokens === 'number') {
       badges.push(`${details.generated_tokens} output tok`)
     }
+    if (typeof details.selected_characters === 'number' && typeof details.source_characters === 'number') {
+      badges.push(`${details.selected_characters} / ${details.source_characters} attachment chars`)
+    }
+    if (typeof details.answer_tokens === 'number' && typeof details.requested_answer_tokens === 'number' &&
+        details.answer_tokens < details.requested_answer_tokens) {
+      badges.push(`Answer limit: ${details.answer_tokens.toLocaleString()} tokens`)
+    }
     if (typeof details.mode === 'string' && details.mode) {
       badges.push(`mode: ${details.mode}`)
     }

@@ -3,6 +3,7 @@ import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { LatencyTrace } from './latency-trace'
 import type { PracticeReference, PracticeState } from './practice'
 import type { StudyDocumentRef } from './study-scope'
+import type { AttachmentRun, ChatAttachment } from './chat-attachment'
 
 export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
 
@@ -203,6 +204,7 @@ export interface ChatMessage {
   id: string
   role: MessageRole
   text: string
+  attachment?: ChatAttachment
   selectedPassage?: ChatSelectedPassage
   sources?: ChatSource[]
   reasoning?: AnswerReasoning
@@ -211,6 +213,8 @@ export interface ChatMessage {
   explanationDepth?: ExplanationDepth
   answerContext?: {
     prompt: string
+    attachment?: ChatAttachment
+    attachmentRun?: AttachmentRun
     selectedPassage?: ChatSelectedPassage
     answerPrompt?: string
     retrievalQuery?: string
@@ -234,6 +238,7 @@ export interface Conversation {
   title: string
   period: 'Today' | 'This week'
   messages: ChatMessage[]
+  attachment?: ChatAttachment
   practiceReference?: PracticeReference
   practiceSuggestions?: string[]
   documentScope?: StudyDocumentRef[]

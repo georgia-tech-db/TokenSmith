@@ -5,6 +5,7 @@ import { practiceSourceKey } from '../../shared/practice'
 import { trimReferenceExchange } from '../../shared/study-chat-pipeline'
 import { questionWithSelection, selectedPassageReference } from '../../shared/chat-selection'
 import { answerTokenAllowance, effectiveContextLength } from '../../shared/model-context'
+import { attachmentContext, attachmentInstructions } from '../../shared/chat-attachment'
 export { effectiveContextLength } from '../../shared/model-context'
 import {
   defaultFollowUpSuggestionCount,
@@ -15,6 +16,10 @@ import {
 } from '../../shared/model-defaults'
 
 export type StudyChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+
+// Only budget failures may trigger attachment reselection. Invalid data and
+// unrelated generation failures must propagate unchanged.
+export class AttachmentContextError extends Error {}
 
 const estimatedCharsPerToken = 4
 const minSourceTextTokens = 80
@@ -500,7 +505,11 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
   const practiceInstructions = request.practiceTask ? practiceSystemPrompt(request.practiceTask, request.practiceAllowedIds) : undefined
   const configuredSystemMessage = modelSettings?.systemMessage?.trim()
   const answerPrompt = answerPromptForRequest(request)
-  const referenceText = request.practiceTask ? '' : chatReferenceText(request)
+  const attachmentText = request.practiceTask ? '' : attachmentContext(request.attachment)
+  const chatReference = request.practiceTask ? '' : chatReferenceText(request)
+  const referenceText = [chatReference, attachmentText].filter(Boolean).join('\n\n')
+  const systemInstructions = practiceInstructions ?? (attachmentText
+    ? `${sourceContextInstructionText()}\n${attachmentInstructions}` : undefined)
   const { context, budget, sources } = packSourceContext(request.retrievedSources ?? [], {
     prompt: answerPrompt,
     evidenceQuery: request.retrievalQuery,
@@ -510,11 +519,15 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     includeBudget: true,
     includeInstructions: false,
     explanationDepth: request.practiceTask ? undefined : requestExplanationDepth(request.applicationSettings),
-    systemInstructions: practiceInstructions,
+    systemInstructions,
     includeEvidenceIds: Boolean(request.practiceTask),
     wholeSources: Boolean(request.practiceTask),
     compactSources: request.practiceTask === 'chapter_topics'
   })
+  if (attachmentText && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens >
+      Math.min(budget.modelContextTokens, (request.model.inputTokenLimit ?? Infinity) + budget.answerReserveTokens)) {
+    throw new AttachmentContextError('The selected attachment passages leave too little room for an answer. Use a shorter excerpt or a larger context window.')
+  }
   if (request.selectedPassage && budget.fixedPromptTokens + budget.answerReserveTokens + budget.safetyMarginTokens > budget.modelContextTokens) {
     throw new Error('The question and selected passage are too long for this model. Select a shorter passage.')
   }
@@ -522,18 +535,18 @@ export function prepareStudyChatMessages(request: EngineChatRequest): {
     throw new Error('The question and conversation leave too little room for an answer. Increase Context Length or reduce Max Length.')
   }
   if (request.retrievedSources?.length && !sources.length) {
-    throw new Error('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
+    throw new AttachmentContextError('No complete source passage fits alongside the answer allowance. Increase Context Length or reduce Max Length.')
   }
   if (request.practiceTask === 'chapter_topics' && sources.length !== request.retrievedSources?.length) {
     throw new Error('The full chapter text does not fit this model context.')
   }
   const userContent = context || referenceText
-    ? [referenceText, context, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
+    ? [chatReference, context, attachmentText, `Question: ${answerPrompt}`].filter(Boolean).join('\n\n')
     : answerPrompt
   const messages: StudyChatMessage[] = []
   const systemMessage = [
     configuredSystemMessage,
-    practiceInstructions ?? (context || referenceText ? sourceContextInstructionText() : ''),
+    systemInstructions ?? (context || referenceText ? sourceContextInstructionText() : ''),
     request.practiceTask ? '' : explanationDepthInstruction(requestExplanationDepth(request.applicationSettings))
   ].filter(Boolean).join('\n\n')
 
@@ -550,7 +563,7 @@ export function studyChatMessages(request: EngineChatRequest): StudyChatMessage[
 }
 
 export function shouldGenerateFollowUps(request: EngineChatRequest): boolean {
-  return !request.practiceTask && request.applicationSettings?.suggestionMode !== 'off'
+  return !request.practiceTask && !request.attachment && !request.attachmentRun && request.applicationSettings?.suggestionMode !== 'off'
 }
 
 export function followUpSuggestionCount(request: EngineChatRequest): number {
