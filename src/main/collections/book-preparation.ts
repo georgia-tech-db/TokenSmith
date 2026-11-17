@@ -34,7 +34,7 @@ export function createBookPreparation(deps: BookPreparationDependencies) {
         signal.throwIfAborted()
         if (material.status !== 'ready') throw new Error(material.error || 'Finish document indexing before preparing chapter topics.')
         const store = deps.topics(signal)
-        const docs = (await store.studyDocuments()).filter(d => d.materialId === id)
+        const docs = (await store.studyDocuments()).filter(d => d.materialId === material.id)
         if (!docs.length) throw new Error('No indexed documents are available for chapter topics.')
         await generateTopicInventory(store, docs, [material], model, state.settings,
           { ...state.settings.modelDefaults, ...state.settings.modelSettingsById[model.id] }, `import-topics-${id}`, signal,
