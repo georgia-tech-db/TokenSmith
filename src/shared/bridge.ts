@@ -28,6 +28,7 @@ import type {
 } from './engine'
 import type { CleaningProfileId, CleaningRuleId } from './cleaning'
 import type { DeviceCapabilities } from './device-capabilities'
+import type { ChatAttachment } from './chat-attachment'
 import type { CloudConnectionInput, CloudConnectionStatus, CloudGeneratorInput, CloudResult, ForgottenCloudConnections } from './cloud-generators'
 import type {
   OllamaDeleteResult,
@@ -48,6 +49,8 @@ export interface TokenSmithBridge {
   unloadCollection: (id: string) => Promise<import('./collections').Collection[]>
   locateCollectionFolder: (materialId: string, path: string) => Promise<void>
   loadTopicInventory: (collectionId: string) => Promise<import('./topic-inventory').TopicInventory | null>
+  pickChatAttachment: (onSelected?: (name: string) => void) => Promise<ChatAttachment | null>
+  cancelChatAttachment: () => Promise<void>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
   getAppVersion: () => Promise<string>

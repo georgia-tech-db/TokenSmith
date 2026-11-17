@@ -15,6 +15,7 @@ import { createInterface } from 'node:readline'
 import type { ChatSource, CourseMaterial, LocalModel, MaterialIndexProgress, SearchMode } from '../../shared/app-state'
 import type { CleaningPreviewResult, LibrarySearchResult, TokenSmithLogFile } from '../../shared/engine'
 import type { CleaningProfileId, CleaningRuleId } from '../../shared/cleaning'
+import { validateChatAttachment, type ChatAttachment } from '../../shared/chat-attachment'
 import { normalizeLatencyStageName, sanitizeLatencyDetails, type LatencySpan, type LatencySpanStatus } from '../../shared/latency-trace'
 
 interface PythonRequest {
@@ -651,6 +652,59 @@ function isolatedIndexRequest<T>(payload: PythonRequest['payload'], timeoutMs: n
 
 export async function getPythonEngineHealth(): Promise<HealthResult> {
   return requestPython<HealthResult>('health', {}, 30_000)
+}
+
+// A short-lived worker keeps OCR from blocking the Library/search worker.
+export async function extractChatAttachmentWithPython(path: string, signal?: AbortSignal): Promise<ChatAttachment> {
+  signal?.throwIfAborted()
+  const started = performance.now()
+  const python = getPythonExecutable()
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, [join(dirname(getWorkerPath()), 'tokensmith_attachment.py')], {
+      detached: process.platform !== 'win32',
+      env: { ...process.env, ...appPythonEnv(python), PYTHONIOENCODING: 'utf-8' }, stdio: 'pipe'
+    })
+    let output = ''
+    let settled = false
+    const stop = () => {
+      try {
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch { /* Worker already stopped. */ }
+    }
+    const finish = (error?: Error, attachment?: ChatAttachment) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      app.removeListener('before-quit', stop)
+      signal?.removeEventListener('abort', abort)
+      if (error) { stop(); reject(error) }
+      else resolve({ ...attachment!, extraction: { ...attachment!.extraction, durationMs: performance.now() - started } })
+    }
+    function abort() { finish(new Error('Attachment reading was cancelled.')) }
+    const timer = setTimeout(() => finish(new Error('Reading the attachment timed out. Try a smaller or clearer file.')), 120_000)
+    app.once('before-quit', stop)
+    signal?.addEventListener('abort', abort, { once: true })
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (data: string) => {
+      output += data
+      if (output.length > 500_000) finish(new Error('The attachment produced too much text. Choose a shorter file.'))
+    })
+    child.stderr.on('data', () => { /* The worker returns a readable error through stdout. */ })
+    child.once('error', error => finish(error))
+    child.once('close', () => {
+      if (settled) return
+      try {
+        const result = JSON.parse(output) as { ok: boolean; attachment: ChatAttachment; error?: string }
+        if (!result.ok) throw new Error(result.error || 'The attachment could not be read.')
+        finish(undefined, validateChatAttachment(result.attachment))
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error('The attachment could not be read.'))
+      }
+    })
+    child.stdin.on('error', error => finish(error))
+    child.stdin.end(JSON.stringify({ path }) + '\n')
+  })
 }
 
 function sendIndexProgress(progress: MaterialIndexProgress): void {
