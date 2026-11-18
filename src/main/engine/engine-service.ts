@@ -17,7 +17,7 @@ import { resolveRemoteChatQuestion } from './remote-chat-service'
 import type { ChatSource } from '../../shared/app-state'
 import { generateStudyQuestionSuggestions, listStudyEngines, sendStudyChatMessage } from './study-engine-core'
 import { generateOllamaStudyQuestionSuggestions, resolveOllamaChatQuestion, runOllamaStudyEngine } from './ollama-service'
-import { questionSuggestionMessages, sourceContextBudgetForRequest, studyChatMessages } from './study-chat-format'
+import { prepareStudyChatMessages, questionSuggestionMessages, sourceContextBudgetForRequest } from './study-chat-format'
 
 async function withStarterSources(
   request: EngineQuestionSuggestionRequest,
@@ -137,7 +137,17 @@ function logModel(request: EngineChatRequest): Record<string, unknown> {
 }
 
 function chatRequestLogDetails(request: EngineChatRequest): Record<string, unknown> {
-  const messages = studyChatMessages(request)
+  let promptDetails: Record<string, unknown>
+  try {
+    const prepared = prepareStudyChatMessages(request)
+    promptDetails = { contextBudget: prepared.budget, modelMessages: prepared.messages }
+  } catch (error) {
+    // This is the received request, before fresh model metadata and attachment
+    // fitting. Logging must not reject a request the engine can still fit.
+    // The engine remains responsible for validation and final context checks.
+    promptDetails = { promptPreparationDeferred: true,
+      contextPreparationError: error instanceof Error ? error.message : String(error) }
+  }
   const systemPrompt = request.modelSettings?.systemMessage?.trim() ?? ''
 
   return {
@@ -147,15 +157,12 @@ function chatRequestLogDetails(request: EngineChatRequest): Record<string, unkno
     retrievalQuery: request.retrievalQuery,
     conversationContextMode: request.conversationContextMode ?? 'standalone',
     referenceExchange: request.referenceExchange,
+    attachmentRun: request.attachmentRun,
     model: logModel(request),
-    contextBudget: sourceContextBudgetForRequest(request),
     systemPrompt,
     sourceCount: request.retrievedSources?.length ?? 0,
     sources: (request.retrievedSources ?? []).map(logSource),
-    modelMessages: messages.map((message) => ({
-      role: message.role,
-      content: message.content
-    }))
+    ...promptDetails
   }
 }
 

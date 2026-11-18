@@ -1,12 +1,23 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { TokenSmithBridge } from '../shared/bridge'
 
+let attachmentRequestSequence = 0
 const tokenSmithBridge: TokenSmithBridge = {
   onModelLoading: callback => {
     const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => callback(progress)
     ipcRenderer.on('engine:model-loading', listener)
     return () => { ipcRenderer.off('engine:model-loading', listener) }
   },
+  pickChatAttachment: async (onSelected) => {
+    const id = `attachment-${++attachmentRequestSequence}`
+    const listener = (_event: IpcRendererEvent, requestId: string, name: string) => {
+      if (requestId === id) onSelected?.(name)
+    }
+    if (onSelected) ipcRenderer.on('chat:attachment-selected', listener)
+    try { return await ipcRenderer.invoke('chat:pick-attachment', id) }
+    finally { ipcRenderer.off('chat:attachment-selected', listener) }
+  },
+  cancelChatAttachment: () => ipcRenderer.invoke('chat:cancel-attachment'),
   getModelContextMetadata: (model) => ipcRenderer.invoke('models:context-metadata', model),
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,

@@ -33,6 +33,7 @@ import { QuestionEditor } from './QuestionEditor'
 import { normalizeEmbeddingGpuEnabled } from '@shared/embedding-settings'
 import { canExplainSimpler, canRetryWithReasoning, reasoningRetryRequest, replaceQuestion, simplerExplanationRequest, type ChatDraft } from './chat-interactions'
 import { SelectedPassagePreview } from './SelectedPassagePreview'
+import { ChatAttachmentPreview, PendingChatAttachment } from './ChatAttachmentPreview'
 import './chat-interactions.css'
 import { ThemePicker } from './ThemePicker'
 import { ChatModelPicker } from './ChatModelPicker'
@@ -112,6 +113,7 @@ import { modelAwareRetrievalLimit } from '@shared/retrieval-budget'
 import { contextMetadataIdentity, fallbackContextLength, mergeModelContextMetadata, migratedContextMode, normalizeTokenLimit,
   reportedContextLimit, usesAutomaticContext } from '@shared/model-context'
 import { prepareRewrittenStudyChat } from '@shared/study-chat-pipeline'
+import { AttachmentEvidence } from './AttachmentEvidence'
 import { combineLatencyTrace, type LatencySpan } from '@shared/latency-trace'
 import tokensmithRailWordmark from './assets/tokensmith-rail-wordmark.png'
 import {
@@ -126,6 +128,7 @@ import {
   Loader2,
   MessageSquare,
   Pause,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
@@ -943,8 +946,8 @@ function mergeSavedState(savedState: AppStateSnapshot | null, appVersion = 'dev'
     practice.draftModelId = settings.application.defaultModelId
   }
   const conversations = Array.isArray(savedState.conversations)
-    ? savedState.conversations.map(({ id, modelId, title, period, messages, practiceReference, practiceSuggestions, documentScope }) => ({
-        id, modelId, title, period, practiceReference, practiceSuggestions, documentScope,
+    ? savedState.conversations.map(({ id, modelId, title, period, messages, practiceReference, practiceSuggestions, documentScope, attachment }) => ({
+        id, modelId, title, period, practiceReference, practiceSuggestions, documentScope, attachment,
         messages: messages.filter(message => !('quiz' in message) && !('kind' in message && String(message.kind).startsWith('quiz')))
       }))
     : structuredClone(starterConversations)
@@ -2456,6 +2459,10 @@ function ChatScreen({
   const explanationInFlightRef = useRef(false)
   const [pendingSources, setPendingSources] = useState<ChatSource[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
+  const [attachmentLoadingId, setAttachmentLoadingId] = useState<string | null>(null)
+  const [attachmentLoadingName, setAttachmentLoadingName] = useState('')
+  const [attachmentError, setAttachmentError] = useState<{ conversationId: string; text: string } | null>(null)
+  const attachmentReadSequenceRef = useRef(0)
   const [focusedAnswerId, setFocusedAnswerId] = useState<string | null>(null)
   const reader = useSourceReader(readSourceDocument)
   const { state: passage, controller: sourcePreview } = useSourcePane()
@@ -2485,6 +2492,43 @@ function ChatScreen({
     conversations[0] ??
     starterConversations[0]
   const isPending = pendingConversationId === activeConversation.id
+  const attachmentLoading = attachmentLoadingId === activeConversation.id
+  async function handleAttachFile() {
+    if (!window.tokensmith || activeConversation.attachment || attachmentLoadingId || pendingConversationId) return
+    const conversationId = activeConversation.id
+    const sequence = ++attachmentReadSequenceRef.current
+    setAttachmentLoadingId(conversationId)
+    setAttachmentLoadingName('')
+    setAttachmentError(null)
+    setChatError(null)
+    try {
+      const attachment = await window.tokensmith.pickChatAttachment(name => {
+        if (sequence === attachmentReadSequenceRef.current) setAttachmentLoadingName(name)
+      })
+      if (sequence !== attachmentReadSequenceRef.current) return
+      if (attachment) onChatStateChange(current => ({ ...current,
+        conversations: current.conversations.map(conversation => conversation.id === conversationId
+          ? { ...conversation, attachment } : conversation) }))
+    } catch (error) {
+      if (sequence === attachmentReadSequenceRef.current) setAttachmentError({ conversationId,
+        text: readableErrorMessage(error, 'The attachment could not be read.') })
+    } finally {
+      if (sequence === attachmentReadSequenceRef.current) { setAttachmentLoadingId(null); setAttachmentLoadingName('') }
+    }
+  }
+  async function removeAttachment() {
+    const conversationId = activeConversation.id
+    if (attachmentLoading) {
+      ++attachmentReadSequenceRef.current
+      try { await window.tokensmith?.cancelChatAttachment() }
+      catch { /* A completed worker no longer needs cancellation. */ }
+      setAttachmentLoadingId(null)
+      setAttachmentLoadingName('')
+    }
+    onChatStateChange(current => ({ ...current,
+      conversations: current.conversations.map(conversation => conversation.id === conversationId
+        ? { ...conversation, attachment: undefined } : conversation) }))
+  }
   const discussionDraft: ChatDraft = activeConversation.practiceReference && activeConversation.messages.length === 0
     ? { text: 'Can you help me understand this?', selectedPassage: practiceDiscussionPassage(activeConversation.practiceReference) } : { text: '' }
   const { text: draft, selectedPassage } = drafts[activeConversation.id] ?? discussionDraft
@@ -3683,7 +3727,7 @@ function ChatScreen({
 
   async function submitPrompt(rawPrompt: string, editMessageId?: string, passage?: ChatSelectedPassage) {
     const prompt = rawPrompt.trim()
-    if (!prompt || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
+    if (!prompt || attachmentLoading || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || (pendingConversationId && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready' || (editingQuestionId && !editMessageId)) {
       return
     }
 
@@ -3692,6 +3736,9 @@ function ChatScreen({
     const editedMessages = editMessageId ? replaceQuestion(activeConversation.messages, editMessageId, prompt, passage) : undefined
     if (editMessageId && !editedMessages) return
     const history = editedMessages ? editedMessages.slice(0, -1) : activeConversation.messages
+    const attachment = editMessageId
+      ? activeConversation.messages.find(message => message.id === editMessageId)?.attachment
+      : activeConversation.attachment
     const targetConversationId = activeConversation.id
     const responseStartedAt = performance.now()
     const progressId = beginForeground('answer', 'Preparing answer', prompt.length + history.reduce((n, m) => n + m.text.length, 0))
@@ -3699,6 +3746,7 @@ function ChatScreen({
       id: editMessageId ?? createId('user'),
       role: 'user',
       text: prompt,
+      ...(attachment ? { attachment } : {}),
       ...(passage ? { selectedPassage: passage } : {})
     }
 
@@ -3737,13 +3785,14 @@ function ChatScreen({
     let clientLatencySpans: LatencySpan[] = []
 
     try {
-      if (window.tokensmith && (documentScope.length > 0 || activeConversation.practiceReference)) {
+      if (window.tokensmith && (documentScope.length > 0 || activeConversation.practiceReference || attachment)) {
         const tokensmith = window.tokensmith
         const searchStartedAt = performance.now()
         setPendingStatusText('understanding question ...')
         const prepared = await prepareRewrittenStudyChat({
           requestId: progressId,
           prompt,
+          attachment,
           selectedPassage: passage,
           messages: history,
           materials: activeMaterials,
@@ -3754,6 +3803,7 @@ function ChatScreen({
         }, {
           resolve: (request) => tokensmith.resolveChatQuestion(request),
           search: (query) => {
+            if (!documentScope.length && !activeConversation.practiceReference) return Promise.resolve({ sources: [] })
             const reference = activeConversation.practiceReference
             if (history.length === 0 && reference && passage?.messageId === reference.questionId) {
               return Promise.resolve({ sources: sourcesInScope(reference.sources, documentScope) })
@@ -3783,7 +3833,7 @@ function ChatScreen({
         previewFirstSource(progressId, retrievedSources ?? [], prompt)
         progress.stage(progressId, 'Preparing answer', { inputChars: prompt.length + (retrievedSources ?? []).reduce((n, source) => n + source.excerpt.length, 0), contextual: conversationContextMode === 'contextual' })
         const searchDisplayMs = performance.now() - searchStartedAt
-        if (searchDisplayMs < 450) {
+        if (!attachment && searchDisplayMs < 450) {
           await new Promise((resolve) => window.setTimeout(resolve, 450 - searchDisplayMs))
         }
 
@@ -3814,12 +3864,15 @@ function ChatScreen({
           reasoning: reply.reasoning,
           conversationContextMode,
           answerContext: {
+            attachment: reply.attachmentEvidence ?? rewrittenRequest?.attachment,
+            attachmentRun: reply.attachmentRun ?? rewrittenRequest?.attachmentRun,
             selectedPassage: passage,
             prompt, answerPrompt: rewrittenRequest?.answerPrompt,
             retrievalQuery: rewrittenRequest?.retrievalQuery,
             conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
             referenceExchange: rewrittenRequest?.referenceExchange,
-            modelSettings: activeModelSettings,
+            modelSettings: reply.attachmentRun?.answerTokens !== undefined
+              ? { ...activeModelSettings, maxLength: reply.attachmentRun.answerTokens } : activeModelSettings,
             applicationSettings: settings.application
           },
           explanationDepth: settings.application.explanationDepthEnabled ? settings.application.explanationDepth : 'standard',
@@ -3847,6 +3900,8 @@ function ChatScreen({
       }
       const reply = clarificationReply ?? await window.tokensmith.sendChatMessage({ ...(rewrittenRequest ?? {
         prompt,
+        attachment,
+
         selectedPassage: passage,
         conversationContextMode: conversationContextMode === 'clarify' ? undefined : conversationContextMode,
         messages: history,
@@ -3991,11 +4046,23 @@ function ChatScreen({
             <MessageComposer value={draft} onChange={text => updateDraft({ text })} inputRef={composerInputRef}
               label="Message" placeholder={selectedPassage ? 'Ask about this...' : composerPlaceholder} submitLabel="Send message" isActive={isActive}
               disabled={Boolean(editingQuestionId) || !selectedModel}
-              submitDisabled={!draft.trim() || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
+              submitDisabled={!draft.trim() || attachmentLoading || (documentScope.length > 0 && !practiceScopeReady) || catalog.status === 'loading' || Boolean(editingQuestionId) || (Boolean(pendingConversationId) && !isPreparingFollowUps) || !selectedModel || selectedModel.status !== 'ready'}>
+              {!activeConversation.attachment && !attachmentLoading && <div className="attachment-controls">
+                <button type="button" className="message-action" onClick={() => void handleAttachFile()}
+                  disabled={Boolean(attachmentLoadingId || pendingConversationId || editingQuestionId) || !window.tokensmith}
+                  title="Attach file">
+                  <Paperclip size={15} aria-hidden="true" />Attach file
+                </button>
+              </div>}
+              {attachmentLoading && <PendingChatAttachment name={attachmentLoadingName} onRemove={() => void removeAttachment()} />}
+              {activeConversation.attachment && <ChatAttachmentPreview attachment={activeConversation.attachment}
+                onRemove={!attachmentLoadingId && !pendingConversationId && !editingQuestionId ? removeAttachment : undefined} />}
               {selectedPassage && <SelectedPassagePreview passage={selectedPassage}
                 disabled={Boolean(editingQuestionId) || Boolean(pendingConversationId)}
                 onRemove={() => { updateDraft({ selectedPassage: undefined }); composerInputRef.current?.focus() }} />}
             </MessageComposer>
+            {attachmentError?.conversationId === activeConversation.id &&
+              <p className="attachment-error" role="alert">{attachmentError.text}</p>}
           </form>
         </div>
       </section>
@@ -4267,6 +4334,7 @@ function UserMessage({ message, editing, editDisabled, laterQuestions, onCopy, o
         {editing ? <QuestionEditor key={message.id} text={message.text} selectedPassage={message.selectedPassage} laterQuestions={laterQuestions} disabled={editDisabled} onCancel={onCancelEdit} onSave={onSaveEdit} /> : (
           <>
             {message.selectedPassage && <SelectedPassagePreview passage={message.selectedPassage} />}
+            {message.attachment && <ChatAttachmentPreview attachment={message.attachment} />}
             <div data-chat-selectable data-chat-message-id={message.id}><MessageText text={message.text} /></div>
           </>
         )}
@@ -4338,6 +4406,7 @@ function AssistantMessage({
         <AnswerExplanation message={message} pending={explanationPending} error={explanationError}
           errorView={explanationErrorView} disabled={suggestionsDisabled} onSimplify={onExplainSimpler}
           onReasoning={onTryReasoning} onPractice={onPractice} practiceDisabled={practiceDisabled} onSelectView={onSelectExplanationView} />
+        <AttachmentEvidence message={message} />
         {suggestions.length > 0 && (
           <section className="follow-up-section" aria-label="Suggested follow-up questions">
             <div className="follow-up-title">
