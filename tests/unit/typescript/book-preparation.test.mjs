@@ -28,6 +28,26 @@ test('import awaits saved topics before reporting ready; Practice only reads and
  const topics=await loadSavedTopics(f.bridge,f.docs,[f.material]);await loadSavedTopics(f.bridge,f.docs,[f.material])
  assert.equal(topics[0].title,'Buffer pools');assert.equal(f.calls,calls)
 })
+for (const mode of ['basic', 'ai']) {
+ test(`${mode} import uses the saved material ID for topics and the request ID for progress`, async () => {
+  const f=fixture()
+  const requestId='c/import-pending'
+  const options={preparation:{mode,instructions:'',documentInstructions:{}}}
+  const index=f.deps.index
+  f.deps.index=async(id,path,embedder,received,progress)=>{
+   assert.equal(id,requestId);assert.equal(path,'book.pdf');assert.equal(received,options)
+   return index(id,path,embedder,received,progress)
+  }
+  const material=await f.service.run(requestId,'book.pdf',undefined,options)
+  assert.equal(material.id,f.material.id)
+  assert.equal(f.saved.complete,true)
+  assert.equal(f.saved.collectionId,'c')
+  assert.ok(f.saved.topics.length>0)
+  assert.ok(f.saved.topics.every(topic=>topic.sources.every(source=>source.materialId===f.material.id)))
+  assert.equal(f.events.at(-1).phase,'complete')
+  assert.ok(f.events.filter(event=>event.phase).every(event=>event.materialId===requestId))
+ })
+}
 test('topic failure keeps import incomplete and can be retried from preparation',async()=>{
  const f=fixture();f.fail=true;await assert.rejects(f.service.run('c/1','book.md'),/Model stopped/)
  assert.ok(!f.events.some(e=>e.phase==='complete'));assert.equal(f.events.at(-1).phase,'error')
