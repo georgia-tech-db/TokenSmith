@@ -16,7 +16,7 @@
 .study-materials-toggle > span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
 .study-materials { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line); background: var(--panel); }
 .study-materials > header { display: flex; flex-shrink: 0; justify-content: space-between; align-items: center; gap: 6px; min-height: 76px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-.study-materials h2 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
+.study-materials h2 { margin: 0 0 4px; font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -.025em; }
 .study-materials header span, .study-scope-note { color: var(--muted); font-size: .85rem; }
 .study-materials-body { display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
 .study-materials-body.has-sources { grid-template-rows: fit-content(45%) minmax(0, 1fr); }
@@ -52,3 +52,5 @@
 }
 
 .study-collection-heading { font-size: 0.95rem; margin: 14px 0 10px; overflow-wrap: anywhere; }
+
+.study-pane-title { margin: 0; font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -.025em; flex-shrink: 0; }

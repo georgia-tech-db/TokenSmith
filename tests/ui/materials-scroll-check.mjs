@@ -88,7 +88,7 @@ try {
     await page.waitForFunction(() => window.practiceTest.state().conversations.some(c => c.messages.some(m => m.role === 'assistant')))
     const chatLayout = await checkScrolling(chat, `${name}-chat`)
     await hide(chat)
-    await chat.getByRole('button', { name: 'Practice', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Practice', exact: true }).click()
     await choosePracticeTopic(page)
     await practice.getByLabel('Your answer', { exact: true }).waitFor()
     await answerThenReview(page, 'True')
@@ -110,7 +110,9 @@ try {
     await sources.focus()
     await sources.press('End')
     await hide(practice)
+    await reviewPracticeQuestion(page, 1)
     await practice.locator('.practice-thread-question').first().getByRole('button', { name: /^\d+ Sources?$/ }).click()
+    await page.waitForFunction(el => el.scrollTop <= 1, await sources.elementHandle())
     near(await scrollTop(sources), 0, 'Selecting earlier evidence resets the existing source list')
     assert.match(await pane(practice).locator('.source-tray-card').first().innerText(), /Trees/)
   }

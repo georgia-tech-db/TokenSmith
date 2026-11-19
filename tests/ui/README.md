@@ -4,7 +4,7 @@
 
 With the preview server below, run `node tests/ui/collections-check.mjs` (set
 `PRACTICE_UI_URL` to the server's `/tests/ui/practice.html` URL). This exercises
-New/Load/Unload, invalid-folder recovery, restart state, saved topics, unloading
+Create/Open/Close, folder-or-file selection, restart state, saved topics, closing
 during Chat and Practice, rejection of late replies, and desktop/narrow layouts.
 The fixture never uses real model calls or personal app data.
 
@@ -171,3 +171,29 @@ extra model call, reload, reviewing old feedback, and switching topics. It uses
 disposable one- and six-passage topics on desktop and mobile; unit tests also
 cover ten passages and failed/cancelled requests. Screenshots go to
 `/tmp/tokensmith-practice-limits`.
+
+## First-run and library regression gate
+
+Run `npm run test:setup` after `npm ci` and `npx playwright install chromium`.
+The command builds the app, starts its own temporary Vite server for the browser
+checks, and then exercises the real Electron preload/IPC in a disposable profile.
+On Linux use `xvfb-run -a npm run test:setup`; CI runs both UI suites automatically.
+`CHROME_PATH` can select an installed browser, and `PLAYWRIGHT_MODULE` can select
+an externally managed Playwright module.
+
+The setup fixture uses the production renderer with controlled OS/network replies:
+missing/stopped Ollama, install/start/recheck errors, device recommendations,
+download progress, pause/resume, errors, unverified completion, persistence,
+model deletion recovery, and catalog revision races. It downloads no model weights.
+The native check covers folder cancel/import, pre-model setup, preparation controls,
+close/reopen, delete confirmation/cancel, deleting closed libraries, restart state,
+and preservation of original files. The temporary profile is removed on exit.
+
+Unit and Python tests additionally cover bounded/cancelled catalog retries,
+registry persistence failures, truncated OCR rejection and page-cache resume.
+These deterministic checks do not measure live model accuracy or download speed.
+
+The native gate also runs `library-archive-check.mjs`: `.tokensmith` import/export
+round trips through the real dialogs and IPC, cancellation, malformed-file cleanup,
+independent copy IDs, preserved original documents, and imported Details rendering.
+The fixture uses real SQLite indexes with deterministic embedding vectors.

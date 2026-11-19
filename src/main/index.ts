@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { withModelLoadingProgress } from './engine/model-loading'
 import { createBookPreparation } from './collections/book-preparation'
 import { runOllamaStudyEngine } from './engine/ollama-service'
@@ -8,11 +9,13 @@ import { preparationReportWithPython } from './python/python-engine-service'
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, safeStorage, shell } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 import { listEngines, resolveChatQuestion, sendChatMessage, suggestChatQuestions } from './engine/engine-service'
 import {
   collections,
+  exportLibraryWithPython,
+  importLibraryWithPython,
   cancelCollectionIndexing,
   locateCollectionFolder,
   cancelMaterialIndexingWithPython,
@@ -67,6 +70,7 @@ import type {
 
 const bookPreparation = createBookPreparation({
   state: () => loadAppState(),
+  materials: listIndexedMaterialsWithPython,
   index: (id, path, model, options, progress) => indexMaterialWithPython(path, model, id, options, progress),
   cancelIndex: cancelMaterialIndexingWithPython,
   progress: progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:index-progress', progress) },
@@ -209,7 +213,7 @@ async function pickMaterials(): Promise<PickMaterialsResult> {
 
 async function pickMaterialFolder(library = false): Promise<PickMaterialFolderResult> {
   const result = await dialog.showOpenDialog({
-    title: library ? 'Open library' : 'Locate original documents',
+    title: library ? 'Open library' : 'Choose Document Folder',
     buttonLabel: library ? 'Open library' : 'Choose',
     properties: ['openDirectory']
   })
@@ -227,6 +231,19 @@ async function pickMaterialFolder(library = false): Promise<PickMaterialFolderRe
     path: folderPath,
     title: parse(folderPath).name
   }
+}
+
+async function pickDocumentSource(): Promise<PickMaterialFolderResult> {
+  const result = await dialog.showOpenDialog({ title: 'Choose folder or file', buttonLabel: 'Choose',
+    properties: ['openFile', 'openDirectory'],
+    filters: [{ name: 'Documents', extensions: ['pdf', 'md', 'markdown', 'txt'] }] })
+  if (result.canceled || !result.filePaths[0]) return { canceled: true }
+  const path = result.filePaths[0]
+  const info = await stat(path)
+  if (!info.isDirectory() && (!info.isFile() || !['.pdf', '.md', '.markdown', '.txt'].includes(extname(path).toLowerCase())))
+    throw new Error('Choose a document folder, PDF, Markdown, or text file.')
+  return { canceled: false, path, kind: info.isDirectory() ? 'folder' : 'document',
+    title: info.isDirectory() ? parse(path).base : parse(path).name }
 }
 
 async function createIndexingMaterial(materialPath: string): Promise<CourseMaterial> {
@@ -476,6 +493,14 @@ app.whenReady().then(async () => {
     )
   )
   ipcMain.handle('state:load', () => loadAppState())
+  ipcMain.handle('practice:export-record', async (_event, record: string) => {
+    const content = JSON.stringify(JSON.parse(record), null, 2)
+    const result = await dialog.showSaveDialog({ title: 'Export practice record',
+      defaultPath: 'tokensmith-practice.json', filters: [{ name: 'JSON', extensions: ['json'] }] })
+    if (result.canceled || !result.filePath) return false
+    await writeFile(result.filePath, content, 'utf8')
+    return true
+  })
   ipcMain.handle('state:save', (_event, state: AppStateSnapshot) => saveAppState(state))
   ipcMain.handle('cloud:connections', () => cloudGenerators.status())
   ipcMain.handle('cloud:discover', (_event, input: CloudConnectionInput) => cloudResult(() => cloudGenerators.discover(input)))
@@ -550,9 +575,51 @@ app.whenReady().then(async () => {
     await bookPreparation.cancelCollection(id)
     await cancelCollectionIndexing(id)
   }))
+  ipcMain.handle('libraries:export', async (_event, id: string) => {
+    const library = collections().get(id)
+    if (bookPreparation.isCollectionIndexing(id)) throw new Error('Finish or pause document indexing before exporting. Topic extraction can continue during export.')
+    const result = await dialog.showSaveDialog({ title: 'Export Library',
+      defaultPath: `${library.name.replace(/[\\/:*?"<>|]/g, '_')}.tokensmith`,
+      filters: [{ name: 'TokenSmith Library', extensions: ['tokensmith'] }] })
+    if (result.canceled || !result.filePath) return false
+    if (bookPreparation.isCollectionIndexing(id)) throw new Error('Finish or pause document indexing before exporting. Topic extraction can continue during export.')
+    const destination = result.filePath.toLowerCase().endsWith('.tokensmith') ? result.filePath : `${result.filePath}.tokensmith`
+    await exportLibraryWithPython(id, destination)
+    return true
+  })
+  ipcMain.handle('libraries:import', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Import Library', buttonLabel: 'Import Library',
+      properties: ['openFile'], filters: [{ name: 'TokenSmith Library', extensions: ['tokensmith'] }] })
+    if (result.canceled || !result.filePaths[0]) return null
+    const id = randomUUID(), path = join(app.getPath('userData'), 'libraries', id)
+    await mkdir(path, { recursive: true })
+    try {
+      await importLibraryWithPython(result.filePaths[0], path, id)
+      return await collections().load(path)
+    } catch (error) {
+      await rm(path, { recursive: true, force: true })
+      throw error
+    }
+  })
+  ipcMain.handle('libraries:delete', async (_event, id: string) => {
+    const library = collections().list().find(item => item.id === id)
+    if (!library) return collections().list()
+    const { response } = await dialog.showMessageBox({
+      type: 'warning', message: `Delete “${library.name}” from TokenSmith?`,
+      detail: 'This removes the library from your library list and stops its active preparation. Original documents and saved library files remain on disk.',
+      buttons: ['Cancel', 'Delete Library'], defaultId: 0, cancelId: 0, noLink: true
+    })
+    if (response !== 1) return null
+    return collections().remove(id, async () => {
+      for (const request of collectionRequests) if (request.ids.has(id)) request.controller.abort()
+      await bookPreparation.cancelCollection(id)
+      await cancelCollectionIndexing(id)
+    })
+  })
   ipcMain.handle('collections:locate-folder', (_event, materialId: string, path: string) => locateCollectionFolder(materialId, path))
   ipcMain.handle('collections:topic-inventory', (_event, id: string) => collections().topicInventory(id))
   ipcMain.handle('library:pick-materials', () => pickMaterials())
+  ipcMain.handle('library:pick-document-folder', () => pickDocumentSource())
   ipcMain.handle('library:pick-material-folder', () => pickMaterialFolder())
   ipcMain.handle('library:starter-sources', (_event, materials: CourseMaterial[], limit?: number, documents?: StudyDocumentRef[]) =>
     starterSourcesWithPython(materials, limit, documents)
@@ -596,6 +663,8 @@ app.whenReady().then(async () => {
     ) => bookPreparation.run(materialId, materialPath, embeddingModel, options)
   )
   ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string, materialId?: string) => preparationReportWithPython(path, documentPath, materialId))
+  ipcMain.handle('library:extract-topics', (_event, materialId: string, model?: LocalModel) =>
+    bookPreparation.run(materialId, '', undefined, { preparationModel: model }, true))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())
   ipcMain.handle('library:set-material-enabled', (_event, materialId: string, isActive: boolean) =>
     setMaterialEnabledWithPython(materialId, isActive)

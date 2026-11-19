@@ -43,7 +43,10 @@ If this page's first passage continues an unfinished passage on the immediately
 preceding page, set continues to its ID from previous_page_passages; otherwise null.
 Only the first passage can have a non-null continues. Previous-page text is
 continuity context only: do not copy it into this page's transcription.
-Page numbers and passage IDs are attached by the caller; do not invent them."""
+Page numbers and passage IDs are attached by the caller; do not invent them.
+Do not reproduce blank space on the page. Use at most one blank line between
+paragraphs, no trailing blank lines, and close the JSON immediately after the
+last visible text."""
 
 
 def page_schema(previous: list[dict]) -> dict:
@@ -99,7 +102,7 @@ def prepare_pdf(path: Path, complete: Callable, cache: Path, instructions: str =
             entry = cache / (key + '.json')
             proposal, error = read_json(entry), ''
             for attempt in range(3):
-                progress(index, page_count, f'Reading and grouping page {number} of {page_count}')
+                progress(index, page_count, f'Reading and grouping chunks using LLM — page {number} of {page_count}')
                 if proposal is None:
                     content = prompt
                     if error:

@@ -4,6 +4,7 @@ import { choosePracticeTopic, idlePractice } from './practice-topic-helpers.mjs'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH })
 const page = await browser.newPage()
+page.setDefaultTimeout(10000)
 const base = process.env.PRACTICE_UI_URL || 'http://127.0.0.1:5197/tests/ui/practice.html'
 const practice = page.locator('.practice-frame')
 const button = name => practice.getByRole('button', { name, exact: true })
@@ -50,7 +51,7 @@ try {
     if (mode === 'settings') {
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
       await page.getByLabel('Automatically advance in Practice', { exact: true }).uncheck()
-      await page.getByRole('button', { name: 'Chat', exact: true }).click()
+      await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Practice', exact: true }).click()
     }
     if (mode === 'manual') await button('Next question').click()
     // Deliberately exceed the delay to catch a canceled timer firing later.

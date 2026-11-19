@@ -175,8 +175,9 @@ class IngestionRoutingTests(unittest.TestCase):
             calls = []
             def complete(messages, schema, **kwargs):
                 calls.append((messages, kwargs))
-                return {'passages': [passage('PDF transcription')]} if kwargs.get('image') else {'starts': [1, 3]}
+                return {'text': 'PDF transcription'} if kwargs.get('image') else {'starts': [1]}
             payload = self.payload(root, folder, 'ai')
+            payload['preparation']['ocr'] = 'gemma'
             with patch.object(job, 'completion_client', return_value=complete), \
                  patch.object(engine, 'extract_pdf_raw_pages_pdfium', side_effect=AssertionError('AI used PDF text parser')), \
                  patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=('test', lambda _: [1., 0.], None)):
@@ -184,7 +185,7 @@ class IngestionRoutingTests(unittest.TestCase):
             self.assertTrue(material['id'])
             self.assertEqual(material['fileCount'], 4)
             self.assertEqual(sum(bool(kwargs.get('image')) for _, kwargs in calls), 1)
-            self.assertEqual(len(calls), 2)  # Identical text files share their boundary cache.
+            self.assertEqual(len(calls), 3)  # Identical text files share their boundary cache.
             for file in text_files:
                 result = job.report({**payload, 'documentPath': str(file)})
                 doc = next(d for d in result['documents'] if d['path'] == str(file))
@@ -192,10 +193,23 @@ class IngestionRoutingTests(unittest.TestCase):
                 self.assertIsNone(doc['pageCount'])
             self.assertEqual([p.name for p in engine.supported_files(folder)], ['book.PDF', 'notes.MD', 'plain.TXT', 'more.markdown'])
 
+    def test_dataset_reload_keeps_one_material_and_skips_unsupported_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder, _, _ = self.make_folder(root)
+            payload = self.payload(root, folder, 'basic')
+            with patch.object(engine, 'resolve_embedding_provider_from_spec',
+                              return_value=('test', lambda _: [1., 0.], None)):
+                first = engine.index_material(payload)['material']
+                second = engine.index_material(payload)['material']
+            self.assertEqual(first['id'], second['id'])
+            self.assertEqual(second['fileCount'], 4)
+            self.assertEqual(first['chunkCount'], second['chunkCount'])
+            self.assertEqual(len(engine.list_materials(payload['userDataPath'])), 1)
+
     def test_basic_folder_uses_no_ocr_or_preparation_model(self):
         with tempfile.TemporaryDirectory() as root:
             folder, _, _ = self.make_folder(root)
-            with patch.object(job, 'completion_client') as model, patch.object(job, 'prepare_pdf') as ocr, \
+            with patch.object(job, 'completion_client') as model, patch.object(job, 'read_pdf') as ocr, \
                  patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=('test', lambda _: [1., 0.], None)):
                 material = engine.index_material(self.payload(root, folder, 'basic'))['material']
             self.assertEqual(material['preparationIssueCount'], 0)
@@ -206,18 +220,19 @@ class IngestionRoutingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             file = Path(root) / 'book.pdf'
             write_pdf(file, ['Old page'])
-            payload = self.payload(root, file, 'ai')
+            payload = self.payload(root, file, 'basic')
+            payload['preparation']['ocr'] = 'gemma'
             embedding = ('test', lambda _: [1., 0.], None)
-            with patch.object(job, 'completion_client', return_value=Mock(return_value={'passages': [passage('Old page')]})), \
+            with patch.object(job, 'completion_client', return_value=Mock(return_value={'text': 'Old page. ' * 30})), \
                  patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=embedding):
                 engine.index_material(payload)
             before = store.dump_index(payload['userDataPath'])['chunks']
             write_pdf(file, ['Changed first page', 'New second page'])
-            failing = Mock(side_effect=[{'passages': [passage('Changed first page')]}, '{}', '{}', '{}'])
+            failing = Mock(side_effect=[{'text': 'Changed first page. ' * 30}, '{}', '{}', '{}'])
             with patch.object(job, 'completion_client', return_value=failing), self.assertRaisesRegex(ValueError, 'page 2'):
                 engine.index_material(payload)
             self.assertEqual(store.dump_index(payload['userDataPath'])['chunks'], before)
-            resumed = Mock(return_value={'passages': [passage('New second page')]})
+            resumed = Mock(return_value={'text': 'New second page. ' * 30})
             with patch.object(job, 'completion_client', return_value=resumed), \
                  patch.object(engine, 'resolve_embedding_provider_from_spec', return_value=embedding):
                 engine.index_material(payload)
@@ -245,6 +260,8 @@ class ImageTransportTests(unittest.TestCase):
                 attached = requests[0]['messages'][0]
                 if model['engine'] == 'ollama':
                     self.assertEqual(base64.b64decode(attached['images'][0]), b'png')
+                    self.assertEqual(requests[0]['options']['repeat_penalty'], 1.1)
+                    self.assertNotIn('repeat_penalty', requests[1]['options'])
                 else:
                     self.assertEqual(attached['content'][1]['image_url']['url'], 'data:image/png;base64,cG5n')
                     self.assertNotIn('images', attached)
@@ -255,5 +272,30 @@ class ImageTransportTests(unittest.TestCase):
                    {'choices': [{'finish_reason': 'length', 'message': {'content': '{"passages":[]}'}}]})]
         for model, response in models:
             with self.subTest(engine=model['engine']), patch.object(prep.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps(response).encode())):
-                with self.assertRaisesRegex(ValueError, 'cut short'):
+                with self.assertRaisesRegex(ValueError, 'cut short') as error:
                     prep.completion_client(model)([{'role': 'user', 'content': 'Read'}], {}, image=b'png')
+
+                self.assertNotIn('larger context window', str(error.exception))
+                self.assertIn('output limit', str(error.exception))
+
+    def test_truncated_page_is_not_cached_and_resume_keeps_completed_pages(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'book.pdf'
+            cache = Path(root) / 'cache'
+            write_pdf(path, ['First page', 'Second page'])
+            valid = {'done_reason': 'stop', 'message': {'content': json.dumps({'passages': [passage('First page')]})}}
+            # Even syntactically valid JSON is incomplete when the model reports its output limit.
+            truncated = {'done_reason': 'length', 'message': {'content': json.dumps({'passages': [passage('Partial second page')]})}}
+            complete = prep.completion_client({'engine': 'ollama', 'ollamaModelName': 'gemma4:e4b'})
+            with patch.object(prep.urllib.request, 'urlopen', side_effect=[io.BytesIO(json.dumps(valid).encode()), io.BytesIO(json.dumps(truncated).encode())]):
+                with self.assertRaisesRegex(ValueError, 'output limit'):
+                    pdf_prep.prepare_pdf(path, complete, cache)
+            self.assertEqual(len(list(cache.glob('*.json'))), 1)
+            resumed = Mock(return_value={'passages': [passage('Complete second page')]})
+            chunks, pages = pdf_prep.prepare_pdf(path, resumed, cache)
+            self.assertEqual(pages, 2)
+            self.assertEqual(resumed.call_count, 1)
+            text = ''.join(chunk['text'] for chunk in chunks)
+            self.assertIn('First page', text)
+            self.assertIn('Complete second page', text)
+            self.assertNotIn('Partial second page', text)

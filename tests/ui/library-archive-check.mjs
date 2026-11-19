@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, readFile, writeFile, rm, readdir, rename } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+const require=createRequire(import.meta.url)
+const {_electron:electron}=await import(process.env.PLAYWRIGHT_MODULE||'playwright')
+const root=await mkdtemp(join(tmpdir(),'tokensmith-archive-ui-'))
+const python=process.env.PYTHON_PATH||resolve(process.platform==='win32'?'app_runtime/python/python.exe':'app_runtime/python/bin/python')
+execFileSync(python,['-c',`from pathlib import Path
+from tests.python.test_tokensmith_library_archive import LibraryArchiveTests
+LibraryArchiveTests().export(Path(${JSON.stringify(root)}).resolve())`],{cwd:process.cwd()})
+const file=join(root,'abc.tokensmith'), exported=join(root,'exported.tokensmith'), profile=join(root,'profile')
+const app=await electron.launch({executablePath:require('electron'),args:[process.cwd(),`--user-data-dir=${profile}`]})
+try{
+ const page=await app.firstWindow();page.setDefaultTimeout(20000)
+ await page.getByRole('navigation',{name:'Primary navigation'}).getByRole('button',{name:'Libraries',exact:true}).click()
+ assert.equal(await page.locator('.collection-header').getByRole('button',{name:'Open library',exact:true}).count(),0)
+ await page.getByRole('button',{name:'Create New Library',exact:true}).waitFor()
+ const pick=async path=>app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async options=>{globalThis.importOptions=options;return {canceled:!path,filePaths:path?[path]:[]}}},path)
+ await pick(null);await page.getByRole('button',{name:'Import Existing Library',exact:true}).click()
+ await page.getByRole('heading',{name:'No libraries yet',exact:true}).waitFor()
+ assert.deepEqual(await page.evaluate(()=>window.tokensmith.listCollections()),[])
+ const bad=join(root,'broken.tokensmith');await writeFile(bad,'not an archive')
+ await pick(bad);await page.getByRole('button',{name:'Import Existing Library',exact:true}).click()
+ await page.getByRole('alert').filter({hasText:'damaged'}).waitFor()
+ assert.deepEqual(await page.evaluate(()=>window.tokensmith.listCollections()),[])
+ assert.deepEqual(await readdir(join(profile,'libraries')),[],'Failed imports must clean up their staging directory')
+ await pick(file);await page.getByRole('button',{name:'Import Existing Library',exact:true}).click()
+ await page.getByText('Library imported.',{exact:true}).waitFor()
+ const [library]=await page.evaluate(()=>window.tokensmith.listCollections())
+ const documents=await page.evaluate(()=>window.tokensmith.studyDocuments())
+ assert.equal(documents.length,1);assert.ok(documents[0].path.startsWith(library.path))
+ await rename(join(root,'originals'),join(root,'originals-moved'))
+ assert.match(await readFile(documents[0].path,'utf8'),/Buffer pools/)
+ const options=await app.evaluate(()=>globalThis.importOptions)
+ assert.deepEqual(options.filters[0].extensions,['tokensmith'])
+ await app.evaluate(({dialog})=>{dialog.showSaveDialog=async options=>{globalThis.exportOptions=options;return {canceled:true}}})
+ await page.getByRole('button',{name:'Export Library',exact:true}).click()
+ assert.equal(await page.getByText('Library exported.',{exact:true}).count(),0)
+ await app.evaluate(({dialog},path)=>{dialog.showSaveDialog=async options=>{globalThis.exportOptions=options;return {canceled:false,filePath:path}}},exported)
+ await page.getByRole('button',{name:'Export Library',exact:true}).click()
+ await page.getByText('Library exported.',{exact:true}).waitFor()
+ assert.ok((await readFile(exported)).length>100)
+ assert.match((await app.evaluate(()=>globalThis.exportOptions)).defaultPath,/\.tokensmith$/)
+ await page.getByRole('button',{name:'All libraries',exact:true}).click()
+ await pick(exported);await page.getByRole('button',{name:'Import Existing Library',exact:true}).click()
+ await page.getByText('Library imported.',{exact:true}).waitFor()
+ const libraries=await page.evaluate(()=>window.tokensmith.listCollections())
+ assert.equal(libraries.length,2);assert.equal(new Set(libraries.map(c=>c.id)).size,2)
+ const docs=await page.evaluate(()=>window.tokensmith.studyDocuments());assert.equal(docs.length,2)
+ assert.notEqual(docs[0].materialId,docs[1].materialId)
+ await page.getByRole('button',{name:'Details',exact:true}).click()
+ await page.getByRole('complementary',{name:'Documents'}).getByRole('button').click()
+ await page.locator('.library-source-chunk').first().waitFor()
+ console.log('PASS: import/export dialogs, cancel, malformed-file cleanup, portable originals, duplicate-copy identities, and imported Details.')
+}finally{await app.close();await rm(root,{recursive:true,force:true})}

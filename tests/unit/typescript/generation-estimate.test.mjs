@@ -50,7 +50,7 @@ test('overdue runs become indeterminate and never claim completion or negative r
     assert.doesNotMatch(display.text, /-\d|\b0s left/)
   }
   assert.equal(waitDisplay(estimate, 60_000).fraction, undefined)
-  assert.match(waitDisplay(estimate, 70_000).text, /70s elapsed/)
+  assert.match(waitDisplay(estimate, 70_000).text, /1 min elapsed/)
 })
 test('invalid, future and stale history is ignored and storage is bounded', () => {
   assert.deepEqual(readTimingSamples({}), [])
@@ -60,4 +60,10 @@ test('invalid, future and stale history is ignored and storage is bounded', () =
   for (let i=0; i<250; i++) history = recordTiming(history, context, 100)
   assert.equal(history.length, 200)
   assert.deepEqual(recordTiming(history, context, NaN), history)
+})
+
+test('long waits use minutes and hours instead of thousands of seconds',()=>{
+ assert.match(waitDisplay({lowerMs:8870000,upperMs:20690000},0).text,/About 2.5–5.8 hr left/)
+ assert.match(waitDisplay({lowerMs:120000,upperMs:240000},0).text,/About 2–4 min left/)
+ assert.match(waitDisplay({lowerMs:10000,upperMs:20000},0).text,/About 10–20s left/)
 })

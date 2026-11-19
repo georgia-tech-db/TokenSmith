@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronRight, SendHorizonal } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, ListTree, SendHorizonal } from 'lucide-react'
+import './study-buttons.css'
 import type { CourseMaterial } from '@shared/app-state'
 import type { PracticeMasteryRecord, PracticeSession, PracticeTopic } from '@shared/practice'
 import { practiceConceptKey } from '@shared/practice-study'
@@ -10,13 +11,16 @@ import { loadSavedTopics } from '../../shared/saved-topics'
 import { practiceTopicKey } from '@shared/practice-question-plan'
 import type { InventoryTopic } from '../../shared/topic-inventory'
 
-export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose, onChooseTopics }: {
+export function PracticeTopicPicker({ isActive, ready, disabled, scope, materials, sessions, masteryRecords, onChoose, onChooseTopics, onExtractTopics }: {
   isActive: boolean; ready: boolean; disabled: boolean; scope: StudyDocumentRef[]; materials: CourseMaterial[]
   sessions: PracticeSession[]
   masteryRecords?: PracticeMasteryRecord[]
+  onExtractTopics?: () => Promise<void>
   onChoose: (topic: PracticeTopic) => void
   onChooseTopics: (title: string, topics: PracticeTopic[]) => void
 }) {
+  const [extracting, setExtracting] = useState(false)
+  const [reload, setReload] = useState(0)
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [text, setText] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -80,7 +84,7 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
       if (active) { setTopics(topics); setStatus('ready') }
     }).catch(reason => { if (active) { setError((reason as Error).message); setStatus('error') } })
     return () => { active = false }
-  }, [isActive, ready, key])
+  }, [isActive, ready, key, reload])
   return <div className="practice-topic-picker">
     {chapter && <button className="practice-link practice-chapter-back" type="button" onClick={() => navigate(null)}><ArrowLeft size={16} aria-hidden="true" />All chapters</button>}
     <h1 ref={heading} tabIndex={-1}>{chapter?.title ?? 'What would you like to practice?'}</h1>
@@ -99,8 +103,8 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
     </div>}
     {ready && status === 'loading' && <p className="practice-muted" role="status">Loading saved topics…</p>}
     {topics.length > 0 && <div className="practice-topic-inventory">
-      <div className="practice-topic-toolbar"><div className="study-mode-tabs practice-topic-filters" role="group" aria-label="Filter topics by practice progress">
-        {([['all', 'All'], ['new', 'Not practiced'], ['mistakes', 'Recent mistakes']] as const).map(([value, label]) =>
+      <div className="practice-topic-toolbar"><div className="practice-topic-filters" role="group" aria-label="Filter topics by practice progress">
+        {([['all', 'All topics'], ['new', 'Not practiced'], ['mistakes', 'Recent mistakes']] as const).map(([value, label]) =>
           <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
       <input className="practice-topic-search" aria-label={chapter ? 'Find a topic in this chapter' : 'Find a chapter'} placeholder={chapter ? 'Find a topic…' : 'Find a chapter…'} value={search} onChange={event => setSearch(event.target.value)} />
@@ -148,7 +152,14 @@ export function PracticeTopicPicker({ isActive, ready, disabled, scope, material
       </>}
     </div>}
     {ready && status === 'ready' && topics.length === 0 && <p className="practice-muted">No saved topics for the selected documents.</p>}
-    {ready && status === 'error' && <p className="practice-muted" role="status">{error}</p>}
+    {ready && (status === 'error' || (status === 'ready' && topics.length === 0)) && <div className="practice-topic-extraction" role="status"><p className="practice-muted">{error}</p>
+      {onExtractTopics && <button className="practice-button is-primary" type="button" disabled={extracting || disabled} onClick={async () => {
+        setExtracting(true)
+        try { await onExtractTopics(); setReload(value => value + 1) }
+        catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not extract topics.') }
+        finally { setExtracting(false) }
+      }}><ListTree size={16} aria-hidden="true" />{extracting ? 'Extracting topics…' : 'Extract topics'}</button>}
+    </div>}
     <form onSubmit={event => { event.preventDefault(); if (!disabled && text.trim()) onChoose({ title: text.trim() }) }}>
       <label htmlFor="practice-topic">Your topic</label>
       <div className="composer">

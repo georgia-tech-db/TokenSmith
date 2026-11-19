@@ -4,7 +4,7 @@ import type { LatencyTrace } from './latency-trace'
 import type { PracticeReference, PracticeState } from './practice'
 import type { StudyDocumentRef } from './study-scope'
 
-export type ScreenId = 'chat' | 'library' | 'models' | 'settings'
+export type ScreenId = 'chat' | 'practice' | 'library' | 'models' | 'settings'
 
 export type MaterialStatus = 'ready' | 'indexing' | 'paused' | 'needsReview'
 export type LocalModelRole = 'generator' | 'embedder' | 'both'
@@ -13,6 +13,13 @@ export interface MaterialIndexProgress {
   materialId: string
   phase: 'parsing' | 'chunking' | 'embedding' | 'saving' | 'topics' | 'complete' | 'error'
   percent: number
+  resumePhase?: 'topics'
+  stage?: string
+  stagePercent?: number
+  stageCompleted?: number
+  stageTotal?: number
+  stageElapsedMs?: number
+  estimatedRemainingMs?: number
   processedFiles?: number
   totalFiles?: number
   processedEmbeddings?: number

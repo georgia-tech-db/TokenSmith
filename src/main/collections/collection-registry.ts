@@ -1,3 +1,4 @@
+import { libraryNameKey } from '../../shared/library-name'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -115,6 +116,7 @@ export class CollectionRegistry {
     return this.serial(async () => {
       const root = await realpath(path)
       if (!name.trim() || name.trim().length > 200) throw new Error('Enter a library name of up to 200 characters.')
+      if (this.entries.some(entry => libraryNameKey(entry.name) === libraryNameKey(name))) throw new Error('A library with this name already exists. Choose another name.')
       if ((await readdir(root)).some(file => file !== '.DS_Store')) throw new Error('Choose an empty folder for the new collection.')
       const m: CollectionManifest = { format: 'tokensmith-collection', version: 1, id: randomUUID(), name: name.trim(), indexRevision: randomUUID(), sourceBasePath: root }
       const item: MountedCollection = { ...m, path: root, loaded: true, epoch: ++this.sequence }
@@ -149,6 +151,21 @@ export class CollectionRegistry {
       finally { await this.store.close(item.path) }
       return this.list()
     })
+  }
+  remove(id: string, onRemove: () => void | Promise<void> = () => {}): Promise<Collection[]> {
+    return this.serial(async () => {
+      const entry = this.entries.find(item => item.id === id)
+      if (!entry) return this.list()
+      const next = this.entries.filter(item => item.id !== id)
+      await this.persist(next)
+      this.mounts.delete(id); this.entries = next; this.errors.delete(id)
+      try { await onRemove() }
+      finally { await this.store.close(entry.path) }
+      return this.list()
+    })
+  }
+  snapshot<T>(id: string, work: (item: MountedCollection) => Promise<T>): Promise<T> {
+    return this.serial(() => work(this.get(id)))
   }
   async revise(item: MountedCollection) {
     return this.serial(async () => {

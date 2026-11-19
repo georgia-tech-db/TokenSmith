@@ -122,11 +122,13 @@ test('managed libraries allocate separate storage and close/reopen without touch
   const library = (await f.registry.createManaged('  BuzzDBBook  '))[0]
   assert.equal(library.name, 'BuzzDBBook')
   assert.ok(library.path.startsWith(join(f.root, 'app', 'libraries') + '/'))
-  const duplicate = (await f.registry.createManaged('BuzzDBBook'))[0]
+  await assert.rejects(f.registry.createManaged('  buzzdbbook  '), /already exists/)
+  const duplicate = (await f.registry.createManaged('BuzzDBBook (2)'))[0]
   assert.notEqual(duplicate.id, library.id)
   assert.notEqual(duplicate.path, library.path)
   const before = await readFile(join(library.path, 'tokensmith.sqlite'))
   await f.registry.unload(library.id)
+  await assert.rejects(f.registry.createManaged('BuzzDBBook'), /already exists/)
   await f.registry.load(library.path)
   assert.deepEqual(await readFile(join(library.path, 'tokensmith.sqlite')), before)
   await assert.rejects(f.registry.createManaged(' '), /library name/)
@@ -151,4 +153,59 @@ test('topic inventory checkpoints survive reopening and reject stale writes with
   await f.registry.unload(f.one.id)
   await f.registry.load(f.a)
   assert.deepEqual(await f.registry.topicInventory(f.one.id),value)
+})
+
+test('delete library removes loaded or closed entries, invalidates requests, and preserves files', async t => {
+  const f = await fixture(t)
+  const mounted = f.registry.get(f.one.id)
+  await writeFile(join(f.a, 'original.pdf'), 'original document')
+  let canceled = false
+  await f.registry.remove(f.one.id, () => { canceled = true })
+  assert.equal(canceled, true)
+  assert.throws(() => f.registry.current(mounted), /closed/)
+  assert.equal(await readFile(join(f.a, 'original.pdf'), 'utf8'), 'original document')
+  assert.equal(await readFile(join(f.a, 'tokensmith.sqlite'), 'utf8'), 'test database')
+  assert.deepEqual(f.registry.list().map(c => c.id), [f.two.id])
+  await f.registry.unload(f.two.id)
+  await f.registry.remove(f.two.id)
+  const restarted = new CollectionRegistry(f.registryPath, f.access)
+  await restarted.initialize()
+  assert.deepEqual(restarted.list(), [])
+})
+
+for (const action of ['unload','remove']) test(`${action} persistence failure keeps the library mounted and does not cancel its work`,async t=>{
+ const f=await fixture(t), mounted=f.registry.get(f.one.id)
+ const saved=f.registryPath+'.saved'
+ await rename(f.registryPath,saved);await mkdir(f.registryPath)
+ let stopped=false
+ await assert.rejects(f.registry[action](f.one.id,()=>{stopped=true}))
+ assert.equal(stopped,false);assert.equal(f.registry.get(f.one.id),mounted)
+ assert.equal(f.registry.list().length,2);assert.deepEqual(f.closed,[])
+ await rm(f.registryPath,{recursive:true});await rename(saved,f.registryPath)
+ await f.registry[action](f.one.id,()=>{stopped=true})
+ assert.equal(stopped,true)
+})
+
+test('delete cancels the target only and invalidates stale requests before cleanup',async t=>{
+ const f=await fixture(t), old=f.registry.get(f.one.id), other=f.registry.get(f.two.id)
+ await f.registry.remove(f.one.id,()=>{
+  assert.throws(()=>f.registry.current(old),/closed/)
+  f.registry.current(other)
+ })
+ assert.deepEqual(f.closed,[f.a]);assert.equal(f.registry.get(f.two.id),other)
+ await f.registry.remove(f.one.id,()=>assert.fail('Repeated delete must not cancel another library'))
+ assert.deepEqual(f.closed,[f.a])
+})
+
+test('export snapshots serialize revision changes and release the lock after failure',async t=>{
+ const f=await fixture(t), item=f.registry.get(f.one.id), revision=item.indexRevision
+ let release, entered
+ const ready=new Promise(resolve=>{entered=resolve}), gate=new Promise(resolve=>{release=resolve})
+ const snapshot=f.registry.snapshot(item.id,async current=>{assert.equal(current,item);entered();await gate;assert.equal(current.indexRevision,revision);throw Error('Export failed')})
+ await ready
+ const failure=assert.rejects(snapshot,/Export failed/)
+ const change=f.registry.revise(item)
+ assert.equal(item.indexRevision,revision)
+ release();await failure;await change
+ assert.notEqual(item.indexRevision,revision)
 })

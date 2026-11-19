@@ -33,8 +33,15 @@ export async function advancePractice(page, count) {
   })
   if (total < count) {
     await reviewPracticeQuestion(page, total)
-    await page.locator('.practice-composer').getByRole('button', { name: 'True', exact: true }).click()
-    await idlePractice(page)
+    const answered = await page.evaluate(() => {
+      const { practice } = window.practiceTest.state()
+      const session = practice.sessions.find(session => session.id === practice.activeSessionId)
+      return session.questions[session.currentIndex].attempts.length > 0
+    })
+    if (!answered) {
+      await page.locator('.practice-composer').getByRole('button', { name: 'True', exact: true }).click()
+      await idlePractice(page)
+    }
     await page.locator('.practice-frame').getByRole('button', { name: 'Next question', exact: true }).click()
     await page.waitForFunction(count => {
       const { practice } = window.practiceTest.state()

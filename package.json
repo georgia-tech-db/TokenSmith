@@ -30,7 +30,10 @@
     "package:win": "node scripts/package-win.mjs",
     "package:linux": "node scripts/package-linux.mjs",
     "test:eval:fast": "node --test tests/experiments/local-eval-policy.test.mjs tests/experiments/local-eval-judge.test.mjs tests/experiments/local-eval-runner.test.mjs tests/experiments/buzzdb-regression.test.mjs tests/unit/typescript/buzzdb-reasoning.test.mjs",
-    "test:eval:buzzdb": "node scripts/python-dev.mjs benchmark --live --graded"
+    "test:eval:buzzdb": "node scripts/python-dev.mjs benchmark --live --graded",
+    "test:setup:ui": "node tests/ui/setup-lifecycle-check.mjs && node tests/ui/library-controls-check.mjs",
+    "test:setup:native": "node tests/ui/initial-setup-check.mjs && node tests/ui/library-archive-check.mjs",
+    "test:setup": "npm run build && npm run test:setup:ui && npm run test:setup:native"
   },
   "dependencies": {
     "katex": "^0.16.47",
@@ -51,6 +54,7 @@
     "c8": "^11.0.0",
     "electron": "^41.7.0",
     "electron-vite": "^5.0.0",
+    "playwright": "1.62.1",
     "typescript": "^6.0.3",
     "vite": "^7.3.3"
   }

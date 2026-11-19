@@ -173,10 +173,10 @@ export function CloudGeneratorDialog({ model, localSearch, configuredModels, onC
       <button className="cloud-icon-button" type="button" aria-label="Close cloud setup" onClick={onClose}><X size={20} /></button>
     </header>
     <div className="cloud-dialog-body">
-      <h2 id="cloud-dialog-title">{confirmingForget ? `Forget ${name} API key?` : !provider ? 'Connect an online provider' : step === 'key' ? `Connect ${name}` : `Choose your ${role === 'embedder' ? 'embedding' : 'chat'} model`}</h2>
-      <p className="cloud-intro">{confirmingForget
+      <h2 id="cloud-dialog-title">{confirmingForget ? `Forget ${name} API key?` : !provider ? 'Cloud Model Provider' : step === 'key' ? `Connect ${name}` : `Choose your ${role === 'embedder' ? 'embedding' : 'chat'} model`}</h2>
+      {(provider || confirmingForget) && <p className="cloud-intro">{confirmingForget
         ? `The saved key will be removed from this device.${modelsUsingCredential === 0 ? '' : modelsUsingCredential === 1 ? ' This model will need the key again before use.' : ` All ${modelsUsingCredential} connected models will need the key again before use.`}`
-        : !provider ? 'Connect a provider once, then add any compatible chat or embedding model.' : step === 'key' ? 'Use your own API key to connect your account.' : `Choose a ${role === 'embedder' ? 'model for PDF search' : 'model for chat'} available through your ${name} account.`}</p>
+        : !provider ? '' : step === 'key' ? 'Use your own API key to connect your account.' : `Choose a ${role === 'embedder' ? 'model for PDF search' : 'model for chat'} available through your ${name} account.`}</p>}
       {!provider ? <div className="cloud-provider-list">
         {['gemini', 'openai', 'groq', 'mistral', 'custom'].map(id => {
           const item = remoteProviderCatalog.find(p => p.id === id)!
@@ -245,7 +245,6 @@ export function CloudGeneratorDialog({ model, localSearch, configuredModels, onC
         </>}
       </form>}
       {!provider && error && <p className="cloud-error" role="alert">{error.message}</p>}
-      {!provider && <p className="cloud-footer-note">Your current question and sources stay in place.</p>}
     </div>
   </dialog>
 }

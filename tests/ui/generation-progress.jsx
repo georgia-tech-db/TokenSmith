@@ -36,6 +36,7 @@ document.querySelector('#source').onclick=()=>sourceLoads.shift()?.()
 function testPdf() {
   const contents='BT /F1 18 Tf 50 730 Td (Transactions are atomic: all changes commit or none do.) Tj ET'
   const objects=[ '<</Type /Catalog /Pages 2 0 R>>', '<</Type /Pages /Kids [3 0 R] /Count 1>>', '<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources <</Font <</F1 4 0 R>>>> /Contents 5 0 R>>', '<</Type /Font /Subtype /Type1 /BaseFont /Helvetica>>', `<</Length ${contents.length}>>\nstream\n${contents}\nendstream` ]
+  if(params.has('wide-pdf')) objects[2]=objects[2].replace('612 792','1600 900')
   let pdf='%PDF-1.4\n', offsets=[0]
   objects.forEach((object,index)=>{offsets.push(pdf.length);pdf+=`${index+1} 0 obj\n${object}\nendobj\n`})
   const xref=pdf.length

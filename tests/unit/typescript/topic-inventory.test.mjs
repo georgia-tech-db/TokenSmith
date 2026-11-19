@@ -87,6 +87,61 @@ test('unchanged later checkpoints survive interruption after an early chapter ch
   assert.equal(Object.keys(f.saved.batches).length,3)
   f.fail=false;await f.run();assert.equal(f.calls,5)
 })
-test('small model is rejected rather than silently used as fallback',async()=>{
-  await assert.rejects(generateTopicInventory({},[],[],{...model,ollamaModelName:'gemma4:e4b'},{},{},'r',new AbortController().signal,()=>{}),/gemma4:26b/)
+test('embedding-only models cannot generate topics',async()=>{
+  await assert.rejects(generateTopicInventory({},[],[],{...model,role:'embedder'},{},{},'r',new AbortController().signal,()=>{}),/generation model/)
+})
+
+test('invalid topic responses retry with correction and preserve completed batches', async () => {
+ const docs=[{materialId:'collection/1',documentId:1}]
+ const rows=[source(1,'Chapter 1. Storage'),source(2,'Chapter 2. Indexes')]
+ let saved=null,calls=0
+ const bridge={studyDocuments:async()=>docs,topicSources:async()=>rows,loadTopicInventory:async()=>saved,
+  saveTopicInventory:async v=>{saved=structuredClone(v)},sendChatMessage:async r=>{
+   calls++
+   if(calls===2) return {sources:r.retrievedSources,text:'{"topics":[]}'}
+   if(calls===3) {assert.ok(JSON.parse(r.prompt).correction);assert.equal(saved.completed,1)}
+   return reply(r.retrievedSources,'Storage')
+  }}
+ await generateTopicInventory(bridge,docs,[{id:'collection/1',collectionRevision:'r1'}],model,{application:{}},{},'r',new AbortController().signal,()=>{})
+ assert.equal(calls,3);assert.equal(saved.complete,true);assert.equal(saved.completed,2)
+})
+test('repeated invalid responses stop after three attempts without overwriting saved topics', async () => {
+ const docs=[{materialId:'collection/1',documentId:1}]
+ let saved=null,calls=0
+ const bridge={studyDocuments:async()=>docs,topicSources:async()=>[source(1,'Chapter 1. Storage'),source(2,'Chapter 2. Indexes')],loadTopicInventory:async()=>saved,
+  saveTopicInventory:async v=>{saved=structuredClone(v)},sendChatMessage:async r=>{
+   calls++;return calls===1?reply(r.retrievedSources,'Storage'):{sources:r.retrievedSources,text:'{"topics":[]}'}
+  }}
+ await assert.rejects(generateTopicInventory(bridge,docs,[{id:'collection/1',collectionRevision:'r1'}],model,{application:{}},{},'r',new AbortController().signal,()=>{}),/batch 2 of 2 after 3 attempts.*1 topics are saved/)
+ assert.equal(calls,4);assert.equal(saved.completed,1);assert.equal(saved.topics.length,1)
+})
+
+test('topic validation identifies exact malformed fields and accepts boundary lengths', () => {
+ const batch=buildTopicBatches([source(1,'Chapter 1. Storage')])[0]
+ const valid=()=>JSON.parse(reply(batch.sources,'Storage').text)
+ const cases=[
+  [v=>v.topics[0].title='x'.repeat(101), /topics\[0\]\.title: maximum 100 characters; received 101/],
+  [v=>v.topics[0].title='Why?', /topics\[0\]\.title/],
+  [v=>v.topics[0].title='  ', /topics\[0\]\.title/],
+  [v=>v.topics[0].aliases=['x'.repeat(101)], /aliases\[0\]: maximum 100/],
+  [v=>v.topics[0].objectives[1]='x'.repeat(501), /objectives\[1\]: maximum 500/],
+  [v=>v.topics[0].objectives[0]='  ', /objectives\[0\]: text must not be blank/],
+  [v=>v.topics[0].sourceKeys=['invented'], /sourceKeys\[0\]: source references/],
+  [v=>v.topics[0]=null, /topics\[0\]: expected an object/],
+  [v=>delete v.topics[0].aliases, /aliases: expected an array/],
+ ]
+ for(const [mutate,expected] of cases){const v=valid();mutate(v);assert.throws(()=>parseInventoryTopics(JSON.stringify(v),batch,'collection'),expected)}
+ const boundary=valid();boundary.topics[0].title='x'.repeat(100);boundary.topics[0].aliases=['😀'.repeat(100)];boundary.topics[0].objectives[0]='x'.repeat(500)
+ assert.equal(parseInventoryTopics(JSON.stringify(boundary),batch,'collection').length,1)
+ assert.throws(()=>parseInventoryTopics('null',batch,'collection'),/expected an object/)
+ assert.throws(()=>parseInventoryTopics('{',batch,'collection'),/expected valid JSON/)
+})
+test('model schema includes the same title, alias, objective and evidence restrictions', () => {
+ const {topicResponseSchema}=requireTranspiledTs('src/shared/topic-response.ts')
+ const fields=topicResponseSchema(['source-1']).properties.topics.items.properties
+ assert.equal(fields.title.maxLength,100);assert.equal(fields.aliases.items.maxLength,100)
+ assert.equal(fields.objectives.items.maxLength,500)
+ assert.equal(new RegExp(fields.title.pattern).test('Why?'),false)
+ assert.equal(new RegExp(fields.objectives.items.pattern).test('  '),false)
+ assert.deepEqual(fields.sourceKeys.items.enum,['source-1'])
 })

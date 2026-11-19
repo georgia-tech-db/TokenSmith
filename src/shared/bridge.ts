@@ -39,14 +39,19 @@ import type {
 } from './ollama'
 
 export interface TokenSmithBridge {
+  exportPracticeRecord: (record: string) => Promise<boolean>
   onModelLoading: (callback: (event: import('./model-loading').ModelLoadingEvent) => void) => () => void
   listCollections: () => Promise<import('./collections').Collection[]>
   createCollection: (path: string, name: string) => Promise<import('./collections').Collection[]>
   createLibrary: (name: string) => Promise<import('./collections').Collection[]>
   pickLibrary: () => Promise<PickMaterialFolderResult>
   loadCollection: (path: string) => Promise<import('./collections').Collection[]>
+  exportLibrary: (id: string) => Promise<boolean>
+  importLibrary: () => Promise<import('./collections').Collection[] | null>
+  deleteLibrary: (id: string) => Promise<import('./collections').Collection[] | null>
   unloadCollection: (id: string) => Promise<import('./collections').Collection[]>
   locateCollectionFolder: (materialId: string, path: string) => Promise<void>
+  extractLibraryTopics: (materialId: string, model?: LocalModel) => Promise<CourseMaterial>
   loadTopicInventory: (collectionId: string) => Promise<import('./topic-inventory').TopicInventory | null>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
@@ -69,6 +74,7 @@ export interface TokenSmithBridge {
   getPdfThumbnailForSource: (source: ChatSource) => Promise<PdfSourceThumbnail>
   getMarkdownForSource: (source: ChatSource) => Promise<MarkdownSourceDocument>
   pickMaterials: () => Promise<PickMaterialsResult>
+  pickDocumentFolder: () => Promise<import('./engine').PickMaterialFolderResult>
   pickMaterialFolder: () => Promise<PickMaterialFolderResult>
   cancelMaterialIndexing: (materialId: string) => Promise<void>
   previewCleaning: (

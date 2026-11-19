@@ -152,7 +152,12 @@ def prepare_blocks(blocks: list[dict], complete: Callable, cache: Path,
         error = ''
         rejected = ''
         for attempt in range(3):
-            progress(cursor, len(blocks), 'Checking boundaries' if proposal else 'Reading and grouping')
+            pages = [b['page'] for b in window if b.get('page')]
+            lines = [b['line'] for b in window if b.get('line')]
+            location = (f'pages {min(pages)}–{max(pages)}' if pages else
+                        f'lines {min(lines)}–{max(lines)}' if lines else '')
+            stage = 'Checking cached boundaries' if proposal else 'Reading and grouping chunks using LLM'
+            progress(cursor, len(blocks), f'{stage} · {location} · {cursor} of {len(blocks)} text blocks')
             try:
                 if proposal is None:
                     previous_text = ('Heading: ' + previous['group']['title'] + '\n' + prompt['previous_unit']['tail']) if previous else '(none)'
@@ -215,6 +220,36 @@ def completion_client(model: dict) -> Callable:
     if engine == 'remote' and not model.get('apiKey'):
         raise ValueError('Reconnect the preparation model in Models before preparing this collection.')
 
+    prepared_contexts = set()
+    def prepare(*, image=False, progress=lambda message: None):
+        if engine != 'ollama':
+            return
+        context = max(4096, min(int(model.get('contextLength') or (16384 if image else 8192)), 16384))
+        if context in prepared_contexts:
+            return
+        base = str(model.get('ollamaBaseUrl') or 'http://127.0.0.1:11434').rstrip('/')
+        name = model.get('ollamaModelName') or model.get('name')
+        try:
+            with urllib.request.urlopen(base + '/api/ps', timeout=10) as response:
+                running = json.load(response).get('models', [])
+            if any(item.get('name') == name and item.get('context_length') == context for item in running):
+                prepared_contexts.add(context)
+                return
+        except (OSError, ValueError):
+            pass  # Older servers may not expose loaded models; use the load request.
+        progress(f'Loading {model.get("name") or name} for OCR')
+        request = urllib.request.Request(base + '/api/chat', data=json.dumps({
+            'model': name, 'messages': [], 'stream': False, 'keep_alive': '5m',
+            'options': {'num_ctx': context}}).encode(), headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=900) as response:
+                result = json.load(response)
+            if result.get('error'):
+                raise ValueError('Could not load the OCR model: ' + str(result['error']))
+        except (OSError, TimeoutError) as error:
+            raise ValueError('Could not load the OCR model. Check Ollama, then resume preparation.') from error
+        prepared_contexts.add(context)
+
     def complete(messages: list[dict], schema: dict, *, image: bytes | None = None) -> str:
         # Only the PDF preparer supplies an image. Keep text-only requests unchanged.
         if image is not None:
@@ -230,7 +265,8 @@ def completion_client(model: dict) -> Callable:
             body = {'model': model.get('ollamaModelName') or model.get('name'), 'messages': messages,
                     'stream': False, 'format': schema, 'think': False,
                     'options': {'temperature': 0, 'num_ctx': context,
-                                'num_predict': min(8192, context // 2) if image is not None else 4096}}
+                                'num_predict': min(8192, context // 2) if image is not None else 4096,
+                                **({'repeat_penalty': 1.1, 'repeat_last_n': 256} if image is not None else {})}}
             url = base + '/api/chat'
         else:
             base = str(model.get('baseUrl') or '').rstrip('/')
@@ -251,10 +287,11 @@ def completion_client(model: dict) -> Callable:
             raise ValueError('The preparation model could not be reached. Start or reconnect it, then resume.') from None
         if engine == 'ollama':
             if result.get('done_reason') == 'length':
-                raise ValueError('The preparation response was cut short. Choose a model with a larger context window.')
+                raise ValueError('The preparation response was cut short because the model reached its output limit. Try another preparation model, then resume.')
             return result.get('message', {}).get('content', '')
         choice = (result.get('choices') or [{}])[0]
         if choice.get('finish_reason') == 'length':
             raise ValueError('The preparation response was cut short. Choose a model with a larger output limit.')
         return choice.get('message', {}).get('content', '')
+    complete.prepare = prepare
     return complete

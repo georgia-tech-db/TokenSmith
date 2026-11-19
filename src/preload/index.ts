@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { TokenSmithBridge } from '../shared/bridge'
 
 const tokenSmithBridge: TokenSmithBridge = {
+  exportPracticeRecord: record => ipcRenderer.invoke('practice:export-record', record),
   onModelLoading: callback => {
     const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => callback(progress)
     ipcRenderer.on('engine:model-loading', listener)
@@ -68,6 +69,7 @@ const tokenSmithBridge: TokenSmithBridge = {
     ipcRenderer.invoke('library:pick-materials') as Promise<
       Awaited<ReturnType<TokenSmithBridge['pickMaterials']>>
     >,
+  pickDocumentFolder: () => ipcRenderer.invoke('library:pick-document-folder'),
   pickMaterialFolder: () =>
     ipcRenderer.invoke('library:pick-material-folder') as Promise<
       Awaited<ReturnType<TokenSmithBridge['pickMaterialFolder']>>
@@ -85,8 +87,12 @@ const tokenSmithBridge: TokenSmithBridge = {
   createLibrary: name => ipcRenderer.invoke('libraries:create', name),
   pickLibrary: () => ipcRenderer.invoke('libraries:pick'),
   loadCollection: path => ipcRenderer.invoke('collections:load', path),
+  exportLibrary: id => ipcRenderer.invoke('libraries:export', id),
+  importLibrary: () => ipcRenderer.invoke('libraries:import'),
+  deleteLibrary: id => ipcRenderer.invoke('libraries:delete', id),
   unloadCollection: id => ipcRenderer.invoke('collections:unload', id),
   locateCollectionFolder: (materialId, path) => ipcRenderer.invoke('collections:locate-folder', materialId, path),
+  extractLibraryTopics: (id, model) => ipcRenderer.invoke('library:extract-topics', id, model),
   loadTopicInventory: id => ipcRenderer.invoke('collections:topic-inventory', id),
   preparationReport: (path, documentPath, materialId) => ipcRenderer.invoke('library:preparation-report', path, documentPath, materialId),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>

@@ -1,10 +1,17 @@
+import { preparationProgress } from '@shared/preparation-progress'
+import { PreparationProgressText } from './PreparationProgressText'
+import type { CourseMaterial } from '@shared/app-state'
 import { useEffect, useState } from 'react'
+import './study-buttons.css'
 import { waitDisplay } from '@shared/generation-estimate'
 import type { GenerationProgress } from './hooks/useGenerationProgress'
 import './answer-explanation.css'
 import './generation-status.css'
 
-export function GenerationStatus({ progress, onOpen }: { progress: GenerationProgress | null; onOpen: (conversationId: string) => void }) {
+export function GenerationStatus({ progress, onOpen, preparation, onOpenPreparation, onPausePreparation }: {
+  progress: GenerationProgress | null; onOpen: (conversationId: string) => void
+  preparation?: CourseMaterial; onOpenPreparation?: () => void; onPausePreparation?: () => void
+}) {
   const [now, setNow] = useState(performance.now())
   useEffect(() => {
     setNow(performance.now())
@@ -13,6 +20,16 @@ export function GenerationStatus({ progress, onOpen }: { progress: GenerationPro
     return () => window.clearInterval(timer)
   }, [progress?.id, progress?.startedAt, progress?.complete])
   const display = progress ? waitDisplay(progress.estimate, now - progress.startedAt) : null
+  if (preparation && (!progress || progress.complete || progress.kind === 'starter')) {
+    const status = preparation.indexing
+    return <footer className="generation-status preparation-status" aria-label="Preparation status">
+      <button type="button" className="generation-status-label" onClick={onOpenPreparation} title="Open library preparation">{preparation.title}</button>
+      <progress aria-label={`${preparationProgress(status).label} progress`} max={100} value={preparationProgress(status).percent} />
+      <span className="generation-status-time"><PreparationProgressText status={status} /></span>
+      <button type="button" className="study-action-button generation-status-stop" onClick={onPausePreparation}>Pause</button>
+      <p className="preparation-status-detail" role="status">{status?.message || 'Preparing documents'}</p>
+    </footer>
+  }
   return <footer className="generation-status" aria-label="Generation status">
     <span className="sr-only" role="status" aria-live="polite">{progress?.label ?? ''}</span>
     {progress && <>

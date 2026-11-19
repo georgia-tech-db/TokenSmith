@@ -42,6 +42,10 @@ jobs:
         run: python -m pip install --target tmp/coverage-tools -r requirements-coverage.txt
       - name: Typecheck and build
         run: npm run build
+      - name: Install setup-test browser
+        run: npx playwright install --with-deps chromium
+      - name: Setup and library lifecycle regressions
+        run: xvfb-run -a sh -c 'npm run test:setup:ui && npm run test:setup:native'
       - name: TypeScript unit tests with coverage
         run: npm run test:coverage:ts
       - name: Python unit tests with coverage

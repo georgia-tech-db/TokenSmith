@@ -11,7 +11,7 @@ export async function loadSavedTopics(store: { loadTopicInventory: (id: string) 
     const saved = await store.loadTopicInventory(id)
     const revision = materials.find(m => m.id.startsWith(`${id}/`))?.collectionRevision
     if (!saved || saved.version !== topicInventoryVersion || !saved.complete || !revision || saved.indexRevision !== revision)
-      throw new Error('Chapter topics are not ready. Finish or resume book preparation in Libraries.')
+      throw new Error('No chapter topics are available yet. Extract topics from the indexed documents to choose chapters and topics here.')
     return saved
   }))
   return inventories.flatMap(i => i.topics).map(t => ({ ...t, sources: t.sources.filter(s => selected.has(`${s.materialId}:${s.documentId}`)) })).filter(t => t.sources.length)

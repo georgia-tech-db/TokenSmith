@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+from time import monotonic
 from pathlib import Path
 from typing import Any
 
 try:
     from tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
-    from tokensmith_pdf_preparation import prepare_pdf
+    from tokensmith_ocr import read_pdf, shared_rapid_model_dir
 except ImportError:
     from python_engine.tokensmith_preparation import completion_client, digest, prepare_blocks, read_json, source_blocks, write_json
-    from python_engine.tokensmith_pdf_preparation import prepare_pdf
+    from python_engine.tokensmith_ocr import read_pdf, shared_rapid_model_dir
 
+
+PDF_NEEDS_OCR = 'This PDF needs OCR. Set OCR to Yes, choose Rapid OCR or Gemma OCR, then resume preparation.'
 
 def job_directory(user_data_path: str, path: str) -> Path:
     return Path(user_data_path) / 'preparation' / digest(str(Path(path).expanduser().resolve()))
@@ -37,33 +40,77 @@ def prepare_document(file_path: Path, material_id: str, payload: dict, engine: A
     suffix = file_path.suffix.lower()
     if suffix not in engine.SUPPORTED_EXTENSIONS:
         raise ValueError('Only PDF, Markdown, and text documents are supported.')
-    if settings['mode'] == 'basic':
+    ocr = settings.get('ocr', 'none')
+    if settings.get('mode') not in ('basic', 'ai') or ocr not in ('none', 'rapid', 'gemma'):
+        raise ValueError('Choose a valid OCR and chunking mode.')
+    if settings['mode'] == 'basic' and (suffix != '.pdf' or ocr == 'none'):
+        progress(0, 1, 'Basic Chunking', stage='Chunking', stageCompleted=0, stageTotal=1)
         document, chunks = engine.prepare_index_file(material_id, file_path, None,
             payload.get('cleaningProfileId') or engine.DEFAULT_CLEANING_PROFILE_ID, payload.get('cleaningRuleIds'))
-    elif settings['mode'] == 'ai':
+    else:
         instructions = settings.get('documentInstructions', {}).get(str(file_path), settings.get('instructions') or '')
         if suffix == '.pdf':
-            chunks, page_count = prepare_pdf(file_path, complete, cache / 'pdf-pages', instructions, progress)
+            if ocr == 'none':
+                pages, page_count = engine.extract_pdf_pages_pdfium(file_path,
+                    payload.get('cleaningProfileId') or engine.DEFAULT_CLEANING_PROFILE_ID, payload.get('cleaningRuleIds'))
+            else:
+                pages, page_count = read_pdf(file_path, ocr, complete, cache / 'ocr',
+                    lambda done, total, message: progress(done, total * 2, message,
+                        stage='Model setup' if message.startswith(('Loading ', 'Downloading ')) else 'OCR',
+                        stageCompleted=done, stageTotal=total),
+                    model_dir=shared_rapid_model_dir(payload, lambda message: progress(0, 1, message, stage='Model setup')) if ocr == 'rapid' else None)
         else:
-            # Read the original Unicode and line endings; the model only selects boundaries.
+            # Markdown and plain text never enter an OCR engine, even when enabled for PDFs.
             with file_path.open(encoding='utf-8', newline='') as source:
-                text = source.read()
-            if not text.strip():
-                raise ValueError('No readable text was found.')
-            model = payload.get('preparationModel') or {}
-            chunks = prepare_blocks(source_blocks([{'text': text}]), complete, cache / 'text-boundaries',
-                instructions, progress,
-                window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)))
+                pages = [{'text': source.read()}]
             page_count = None
+        if not any(page['text'].strip() for page in pages):
+            raise ValueError(PDF_NEEDS_OCR if suffix == '.pdf' and ocr == 'none' else 'No readable text was found.')
+        if settings['mode'] == 'basic':
+            progress(1, 2, 'Basic Chunking', stage='Chunking', stageCompleted=0, stageTotal=1)
+            chunks = engine.chunk_pdf_pages(pages, payload.get('cleaningRuleIds'))
+        else:
+            model = payload.get('preparationModel') or {}
+            chunks = prepare_blocks(source_blocks(pages), complete, cache / 'text-boundaries',
+                instructions, lambda done, total, message: progress(total + done, total * 2, message,
+                    stage='Chunking', stageCompleted=done, stageTotal=total),
+                window_chars=max(2000, min(6000, (int(model.get('contextLength') or 8192) - 3000) * 2)))
         document = {'id': engine.create_id('document'), 'materialId': material_id, 'title': file_path.stem,
                     'path': str(file_path), 'kind': engine.material_kind(file_path), 'pageCount': page_count,
                     'wordCount': sum(c['wordCount'] for c in chunks), 'chunkCount': len(chunks), 'status': 'ready'}
-    else:
-        raise ValueError('Choose Basic or AI preparation.')
     if not chunks:
+        if suffix == '.pdf' and ocr == 'none' and document.get('wordCount') == 0 and document.get('error') == 'No readable study text was found.':
+            raise ValueError(PDF_NEEDS_OCR)
         raise ValueError(document.get('error') or 'No readable text was found.')
+    progress(1, 1, 'Chunking complete', stage='Chunking', stageCompleted=1, stageTotal=1)
     document['thumbnails'] = []
     return document, chunks
+
+
+def stage_timing(clock: dict, stage: dict) -> dict:
+    name = stage.get('stage')
+    completed = stage.get('stageCompleted', 0)
+    size = stage.get('stageTotal', 0)
+    now = monotonic()
+    if name != clock['name'] or completed < clock.get('last_completed', completed):
+        clock.update(name=name, started=now, last_time=now, last_completed=completed, unit_ms=None)
+    elapsed = (now - clock['started']) * 1000
+    if not name or name == 'Model setup':
+        return {}
+    advanced = completed - clock['last_completed']
+    if advanced > 0:
+        interval = (now - clock['last_time']) * 1000
+        if interval > 0:
+            observed = interval / advanced
+            # Recent pages/windows matter more as processing speed changes.
+            clock['unit_ms'] = observed if clock['unit_ms'] is None else .4 * observed + .6 * clock['unit_ms']
+        clock.update(last_completed=completed, last_time=now)
+    result = {'stagePercent': min(100, max(0, completed / max(size, 1) * 100)), 'stageElapsedMs': elapsed}
+    if completed >= size and size > 0:
+        result['estimatedRemainingMs'] = 0
+    elif clock['unit_ms'] is not None:
+        result['estimatedRemainingMs'] = max(0, clock['unit_ms'] * (size - completed) - (now - clock['last_time']) * 1000)
+    return result
 
 
 def index(payload: dict, engine: Any) -> dict:
@@ -89,12 +136,17 @@ def index(payload: dict, engine: Any) -> dict:
     if previous:
         material_id = previous['id']
 
+    search_clock = {'name': None, 'started': monotonic(), 'initial': 0}
     def progress(phase: str, percent: int, message: str, **extra: Any) -> None:
+        if phase == 'embedding':
+            extra.update(stage='Preparing search', stageCompleted=extra.get('processedEmbeddings', 0), stageTotal=extra.get('totalEmbeddings', 0))
+            if extra['stageTotal']:
+                extra.update(stage_timing(search_clock, extra))
         engine.send_progress(payload.get('_requestId'), {'materialId': payload.get('materialId') or material_id,
                              'phase': phase, 'percent': percent, 'totalFiles': len(files), 'message': message, **extra})
 
     progress('parsing', 1, 'Reading documents')
-    complete = completion_client(model) if settings['mode'] == 'ai' else None
+    complete = completion_client(model) if settings['mode'] == 'ai' or (settings.get('ocr') == 'gemma' and any(f.suffix.lower() == '.pdf' for f in files)) else None
     # Cache keys contain model identity and policy, never credentials.
     identity = {key: model.get(key) for key in ('engine', 'id', 'name', 'remoteModelName', 'baseUrl', 'ollamaModelName', 'ollamaBaseUrl', 'contextLength')}
     model_cache = directory / 'models' / digest(identity)
@@ -103,9 +155,12 @@ def index(payload: dict, engine: Any) -> dict:
         entry = {'title': file_path.stem, 'path': str(file_path), 'status': 'preparing', 'chunkCount': 0}
         progress('parsing', 1 + round(file_index / len(files) * 49), f'Reading {file_path.name}', processedFiles=file_index)
         try:
-            document, chunks = prepare_document(file_path, material_id, payload, engine, complete, model_cache,
-                lambda done, total, message: progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
-                    f'{message}: {file_path.name}', processedFiles=file_index))
+            stage_clock = {'name': None, 'started': monotonic(), 'initial': 0}
+            def document_progress(done, total, message, **stage):
+                stage.update(stage_timing(stage_clock, stage))
+                progress('chunking', 1 + round((file_index + done / max(total, 1)) / len(files) * 49),
+                         f'{message}: {file_path.name}', processedFiles=file_index, **stage)
+            document, chunks = prepare_document(file_path, material_id, payload, engine, complete, model_cache, document_progress)
             entry.update(status='ready', pageCount=document.get('pageCount'), chunkCount=len(chunks),
                          chunksFile='documents/' + digest(str(file_path)) + '.json')
             write_json(directory / entry['chunksFile'], chunks)

@@ -18,19 +18,22 @@ export function migrateConversationModels(conversations: Conversation[], legacyM
 }
 
 export function studyModelTarget(state: AppStateSnapshot): ModelSelectionTarget {
-  return state.practice?.mode === 'practice' ? { kind: 'practice' }
+  return (state.activeScreen === 'practice' || (state.activeScreen !== 'chat' && state.practice?.mode === 'practice')) ? { kind: 'practice' }
     : { kind: 'chat', conversationId: state.activeConversationId }
 }
 
 export function selectStudyModel(state: AppStateSnapshot, modelId: string, target: ModelSelectionTarget): AppStateSnapshot {
   if (!answerModel(state.models, modelId)) return state
   if (target.kind === 'chat' && !state.conversations.some(chat => chat.id === target.conversationId)) return state
-  if (target.kind === 'practice' && (!state.practice || state.practice.activeSessionId)) return state
+  if (target.kind === 'practice' && !state.practice) return state
   return {
     ...state,
     conversations: target.kind === 'chat' ? state.conversations.map(chat => chat.id === target.conversationId
       ? { ...chat, modelId } : chat) : state.conversations,
-    practice: target.kind === 'practice' ? { ...state.practice!, draftModelId: modelId } : state.practice,
+    practice: target.kind === 'practice' ? { ...state.practice!, draftModelId: modelId,
+      sessions: state.practice!.sessions.map(session => session.id === state.practice!.activeSessionId
+        ? { ...session, modelId, modelSettings: { ...state.settings.modelDefaults, ...state.settings.modelSettingsById[modelId] } }
+        : session) } : state.practice,
     // The first explicit choice also establishes the default for new sessions.
     settings: state.settings.application.defaultModelId ? state.settings : { ...state.settings,
       application: { ...state.settings.application, defaultModelId: modelId } }

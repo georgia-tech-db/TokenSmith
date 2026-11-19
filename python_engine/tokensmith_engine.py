@@ -2057,10 +2057,14 @@ def resolve_source_document(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 try:
     import tokensmith_collections
+    import tokensmith_library_archive
 except ImportError:
-    from python_engine import tokensmith_collections
+    from python_engine import tokensmith_collections, tokensmith_library_archive
 
 COMMANDS = {
+    'library_export_plan': tokensmith_library_archive.plan,
+    'library_export': tokensmith_library_archive.export_library,
+    'library_import': tokensmith_library_archive.import_library,
     'validate_collection': tokensmith_collections.validate,
     'create_collection': tokensmith_collections.create,
     "health": health,

@@ -38,7 +38,6 @@ try {
     await button('Close mastery').click()
     await button('View mastery').waitFor()
     const downloadPromise = page.waitForEvent('download')
-    page.once('dialog', dialog => dialog.accept(''))
     await exportButton.click()
     const download = await downloadPromise
     const exported = JSON.parse(await readFile(await download.path(), 'utf8'))

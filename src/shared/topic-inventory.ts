@@ -1,3 +1,4 @@
+import { validateTopicResponse } from './topic-response'
 import type { ChatSource } from './app-state'
 import type { PracticeTopic } from './practice'
 import { practiceSourceKey } from './practice'
@@ -79,14 +80,10 @@ export function buildTopicBatches(sources: ChatSource[], maxCharacters = 65000):
 }
 
 export function parseInventoryTopics(raw: string, batch: TopicBatch, collectionId: string): InventoryTopic[] {
-  const value = JSON.parse(raw)
-  if (!Array.isArray(value.topics) || !value.topics.length || value.topics.length > 20) throw new Error('The chapter returned no usable review terms.')
-  return value.topics.map((t: { title: string; aliases: string[]; objectives: string[]; sourceKeys: string[] }) => {
-    if (typeof t.title !== 'string' || !t.title.trim() || t.title.length > 100 || /[\n?]/.test(t.title) ||
-      !Array.isArray(t.aliases) || t.aliases.length > 6 || t.aliases.some(a => typeof a !== 'string' || a.length > 100) ||
-      !Array.isArray(t.objectives) || t.objectives.length < 2 || t.objectives.length > 5 || t.objectives.some(o => typeof o !== 'string' || !o.trim() || o.length > 500) ||
-      !Array.isArray(t.sourceKeys) || !t.sourceKeys.length || t.sourceKeys.length > 6 || t.sourceKeys.some(k => !batch.sources.some(s => practiceSourceKey(s) === k)))
-      throw new Error('The chapter returned invalid terms or source references. Retry chapter topics.')
+  let value: unknown
+  try { value = JSON.parse(raw) } catch { throw new Error('Invalid topic response: expected valid JSON.') }
+  validateTopicResponse(value, batch.sources.map(practiceSourceKey))
+  return value.topics.map(t => {
     const title = t.title.trim()
     const id = `topic-${topicHash(`${collectionId}:${batch.chapterId}:${nameKey(title)}`)}`
     return { id, title, area: batch.area, aliases: t.aliases, objectives: t.objectives,

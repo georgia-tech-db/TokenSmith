@@ -3,3 +3,6 @@ numpy==2.5.2
 packaging==26.3
 Pillow==12.3.0
 pypdfium2==5.13.0
+rapidocr==3.10.0
+onnxruntime==1.32.0
+opencv-python-headless==4.14.0.94

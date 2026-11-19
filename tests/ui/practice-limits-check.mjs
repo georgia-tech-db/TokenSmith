@@ -24,6 +24,8 @@ try {
       await idlePractice(page)
       assert.equal(await practice.getByRole('heading', { name: 'Practice complete', exact: true }).count(), 0, 'Completion waits for the last answer')
       await practice.getByLabel('Your answer', { exact: true }).getByRole('button', { name: 'True', exact: true }).click()
+      await idlePractice(page)
+      if (i + 1 < limit) await practice.getByRole('button', { name: 'Next question', exact: true }).click()
     }
     await practice.getByText(`You’ve answered all ${limit} questions in this session.`, { exact: true }).waitFor()
     await idlePractice(page)
@@ -32,7 +34,7 @@ try {
     assert.equal(await practice.getByRole('button', { name: 'Retry question', exact: true }).count(), 0)
     assert.equal(await practice.getByRole('button', { name: 'Choose topics', exact: true }).isEnabled(), true)
     const samePassage = JSON.parse((await modelCalls())[passages].request.prompt).previousQuestionsFromPassage
-    assert.equal(samePassage.length, 1)
+    assert.equal(samePassage.length, passages, 'The fixture cites every passage, so each preceding question is included')
     assert.ok(samePassage[0].testedIdeas.length)
     await reviewPracticeQuestion(page, 1)
     assert.equal((await modelCalls()).length, limit, 'Reviewing old feedback does not generate questions')
@@ -42,7 +44,10 @@ try {
     assert.equal((await modelCalls()).length, 0, 'Reloading a completed session makes no question call')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     await page.screenshot({ path: `${output}/${name}.png` })
-    await practice.getByRole('button', { name: 'Choose topics', exact: true }).click()
+    await practice.getByRole('region', { name: 'Practice complete', exact: true }).getByRole('button', { name: 'View results', exact: true }).click()
+    await practice.getByRole('heading', { name: 'Your practice progress', exact: true }).waitFor()
+    await practice.getByRole('button', { name: 'Return to practice', exact: true }).click()
+    await practice.getByRole('region', { name: 'Practice complete', exact: true }).getByRole('button', { name: 'Choose topics', exact: true }).click()
     await practice.getByLabel('Your topic', { exact: true }).waitFor()
   }
   assert.deepEqual(errors, [])

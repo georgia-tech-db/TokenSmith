@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CourseMaterial } from '@shared/app-state'
+import { loadStudyDocuments, documentLoadError } from '@shared/study-document-loading'
 import type { StudyDocument } from '@shared/study-scope'
 
 export interface StudyCatalog {
@@ -18,19 +19,20 @@ export function useStudyDocuments(materials: CourseMaterial[], enabled: boolean,
   useEffect(() => {
     if (!enabled) return
     let disposed = false
+    const controller = new AbortController()
     setDocuments([])
     setStatus('loading')
     setError('')
     const request = window.tokensmith?.studyDocuments
-      ? window.tokensmith.studyDocuments() : Promise.reject(new Error('Update TokenSmith to load study documents.'))
+      ? loadStudyDocuments(() => window.tokensmith!.studyDocuments(), controller.signal) : Promise.reject(new Error('Update TokenSmith to load study documents.'))
     void request.then(items => {
       if (disposed) return
       setDocuments(items); setStatus('ready')
     }).catch(reason => {
       if (disposed) return
-      setError(reason instanceof Error ? reason.message : String(reason)); setStatus('error')
+      setError(documentLoadError(reason)); setStatus('error')
     })
-    return () => { disposed = true }
+    return () => { disposed = true; controller.abort() }
   }, [enabled, signature, revision, collectionKey])
   return { documents, status, error, reload: () => setRevision(value => value + 1) }
 }

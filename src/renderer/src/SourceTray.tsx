@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BookOpen, FileText } from 'lucide-react'
 import type { ChatSource } from '@shared/app-state'
 import type { PdfSourceThumbnail } from '@shared/engine'
@@ -24,17 +24,25 @@ function sourcePageLabel(source: ChatSource) {
   return source.locator
 }
 
-export function SourceTray({ error, sources, onOpenSource }: {
+export function SourceTray({ error, sources, open = true, onOpenSource }: {
   error?: string | null
   sources: ChatSource[]
+  open?: boolean
   onOpenSource: (source: ChatSource) => void
 }) {
   const [thumbnails, setThumbnails] = useState<Record<string, PdfSourceThumbnail>>({})
   const list = useRef<HTMLDivElement>(null)
+  const displayedSources = useRef<ChatSource[] | null>(null)
+  useLayoutEffect(() => {
+    // Hidden panes cannot be scrolled. Reset new evidence when it becomes visible.
+    if (open && list.current && displayedSources.current !== sources) {
+      list.current.scrollTop = 0
+      displayedSources.current = sources
+    }
+  }, [open, sources])
   useEffect(() => {
     let canceled = false
     setThumbnails({})
-    if (list.current) list.current.scrollTop = 0
     const bridge = window.tokensmith
     if (bridge?.getPdfThumbnailForSource) {
       sources.forEach((source, index) => {

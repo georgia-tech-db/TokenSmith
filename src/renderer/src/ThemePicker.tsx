@@ -10,7 +10,7 @@ export function ThemePicker({ value, onChange }: { value: AppTheme; onChange: (t
   return (
     <fieldset className="theme-picker">
       <legend>Theme</legend>
-      <p className="theme-picker-help">Make yourself at home. Your choice is saved automatically.</p>
+      <p className="theme-picker-help">Make yourself at home.</p>
       <div className="theme-options">
         {themes.map((theme) => (
           <label className="theme-option" key={theme.id}>

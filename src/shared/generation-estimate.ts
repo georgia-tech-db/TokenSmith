@@ -83,10 +83,20 @@ export function estimateWait(context: TimingContext, samples: TimingSample[], de
 
 export function waitDisplay(estimate: WaitEstimate, elapsedMs: number) {
   const elapsed = Math.max(0, elapsedMs)
-  if (elapsed >= estimate.upperMs) return { overdue: true, fraction: undefined, text: `Taking longer than usual · ${Math.floor(elapsed / 1000)}s elapsed` }
-  const rounded = (ms: number) => Math.max(5, Math.ceil(ms / 5000) * 5)
+  if (elapsed >= estimate.upperMs) return { overdue: true, fraction: undefined, text: `Taking longer than usual · ${formatWaitDuration(elapsed)} elapsed` }
+  const remainingHigh = Math.max(0, estimate.upperMs - elapsed)
+  const unit = remainingHigh >= 3_600_000 ? 3_600_000 : remainingHigh >= 60_000 ? 60_000 : 1000
+  const suffix = unit === 3_600_000 ? 'hr' : unit === 60_000 ? 'min' : 's'
+  const step = unit === 3_600_000 ? .1 : unit === 1000 ? 5 : 1
+  const rounded = (ms: number) => Number(Math.max(step, Math.ceil(ms / unit / step) * step).toFixed(1))
   const low = rounded(estimate.lowerMs - elapsed)
   const high = rounded(estimate.upperMs - elapsed)
   return { overdue: false, fraction: Math.min(0.95, elapsed / estimate.upperMs),
-    text: `About ${low === high ? high : `${low}–${high}`}s left` }
+    text: `About ${low === high ? high : `${low}–${high}`}${suffix === 's' ? '' : ' '}${suffix} left` }
+}
+
+export function formatWaitDuration(ms: number): string {
+  if (ms >= 3_600_000) return `${(ms / 3_600_000).toFixed(1)} hr`
+  if (ms >= 60_000) return `${Math.floor(ms / 60_000)} min`
+  return `${Math.floor(ms / 1000)}s`
 }

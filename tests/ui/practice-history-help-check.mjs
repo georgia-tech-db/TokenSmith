@@ -15,7 +15,7 @@ page.on('pageerror', error => errors.push(error.message))
 const practice = page.locator('.practice-frame')
 const questions = practice.locator('.practice-thread-question')
 const first = questions.first()
-const control = name => first.getByRole('button', { name, exact: true })
+const control = name => practice.getByRole('button', { name, exact: true })
 const session = () => page.evaluate(() => window.practiceTest.state().practice.sessions[0])
 const idle = () => idlePractice(page)
 async function open(suffix = '') {
@@ -27,10 +27,10 @@ async function open(suffix = '') {
 async function next(count) { await advancePractice(page, count) }
 async function checkLayout() {
   await first.locator('.practice-question-footer').scrollIntoViewIfNeeded()
-  const message = await first.locator('.practice-message').last().boundingBox()
+  const message = await first.getByRole('region', { name: 'Practice feedback', exact: true }).boundingBox()
   const actions = await first.locator('.practice-source-actions').boundingBox()
-  assert.ok(actions.y - message.y - message.height >= 10 && actions.y - message.y - message.height <= 14,
-    'Source controls should sit close to the last message')
+  assert.ok(actions.y - message.y - message.height >= 12 && actions.y - message.y - message.height <= 24,
+    'Source controls should sit close to the feedback')
   assert.equal(await practice.getByRole('button', { name: /^Continue question/ }).count(), 0)
   assert.equal(await practice.locator('.message-list').evaluate(el => el.scrollWidth <= el.clientWidth), true)
 }
@@ -52,12 +52,12 @@ try {
     await practice.getByLabel('Your answer', { exact: true }).waitFor()
     assert.equal((await session()).currentIndex, 1)
     assert.equal(await practice.getByRole('button', { name: 'False', exact: true }).evaluate(el => el.getAttribute('aria-pressed') === 'true'), true)
-    await practice.getByRole('navigation', { name: 'Questions in this practice' }).getByRole('button', { name: /^Question 1:/ }).click()
+    await reviewPracticeQuestion(page, 1)
     const chat = page.locator('.chat-frame')
     await control('Chat about this question').click()
     await chat.waitFor({ state: 'visible' })
     assert.match(await chat.locator('.message-list').innerText(), /My answer: True/)
-    await chat.getByRole('button', { name: 'Practice', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Practice', exact: true }).click()
     const saved = await session()
     assert.equal(saved.currentIndex, 0)
     assert.equal(saved.questions[0].attempts.length, 1)
@@ -75,6 +75,8 @@ try {
   await open('&slow-model&many-sources')
   await next(2)
   await practice.getByRole('button', { name: 'True', exact: true }).click()
+  await idle()
+  await practice.getByRole('button', { name: 'Next question', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.practice-frame').getAttribute('aria-busy') === 'true')
   assert.equal(await practice.getByRole('button', { name: /^(Hint|Explanation|Try again)$/ }).count(), 0)
   assert.equal(await practice.locator('.practice-pending').count(), 0)

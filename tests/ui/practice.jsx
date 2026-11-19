@@ -43,7 +43,7 @@ if (params.has('topic-scope')) {
   }
 }
 let state = JSON.parse(sessionStorage.getItem(storageKey) || 'null') || {
-  appVersion: 'UI test', activeScreen: 'chat', activeConversationId: 'chat-test',
+  appVersion: 'UI test', activeScreen: params.has('practice') ? 'practice' : 'chat', activeConversationId: 'chat-test',
   conversations: [{ id: 'chat-test', title: 'New chat', period: 'Today', messages: [] }, ...(params.has('model-selection') ? [
     { id: 'a', title: 'Local conversation', period: 'Today', modelId: model.id, messages: [] },
     { id: 'b', title: 'Cloud conversation', period: 'Today', modelId: cloud.id, messages: [] },
@@ -179,11 +179,18 @@ if (params.has('collections')) {
   window.collectionTest = { get: () => collections, pickPath: '/collections/poetry', savedTopics }
   Object.assign(window.tokensmith, {
     listCollections: async () => structuredClone(collections),
-    listMaterials: async () => materials.filter(m => loaded(m.collectionId)),
+    listMaterials: async () => materials.filter(m => loaded(m.collectionId)).map(m => ({ ...m,
+      collectionRevision: collections.find(c => c.id === m.collectionId).indexRevision })),
+    loadTopicInventory: async id => !savedTopics.length ? null : ({ version: 3, collectionId: id, complete: true,
+      indexRevision: collections.find(c => c.id === id)?.indexRevision,
+      topics: savedTopics.map((topic, i) => ({ ...topic, id: `${id}-${i}`, area: 'Chapter 1 — Indexes', aliases: [],
+        objectives: [`Explain ${topic.title}.`], concept: { courseId: id, id: `${id}-${i}`, title: topic.title },
+        sources: documents.filter(d => d.materialId === `${id}/1`).map((d, index) => sourceFor(d, index)) })) }),
     studyDocuments: async () => {
       if (params.has('catalog-error')) throw new Error('The document catalog is temporarily unavailable.')
       return documents.filter(d => loaded(d.collectionId))
     },
+    pickDocumentFolder: async () => ({ path: '/fixture/new/notes.md', title: 'New notes', kind: 'document', canceled: false }),
     pickMaterialFolder: async () => ({ path: window.collectionTest.pickPath, title: 'Chosen folder', canceled: !window.collectionTest.pickPath }),
     pickLibrary: async () => ({ path: window.collectionTest.pickPath, canceled: !window.collectionTest.pickPath }),
     pickMaterials: async () => ({ canceled: false, materials: [

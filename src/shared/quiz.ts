@@ -1,3 +1,4 @@
+import { topicResponseSchema } from './topic-response'
 import type { ChatSource } from './app-state'
 import type { PracticeRubric, PracticeQuestion, PracticeTrueFalseFeedback, PracticeTopic } from './practice'
 import { trimReferenceExchange } from './study-chat-pipeline'
@@ -21,7 +22,7 @@ const trueFalseSchema = object({
 
 
 export function practiceResponseSchema(task: PracticeTask, allowedIds?: string[]): Record<string, unknown> {
-  if (task === 'chapter_topics') return object({ topics: list(object({ title: string, aliases: list(string, 0, 6), objectives: list(string, 2, 5), sourceKeys: list(allowedIds?.length ? { ...string, enum: allowedIds } : string, 1, 6) }), 1, 20) })
+  if (task === 'chapter_topics') return topicResponseSchema(allowedIds)
   if (task === 'true_false_question') return trueFalseSchema
   throw new Error('Unsupported practice task.')
 }

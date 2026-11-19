@@ -1,16 +1,19 @@
+import { preparationProgress } from '@shared/preparation-progress'
+import { PreparationProgressText } from './PreparationProgressText'
+import { useDocumentFolderPreparation } from './DocumentFolderPreparation'
 import type { Collection } from '@shared/collections'
 import { useEffect, useState } from 'react'
-import { ArrowLeft, FileText, Pause, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, Pause, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { ChatSource, CourseMaterial, LocalModel } from '../../shared/app-state'
-import { defaultPreparation, type IndexMaterialOptions, type PreparationReport, type PreparationSettings } from '../../shared/preparation'
+import { preparationNeedsModel, isGemmaModel, preparationGenerator, defaultPreparation, type IndexMaterialOptions, type PreparationReport, type PreparationSettings } from '../../shared/preparation'
 import { collectionDocumentSources } from './source-navigation'
 import './library-workspace.css'
 import type { StudyDocument } from '@shared/study-scope'
-import { addLibraryDocuments, libraryError } from './library-documents'
+import { addLibraryDocuments, libraryError, pickDocumentFolder } from './library-documents'
 
 interface Props {
   collection?: Collection
@@ -24,6 +27,7 @@ interface Props {
   models: LocalModel[]
   selectedModelId: string
   selectedEmbeddingModelId: string
+  onExtractTopics?: (id: string, modelId?: string) => Promise<void>
   onAddMaterials: (items: CourseMaterial[]) => void
   onStartMaterialIndexing: (id: string, path: string, model?: LocalModel, options?: IndexMaterialOptions) => void
   onRemoveMaterial: (id: string) => void
@@ -40,9 +44,11 @@ export function LibraryWorkspace(props: Props) {
   const { materials, models } = props
   const generators = models.filter(m => m.role !== 'embedder' && m.status === 'ready')
   const embedders = models.filter(m => (m.role === 'embedder' || m.role === 'both') && m.status === 'ready')
+  const folderPreparation = useDocumentFolderPreparation()
   const [adding, setAdding] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = materials.find(m => m.id === selectedId)
+  const [modeChosen, setModeChosen] = useState(false)
   const [preparation, setPreparation] = useState<PreparationSettings>(defaultPreparation)
   const [embedderId, setEmbedderId] = useState(props.selectedEmbeddingModelId)
   const [error, setError] = useState('')
@@ -51,8 +57,8 @@ export function LibraryWorkspace(props: Props) {
   const [chunkPage, setChunkPage] = useState(0)
   const [documentOverride, setDocumentOverride] = useState('')
   const [reportLoading, setReportLoading] = useState(false)
-  const modelId = preparation.modelId || props.selectedModelId
-  const generator = generators.find(m => m.id === modelId)
+  const generator = preparationGenerator(models, preparation.modelId, props.selectedModelId, preparation.ocr)
+  const modelId = preparation.modelId || generator?.id || ''
   const embedder = embedders.find(m => m.id === embedderId)
   const document = report?.documents.find(d => d.path === documentPath)
   const documents = props.documents ?? []
@@ -63,20 +69,20 @@ export function LibraryWorkspace(props: Props) {
     let cancelled = false
     setReportLoading(true)
     window.tokensmith!.preparationReport(selected.path, documentPath, selected.id).then(value => {
-      if (!cancelled) setReport(value)
+      if (!cancelled) { setReport(value); if (!documentPath && value.documents.length === 1) setDocumentPath(value.documents[0].path) }
     }).catch(err => { if (!cancelled) setError(libraryError(err)) }).finally(() => { if (!cancelled) setReportLoading(false) })
     return () => { cancelled = true }
   }, [selected?.id, selected?.path, selected?.indexedAt, selected?.status, selected?.indexing?.processedFiles, documentPath])
 
   function inspect(item: CourseMaterial, path = '') {
     setSelectedId(item.id); setError(''); setReport(null); setDocumentPath(path); setChunkPage(0)
-    setPreparation(item.preparation || defaultPreparation()); setEmbedderId(item.embeddingModelId || props.selectedEmbeddingModelId)
+    setModeChosen(Boolean(item.preparation)); setPreparation(item.preparation || defaultPreparation()); setEmbedderId(item.embeddingModelId || props.selectedEmbeddingModelId)
   }
   async function addDocuments() {
     setAdding(true); setError('')
     try {
-      const result = await window.tokensmith!.pickMaterials()
-      if (!result.canceled && result.materials.length) addLibraryDocuments(result.materials, props)
+      const folders = await pickDocumentFolder(folderPreparation.pick)
+      if (folders.length) addLibraryDocuments(folders, props)
     } catch (reason) { setError(libraryError(reason)) }
     finally { setAdding(false) }
   }
@@ -91,34 +97,64 @@ export function LibraryWorkspace(props: Props) {
     setDocumentOverride(preparation.documentInstructions[value] || '')
   }
   function start(next: PreparationSettings = preparation) {
+    if (!modeChosen) { setError('Choose a chunking mode before starting preparation.'); return }
     const sourcePath = selected?.path
     if (!sourcePath) { setError('Select a document first.'); return }
     if (!embedder) { setError('Reconnect your search model in Models, or choose an available embedding model in Settings below.'); return }
-    if (next.mode === 'ai' && !generator) { setError('Choose an available preparation model, or start it in Models.'); return }
-    const preparationModel = next.mode === 'ai' ? generator : undefined
+    if (preparationNeedsModel(next) && !generator) { setError('Choose an available preparation model, or start it in Models.'); return }
+    const preparationModel = preparationNeedsModel(next) ? generator : undefined
     const configuration = { ...next, modelId: preparationModel?.id, modelName: preparationModel?.name }
     if (!selected) return
     props.onStartMaterialIndexing(selected.id, sourcePath, embedder, { title: selected.title, preparation: configuration, preparationModel })
     setError('')
   }
+  function resumeSelected() {
+    if (!selected) return
+    // Apply the visible choices when resuming, rather than silently restoring saved settings.
+    if (JSON.stringify({ ...defaultPreparation(), ...preparation }) !== JSON.stringify({ ...defaultPreparation(), ...selected.preparation })) start()
+    else props.onResumeMaterialIndexing(selected.id)
+  }
+  function preparationError(message: string, path = selected?.path) {
+    if (/\.pdf$/i.test(path || '') && (!selected?.preparation?.ocr || selected.preparation.ocr === 'none') && message === 'No readable study text was found.')
+      return 'No readable text was found in this PDF. Set OCR to Yes, choose Rapid OCR or Gemma OCR, then resume preparation.'
+    return libraryError(message)
+  }
   function settings() {
     return <div className="library-preparation">
       <div className="library-preparation-choice">
-        <span id="preparation-method-label">Preparation</span>
-        <div className="library-preparation-modes" role="group" aria-labelledby="preparation-method-label">
-          {(['basic', 'ai'] as const).map(mode => <button key={mode} type="button" aria-pressed={preparation.mode === mode}
-            onClick={() => { setPreparation({ ...preparation, mode }); setError('') }}>{mode === 'basic' ? 'Basic' : 'AI'}</button>)}
+        <span id="ocr-label">OCR</span>
+        <div className="library-preparation-modes" role="group" aria-labelledby="ocr-label">
+          <button type="button" aria-pressed={Boolean(preparation.ocr && preparation.ocr !== 'none')} onClick={() => setPreparation({ ...preparation, ocr: 'rapid' })}>Yes</button>
+          <button type="button" aria-pressed={!preparation.ocr || preparation.ocr === 'none'} onClick={() => setPreparation({ ...preparation, ocr: 'none' })}>No</button>
         </div>
-        {preparation.mode === 'ai' && <small>Experimental</small>}
+        {preparation.ocr && preparation.ocr !== 'none' && <div className="library-preparation-modes" role="group" aria-label="OCR engine">
+          {(['rapid', 'gemma'] as const).map(ocr => <button key={ocr} type="button" aria-pressed={preparation.ocr === ocr}
+            onClick={() => setPreparation({ ...preparation, ocr })}>{ocr === 'rapid' ? 'Rapid OCR' : 'Gemma OCR'}</button>)}
+        </div>}
       </div>
+      <div className="library-preparation-choice">
+        <span id="preparation-method-label">Chunking Mode</span>
+        <div className="library-preparation-modes" role="group" aria-labelledby="preparation-method-label">
+          {(['basic', 'ai'] as const).map(mode => <button key={mode} type="button" aria-pressed={modeChosen && preparation.mode === mode}
+            onClick={() => { setModeChosen(true); setPreparation({ ...preparation, mode, extractTopics: mode === 'ai' }); setError('') }}>{mode === 'basic' ? 'Basic Chunking' : 'LLM-Based Chunking'}</button>)}
+        </div>
+      </div>
+      <div className="library-preparation-choice"><span id="topic-extraction-label">Topic Extraction</span>
+        <div className="library-preparation-modes" role="group" aria-labelledby="topic-extraction-label">
+          {[true, false].map(extractTopics => <button key={String(extractTopics)} type="button" disabled={!modeChosen} aria-pressed={modeChosen && (preparation.extractTopics !== false) === extractTopics}
+            onClick={() => setPreparation({ ...preparation, extractTopics })}>{extractTopics ? 'Yes' : 'No'}</button>)}
+        </div>
+      </div>
+      {!selected?.preparation && <button className="primary-action" disabled={!modeChosen || selected?.status === 'indexing'} onClick={() => start()}>Start preparation</button>}
+      <p className="library-hint">OCR applies to PDFs only. Markdown and text are read directly.</p>
       <details className="library-preparation-settings">
-        <summary><Settings2 size={15} /> Settings <span>Customize</span></summary>
-        {preparation.mode === 'ai' && <>
+        <summary><Settings2 size={15} /> Model and preparation settings</summary>
+        {preparationNeedsModel(preparation) && <>
           <label>Preparation model<select value={modelId} onChange={e => setPreparation({ ...preparation, modelId: e.target.value })}>
             {!generator && <option value={modelId}>Choose an available model</option>}
-            {generators.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            {generators.filter(m => preparation.ocr !== 'gemma' || isGemmaModel(m)).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select></label>
-          <p className="library-hint">PDFs are read as page images and need a model that accepts images. Markdown and text files keep their original wording; AI only groups the passages.</p>
+          <p className="library-hint">Gemma OCR uses the selected Gemma model to read PDF page images. LLM-Based Chunking groups extracted text without rewriting it.</p>
           <p className="library-hint">{generator?.engine === 'remote' ? 'PDF page images or document text will be processed by the selected cloud provider.' : 'Processing uses your local model.'}</p>
           <label>Additional instructions <span className="library-hint">Optional</span><textarea rows={4} value={preparation.instructions}
             placeholder="Describe what should stay together, where to split, or what context to retain…"
@@ -128,7 +164,7 @@ export function LibraryWorkspace(props: Props) {
           {!embedder && <option value="">Choose an embedding model</option>}
           {embedders.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select></label>
-        {selected && <button className="primary-action" disabled={selected.status === 'indexing'} onClick={() => start()}>Save and prepare</button>}
+        {selected && <button className="primary-action" disabled={!modeChosen || selected.status === 'indexing'} onClick={() => start()}>Save and prepare</button>}
       </details>
     </div>
   }
@@ -137,20 +173,29 @@ export function LibraryWorkspace(props: Props) {
     <header className="screen-header"><div>
       {selected && <button className="library-back" onClick={() => { setSelectedId(null); setError('') }}><ArrowLeft size={16} />All documents</button>}
       <h1>{selected ? (document?.title || (documentPath ? leaf(documentPath) : selected.title)) : 'Documents'}</h1>
-      <p>{selected ? label(selected) : props.documentsLoading ? 'Loading documents…' : `${documents.length + pending.length} document${documents.length + pending.length === 1 ? '' : 's'}`}</p>
+      {!selected && <p>{props.documentsLoading ? 'Loading documents…' : `${documents.length + pending.length} document${documents.length + pending.length === 1 ? '' : 's'}`}</p>}
     </div>{!selected && <button className="primary-action" disabled={adding} onClick={() => void addDocuments()}><Plus size={16} />Add documents</button>}</header>
+    {folderPreparation.panel}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {props.documentsError && <p className="inline-error" role="alert">{props.documentsError} <button onClick={props.onReloadDocuments}>Retry</button></p>}
     {selected ? <>
       {settings()}
-      {props.collection && <button onClick={async () => {
-        try {
-          const result = await window.tokensmith!.pickMaterialFolder()
-          if (result.path) { await window.tokensmith!.locateCollectionFolder(selected.id, result.path); await props.onLibraryRefresh?.(); props.onReloadDocuments?.() }
-        } catch (reason) { setError(libraryError(reason)) }
-      }}>Locate original documents</button>}
-      {selected.indexing && <p role="status">{selected.indexing.message} · {Math.round(selected.indexing.percent)}%</p>}
-      {selected.error && <p className="inline-error">{selected.error}</p>}
+      <div className="library-preparation-actions">
+      {props.onExtractTopics && (selected.chunkCount ?? 0) > 0 && <button className="secondary-action" disabled={selected.status === 'indexing'}
+        onClick={() => { setError(''); void props.onExtractTopics!(selected.id, modelId).catch(reason => setError(libraryError(reason))) }}>Extract topics</button>}
+
+      {selected.status === 'indexing' ? <button className="secondary-action" onClick={() => props.onPauseMaterialIndexing(selected.id)}><Pause size={16} />Pause</button> : selected.status === 'paused' && selected.preparation && <button className="secondary-action" onClick={resumeSelected}><Play size={16} />Resume</button>}
+      </div>
+      {selected.indexing && <section className="library-preparation-status" aria-label="Preparation progress">
+        <p role="status">{selected.indexing.message}</p>
+        <progress max={100} value={preparationProgress(selected.indexing).percent} aria-label={`${preparationProgress(selected.indexing).label} progress`} />
+        <strong><PreparationProgressText status={selected.indexing} /></strong>
+      </section>}
+      {selected.error && <div role="alert"><p className="inline-error">{preparationError(selected.error)}</p>
+        {selected.status !== 'indexing' && selected.status !== 'paused' && <button className="secondary-action"
+          onClick={() => selected.preparation ? resumeSelected() : globalThis.document.getElementById('preparation-method-label')?.scrollIntoView({ block: 'center' })}>
+          {selected.preparation ? 'Resume preparation' : 'Choose preparation settings'}</button>}
+      </div>}
       <div className="library-document-workspace">
         <aside aria-label="Documents"><h2>Documents</h2>
           {report?.documents.map(d => <button key={d.path} className={d.path === documentPath ? 'selected' : ''} onClick={() => chooseDocument(d.path)}>
@@ -159,9 +204,9 @@ export function LibraryWorkspace(props: Props) {
           {!report?.documents.length && <p className="library-hint">{reportLoading ? 'Loading documents…' : 'Document details appear as preparation finishes. Use Settings to change preparation.'}</p>}
         </aside>
         <section className="library-document-reader" aria-label="Prepared document">
-          {!document ? <div className="library-reader-empty"><FileText size={24} /><p>Select a document to inspect its passages or add specific instructions.</p><small>No review is required to use successfully prepared documents.</small></div> : <>
+          {!document ? <div className="library-reader-empty"><FileText size={24} /><p>Select a document to view its passages.</p></div> : <>
             <header><h2>{document.title}</h2><p>{document.pageCount ? `${document.pageCount} pages · ` : ''}{document.chunkCount} {document.chunkCount === 1 ? 'chunk' : 'chunks'}</p></header>
-            {document.error && <p className="inline-error">{document.error}</p>}
+            {document.error && <p className="inline-error">{preparationError(document.error, document.path)}</p>}
             {document.warning && <p className="library-notice">{document.warning}</p>}
             {preparation.mode === 'ai' && <details className="library-document-instructions"><summary>{Object.hasOwn(preparation.documentInstructions, document.path) ? 'Document instructions' : 'Using shared instructions'} · Customize</summary>
               <label>Instructions for this document<textarea rows={3} value={documentOverride} onChange={e => setDocumentOverride(e.target.value)} placeholder="Leave blank to use the shared instructions." /></label>
@@ -201,6 +246,9 @@ export function LibraryWorkspace(props: Props) {
           <div className="library-collection-actions"><div>
             <button onClick={() => openDocument(document)}>Read</button>
             <button onClick={() => inspect(item, document.path)}>Details</button>
+            {(item.status === 'needsReview' || item.status === 'paused') && <button className="secondary-action"
+              onClick={() => item.preparation ? props.onResumeMaterialIndexing(item.id) : inspect(item, document.path)}>
+              {item.preparation ? 'Resume preparation' : 'Choose preparation settings'}</button>}
             {item.status === 'indexing' && <button onClick={() => props.onPauseMaterialIndexing(item.id)}><Pause size={14} />Pause</button>}
             {documents.filter(d => d.materialId === item.id).length === 1 && (item.fileCount ?? 1) <= 1 &&
               <button aria-label={`Remove ${document.title}`} onClick={() => props.onRemoveMaterial(item.id)}><Trash2 size={14} /></button>}
@@ -208,11 +256,12 @@ export function LibraryWorkspace(props: Props) {
         </article>
       })}
       {pending.map(item => <article key={item.id} className="library-collection-row">
-        <div><span className="library-title">{item.title}</span><p>{label(item)}{item.status === 'indexing' ? ` · ${Math.round(item.indexing?.percent || 0)}%` : ''}</p>
+        <div><span className="library-title">{item.title}</span><p>{label(item)}{item.status === 'indexing' ? ` · ${preparationProgress(item.indexing).text}` : ''}</p>
           {item.error && <p className="inline-error">{libraryError(item.error)}</p>}</div>
         <div className="library-collection-actions"><div>
+          <button onClick={() => inspect(item)}>Details</button>
           {item.status === 'indexing' ? <button onClick={() => props.onPauseMaterialIndexing(item.id)}><Pause size={14} />Pause</button> :
-            item.status !== 'ready' && <button onClick={() => props.onResumeMaterialIndexing(item.id)}><RefreshCw size={14} />Retry</button>}
+            item.status !== 'ready' && (!item.preparation ? <button onClick={() => inspect(item)}>Choose preparation</button> : <button onClick={() => props.onResumeMaterialIndexing(item.id)}><RefreshCw size={14} />{item.status === 'paused' ? 'Resume' : 'Retry'}</button>)}
           {!props.documentsLoading && !props.documentsError && (item.fileCount ?? 1) <= 1 && <button aria-label={`Remove ${item.title}`} onClick={() => props.onRemoveMaterial(item.id)}><Trash2 size={14} /></button>}
         </div></div>
       </article>)}

@@ -1,3 +1,4 @@
+import { localModelCatalog } from './model-catalog'
 import type { DeviceCapabilities } from './device-capabilities'
 import type { ModelLoadingEvent } from './model-loading'
 import { estimateWait, recordTiming, type TimingContext, type TimingSample, type WaitEstimate } from './generation-estimate'
@@ -32,7 +33,7 @@ export function createGenerationProgressController(options: {
     const job = [...jobs.values()].find(job => job.kind !== 'starter') ?? [...jobs.values()][0]
     if (!job) { options.publish(null); return }
     const loading = job.loads.values().next().value as Loading | undefined
-    options.publish(loading ? { ...job, label: 'Loading model', startedAt: loading.startedAt, estimate: loading.estimate } : { ...job })
+    options.publish(loading ? { ...job, label: `Loading ${localModelCatalog.find(model => model.id === loading.context.model?.ollamaModelName)?.displayName || loading.context.model?.name || loading.context.model?.ollamaModelName || 'model'}`, startedAt: loading.startedAt, estimate: loading.estimate } : { ...job })
   }
   return {
     stopForCollection(collectionId: string) {

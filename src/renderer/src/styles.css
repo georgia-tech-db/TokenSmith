@@ -1892,6 +1892,8 @@ select:not([multiple]):not([size]) {
 
 .pdf-js-stage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   align-items: start;
   justify-items: center;
   min-height: 0;
@@ -3940,4 +3942,35 @@ select:not([multiple]):not([size]) {
   .pdf-viewer-header > .source-navigation { order: 3; flex-basis: 100%; }
   .markdown-source-body.has-toc { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .markdown-source-toc { max-height: 26vh; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+
+.chat-setup-model-actions { container-type: inline-size; }
+.setup-delete-short { display: none; }
+@container (max-width: 360px) {
+  .setup-delete-full { display: none; }
+  .setup-delete-short { display: inline; }
+}
+
+.chat-setup-card .chat-setup-connect { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 42%, 390px); padding: 14px; gap: 12px; }
+.chat-setup-card .chat-setup-connect > button { width: 100%; }
+@media (max-width: 900px) {
+  .chat-setup-card .chat-setup-connect { grid-template-columns: 42px minmax(0, 1fr); }
+  .chat-setup-card .chat-setup-connect > div, .chat-setup-card .chat-setup-connect > button { grid-column: 2; }
+}
+@media (max-width: 650px) {
+  .chat-setup-card .chat-setup-connect { grid-template-columns: minmax(0, 1fr); }
+  .chat-setup-card .chat-setup-connect > div, .chat-setup-card .chat-setup-connect > button { grid-column: 1; }
+}
+
+@container (max-width: 460px) {
+  [aria-label="Delete Embedding Model"] .setup-delete-full { display: none; }
+  [aria-label="Delete Embedding Model"] .setup-delete-short { display: inline; }
+}
+
+.pdf-viewer-page-navigation { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.pdf-viewer-search-button { white-space: nowrap; }
+.pdf-viewer-search-status:empty { min-width: 0; }
+@media (max-width: 900px) {
+  .pdf-viewer-search { display: flex; flex-wrap: wrap; }
+  .pdf-viewer-search input { flex: 1 1 140px; width: auto; }
 }

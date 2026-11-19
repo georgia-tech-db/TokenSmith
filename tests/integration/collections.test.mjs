@@ -38,7 +38,13 @@ const create = async (name, text) => {
   const collection = (await registry.create(path, name))[0]
   const originals = join(path, 'documents'); await mkdir(originals)
   await writeFile(join(originals, 'notes.md'), `# ${name}\n\n${text.repeat(20)}`)
-  const material = await service.indexMaterialWithPython(originals, model, `${collection.id}/new`, { preparation: { mode: 'basic', instructions: '', documentInstructions: {} } })
+  const material = await service.indexMaterialWithPython(originals, model, `${collection.id}/new`, { preparation: { mode: 'basic', ocr: 'none', instructions: '', documentInstructions: {} },
+    preparationModel: { ...model, id: 'must-not-chunk-with-llm', role: 'generator' } })
+  assert.equal(material.preparation.mode, 'basic')
+  assert.equal(material.preparation.ocr, 'none')
+  const persisted = (await service.listIndexedMaterialsWithPython()).find(item => item.id === material.id)
+  assert.equal(persisted.preparation.mode, 'basic', 'Basic Chunking survives the Python worker and SQLite reload')
+  assert.equal(persisted.preparation.ocr, 'none')
   return { collection, material, path, originals }
 }
 const refs = docs => docs.map(({ materialId, documentId }) => ({ materialId, documentId }))
@@ -48,6 +54,17 @@ try {
   const a = await create('Databases', 'Alpha B+ trees use ancestor paths to propagate splits. ')
   const b = await create('Networks', 'Beta networks use packets and routers to forward messages. ')
   let docs = await service.studyDocumentsWithPython()
+  // Force a revision change after the real Python read, before its result is accepted.
+  const current = registry.current.bind(registry), mounted = registry.get(a.collection.id)
+  const oldRevision = mounted.indexRevision; let reads = 0
+  registry.current = item => {
+    current(item)
+    if (item.id === mounted.id && ++reads === 2) item.indexRevision = 'changed-during-read'
+  }
+  try {
+    assert.deepEqual(await service.studyDocumentsWithPython(), docs)
+    assert.ok(reads >= 4, 'The stale catalog must be read again')
+  } finally { registry.current = current; mounted.indexRevision = oldRevision }
   const left = docs.filter(d => d.collectionId === a.collection.id), right = docs.filter(d => d.collectionId === b.collection.id)
   assert.equal(left[0].documentId, right[0].documentId, 'Deliberately overlapping database-local document IDs')
   assert.notEqual(left[0].materialId, right[0].materialId)
@@ -131,7 +148,7 @@ try {
   assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
   await registry.load(a.path)
   assert.deepEqual(await registry.topicInventory(a.collection.id), inventory, 'Index updates retain checkpoints for regeneration')
-  await assert.rejects(savedTopics(), /topics are not ready/, 'Practice cannot use topics from an outdated index')
+  await assert.rejects(savedTopics(), /Extract topics from the indexed documents/, 'Practice cannot use topics from an outdated index')
   await assert.rejects(registry.saveTopicInventory(inventory, revision), /collection changed/, 'Stale writes cannot overwrite the updated inventory')
   await registry.unload(a.collection.id)
   await registry.unload(b.collection.id)

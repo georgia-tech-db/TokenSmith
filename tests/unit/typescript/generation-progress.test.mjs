@@ -13,10 +13,10 @@ function fixture() {
 }
 
 test('cold embedding and generation startup are learned separately from question preparation', () => {
-  const f = fixture(), embedder = { ...model, id: 'nomic', ollamaModelName: 'nomic-embed-text', role: 'embedder' }
+  const f = fixture(), embedder = { ...model, id: 'nomic', name: 'Nomic Embed Text', ollamaModelName: 'nomic-embed-text', role: 'embedder' }
   f.api.begin(start)
   f.api.modelLoading(loading('embedding', 'loading', { model: embedder, contextLength: undefined }))
-  assert.equal(f.current.label, 'Loading model')
+  assert.equal(f.current.label, 'Loading Nomic Embed Text')
   f.at(20_000)
   f.api.modelLoading(loading('embedding', 'ready', { model: embedder, durationMs: 20_000 }))
   assert.equal(f.current.label, 'Preparing question')
@@ -49,10 +49,10 @@ test('a loading overlay restores the latest stage and excludes overlapping loads
   f.at(2000)
   f.api.modelLoading(loading('b', 'loading'))
   f.api.stage(start.id, 'Checking answer')
-  assert.equal(f.current.label, 'Loading model')
+  assert.equal(f.current.label, 'Loading Gemma 4 E4B')
   f.at(4000)
   f.api.modelLoading(loading('a', 'ready'))
-  assert.equal(f.current.label, 'Loading model')
+  assert.equal(f.current.label, 'Loading Gemma 4 E4B')
   f.at(5000)
   f.api.modelLoading(loading('b', 'ready'))
   assert.equal(f.current.label, 'Checking answer')
@@ -89,7 +89,7 @@ test('background loading never replaces foreground status, and duplicate events 
   f.api.modelLoading(loading('foreground', 'ready'))
   assert.equal(f.samples.length, 1)
   f.api.cancel(start.id)
-  assert.equal(f.current.label, 'Loading model')
+  assert.equal(f.current.label, 'Loading Gemma 4 E4B')
   assert.equal(f.current.id, 'starter')
 })
 
@@ -113,4 +113,12 @@ test('loading estimates cannot use warm timings and are scoped to model, endpoin
   for (const change of [{ ollamaModelName: 'gemma4:26b' }, { ollamaBaseUrl: 'http://another-machine:11434' }]) {
     assert.notEqual(timingKeys(context).family, timingKeys({ ...context, model: { ...model, ...change } }).family)
   }
+})
+
+
+test('loading status names unfamiliar models without losing their identity', () => {
+  const f = fixture()
+  f.api.begin(start)
+  f.api.modelLoading(loading('custom', 'loading', { model: { ...model, name: 'My study model', ollamaModelName: 'custom:latest' } }))
+  assert.equal(f.current.label, 'Loading My study model')
 })

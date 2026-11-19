@@ -1,3 +1,4 @@
+import { readCurrentCollection } from '../collections/collection-read'
 import { observeModelLoading } from '../engine/model-loading'
 import { localDocuments, qualifyMaterial, qualifyDocument, qualifySource, mergeCollectionSources } from '../collections/collection-routing'
 import { CollectionRegistry, type MountedCollection } from '../collections/collection-registry'
@@ -21,6 +22,9 @@ interface PythonRequest {
   id: string
   command:
     | 'health'
+    | 'library_export_plan'
+    | 'library_export'
+    | 'library_import'
     | 'validate_collection'
     | 'create_collection'
     | 'index_material'
@@ -683,9 +687,11 @@ export async function indexMaterialWithPython(
       preparation: options?.preparation,
       preparationModel: options?.preparationModel ? modelWithRememberedRemoteApiKey(options.preparationModel) : undefined,
       embeddingGpuEnabled: normalizeEmbeddingGpuEnabled(options?.embeddingGpuEnabled),
+      appUserDataPath: app.getPath('userData'),
+      rapidOcrLegacyPaths: collections().loaded().map(item => join(item.path, 'models', 'rapidocr')),
       userDataPath: collection.path
     },
-    180_000,
+    960_000, // Allow the PDF model’s 15-minute page timeout to report its own error.
     progress => { if (collections().loaded().some(item => item.epoch === collection.epoch)) onProgress({ ...progress, materialId }) },
     materialId
   )
@@ -730,12 +736,9 @@ export async function cancelCollectionIndexing(collectionId: string): Promise<vo
 }
 
 async function storeRequest<T>(collection: MountedCollection, command: PythonRequest['command'], payload: Record<string, unknown>, timeout = 30_000): Promise<T> {
-  collections().current(collection)
-  const revision = collection.indexRevision
-  const result = await requestPython<T>(command, { ...payload, userDataPath: collection.path }, timeout)
-  collections().current(collection)
-  if (collection.indexRevision !== revision) throw new Error('The library changed during this request. Please try again.')
-  return result
+  return readCurrentCollection(collection, () => collections().current(collection),
+    () => requestPython<T>(command, { ...payload, userDataPath: collection.path }, timeout),
+    command === 'study_documents' || command === 'list_materials' ? 3 : 1)
 }
 
 function requestGroups(materials: CourseMaterial[], documents?: StudyDocumentRef[]) {
@@ -799,7 +802,7 @@ export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]
     const result = await storeRequest<ListMaterialsResult>(collection, 'list_materials', {})
     const inventory = await collections().topicInventory(collection.id)
     const topicsReady = inventory?.complete && inventory.indexRevision === collection.indexRevision
-    return result.materials.map(material => qualifyMaterial(collections(), collection, material.status === 'ready' && !topicsReady ? {
+    return result.materials.map(material => qualifyMaterial(collections(), collection, material.status === 'ready' && material.preparation?.extractTopics !== false && !topicsReady ? {
       ...material, status: 'needsReview', detail: 'Chapter topics need preparation',
       error: 'Finish or resume book preparation to generate chapter topics.'
     } : material))
@@ -854,4 +857,18 @@ export async function locateCollectionFolder(materialId: string, path: string): 
   const material = result.materials.find(m => m.id === localId)
   if (!material?.path) throw new Error('This document is no longer in the library.')
   await collections().locateFolder(materialId, resolve(collection.path, material.kind === 'folder' ? material.path : dirname(material.path)), path)
+}
+
+
+export async function exportLibraryWithPython(id: string, destination: string): Promise<void> {
+  await collections().snapshot(id, async collection => {
+    const plan = await requestPython<{ documents: { path: string; materialId: string }[] }>('library_export_plan', { userDataPath: collection.path })
+    const sources = Object.fromEntries(plan.documents.map(document => [document.path,
+      collections().sourcePath(collection, document.path, document.materialId)]))
+    await requestPython('library_export', { userDataPath: collection.path, destination, sources }, 600_000)
+  })
+}
+
+export async function importLibraryWithPython(archive: string, path: string, collectionId: string): Promise<void> {
+  await requestPython('library_import', { archive, userDataPath: path, collectionId }, 600_000)
 }

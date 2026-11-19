@@ -179,6 +179,7 @@ export interface PickMaterialsResult {
 }
 
 export interface PickMaterialFolderResult {
+  kind?: 'folder' | 'document'
   canceled: boolean
   path?: string
   title?: string

@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Library, PanelLeft } from 'lucide-react'
 import type { StudyMode } from '@shared/practice'
-import { StudyModeTabs } from './StudyModeTabs'
 import type { StudyDocumentExpansion } from './StudyDocumentPicker'
 import './study-workspace.css'
 
@@ -12,8 +11,8 @@ export interface StudyPanels extends StudyDocumentExpansion {
   onMaterialsOpenChange: (open: boolean) => void
 }
 
-export function StudyHeader({ mode, onModeChange, historyOpen, onHistoryToggle, materialsOpen, onMaterialsToggle, count, children }: {
-  mode: StudyMode; onModeChange: (mode: StudyMode) => void; historyOpen: boolean; onHistoryToggle: () => void
+export function StudyHeader({ mode, historyOpen, onHistoryToggle, materialsOpen, onMaterialsToggle, count, children }: {
+  mode: StudyMode; historyOpen: boolean; onHistoryToggle: () => void
   materialsOpen: boolean; onMaterialsToggle: () => void; count: number; children: ReactNode
 }) {
   const header = useRef<HTMLElement>(null)
@@ -28,7 +27,7 @@ export function StudyHeader({ mode, onModeChange, historyOpen, onHistoryToggle, 
   }, [])
   return <header ref={header} className="study-topbar">
     <button className="icon-button subtle" type="button" aria-label="Toggle history" title="Toggle history" aria-expanded={historyOpen} onClick={onHistoryToggle}><PanelLeft size={19} /></button>
-    <StudyModeTabs mode={mode} onChange={onModeChange} />
+    <h1 className="study-pane-title">{mode === 'practice' ? 'Practice' : 'Chat'}</h1>
     <div className="study-model-controls">{children}</div>
     <button className="study-materials-toggle" type="button" aria-label="Toggle Documents" title="Choose documents" aria-expanded={materialsOpen} onClick={onMaterialsToggle}><Library size={17} /><span>Documents</span><span>{count}</span></button>
   </header>

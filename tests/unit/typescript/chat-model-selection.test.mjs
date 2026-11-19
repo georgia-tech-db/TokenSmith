@@ -68,7 +68,7 @@ test('a delayed connection or download targets its original chat, not the curren
   assert.equal(selectStudyModel(deleted, cloud.id, target), deleted)
 })
 
-test('practice draft selection does not change chat or an existing practice session', () => {
+test('practice model changes update the active session and settings without changing chat', () => {
   const original = state()
   original.practice.mode = 'practice'
   const target = studyModelTarget(original)
@@ -78,7 +78,11 @@ test('practice draft selection does not change chat or an existing practice sess
   const started = { ...selected, practice: { ...selected.practice, activeSessionId: 'session', sessions: [
     { id: 'session', modelId: cloud.id, modelSettings: { contextLength: 16384 }, questions: [] }
   ] } }
-  assert.equal(selectStudyModel(started, local.id, target), started)
+  const switched = selectStudyModel(started, local.id, target)
+  assert.equal(switched.practice.sessions[0].modelId, local.id)
+  assert.equal(switched.practice.sessions[0].modelSettings.contextLength, 8192)
+  assert.equal(switched.practice.sessions[0].questions, started.practice.sessions[0].questions)
+  assert.equal(switched.conversations, started.conversations)
 })
 
 test('only an explicit first choice establishes an empty default', () => {
@@ -89,4 +93,12 @@ test('only an explicit first choice establishes an empty default', () => {
   assert.equal(selected.settings.application.defaultModelId, cloud.id)
   const changed = selectStudyModel(selected, local.id, studyModelTarget(selected))
   assert.equal(changed.settings.application.defaultModelId, cloud.id)
+})
+
+test('main navigation takes precedence over the last study mode', () => {
+  const original = state()
+  assert.deepEqual(studyModelTarget({ ...original, activeScreen: 'practice' }), { kind: 'practice' })
+  original.practice.mode = 'practice'
+  assert.deepEqual(studyModelTarget({ ...original, activeScreen: 'chat' }), { kind: 'chat', conversationId: 'a' })
+  assert.deepEqual(studyModelTarget({ ...original, activeScreen: 'models' }), { kind: 'practice' })
 })
