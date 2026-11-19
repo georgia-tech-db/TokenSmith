@@ -56,7 +56,7 @@ jobs:
           test -x "$RUNTIME/bin/python"
           test -z "$(find "$RUNTIME" -xtype l -print -quit)"
           PYTHONHOME="$RUNTIME" LD_LIBRARY_PATH="$RUNTIME/lib" \
-            "$RUNTIME/bin/python" -c 'import faiss, numpy, pypdfium2, PIL'
+            "$RUNTIME/bin/python" -c 'import faiss, numpy, pypdfium2, PIL, onnxruntime, cv2; from rapidocr import RapidOCR'
 
       - name: Upload Linux packages
         if: github.event_name == 'workflow_dispatch'

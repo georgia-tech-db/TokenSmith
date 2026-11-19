@@ -42,6 +42,7 @@ test('runtime Python dependencies are exactly pinned', async () => {
 
   assert.ok(entries.length > 0)
   for (const entry of entries) {
-    assert.match(entry, /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.!+*-]+$/)
+    const [requirement] = entry.split(';')
+    assert.match(requirement.trim(), /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.!+*-]+$/)
   }
 })

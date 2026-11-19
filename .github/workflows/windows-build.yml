@@ -41,7 +41,7 @@ jobs:
           if (-not (Test-Path $python)) {
             throw "Packaged Python runtime was not found at $python"
           }
-          & $python -c 'import faiss, numpy, pypdfium2, PIL'
+          & $python -c 'import faiss, numpy, pypdfium2, PIL, onnxruntime, cv2; from rapidocr import RapidOCR'
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }

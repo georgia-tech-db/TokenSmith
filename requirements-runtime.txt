@@ -4,5 +4,7 @@ packaging==26.3
 Pillow==12.3.0
 pypdfium2==5.13.0
 rapidocr==3.10.0
-onnxruntime==1.32.0
+# Use the available Python 3.12 wheel on Intel Macs.
+onnxruntime==1.23.2; sys_platform == "darwin" and platform_machine == "x86_64"
+onnxruntime==1.32.0; sys_platform != "darwin" or platform_machine != "x86_64"
 opencv-python-headless==4.14.0.94

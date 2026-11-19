@@ -72,7 +72,8 @@ jobs:
           PYTHONHOME="$RUNTIME" DYLD_FALLBACK_LIBRARY_PATH="$RUNTIME/lib" PYTHONDONTWRITEBYTECODE=1 \
             "$RUNTIME/bin/python" - <<'PY'
           import os, platform
-          import faiss, numpy, pypdfium2, PIL
+          import faiss, numpy, pypdfium2, PIL, onnxruntime, cv2
+          from rapidocr import RapidOCR
           assert platform.machine() == {"x64": "x86_64", "arm64": "arm64"}[os.environ["EXPECTED_ARCH"]]
           vectors = numpy.eye(2, dtype="float32")
           index = faiss.IndexFlatL2(2)
