@@ -6,10 +6,8 @@
 
 **TokenSmith helps students learn from their course materials using local language models running on their laptop.**
 
-- Add your textbooks, lecture notes, and papers.
-- Work through difficult concepts with explanations and examples.
-- Explore suggested questions.
-- Test your understanding with short quizzes and feedback.
+- **Practice Mode:** Test your understanding with quizzes. Reinforce what topics you’ve mastered and identify topics to revisit.
+- **Chat Mode:** Add textbooks, lecture notes, and papers. Explore concepts through explanations, examples, and suggested questions.
 
 Local models run through Ollama. You can also connect a cloud model with an API key.
 
@@ -32,12 +30,12 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 
 ## Get Started
 
-1. Install and start [Ollama](https://ollama.com/download), then use TokenSmith's setup guide to download a local embedding model for searching your documents.
-2. Choose a local chat model, or select **Connect a cloud chat model** and use your own API key.
-3. Add your course materials in **Library**. PDF, Markdown, and text files are supported.
-4. Start with your own question or a suggested one. Open the source passages, follow up on an explanation, or switch to **Practice** and choose the documents you want to review.
-
-GPU acceleration for document indexing and search is on by default. Ollama uses a compatible GPU when available and otherwise runs on the CPU. Turn off **GPU Acceleration for Document Search** in Settings to use only the CPU for these tasks. This setting does not change chat models.
+1. Install [Ollama](https://ollama.com/download), then follow TokenSmith’s setup guide to download a local embedding model for searching your documents.
+2. Download a local chat model, or select **Connect a cloud chat model** to use your own API key.
+3. Add your course documents to **Library**. TokenSmith supports Markdown, PDF, and text files.
+4. **Choose your learning mode:**
+   - **Chat Mode:** Ask your own question or explore a suggested one, follow up on explanations, and open source passages.
+   - **Practice Mode:** Choose a library, test your understanding with quizzes, and identify concepts to revisit.
 
 ## Project Health
 
