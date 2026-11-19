@@ -33,7 +33,7 @@ https://github.com/user-attachments/assets/933908db-2117-4e90-9628-74e2038bbbfa
 1. Install [Ollama](https://ollama.com/download), then follow TokenSmith’s setup guide to download a local embedding model for searching your documents.
 2. Download a local chat model, or select **Connect a cloud chat model** to use your own API key.
 3. Add your course documents to **Library**. TokenSmith supports Markdown, PDF, and text files.
-4. **Choose your learning mode:**
+4. Choose your learning mode:
    - **Chat Mode:** Ask your own question or explore a suggested one, follow up on explanations, and open source passages.
    - **Practice Mode:** Choose a library, test your understanding with quizzes, and identify concepts to revisit.
 
