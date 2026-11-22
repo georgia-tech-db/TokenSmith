@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { requireTranspiledTs } from './ts-module-loader.mjs'
 
-const { defaultPreparation } = requireTranspiledTs('src/shared/preparation.ts')
+const { defaultPreparation, preparationNeedsModel } = requireTranspiledTs('src/shared/preparation.ts')
 
-test('new collections default to AI with the selected chat model resolved at import', () => {
+test('new collections default to AI chunking with topic extraction deferred', () => {
   assert.deepEqual(defaultPreparation(), {
-    mode: 'ai', ocr: 'none', extractTopics: true, instructions: '', documentInstructions: {}
+    mode: 'ai', ocr: 'none', extractTopics: false, instructions: '', documentInstructions: {}
   })
 })
 
@@ -16,8 +16,16 @@ test('changing one collection does not change defaults for the next', () => {
   settings.modelId = 'chosen-model'
   settings.documentInstructions['notes.md'] = 'Keep examples together.'
   assert.deepEqual(defaultPreparation(), {
-    mode: 'ai', ocr: 'none', extractTopics: true, instructions: '', documentInstructions: {}
+    mode: 'ai', ocr: 'none', extractTopics: false, instructions: '', documentInstructions: {}
   })
+})
+
+test('topic extraction is independent of the model required for indexing', () => {
+  const basic = { ...defaultPreparation(), mode: 'basic', extractTopics: true }
+  assert.equal(preparationNeedsModel(basic), false)
+  assert.equal(preparationNeedsModel({ ...basic, ocr: 'rapid' }), false)
+  assert.equal(preparationNeedsModel({ ...basic, ocr: 'gemma' }), true)
+  assert.equal(preparationNeedsModel(defaultPreparation()), true)
 })
 
 test('Gemma OCR resolves a Gemma model and never silently selects another model family', () => {

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { withModelLoadingProgress } from './engine/model-loading'
 import { createBookPreparation } from './collections/book-preparation'
-import { runOllamaStudyEngine } from './engine/ollama-service'
 import { createStateWriter } from './atomic-state'
 import { materialCollectionId } from '../shared/collections'
 import type { IndexMaterialOptions } from '../shared/preparation'
@@ -74,11 +73,12 @@ const bookPreparation = createBookPreparation({
   index: (id, path, model, options, progress) => indexMaterialWithPython(path, model, id, options, progress),
   cancelIndex: cancelMaterialIndexingWithPython,
   progress: progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:index-progress', progress) },
+  topicProgress: progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:topic-progress', progress) },
   topics: signal => ({
     studyDocuments: studyDocumentsWithPython, topicSources: topicSourcesWithPython,
     loadTopicInventory: id => collections().topicInventory(id),
     saveTopicInventory: (inventory, revision) => collections().saveTopicInventory(inventory, revision),
-    sendChatMessage: request => runOllamaStudyEngine(request, { signal })
+    sendChatMessage: request => sendChatMessage(request, { signal })
   })
 })
 app.on('before-quit', () => bookPreparation.cancelAll())
@@ -663,8 +663,9 @@ app.whenReady().then(async () => {
     ) => bookPreparation.run(materialId, materialPath, embeddingModel, options)
   )
   ipcMain.handle('library:preparation-report', (_event, path: string, documentPath?: string, materialId?: string) => preparationReportWithPython(path, documentPath, materialId))
-  ipcMain.handle('library:extract-topics', (_event, materialId: string, model?: LocalModel) =>
-    bookPreparation.run(materialId, '', undefined, { preparationModel: model }, true))
+  ipcMain.handle('library:extract-topics', (_event, collectionId: string, modelId?: string) =>
+    bookPreparation.extractTopics(collectionId, modelId))
+  ipcMain.handle('library:cancel-topics', (_event, collectionId: string) => bookPreparation.cancelTopics(collectionId))
   ipcMain.handle('library:list-materials', () => listIndexedMaterialsWithPython())
   ipcMain.handle('library:set-material-enabled', (_event, materialId: string, isActive: boolean) =>
     setMaterialEnabledWithPython(materialId, isActive)

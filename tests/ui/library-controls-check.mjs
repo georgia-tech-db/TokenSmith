@@ -33,6 +33,7 @@ try{
   await preparation.getByText('Choose a chunking mode to continue.',{exact:true}).waitFor()
   assert.ok(Number(await preparation.getByRole('button',{name:'Add documents',exact:true}).evaluate(el=>getComputedStyle(el).opacity))<1)
   await preparation.getByRole('button',{name:'LLM-Based Chunking',exact:true}).click()
+  assert.equal(await unselectedTopics.getByRole('button',{name:'No',exact:true}).getAttribute('aria-pressed'),'true')
   assert.equal(await preparation.getByText('Choose a chunking mode to continue.',{exact:true}).count(),0)
   assert.equal(await preparation.getByRole('button',{name:'Add documents',exact:true}).isEnabled(),true)
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
@@ -90,6 +91,9 @@ try{
  const topics=fresh.getByRole('group',{name:'Topic Extraction',exact:true})
  assert.equal(await topics.getByRole('button',{name:'No',exact:true}).getAttribute('aria-pressed'),'true')
  await fresh.getByRole('button',{name:'LLM-Based Chunking',exact:true}).click()
+ assert.equal(await topics.getByRole('button',{name:'No',exact:true}).getAttribute('aria-pressed'),'true')
+ await topics.getByRole('button',{name:'Yes',exact:true}).click()
+ await fresh.getByRole('button',{name:'Basic Chunking',exact:true}).click()
  assert.equal(await topics.getByRole('button',{name:'Yes',exact:true}).getAttribute('aria-pressed'),'true')
  await topics.getByRole('button',{name:'No',exact:true}).click()
  assert.equal(await topics.getByRole('button',{name:'No',exact:true}).getAttribute('aria-pressed'),'true')
@@ -98,18 +102,6 @@ try{
  await fresh.getByRole('button',{name:'Start preparation',exact:true}).click()
  await fresh.getByRole('status').filter({hasText:'Started basic preparation. Model: None.'}).waitFor()
  await fresh.close()
- for (const details of [false,true]) {
-  const page=await browser.newPage()
-  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/library-preparation.html?needs-topics`)
-  if(details) {
-   await page.getByRole('button',{name:'Details',exact:true}).first().click()
-   await page.getByRole('alert').filter({hasText:'Finish or resume book preparation'}).waitFor()
-  }
-  await page.getByRole('button',{name:'Resume preparation',exact:true}).first().click()
-  await page.getByRole('button',{name:'Pause',exact:true}).first().waitFor()
-  assert.deepEqual(await page.evaluate(()=>window.preparationTest.calls),[['resume','1']])
-  await page.close()
- }
  const exporting=await browser.newPage({viewport:{width:390,height:900}})
  await exporting.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/library-preparation.html?export&lifecycle`)
  assert.ok(await exporting.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
@@ -121,16 +113,54 @@ try{
  await exporting.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/library-preparation.html?export&lifecycle&parsing`)
  assert.equal(await exporting.getByRole('button',{name:'Export Library',exact:true}).isDisabled(),true)
  await exporting.close()
- const topicPage=await browser.newPage()
- await topicPage.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/topic-extraction.html`)
- const extractButton=topicPage.getByRole('button',{name:'Extract topics',exact:true})
- await extractButton.waitFor()
- assert.equal(await topicPage.getByRole('button',{name:'Open preparation',exact:true}).count(),0)
- assert.equal(await extractButton.evaluate(el=>getComputedStyle(el).borderTopWidth),'1px')
- await extractButton.click()
- await topicPage.getByRole('button',{name:/Chapter 1/}).waitFor()
- assert.equal(await topicPage.evaluate(()=>window.extractionCalls),1)
- assert.equal(await topicPage.getByRole('button',{name:'Extract topics',exact:true}).count(),0)
- await topicPage.close()
+
+ for (const mode of ['basic', 'ai']) {
+  const page=await browser.newPage()
+  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/library-preparation.html`)
+  await page.getByRole('button',{name:'Add documents',exact:true}).click()
+  const form=page.getByRole('region',{name:'Prepare document folder'})
+  await form.getByRole('button',{name:'Basic Chunking',exact:true}).click()
+  const model=form.getByLabel('Preparation model',{exact:true})
+  assert.equal(await model.count(),0)
+  if(mode==='ai') {
+   await form.getByRole('button',{name:'LLM-Based Chunking',exact:true}).click()
+   await model.selectOption('gemma-26b')
+  }
+  await form.getByRole('group',{name:'Topic Extraction'}).getByRole('button',{name:'Yes',exact:true}).click()
+  assert.equal(await model.count(),1)
+  assert.equal(await model.locator('option[value="nomic"]').count(),0)
+  if(mode==='basic') await model.selectOption('gemma-26b')
+  assert.equal(await model.inputValue(),'gemma-26b')
+  await form.getByRole('button',{name:'Add documents',exact:true}).click()
+  await page.getByText(/Started .* preparation\. Model: Gemma 4 26B/).waitFor()
+  assert.deepEqual(await page.evaluate(()=>window.preparationTest.started),{modelId:'gemma-26b',mode,extractTopics:true})
+  await page.close()
+ }
+
+ for (const width of [1280,390]) {
+  const topicPage=await browser.newPage({viewport:{width,height:900}})
+  const paused=width===1280
+  await topicPage.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/ui/topic-extraction.html${paused?'?paused':''}`)
+  await topicPage.getByRole('status').filter({hasText:'Generate Practice topics in Libraries'}).waitFor()
+  await topicPage.getByLabel('Your topic').fill('Buffer sizes')
+  await topicPage.getByRole('button',{name:'Start practice',exact:true}).click()
+  assert.equal(await topicPage.evaluate(()=>window.topicFixture.manualTopic),'Buffer sizes')
+  await topicPage.getByRole('button',{name:'Open Libraries',exact:true}).click()
+  const extractButton=topicPage.getByRole('button',{name:paused?'Resume Practice topics':'Generate Practice topics',exact:true})
+  await extractButton.waitFor()
+  assert.ok(await topicPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+  const topicModel=topicPage.getByLabel('Topic model')
+  if(paused) {
+   const picker=await topicModel.boundingBox(), action=await extractButton.boundingBox()
+   assert.ok(action.x>=picker.x+picker.width && Math.abs(picker.y-action.y)<1 && Math.abs(picker.height-action.height)<1)
+  }
+  await topicModel.selectOption('large')
+  await extractButton.click()
+  await topicPage.getByText('Practice topics ready',{exact:true}).waitFor()
+  assert.deepEqual(await topicPage.evaluate(()=>window.topicFixture.calls),[['library','large']])
+  await topicPage.getByRole('button',{name:'Practice',exact:true}).click()
+  await topicPage.getByRole('button',{name:/Chapter 1/}).waitFor()
+  await topicPage.close()
+ }
  console.log('PASS: Preparation Mode, styled controls, Pause/Resume callbacks, desktop and mobile.')
 }finally{await browser.close();await server.close()}

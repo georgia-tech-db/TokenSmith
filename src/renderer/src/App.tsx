@@ -24,6 +24,7 @@ import { GenerationStatus } from './GenerationStatus'
 import { useGenerationProgress, type GenerationProgressApi } from './hooks/useGenerationProgress'
 import type { GenerationKind } from '@shared/generation-estimate'
 import { preparationNeedsModel, preparationGenerator, defaultPreparation, type IndexMaterialOptions } from '../../shared/preparation'
+import type { LibraryTopicProgress } from '@shared/topic-inventory'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { MessageText } from './MessageText'
@@ -950,8 +951,11 @@ function mergeIndexedMaterialsWithPending(currentMaterials: CourseMaterial[], in
       currentByKey.get(materialIdentityKey(material)) ??
       currentByLocation.get(material.path ?? material.id)
 
-    if (existing && (existing.status === 'indexing' || existing.status === 'paused' || existing.status === 'needsReview') && existing.preparation) {
-      return { ...material, ...existing }
+    const legacyTopicStatus = existing?.indexing?.phase === 'topics' || existing?.indexing?.resumePhase === 'topics'
+      || existing?.detail === 'Chapter topics need preparation'
+    if (existing && (existing.status === 'indexing' || existing.status === 'paused' || existing.status === 'needsReview')
+      && existing.preparation && !(material.status === 'ready' && legacyTopicStatus)) {
+      return { ...material, ...existing, collectionRevision: material.collectionRevision }
     }
 
     if (existing?.status === 'paused' && material.status === 'indexing') {
@@ -1161,10 +1165,11 @@ function modelMatchesDownload(model: LocalModel, progress: ModelDownloadProgress
 }
 
 export function App() {
-  const folderPreparation = useDocumentFolderPreparation()
   const generation = useGenerationProgress()
   const [appState, setAppState] = useState<AppStateSnapshot>(() => createDefaultAppState())
+  const folderPreparation = useDocumentFolderPreparation(appState.models, appState.settings.application.defaultModelId)
   const [collectionList, setCollectionList] = useState<Collection[]>([])
+  const [libraryTopicProgress, setLibraryTopicProgress] = useState<Record<string, LibraryTopicProgress | undefined>>({})
   const collectionChangeSequence = useRef(0)
   const practiceState = appState.practice ?? emptyPracticeState()
   const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 800)
@@ -1479,7 +1484,7 @@ export function App() {
               return {
                 ...material,
                 status: 'ready',
-                detail: 'Ready for chat and practice',
+                detail: 'Ready for chat',
                 indexing: undefined,
                 isActive: true
               }
@@ -1503,6 +1508,10 @@ export function App() {
       })
     })
   }, [])
+
+  useEffect(() => window.tokensmith?.onLibraryTopicProgress?.(progress => {
+    setLibraryTopicProgress(current => ({ ...current, [progress.collectionId]: progress }))
+  }), [])
 
   useEffect(() => {
     if (!window.tokensmith?.onOllamaPullProgress) {
@@ -1660,33 +1669,14 @@ export function App() {
     await refreshCollections(collections)
     const embedder = appState.models.find(model => model.id === appState.selectedEmbeddingModelId && modelCanEmbed(model) && model.status === 'ready')
       ?? appState.models.find(model => modelCanEmbed(model) && model.status === 'ready')
-    const generator = preparationGenerator(appState.models, undefined, appState.settings.application.defaultModelId, picked.preparation.ocr)
-    const preparation = { ...picked.preparation, modelId: generator?.id, modelName: generator?.name }
+    const generator = preparationGenerator(appState.models, picked.preparation.modelId, appState.settings.application.defaultModelId, picked.preparation.ocr)
+    const preparation = generator ? { ...picked.preparation, modelId: generator.id, modelName: generator.name } : picked.preparation
     const material: CourseMaterial = { id: `${collection.id}/folder-${crypto.randomUUID()}`, collectionId: collection.id,
       collectionTitle: collection.name, title, path: picked.path, kind: picked.kind ?? 'folder', addedAt: new Date().toISOString(),
       status: 'paused', detail: 'Set up models to prepare this folder.', isActive: false, preparation,
       embeddingModelId: embedder?.id }
     addMaterials([material])
     if (embedder && (generator || !preparationNeedsModel(preparation))) startMaterialIndexing(material.id, picked.path, embedder, { title, preparation, preparationModel: generator })
-  }
-
-  async function extractLibraryTopics(id: string, modelId?: string) {
-    if (!window.tokensmith || activeIndexRequestsRef.current.has(id)) return
-    const model = preparationGenerator(appState.models, modelId, appState.settings.application.defaultModelId)
-    if (!model) throw new Error('Choose an available chat model in Models to extract topics.')
-    activeIndexRequestsRef.current.add(id); pausedIndexRequestsRef.current.delete(id); cancelledIndexRequestsRef.current.delete(id)
-    updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === id ? {
-      ...item, status: 'indexing', error: undefined, indexing: { materialId: id, phase: 'topics', percent: 0, message: 'Extracting topics from indexed text' }
-    } : item) }))
-    try {
-      const result = await window.tokensmith.extractLibraryTopics(id, model)
-      if (!pausedIndexRequestsRef.current.has(id) && !cancelledIndexRequestsRef.current.has(id))
-        updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === id ? { ...result, indexing: undefined } : item) }))
-    } catch (reason) {
-      if (!pausedIndexRequestsRef.current.has(id) && !cancelledIndexRequestsRef.current.has(id))
-        updateAppState(current => ({ ...current, materials: current.materials.map(item => item.id === id ? { ...item, status: 'needsReview', error: readableErrorMessage(reason, 'Topic extraction failed.') } : item) }))
-      throw reason
-    } finally { activeIndexRequestsRef.current.delete(id) }
   }
 
   function startMaterialIndexing(
@@ -2080,11 +2070,6 @@ export function App() {
       return
     }
 
-    if ((material.indexing?.phase === 'topics' || material.indexing?.resumePhase === 'topics') && (material.chunkCount ?? 0) > 0) {
-      void extractLibraryTopics(materialId).catch(() => {})
-      return
-    }
-
     updateAppState((current) => ({
       ...current,
       materials: current.materials.map((item) =>
@@ -2304,7 +2289,6 @@ export function App() {
         )}
         {hasLoadedState && activeScreen === 'practice' && <PracticeScreen isActive
           {...studyPanels} onViewLog={openLog}
-          onExtractTopics={extractLibraryTopics}
           state={practiceState} onChange={updatePractice} onCommit={commitPractice} onChat={chatAboutPractice}
           materials={appState.materials} embeddingModels={embeddingModels}
           catalog={studyCatalog} scope={appState.studyScope ?? []} onScopeChange={setStudyScope} models={appState.models} selectedModel={answerModel(appState.models, practiceModelId)} settings={appState.settings}
@@ -2326,7 +2310,7 @@ export function App() {
             onRemoveMaterial={removeMaterial}
             onResumeMaterialIndexing={resumeMaterialIndexing}
             onPauseMaterialIndexing={pauseMaterialIndexing}
-            onExtractTopics={extractLibraryTopics}
+            libraryTopicProgress={libraryTopicProgress}
             onStartMaterialIndexing={startMaterialIndexing}
           />
         )}

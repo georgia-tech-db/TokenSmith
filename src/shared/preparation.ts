@@ -49,14 +49,15 @@ export interface PreparationReport {
 }
 
 export const defaultPreparation = (): PreparationSettings => ({
-  mode: 'ai', ocr: 'none', extractTopics: true, instructions: '', documentInstructions: {}
+  mode: 'ai', ocr: 'none', extractTopics: false, instructions: '', documentInstructions: {}
 })
 
-/** Keep document preparation and chapter topics on the same generator. */
+export function isPreparationGenerator(model: LocalModel): boolean {
+  return model.status === 'ready' && model.role !== 'embedder' && (model.engine === 'ollama' || model.engine === 'remote')
+}
+
 export function preparationGenerator(models: LocalModel[], selectedId?: string, fallbackId?: string, ocr?: PreparationSettings['ocr']): LocalModel | undefined {
-  const generators = models.filter(model => model.status === 'ready' && model.role !== 'embedder' &&
-    (model.engine === 'ollama' || model.engine === 'remote') &&
-    (ocr !== 'gemma' || isGemmaModel(model)))
+  const generators = models.filter(model => isPreparationGenerator(model) && (ocr !== 'gemma' || isGemmaModel(model)))
   if (selectedId) return generators.find(model => model.id === selectedId)
   return generators.find(model => model.engine === 'ollama' && model.ollamaModelName === 'gemma4:e4b')
     ?? generators.find(model => model.id === fallbackId)
@@ -68,5 +69,5 @@ export function isGemmaModel(model: LocalModel): boolean {
 }
 
 export function preparationNeedsModel(settings: PreparationSettings): boolean {
-  return settings.mode === 'ai' || settings.ocr === 'gemma' || settings.extractTopics !== false
+  return settings.mode === 'ai' || settings.ocr === 'gemma'
 }

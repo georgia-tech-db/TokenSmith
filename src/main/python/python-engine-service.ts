@@ -800,12 +800,7 @@ export async function starterSourcesWithPython(materials: CourseMaterial[], limi
 export async function listIndexedMaterialsWithPython(): Promise<CourseMaterial[]> {
   const results = await Promise.all(collections().loaded().map(async collection => {
     const result = await storeRequest<ListMaterialsResult>(collection, 'list_materials', {})
-    const inventory = await collections().topicInventory(collection.id)
-    const topicsReady = inventory?.complete && inventory.indexRevision === collection.indexRevision
-    return result.materials.map(material => qualifyMaterial(collections(), collection, material.status === 'ready' && material.preparation?.extractTopics !== false && !topicsReady ? {
-      ...material, status: 'needsReview', detail: 'Chapter topics need preparation',
-      error: 'Finish or resume book preparation to generate chapter topics.'
-    } : material))
+    return result.materials.map(material => qualifyMaterial(collections(), collection, material))
   }))
   return results.flat()
 }

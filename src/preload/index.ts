@@ -92,7 +92,13 @@ const tokenSmithBridge: TokenSmithBridge = {
   deleteLibrary: id => ipcRenderer.invoke('libraries:delete', id),
   unloadCollection: id => ipcRenderer.invoke('collections:unload', id),
   locateCollectionFolder: (materialId, path) => ipcRenderer.invoke('collections:locate-folder', materialId, path),
-  extractLibraryTopics: (id, model) => ipcRenderer.invoke('library:extract-topics', id, model),
+  extractLibraryTopics: (id, modelId) => ipcRenderer.invoke('library:extract-topics', id, modelId),
+  cancelLibraryTopics: id => ipcRenderer.invoke('library:cancel-topics', id),
+  onLibraryTopicProgress: callback => {
+    const listener = (_event: IpcRendererEvent, progress: Parameters<typeof callback>[0]) => callback(progress)
+    ipcRenderer.on('library:topic-progress', listener)
+    return () => ipcRenderer.removeListener('library:topic-progress', listener)
+  },
   loadTopicInventory: id => ipcRenderer.invoke('collections:topic-inventory', id),
   preparationReport: (path, documentPath, materialId) => ipcRenderer.invoke('library:preparation-report', path, documentPath, materialId),
   indexMaterial: (materialId, materialPath, embeddingModel, options) =>
