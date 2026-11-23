@@ -2,18 +2,30 @@ name: Windows Build
 
 on:
   workflow_dispatch:
+    inputs:
+      signing_policy:
+        description: 'Signing policy (test signatures are not for distribution)'
+        type: choice
+        default: none
+        options:
+          - none
+          - test-signing
+          - release-signing
   push:
     tags:
       - 'v*'
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   package-windows:
     name: Package Windows App
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      SIGNING_POLICY: ${{ github.event_name == 'push' && 'release-signing' || inputs.signing_policy }}
 
     steps:
       - name: Check out repository
@@ -46,6 +58,81 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      - name: Build Windows installer
+        shell: pwsh
+        run: ./scripts/package-win-installer.ps1
+
+      - name: Check signing credentials
+        if: env.SIGNING_POLICY != 'none'
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_API_TOKEN)) {
+            throw 'Add the SIGNPATH_API_TOKEN repository secret before requesting signing.'
+          }
+
+      - name: Upload installer for signing
+        if: env.SIGNING_POLICY != 'none'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/TokenSmith-*-win-x64.msi
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows installer
+        if: env.SIGNING_POLICY != 'none'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: b6c0eccc-553e-4e23-b765-80eeedda4ccf
+          project-slug: TokenSmith
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          artifact-configuration-slug: windows-installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: release/signed
+
+      - name: Verify installer signature and stage final package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release/distribution | Out-Null
+          if ($env:SIGNING_POLICY -eq 'none') {
+            Copy-Item release/TokenSmith-*-win-x64.msi release/distribution/
+          } else {
+            $installers = @(Get-ChildItem release/signed/TokenSmith-*-win-x64.msi)
+            if ($installers.Count -ne 1) { throw 'Expected exactly one signed MSI.' }
+            $signature = Get-AuthenticodeSignature $installers[0].FullName
+            if (-not $signature.SignerCertificate) { throw 'Installer has no signature.' }
+            if ($env:SIGNING_POLICY -eq 'release-signing') {
+              if ($signature.Status -ne 'Valid') { throw "Release signature is not valid: $($signature.Status)" }
+              if (-not $signature.TimeStamperCertificate) { throw 'Release signature is missing a timestamp.' }
+              if ($signature.SignerCertificate.Subject -notmatch 'CN=SignPath Foundation(?:,|$)') {
+                throw "Unexpected release publisher: $($signature.SignerCertificate.Subject)"
+              }
+            } elseif ($signature.Status -notin @('Valid', 'NotTrusted')) {
+              throw "Test signature is corrupt or invalid: $($signature.Status)"
+            }
+            Write-Output "Signature status: $($signature.Status); publisher: $($signature.SignerCertificate.Subject)"
+            Copy-Item $installers[0].FullName release/distribution/
+          }
+
+      - name: Test installer and uninstaller
+        shell: pwsh
+        run: ./scripts/test-win-installer.ps1
+
+      - name: Upload Windows installer
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokenSmith-windows-installer-${{ env.SIGNING_POLICY }}-${{ github.run_number }}
+          path: release/distribution/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload Windows package
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -61,4 +148,9 @@ jobs:
         with:
           draft: true
           body_path: docs/releases/${{ github.ref_name }}.md
-          files: release/TokenSmith-*-win-*.zip
+          append_body: true
+          body: |
+            Code signing policy: https://github.com/georgia-tech-db/TokenSmith/blob/main/docs/code-signing.md
+          files: |
+            release/TokenSmith-*-win-*.zip
+            release/distribution/*.msi

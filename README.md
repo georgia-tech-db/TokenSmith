@@ -48,6 +48,10 @@ The benchmark checks whether search retrieves the expected evidence.
 
 See [testing and benchmarks](docs/testing.md) for what the checks measure and how to run them.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org). See our [code signing policy](docs/code-signing.md) for signing scope, release status, and team responsibilities.
+
 ## Contributing
 
 [Report a problem](https://github.com/georgia-tech-db/TokenSmith/issues) or see the [development guide](docs/development.md) to run, build, and package the app.
