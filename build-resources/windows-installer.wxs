@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="TokenSmith" Language="1033" Version="$(var.AppVersion)"
+           Manufacturer="TokenSmith contributors" UpgradeCode="33F1875F-4065-439A-9738-3768497EA7C9">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of TokenSmith is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="ARPCONTACT" Value="https://github.com/georgia-tech-db/TokenSmith/issues" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/georgia-tech-db/TokenSmith" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="TokenSmith" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="TokenSmith">
+          <Component Id="ApplicationShortcut" Guid="D01D12AD-8AD6-442D-BC80-ECECBCE6C398">
+            <Shortcut Id="ApplicationStartMenuShortcut" Name="TokenSmith"
+                      Target="[INSTALLFOLDER]TokenSmith.exe" WorkingDirectory="INSTALLFOLDER" />
+            <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+            <RegistryValue Root="HKCU" Key="Software\TokenSmith" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Complete" Title="TokenSmith" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+  </Product>
+</Wix>
