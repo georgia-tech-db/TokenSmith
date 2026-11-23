@@ -97,6 +97,7 @@ jobs:
           output-artifact-directory: release/signed
 
       - name: Verify installer signature and stage final package
+        timeout-minutes: 3
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release/distribution | Out-Null
@@ -120,9 +121,11 @@ jobs:
               $expected = '1082E5E7905B24F944798CAD3E03CF0C90BFFB13'
               if ($signature.SignerCertificate.Thumbprint -ne $expected) { throw 'Unexpected test signer.' }
               if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Test trust is restricted to disposable GitHub-hosted runners.' }
-              $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+              $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
               $added = $false
               try {
+                # The current-user root store can show an interactive trust dialog.
+                # Hosted Windows runners are disposable and provide administrative access.
                 $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
                 if ($store.Certificates.Find('FindByThumbprint', $expected, $false).Count -eq 0) {
                   $store.Add($signature.SignerCertificate)
