@@ -186,3 +186,8 @@ Apple Silicon DMG, Intel DMG, Windows ZIP, and Linux packages are uploaded,
 publish that draft as the latest release. Update the version and installer links
 in the [README download table](../README.md#download) after verifying the assets
 exist.
+
+## Mac App Store
+
+For the separate sandboxed macOS target, optional Ollama connections, signing inputs,
+and remaining signed-runtime checks, see [Mac App Store build](mac-app-store.md).

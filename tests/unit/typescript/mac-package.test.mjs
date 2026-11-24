@@ -18,6 +18,7 @@ for (const incompatibleBinary of ['Electron', 'Python']) {
       }
       await mkdir(dirname(script), { recursive: true })
       await copyFile(new URL('../../../scripts/package-mac.mjs', import.meta.url), script)
+      await copyFile(new URL('../../../scripts/mac-distribution.mjs', import.meta.url), join(dirname(script), 'mac-distribution.mjs'))
       await writeFile(join(root, 'package.json'), JSON.stringify({ version: '0.1.15' }))
       for (const [name, binary] of Object.entries(binaries)) {
         await mkdir(dirname(binary), { recursive: true })

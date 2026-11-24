@@ -10,6 +10,8 @@ const tokenSmithBridge: TokenSmithBridge = {
   },
   getModelContextMetadata: (model) => ipcRenderer.invoke('models:context-metadata', model),
   platform: process.platform,
+  // Sandboxed preloads expose a limited process object; ask the main process.
+  distribution: ipcRenderer.sendSync('app:distribution'),
   getAppVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,
   getDeviceCapabilities: () =>
     ipcRenderer.invoke('device:capabilities') as Promise<

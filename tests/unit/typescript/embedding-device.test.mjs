@@ -13,7 +13,7 @@ const model = { engine: 'ollama', role: 'embedder', ollamaModelName: 'nomic-embe
 test('preload forwards the embedding device preference for indexing and search', async () => {
   let bridge
   const calls = []
-  const ipcRenderer = { invoke: async (...args) => { calls.push(args) } }
+  const ipcRenderer = { sendSync: () => 'direct', invoke: async (...args) => { calls.push(args) } }
   const code = ts.transpileModule(readFileSync('src/preload/index.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText

@@ -1,7 +1,9 @@
+import { SecurityScopedFiles } from './security-scoped-files'
+import type { OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { withModelLoadingProgress } from './engine/model-loading'
 import { createBookPreparation } from './collections/book-preparation'
-import { runOllamaStudyEngine } from './engine/ollama-service'
+import { isMacAppStore } from './distribution'
 import { createStateWriter } from './atomic-state'
 import { materialCollectionId } from '../shared/collections'
 import type { IndexMaterialOptions } from '../shared/preparation'
@@ -78,10 +80,23 @@ const bookPreparation = createBookPreparation({
     studyDocuments: studyDocumentsWithPython, topicSources: topicSourcesWithPython,
     loadTopicInventory: id => collections().topicInventory(id),
     saveTopicInventory: (inventory, revision) => collections().saveTopicInventory(inventory, revision),
-    sendChatMessage: request => runOllamaStudyEngine(request, { signal })
+    sendChatMessage: request => sendChatMessage(request, { signal })
   })
 })
 app.on('before-quit', () => bookPreparation.cancelAll())
+
+let selectedFiles: SecurityScopedFiles | undefined
+async function openFileDialog(options: OpenDialogOptions) {
+  const result = await dialog.showOpenDialog({ ...options, securityScopedBookmarks: isMacAppStore() })
+  if (!result.canceled && selectedFiles) await selectedFiles.remember(result.filePaths, result.bookmarks ?? [])
+  return result
+}
+async function saveFileDialog(options: SaveDialogOptions) {
+  const result = await dialog.showSaveDialog({ ...options, securityScopedBookmarks: isMacAppStore() })
+  if (!result.canceled && result.filePath && selectedFiles) await selectedFiles.remember([result.filePath], result.bookmark ? [result.bookmark] : [])
+  return result
+}
+app.on('will-quit', () => selectedFiles?.close())
 
 const stateFileName = 'tokensmith-state.json'
 const appName = 'TokenSmith'
@@ -189,7 +204,7 @@ function createId(prefix: string): string {
 }
 
 async function pickMaterials(): Promise<PickMaterialsResult> {
-  const result = await dialog.showOpenDialog({
+  const result = await openFileDialog({
     title: 'Add documents',
     buttonLabel: 'Add documents',
     properties: ['openFile', 'multiSelections'],
@@ -212,7 +227,7 @@ async function pickMaterials(): Promise<PickMaterialsResult> {
 }
 
 async function pickMaterialFolder(library = false): Promise<PickMaterialFolderResult> {
-  const result = await dialog.showOpenDialog({
+  const result = await openFileDialog({
     title: library ? 'Open library' : 'Choose Document Folder',
     buttonLabel: library ? 'Open library' : 'Choose',
     properties: ['openDirectory']
@@ -234,7 +249,7 @@ async function pickMaterialFolder(library = false): Promise<PickMaterialFolderRe
 }
 
 async function pickDocumentSource(): Promise<PickMaterialFolderResult> {
-  const result = await dialog.showOpenDialog({ title: 'Choose folder or file', buttonLabel: 'Choose',
+  const result = await openFileDialog({ title: 'Choose folder or file', buttonLabel: 'Choose',
     properties: ['openFile', 'openDirectory'],
     filters: [{ name: 'Documents', extensions: ['pdf', 'md', 'markdown', 'txt'] }] })
   if (result.canceled || !result.filePaths[0]) return { canceled: true }
@@ -477,6 +492,12 @@ function createMainWindow(): void {
 app.setName(appName)
 
 app.whenReady().then(async () => {
+  if (isMacAppStore()) {
+    selectedFiles = new SecurityScopedFiles(join(app.getPath('userData'), 'selected-files.json'),
+      bookmark => { const stop = app.startAccessingSecurityScopedResource(bookmark); return () => stop() },
+      path => console.warn(`Select this file or folder again to restore access: ${path}`))
+    await selectedFiles.restore()
+  }
   setRemoteGeneratorTransport((input, init) => net.fetch(input instanceof URL ? input.toString() : input, { ...init, credentials: 'omit' }))
   cloudGenerators = new CloudGeneratorService(join(app.getPath('userData'), 'cloud-connections.json'), safeStorage, remoteGeneratorFetch)
   await cloudGenerators.initialize()
@@ -484,6 +505,7 @@ app.whenReady().then(async () => {
   setCloudCredentialResolver(model => cloudGenerators.credentialFor(model))
   applyDockIcon()
 
+  ipcMain.on('app:distribution', event => { event.returnValue = isMacAppStore() ? 'mas' : 'direct' })
   ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:get-log-file', () => readTokenSmithLogFile())
   ipcMain.handle('device:capabilities', () =>
@@ -495,7 +517,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('state:load', () => loadAppState())
   ipcMain.handle('practice:export-record', async (_event, record: string) => {
     const content = JSON.stringify(JSON.parse(record), null, 2)
-    const result = await dialog.showSaveDialog({ title: 'Export practice record',
+    const result = await saveFileDialog({ title: 'Export practice record',
       defaultPath: 'tokensmith-practice.json', filters: [{ name: 'JSON', extensions: ['json'] }] })
     if (result.canceled || !result.filePath) return false
     await writeFile(result.filePath, content, 'utf8')
@@ -578,17 +600,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('libraries:export', async (_event, id: string) => {
     const library = collections().get(id)
     if (bookPreparation.isCollectionIndexing(id)) throw new Error('Finish or pause document indexing before exporting. Topic extraction can continue during export.')
-    const result = await dialog.showSaveDialog({ title: 'Export Library',
+    const result = await saveFileDialog({ title: 'Export Library',
       defaultPath: `${library.name.replace(/[\\/:*?"<>|]/g, '_')}.tokensmith`,
       filters: [{ name: 'TokenSmith Library', extensions: ['tokensmith'] }] })
     if (result.canceled || !result.filePath) return false
     if (bookPreparation.isCollectionIndexing(id)) throw new Error('Finish or pause document indexing before exporting. Topic extraction can continue during export.')
-    const destination = result.filePath.toLowerCase().endsWith('.tokensmith') ? result.filePath : `${result.filePath}.tokensmith`
+    const destination = isMacAppStore() || result.filePath.toLowerCase().endsWith('.tokensmith') ? result.filePath : `${result.filePath}.tokensmith`
     await exportLibraryWithPython(id, destination)
     return true
   })
   ipcMain.handle('libraries:import', async () => {
-    const result = await dialog.showOpenDialog({ title: 'Import Library', buttonLabel: 'Import Library',
+    const result = await openFileDialog({ title: 'Import Library', buttonLabel: 'Import Library',
       properties: ['openFile'], filters: [{ name: 'TokenSmith Library', extensions: ['tokensmith'] }] })
     if (result.canceled || !result.filePaths[0]) return null
     const id = randomUUID(), path = join(app.getPath('userData'), 'libraries', id)
@@ -686,7 +708,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('ollama:cancel-pull', (_event, modelName: string, baseUrl?: string) => cancelOllamaPullModel(modelName, baseUrl))
   ipcMain.handle('ollama:delete-model', (_event, modelName: string, baseUrl?: string) => deleteOllamaModel(modelName, baseUrl))
   ipcMain.handle('models:remove-model', (_event, model: LocalModel) => {
-    if (model.engine === 'ollama' || model.source === 'ollama') {
+    if (!isMacAppStore() && (model.engine === 'ollama' || model.source === 'ollama')) {
       return deleteOllamaModel(model.ollamaModelName ?? model.name, model.ollamaBaseUrl)
     }
   })

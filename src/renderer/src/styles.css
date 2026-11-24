@@ -3974,3 +3974,13 @@ select:not([multiple]):not([size]) {
   .pdf-viewer-search { display: flex; flex-wrap: wrap; }
   .pdf-viewer-search input { flex: 1 1 140px; width: auto; }
 }
+
+
+/* The App Store setup includes explanatory copy, so actions sit below it. */
+.chat-setup-mas .chat-setup-step { grid-template-columns: 42px minmax(0, 1fr); }
+.chat-setup-mas .chat-setup-step > .model-action-button,
+.chat-setup-mas .chat-setup-step > .chat-setup-action { grid-column: 2; }
+.chat-setup-mas .chat-setup-copy span { white-space: normal; overflow: visible; }
+.chat-setup-card.chat-setup-mas .chat-setup-connect { grid-template-columns: minmax(0, 1fr); }
+.chat-setup-card.chat-setup-mas .chat-setup-connect > div,
+.chat-setup-card.chat-setup-mas .chat-setup-connect > button { grid-column: 1; }

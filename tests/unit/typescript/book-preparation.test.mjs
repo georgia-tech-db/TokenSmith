@@ -183,3 +183,13 @@ test('topics can be extracted later without calling the indexer or requiring ori
  const topics=await loadSavedTopics(f.bridge,f.docs,[{...f.material,preparation:{extractTopics:false}}])
  assert.ok(topics.length>0,'Manually extracted topics remain available when automatic extraction is off')
 })
+
+test('book preparation accepts a cloud generator with no Ollama models', async () => {
+ const f=fixture()
+ const cloud={id:'cloud',engine:'remote',role:'generator',status:'ready',remoteModelName:'test-model'}
+ f.deps.state=async()=>({models:[cloud],settings:{application:{defaultModelId:'cloud'},modelDefaults:{},modelSettingsById:{}}})
+ const send=f.bridge.sendChatMessage
+ f.bridge.sendChatMessage=async request=>{assert.equal(request.model.engine,'remote');return send(request)}
+ await f.service.run('c/1','book.md')
+ assert.equal(f.saved.complete,true);assert.equal(f.events.at(-1).phase,'complete')
+})

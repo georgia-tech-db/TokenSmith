@@ -16,6 +16,7 @@ let state = {
   selectedModelId: params.has('empty') ? '' : 'gemma', selectedEmbeddingModelId: 'nomic', materials,
   settings: { application: { suggestionMode: 'off' } }
 }
+if (params.has('mas')) state = { ...state, models: [], materials: [], selectedModelId: '', selectedEmbeddingModelId: '' }
 if (params.has('persist') && sessionStorage.getItem('cloud-fixture-state')) state = JSON.parse(sessionStorage.getItem('cloud-fixture-state'))
 const connections = params.has('persist') ? JSON.parse(sessionStorage.getItem('cloud-fixture-connections') || '[]') : []
 const persistConnections = () => { if (params.has('persist')) sessionStorage.setItem('cloud-fixture-connections', JSON.stringify(connections)) }
@@ -29,11 +30,14 @@ async function pause(input) {
   if (canceled.has(input.requestId)) throw new Error('Canceled')
 }
 window.tokensmith = {
+  distribution: params.has('mas') ? 'mas' : 'direct',
+  listCollections: async () => [], studyDocuments: async () => [],
+  removeModel: async model => { calls.push({ kind: 'disconnect', id: model.id }) },
   getAppVersion: async () => 'Cloud UI test',
   loadAppState: async () => state,
   saveAppState: async next => { state = next; if (params.has('persist')) sessionStorage.setItem('cloud-fixture-state', JSON.stringify(next)); return next },
-  listEngines: async () => [], listMaterials: async () => materials,
-  getOllamaStatus: async () => ({ running: true, models: [], baseUrl: 'http://127.0.0.1:11434' }),
+  listEngines: async () => [], listMaterials: async () => params.has('mas') ? [] : materials,
+  getOllamaStatus: async () => { calls.push({ kind: 'ollama-status' }); return { running: !params.has('mas') || params.has('ollama'), models: params.has('ollama') ? [{ name: 'test-chat:latest', model: 'test-chat:latest' }] : [], baseUrl: 'http://127.0.0.1:11434' } },
   onMaterialIndexProgress: () => () => {}, onOllamaPullProgress: () => () => {},
   getCloudConnections: async () => ({ connections, secureStorageAvailable: !params.has('session') }),
   cancelCloudSetup: async id => { canceled.add(id) },

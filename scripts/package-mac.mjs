@@ -1,3 +1,4 @@
+import { macDistribution } from './mac-distribution.mjs'
 import { execFile } from 'node:child_process'
 import { copyFile, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
@@ -8,11 +9,13 @@ import { fileURLToPath } from 'node:url'
 const execFileAsync = promisify(execFile)
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const packageJson = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'))
+const distribution = macDistribution()
+let electronAppPath = join(rootDir, 'node_modules', 'electron', 'dist', 'Electron.app')
 const appName = 'TokenSmith'
 const appVersion = packageJson.version
 const arch = process.arch
 const releaseDir = join(rootDir, 'release')
-const stagingDir = join(releaseDir, 'mac')
+const stagingDir = join(releaseDir, distribution.channel)
 const appBundlePath = join(stagingDir, `${appName}.app`)
 const dmgName = `${appName}-${appVersion}-mac-${arch}.dmg`
 const dmgPath = join(releaseDir, dmgName)
@@ -77,7 +80,7 @@ async function verifyPackageArchitecture() {
 
   requirePythonRuntime(join(rootDir, 'app_runtime'))
   const binaries = [
-    join(rootDir, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
+    join(electronAppPath, 'Contents', 'MacOS', 'Electron'),
     join(rootDir, 'app_runtime', 'python', 'bin', 'python')
   ]
   for (const binary of binaries) {
@@ -241,7 +244,6 @@ async function prepareAppPayload(resourcesPath) {
 }
 
 async function prepareAppBundle() {
-  const electronAppPath = join(rootDir, 'node_modules', 'electron', 'dist', 'Electron.app')
   const plistPath = join(appBundlePath, 'Contents', 'Info.plist')
   const macOsPath = join(appBundlePath, 'Contents', 'MacOS')
   const resourcesPath = join(appBundlePath, 'Contents', 'Resources')
@@ -266,7 +268,7 @@ async function prepareAppBundle() {
     CFBundleDisplayName: appName,
     CFBundleExecutable: appName,
     CFBundleIconFile: appIconIcnsFileName,
-    CFBundleIdentifier: 'ai.tokensmith.desktop',
+    CFBundleIdentifier: distribution.mas ? distribution.bundleId : 'ai.tokensmith.desktop',
     CFBundleName: appName,
     CFBundleShortVersionString: appVersion,
     CFBundleVersion: appVersion,
@@ -274,10 +276,34 @@ async function prepareAppBundle() {
     ...(arch === 'x64' ? { LSMinimumSystemVersion: '15.0' } : {})
   })
 
+  if (distribution.mas) {
+    const frameworks = join(appBundlePath, 'Contents', 'Frameworks')
+    for (const entry of readdirSync(frameworks)) {
+      if (!entry.endsWith('.app')) continue
+      const suffix = entry.replace(/\.app$/, '').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()
+      await patchPlist(join(frameworks, entry, 'Contents', 'Info.plist'), { CFBundleIdentifier: `${distribution.bundleId}.${suffix}` })
+    }
+  }
   await prepareAppPayload(resourcesPath)
 }
 
 async function signAppBundle() {
+  if (distribution.mas) {
+    if (distribution.unsigned) {
+      log('Unsigned MAS package: packaging checks only; not runnable or ready for submission.')
+      return
+    }
+    const { signAsync } = await import('@electron/osx-sign')
+    await signAsync({ app: appBundlePath, platform: 'mas', type: distribution.type,
+      identity: distribution.identity, provisioningProfile: distribution.profile,
+      optionsForFile: filePath => ({
+        entitlements: join(rootDir, 'build-resources', 'mas', filePath === appBundlePath ? 'entitlements.plist' : 'entitlements-child.plist'),
+        hardenedRuntime: false
+      })
+    })
+    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', appBundlePath])
+    return
+  }
   if (process.env.TOKENSMITH_SKIP_CODESIGN === '1') {
     log('Skipping ad-hoc codesign because TOKENSMITH_SKIP_CODESIGN=1.')
     return
@@ -308,14 +334,44 @@ async function createDmg() {
   ])
 }
 
-if (process.platform !== 'darwin') {
-  throw new Error('DMG packaging must be run on macOS.')
+async function prepareMasElectron() {
+  const { downloadArtifact } = await import('@electron/get')
+  const { default: extract } = await import('extract-zip')
+  const version = JSON.parse(await readFile(join(rootDir, 'node_modules', 'electron', 'package.json'), 'utf8')).version
+  const archive = await downloadArtifact({ version, artifactName: 'electron', platform: 'mas', arch })
+  const extracted = join(rootDir, 'node_modules', '.cache', 'tokensmith-mas', version, arch)
+  await rm(extracted, { recursive: true, force: true })
+  await mkdir(extracted, { recursive: true })
+  await extract(archive, { dir: extracted })
+  electronAppPath = join(extracted, 'Electron.app')
 }
+
+async function createMasArtifact() {
+  const base = join(releaseDir, `${appName}-${appVersion}-${distribution.channel}-${arch}`)
+  if (!distribution.unsigned && distribution.type === 'distribution') {
+    await run('/usr/bin/productbuild', ['--component', appBundlePath, '/Applications', '--sign', distribution.installerIdentity, `${base}.pkg`])
+    await run('/usr/sbin/pkgutil', ['--check-signature', `${base}.pkg`])
+  } else {
+    await rm(`${base}.zip`, { force: true })
+    await run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', appBundlePath, `${base}.zip`])
+  }
+  await writeJson(`${base}.build-info.json`, {
+    channel: distribution.channel, version: appVersion, arch,
+    bundleId: distribution.bundleId, signed: !distribution.unsigned,
+    validation: distribution.unsigned ? 'Packaging only; Apple signing and sandbox runtime testing are still required.' : 'Signature verified; sandbox runtime and App Store review are still required.'
+  })
+  log(`Created ${base}`)
+}
+
+if (process.platform !== 'darwin') {
+  throw new Error('macOS packaging must be run on macOS.')
+}
+if (distribution.mas) await prepareMasElectron()
 
 log(`Building ${appName} ${appVersion} for macOS ${arch}.`)
 await verifyPackageArchitecture()
 await run('npm', ['run', 'build'])
 await prepareAppBundle()
 await signAppBundle()
-await createDmg()
-log(`Created ${dmgPath}`)
+if (distribution.mas) await createMasArtifact()
+else { await createDmg(); log(`Created ${dmgPath}`) }

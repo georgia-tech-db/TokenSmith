@@ -33,7 +33,10 @@
     "test:eval:buzzdb": "node scripts/python-dev.mjs benchmark --live --graded",
     "test:setup:ui": "node tests/ui/setup-lifecycle-check.mjs && node tests/ui/library-controls-check.mjs",
     "test:setup:native": "node tests/ui/initial-setup-check.mjs && node tests/ui/library-archive-check.mjs",
-    "test:setup": "npm run build && npm run test:setup:ui && npm run test:setup:native"
+    "test:setup": "npm run build && npm run test:setup:ui && npm run test:setup:native",
+    "package:mas": "node scripts/package-mac.mjs --mas",
+    "package:mas:unsigned": "node scripts/package-mac.mjs --mas-unsigned",
+    "test:mas:ui": "node tests/ui/mas-setup-check.mjs"
   },
   "dependencies": {
     "katex": "^0.16.47",
@@ -47,6 +50,8 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@electron/get": "^2.0.3",
+    "@electron/osx-sign": "^2.7.2",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
@@ -54,6 +59,7 @@
     "c8": "^11.0.0",
     "electron": "^41.7.0",
     "electron-vite": "^5.0.0",
+    "extract-zip": "^2.0.1",
     "playwright": "1.62.1",
     "typescript": "^6.0.3",
     "vite": "^7.3.3"

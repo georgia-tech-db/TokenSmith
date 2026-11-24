@@ -1,3 +1,4 @@
+import { isMacAppStore, assertOllamaManagementAllowed } from '../distribution'
 import { observeModelLoading } from './model-loading'
 import { app, BrowserWindow, shell } from 'electron'
 import { spawn } from 'node:child_process'
@@ -392,7 +393,7 @@ export async function getOllamaStatus(baseUrl = defaultOllamaBaseUrl): Promise<O
     return {
       baseUrl: normalizedBaseUrl,
       running: true,
-      installedApp: Boolean(installedOllamaAppPath()),
+      installedApp: !isMacAppStore() && Boolean(installedOllamaAppPath()),
       models,
       recommendedChatModel: recommendedOllamaChatModel,
       recommendedEmbeddingModel: recommendedOllamaEmbeddingModel,
@@ -403,7 +404,7 @@ export async function getOllamaStatus(baseUrl = defaultOllamaBaseUrl): Promise<O
     return {
       baseUrl: normalizedBaseUrl,
       running: false,
-      installedApp: Boolean(installedOllamaAppPath()),
+      installedApp: !isMacAppStore() && Boolean(installedOllamaAppPath()),
       models: [],
       recommendedChatModel: recommendedOllamaChatModel,
       recommendedEmbeddingModel: recommendedOllamaEmbeddingModel,
@@ -486,10 +487,12 @@ function logRuntimeContextBudget(
 }
 
 export async function openOllamaDownloadPage(): Promise<void> {
+  assertOllamaManagementAllowed()
   await shell.openExternal('https://ollama.com/download')
 }
 
 export async function openOllamaApp(): Promise<OllamaOpenResult> {
+  assertOllamaManagementAllowed()
   const appPath = installedOllamaAppPath()
   if (!appPath) {
     return {
@@ -506,6 +509,7 @@ export async function openOllamaApp(): Promise<OllamaOpenResult> {
 }
 
 export async function startOllamaService(): Promise<OllamaOpenResult> {
+  assertOllamaManagementAllowed()
   const currentStatus = await getOllamaStatus()
   if (currentStatus.running) {
     return { opened: true }
@@ -562,6 +566,7 @@ export async function pullOllamaModel(
   model = recommendedOllamaChatModel,
   baseUrl = defaultOllamaBaseUrl
 ): Promise<OllamaPullResult> {
+  assertOllamaManagementAllowed()
   const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl)
   const key = ollamaPullKey(model, normalizedBaseUrl)
   if (activeOllamaPulls.has(key)) {
@@ -736,6 +741,7 @@ export async function pullOllamaModel(
 }
 
 export async function cancelOllamaPullModel(model: string, baseUrl = defaultOllamaBaseUrl): Promise<void> {
+  assertOllamaManagementAllowed()
   const activePull = activeOllamaPullFor(model, baseUrl)
 
   if (activePull) {
@@ -768,6 +774,7 @@ export async function deleteOllamaModel(
   model: string,
   baseUrl = defaultOllamaBaseUrl
 ): Promise<OllamaDeleteResult> {
+  assertOllamaManagementAllowed()
   const normalizedModel = model.trim()
   if (!normalizedModel) {
     throw new Error('Ollama model name is required.')
