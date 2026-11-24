@@ -55,6 +55,7 @@ export interface TokenSmithBridge {
   loadTopicInventory: (collectionId: string) => Promise<import('./topic-inventory').TopicInventory | null>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
+  distribution?: 'direct' | 'mas'
   getAppVersion: () => Promise<string>
   getDeviceCapabilities: () => Promise<DeviceCapabilities>
   getLogFile: () => Promise<TokenSmithLogFile>

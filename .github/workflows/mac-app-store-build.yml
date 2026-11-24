@@ -1,0 +1,51 @@
+name: Mac App Store Build
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mas-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Assemble unsigned MAS app (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          architecture: ${{ matrix.arch }}
+          cache: npm
+      - run: npm ci
+      - run: npm run setup:python-runtime
+      - run: npx playwright install chromium
+      - run: npm run test:mas:ui
+      - run: npm run package:mas:unsigned
+      - name: Verify package structure and bundled Python
+        run: node scripts/verify-mas-package.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TokenSmith-mas-unsigned-${{ matrix.arch }}
+          path: |
+            release/TokenSmith-*-mas-unsigned-*.zip
+            release/TokenSmith-*-mas-unsigned-*.build-info.json
+          if-no-files-found: error
+          retention-days: 7

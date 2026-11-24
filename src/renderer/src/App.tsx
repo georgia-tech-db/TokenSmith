@@ -474,6 +474,8 @@ function modelCanEmbed(model: LocalModel) {
   return model.status !== 'needsRuntime' && model.status !== 'missing' && (role === 'embedder' || role === 'both')
 }
 
+const isMacAppStore = () => window.tokensmith?.distribution === 'mas'
+
 function ollamaChatModelId(modelName: string) {
   return `ollama:${modelName.trim().toLowerCase() || recommendedOllamaChatModel}`
 }
@@ -3299,6 +3301,10 @@ function ChatScreen({
       )
     }
 
+    if (isMacAppStore()) {
+      return <div className="chat-setup-action"><button className="model-action-button" type="button" disabled={isBusy} onClick={refreshOllamaStatus}>Recheck connection</button></div>
+    }
+
     if (isBusy) {
       return (
         <div className="chat-setup-action">
@@ -3481,6 +3487,27 @@ function ChatScreen({
   function renderChatSetupCard() {
     if (!shouldShowSetupCard) {
       return null
+    }
+
+    if (isMacAppStore()) {
+      return <section className="chat-setup-card chat-setup-mas" aria-label="Model setup">
+        <div className="chat-setup-header"><div className="chat-setup-heading">
+          <h2>Setup TokenSmith</h2><p>Choose cloud models or connect to Ollama. Ollama is optional.</p>
+        </div><button className="chat-setup-dismiss" type="button" onClick={onDismissSetupCard} aria-label="Hide setup guide"><X size={18} /></button></div>
+        <div className="chat-setup-steps">
+          <div className="chat-setup-step">{renderSetupStepNumber(1, Boolean(readyChatModel && readyEmbeddingModel))}
+            <div className="chat-setup-copy"><strong>Connect your models</strong><span>Choose a chat model and an embedding model for document search. Both can use a cloud provider.</span></div>
+            <button className="model-action-button" type="button" onClick={() => onConnectCloud()}>Connect a cloud model</button>
+          </div>
+          <div className="chat-setup-step">{renderSetupStepNumber(2, hasReadyMaterials)}
+            <div className="chat-setup-copy"><strong>Documents</strong></div>{renderDocumentSetupAction()}
+          </div>
+        </div>
+        <div className="cloud-generator-entry chat-setup-connect"><div><strong>Optional Ollama connection</strong>
+          <p>Connect models from an Ollama server you already run. Manage Ollama and its models outside TokenSmith.</p></div>
+          <button className="secondary-action" type="button" onClick={onManageModels}>Connect Ollama models</button>
+        </div>
+      </section>
     }
 
     return (
@@ -5359,6 +5386,10 @@ function ModelsScreen({
     const progress = model?.download
     const isOllama = model?.engine === 'ollama'
 
+    if (isMacAppStore() && isOllama && model?.status !== 'ready') {
+      return <aside className="model-action-box"><small>Reconnect this model through your Ollama server.</small><button className="model-action-button" type="button" onClick={() => handleRemoveModel(model!)}>Disconnect</button></aside>
+    }
+
     if (model?.status === 'downloading' && filename && isOllama) {
       return (
         <aside className="model-action-box">
@@ -5387,7 +5418,7 @@ function ModelsScreen({
           {model && canRemoveModel(model) && (
             <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(model)}>
               <Trash2 size={16} aria-hidden="true" />
-              <span>Remove</span>
+              <span>{isMacAppStore() && isOllama ? 'Disconnect' : 'Remove'}</span>
             </button>
           )}
           {renderDownloadProgress(progress)}
@@ -5413,7 +5444,7 @@ function ModelsScreen({
           {canRemoveModel(model) && (
             <button className="model-action-button is-danger" type="button" onClick={() => handleRemoveModel(model)}>
               <Trash2 size={16} aria-hidden="true" />
-              <span>Remove</span>
+              <span>{isMacAppStore() && isOllama ? 'Disconnect' : 'Remove'}</span>
             </button>
           )}
           <small>
@@ -5612,6 +5643,21 @@ function ModelsScreen({
   }
 
   function renderOllamaExplore() {
+    if (isMacAppStore()) {
+      return <>
+        <p className="model-explore-copy">Ollama is optional. Connect to models on your running local Ollama server. Manage the server and its models outside TokenSmith.</p>
+        <button className="model-action-button" type="button" onClick={refreshOllamaModels} disabled={ollamaStatusState === 'checking'}>Refresh Ollama</button>
+        {!ollamaStatus?.running && <p className="model-explore-copy">No Ollama connection. You can use cloud models instead.</p>}
+        {ollamaError && <p className="inline-error">{ollamaError}</p>}
+        <label>Use Ollama models for <select aria-label="Ollama model type" value={ollamaDraftRole}
+          onChange={event => handleOllamaDraftRoleChange(event.target.value as LocalModelRole)}>
+          <option value="generator">Chat</option><option value="embedder">Embeddings</option>
+        </select></label>
+        <div className="model-list">{(ollamaStatus?.models ?? []).map(modelInfo => renderOllamaModelCard({
+          modelInfo, modelName: modelInfo.name, role: ollamaDraftRole
+        }))}</div>
+      </>
+    }
     const modelCards = [
       {
         modelName: recommendedOllamaEmbeddingModel,

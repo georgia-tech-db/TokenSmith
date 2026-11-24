@@ -4,10 +4,11 @@ import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
-function bridgeFixture() {
+function bridgeFixture(distribution = 'direct') {
   const listeners = new Map(), pending = new Map()
   let bridge
   const ipcRenderer = {
+    sendSync: channel => { assert.equal(channel, 'app:distribution'); return distribution },
     on: (name, fn) => { const set=listeners.get(name)||new Set();set.add(fn);listeners.set(name,set) },
     off: (name, fn) => listeners.get(name)?.delete(fn),
     invoke: (channel, request) => channel === 'engine:chat'
@@ -41,4 +42,9 @@ test('legacy callers without early-answer callbacks still use the final result',
   assert.equal(fixture.listeners.has('engine:answer-ready'),false)
   fixture.pending.get('legacy').resolve({text:'Done'})
   assert.equal((await pending).text,'Done')
+})
+
+test('sandboxed preload obtains the distribution from the main process', () => {
+  assert.equal(bridgeFixture('mas').bridge.distribution, 'mas')
+  assert.equal(bridgeFixture().bridge.distribution, 'direct')
 })
