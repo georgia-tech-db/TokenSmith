@@ -50,7 +50,6 @@ interface Props extends StudyPanels {
   onSelectModel: (id: string) => void
   onConnectCloud: (model?: LocalModel) => void
   onManageModels: () => void
-  onExtractTopics?: (id: string, modelId?: string) => Promise<void>
   onOpenLibrary: () => void
   readSource: (source: ChatSource) => Promise<AnswerSourceDocument>
   SourceReader: ComponentType<SourceReaderProps>
@@ -447,7 +446,7 @@ export function PracticeScreen(props: Props) {
         </ConversationViewport>
       </> : <div className="practice-scroll"><PracticeTopicPicker isActive={isActive && !state.draftTopic} ready={scopeReady}
         disabled={!scopeReady || !available || saving || Boolean(unsaved)} scope={scope} materials={props.materials} sessions={state.sessions} masteryRecords={state.masteryRecords}
-        onExtractTopics={props.onExtractTopics ? async () => { for (const id of new Set(scope.map(item => item.materialId))) await props.onExtractTopics!(id, model?.id) } : undefined} onChoose={start} onChooseTopics={(title, topics) => start({ title }, topics)} /></div>}
+        onOpenLibrary={props.onOpenLibrary} onChoose={start} onChooseTopics={(title, topics) => start({ title }, topics)} /></div>}
       <div className="practice-status">
         {unsaved && <p role="alert">Changes have not been saved. <button type="button" disabled={saving} onClick={() => void persist(unsaved, current => current)}>Retry saving</button></p>}
         {error && <p className="practice-error" role="alert">{error}</p>}

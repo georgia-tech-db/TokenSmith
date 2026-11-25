@@ -2,6 +2,7 @@ import { preparationProgress } from '@shared/preparation-progress'
 import { PreparationProgressText } from './PreparationProgressText'
 import { useDocumentFolderPreparation } from './DocumentFolderPreparation'
 import type { Collection } from '@shared/collections'
+import type { LibraryTopicProgress } from '@shared/topic-inventory'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, FileText, Pause, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -14,6 +15,7 @@ import { collectionDocumentSources } from './source-navigation'
 import './library-workspace.css'
 import type { StudyDocument } from '@shared/study-scope'
 import { addLibraryDocuments, libraryError, pickDocumentFolder } from './library-documents'
+import { LibraryPracticeTopics } from './LibraryPracticeTopics'
 
 interface Props {
   collection?: Collection
@@ -27,7 +29,7 @@ interface Props {
   models: LocalModel[]
   selectedModelId: string
   selectedEmbeddingModelId: string
-  onExtractTopics?: (id: string, modelId?: string) => Promise<void>
+  topicProgress?: LibraryTopicProgress
   onAddMaterials: (items: CourseMaterial[]) => void
   onStartMaterialIndexing: (id: string, path: string, model?: LocalModel, options?: IndexMaterialOptions) => void
   onRemoveMaterial: (id: string) => void
@@ -37,14 +39,14 @@ interface Props {
 }
 
 const leaf = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'Documents'
-const label = (item: CourseMaterial) => item.status === 'ready' ? 'Ready for chat and practice' : item.status === 'paused' ? 'Paused'
+const label = (item: CourseMaterial) => item.status === 'ready' ? 'Ready for chat' : item.status === 'paused' ? 'Paused'
   : item.status === 'needsReview' ? 'Needs attention' : item.indexing?.message || 'Preparing'
 
 export function LibraryWorkspace(props: Props) {
   const { materials, models } = props
   const generators = models.filter(m => m.role !== 'embedder' && m.status === 'ready')
   const embedders = models.filter(m => (m.role === 'embedder' || m.role === 'both') && m.status === 'ready')
-  const folderPreparation = useDocumentFolderPreparation()
+  const folderPreparation = useDocumentFolderPreparation(models, props.selectedModelId)
   const [adding, setAdding] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = materials.find(m => m.id === selectedId)
@@ -136,12 +138,12 @@ export function LibraryWorkspace(props: Props) {
         <span id="preparation-method-label">Chunking Mode</span>
         <div className="library-preparation-modes" role="group" aria-labelledby="preparation-method-label">
           {(['basic', 'ai'] as const).map(mode => <button key={mode} type="button" aria-pressed={modeChosen && preparation.mode === mode}
-            onClick={() => { setModeChosen(true); setPreparation({ ...preparation, mode, extractTopics: mode === 'ai' }); setError('') }}>{mode === 'basic' ? 'Basic Chunking' : 'LLM-Based Chunking'}</button>)}
+            onClick={() => { setModeChosen(true); setPreparation({ ...preparation, mode }); setError('') }}>{mode === 'basic' ? 'Basic Chunking' : 'LLM-Based Chunking'}</button>)}
         </div>
       </div>
       <div className="library-preparation-choice"><span id="topic-extraction-label">Topic Extraction</span>
         <div className="library-preparation-modes" role="group" aria-labelledby="topic-extraction-label">
-          {[true, false].map(extractTopics => <button key={String(extractTopics)} type="button" disabled={!modeChosen} aria-pressed={modeChosen && (preparation.extractTopics !== false) === extractTopics}
+          {[true, false].map(extractTopics => <button key={String(extractTopics)} type="button" disabled={!modeChosen} aria-pressed={modeChosen && (preparation.extractTopics === true) === extractTopics}
             onClick={() => setPreparation({ ...preparation, extractTopics })}>{extractTopics ? 'Yes' : 'No'}</button>)}
         </div>
       </div>
@@ -178,12 +180,13 @@ export function LibraryWorkspace(props: Props) {
     {folderPreparation.panel}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {props.documentsError && <p className="inline-error" role="alert">{props.documentsError} <button onClick={props.onReloadDocuments}>Retry</button></p>}
+    {!selected && props.collection && (documents.length > 0 || props.topicProgress?.status === 'running') &&
+      <LibraryPracticeTopics key={props.collection.id} collection={props.collection} models={models} defaultModelId={props.selectedModelId}
+        canGenerate={materials.some(item => item.status === 'ready' && (item.chunkCount ?? 0) > 0) && !materials.some(item => item.status === 'indexing')}
+        progress={props.topicProgress} />}
     {selected ? <>
       {settings()}
       <div className="library-preparation-actions">
-      {props.onExtractTopics && (selected.chunkCount ?? 0) > 0 && <button className="secondary-action" disabled={selected.status === 'indexing'}
-        onClick={() => { setError(''); void props.onExtractTopics!(selected.id, modelId).catch(reason => setError(libraryError(reason))) }}>Extract topics</button>}
-
       {selected.status === 'indexing' ? <button className="secondary-action" onClick={() => props.onPauseMaterialIndexing(selected.id)}><Pause size={16} />Pause</button> : selected.status === 'paused' && selected.preparation && <button className="secondary-action" onClick={resumeSelected}><Play size={16} />Resume</button>}
       </div>
       {selected.indexing && <section className="library-preparation-status" aria-label="Preparation progress">

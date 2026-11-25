@@ -44,10 +44,11 @@ export function addLibraryDocuments(picked: CourseMaterial[], target: DocumentIm
   const embedder = target.models.find(m => m.id === target.selectedEmbeddingModelId && m.status === 'ready')
     ?? target.models.find(m => (m.role === 'embedder' || m.role === 'both') && m.status === 'ready')
   if (embedder) for (const item of items) {
-    const generator = preparationGenerator(target.models, undefined, target.selectedModelId, item.preparation?.ocr)
+    const generator = preparationGenerator(target.models, item.preparation?.modelId, target.selectedModelId, item.preparation?.ocr)
     if (!generator && item.preparation && preparationNeedsModel(item.preparation)) continue
     if (item.preparation) target.onStartMaterialIndexing(item.id, item.path!, embedder, {
-      title: item.title, preparation: { ...item.preparation, modelId: generator?.id, modelName: generator?.name }, preparationModel: generator
+      title: item.title, preparation: generator ? { ...item.preparation, modelId: generator.id, modelName: generator.name } : item.preparation,
+      preparationModel: generator
     })
   }
 }

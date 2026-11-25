@@ -2,19 +2,21 @@ import { useDocumentFolderPreparation } from './DocumentFolderPreparation'
 import { useEffect, useState, type ComponentProps } from 'react'
 import { ArrowLeft, FolderOpen, Library, Plus, FolderClosed, Trash2, FileText, Download, Upload } from 'lucide-react'
 import type { Collection } from '@shared/collections'
+import type { LibraryTopicProgress } from '@shared/topic-inventory'
 import { LibraryWorkspace } from './LibraryWorkspace'
 import { addLibraryDocuments, libraryError, pickDocumentFolder } from './library-documents'
 import './library-workspace.css'
 
 type Props = ComponentProps<typeof LibraryWorkspace> & {
   collections: Collection[]
+  libraryTopicProgress?: Record<string, LibraryTopicProgress | undefined>
   onCollectionsChange: (collections: Collection[]) => Promise<void>
   onDeleteLibrary: (id: string) => Promise<void>
   onUnloadCollection: (id: string) => Promise<void>
 }
 
-export function CollectionLibrary({ collections, onCollectionsChange, onUnloadCollection, onDeleteLibrary, ...props }: Props) {
-  const folderPreparation = useDocumentFolderPreparation()
+export function CollectionLibrary({ collections, libraryTopicProgress, onCollectionsChange, onUnloadCollection, onDeleteLibrary, ...props }: Props) {
+  const folderPreparation = useDocumentFolderPreparation(props.models, props.selectedModelId)
   const [selectedId, setSelectedId] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -70,7 +72,7 @@ export function CollectionLibrary({ collections, onCollectionsChange, onUnloadCo
     {notice && <p role="status">{notice}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {selected ? <LibraryWorkspace {...props} createRequest={0} onLibraryRefresh={async () => onCollectionsChange(await window.tokensmith!.listCollections())}
-      collection={selected} documents={props.documents?.filter(d => d.collectionId === selected.id)} materials={props.materials.filter(m => m.collectionId === selected.id)} /> : <div className="collection-list">
+      collection={selected} topicProgress={libraryTopicProgress?.[selected.id]} documents={props.documents?.filter(d => d.collectionId === selected.id)} materials={props.materials.filter(m => m.collectionId === selected.id)} /> : <div className="collection-list">
       {!collections.length && <div className="library-reader-empty"><Library size={30} /><h2>No libraries yet</h2><p>Create a library with your documents, or open an existing library.</p></div>}
       {collections.map(collection => <article className="library-collection-row" key={collection.id}>
         <div><button className="library-title" disabled={!collection.loaded} onClick={() => { setSelectedId(collection.id); setError('') }}>{collection.name}</button>

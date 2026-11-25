@@ -4,6 +4,15 @@ import type { PracticeTopic } from './practice'
 import { practiceSourceKey } from './practice'
 
 export const topicInventoryVersion = 3
+
+export interface LibraryTopicProgress {
+  collectionId: string
+  status: 'running' | 'complete' | 'paused' | 'error'
+  modelId?: string
+  completed: number
+  total: number
+  message: string
+}
 export interface InventoryTopic extends PracticeTopic {
   id: string
   area: string
@@ -24,6 +33,11 @@ export interface TopicInventory {
   completed: number
   total: number
 }
+
+export function hasCurrentTopicInventory(inventory: TopicInventory | null | undefined, indexRevision?: string): inventory is TopicInventory & { complete: true } {
+  return Boolean(indexRevision && inventory?.version === topicInventoryVersion && inventory.complete && inventory.indexRevision === indexRevision)
+}
+
 // Content/checkpoint identity, not a security hash.
 export function topicHash(value: string): string {
   let a = 2166136261, b = 5381

@@ -77,6 +77,9 @@
 .collection-header h1 { margin: 0; }
 .collection-header p, .collection-list p { overflow-wrap: anywhere; color: var(--muted); }
 .collection-header-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.library-topic-actions { align-items: stretch; }
+.library-topic-actions .secondary-action { align-self: stretch; }
+.library-topic-actions select, .folder-preparation select { width: auto; max-width: 100%; min-height: 42px; }
 .collection-create { max-width: 620px; display: grid; gap: 20px; }
 .collection-create label { display: grid; gap: 8px; }
 .collection-create input { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: inherit; font: inherit; }
@@ -103,6 +106,7 @@
 .folder-preparation-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 18px 0; }
 .folder-preparation-row > strong { min-width: 130px; }
 .folder-preparation-row [role=group], .folder-preparation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.folder-preparation select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background-color: var(--panel); color: inherit; }
 .folder-preparation button[aria-pressed=true] { background: var(--ink); color: var(--panel); }
 .folder-preparation-name { display: grid; gap: 8px; max-width: 480px; font-weight: 600; }
 .folder-preparation-name input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 12px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }

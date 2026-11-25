@@ -38,13 +38,15 @@ const create = async (name, text) => {
   const collection = (await registry.create(path, name))[0]
   const originals = join(path, 'documents'); await mkdir(originals)
   await writeFile(join(originals, 'notes.md'), `# ${name}\n\n${text.repeat(20)}`)
-  const material = await service.indexMaterialWithPython(originals, model, `${collection.id}/new`, { preparation: { mode: 'basic', ocr: 'none', instructions: '', documentInstructions: {} },
+  const material = await service.indexMaterialWithPython(originals, model, `${collection.id}/new`, { preparation: { mode: 'basic', ocr: 'none', extractTopics: true, instructions: '', documentInstructions: {} },
     preparationModel: { ...model, id: 'must-not-chunk-with-llm', role: 'generator' } })
   assert.equal(material.preparation.mode, 'basic')
   assert.equal(material.preparation.ocr, 'none')
   const persisted = (await service.listIndexedMaterialsWithPython()).find(item => item.id === material.id)
   assert.equal(persisted.preparation.mode, 'basic', 'Basic Chunking survives the Python worker and SQLite reload')
   assert.equal(persisted.preparation.ocr, 'none')
+  assert.equal(persisted.status, 'ready', 'An indexed book is usable even if its saved settings requested topic extraction')
+  assert.equal(await registry.topicInventory(collection.id), null)
   return { collection, material, path, originals }
 }
 const refs = docs => docs.map(({ materialId, documentId }) => ({ materialId, documentId }))
@@ -148,7 +150,7 @@ try {
   assert.ok((await search('packets', [b.material], right, 'keyword')).sources.length)
   await registry.load(a.path)
   assert.deepEqual(await registry.topicInventory(a.collection.id), inventory, 'Index updates retain checkpoints for regeneration')
-  await assert.rejects(savedTopics(), /Extract topics from the indexed documents/, 'Practice cannot use topics from an outdated index')
+  await assert.rejects(savedTopics(), /Generate Practice topics in Libraries/, 'Practice cannot use topics from an outdated index')
   await assert.rejects(registry.saveTopicInventory(inventory, revision), /collection changed/, 'Stale writes cannot overwrite the updated inventory')
   await registry.unload(a.collection.id)
   await registry.unload(b.collection.id)

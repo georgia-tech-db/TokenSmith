@@ -51,7 +51,9 @@ export interface TokenSmithBridge {
   deleteLibrary: (id: string) => Promise<import('./collections').Collection[] | null>
   unloadCollection: (id: string) => Promise<import('./collections').Collection[]>
   locateCollectionFolder: (materialId: string, path: string) => Promise<void>
-  extractLibraryTopics: (materialId: string, model?: LocalModel) => Promise<CourseMaterial>
+  extractLibraryTopics: (collectionId: string, modelId?: string) => Promise<void>
+  cancelLibraryTopics: (collectionId: string) => Promise<void>
+  onLibraryTopicProgress: (callback: (progress: import('./topic-inventory').LibraryTopicProgress) => void) => () => void
   loadTopicInventory: (collectionId: string) => Promise<import('./topic-inventory').TopicInventory | null>
   getModelContextMetadata: (model: LocalModel) => Promise<import('./model-context').ModelContextMetadata>
   platform: string
